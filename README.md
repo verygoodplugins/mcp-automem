@@ -16,6 +16,37 @@ A Model Context Protocol (MCP) server for AutoMem, enabling AI assistants to sto
 
 ## Quick Start
 
+### Assisted Setup (Recommended)
+
+Run the guided setup to write your `.env` file and print the config snippet for Claude clients:
+
+```bash
+npx @verygoodplugins/mcp-automem setup
+```
+
+The wizard will:
+
+- Prompt for the AutoMem endpoint and API key
+- Update (or create) a `.env` file in the current directory
+- Show copy-paste snippets for Claude Desktop and Claude Code
+- Add `--claude-code` to run the environment wizard and install Claude Code automation in one step
+
+#### Add Claude Code Automation Hooks
+
+To install the capture hooks and queue processor that automatically write memories from Claude Code sessions, run:
+
+```bash
+npx @verygoodplugins/mcp-automem claude-code
+```
+
+This command:
+
+- Installs/updates `~/.claude/hooks/*.sh` and supporting scripts under `~/.claude/scripts`
+- Merges the required tool permissions and hook definitions into `~/.claude/settings.json`
+- Adds a session-stop hook that drains the memory queue via `npx @verygoodplugins/mcp-automem queue`
+
+Use `--dry-run` to preview changes or `--dir <path>` to target a custom Claude configuration directory.
+
 ### Installation Methods
 
 #### Option 1: Using NPX (No Installation Required)
@@ -78,7 +109,8 @@ You need a running AutoMem service. You can either:
       "command": "npx",
       "args": ["@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "https://automem.up.railway.app"
+        "AUTOMEM_ENDPOINT": "https://automem.up.railway.app",
+        "AUTOMEM_API_KEY": "your-auto-mem-api-key"
       }
     }
   }
@@ -114,7 +146,8 @@ Add to your MCP config file (e.g., `.cursor/mcp.json`):
       "command": "npx",
       "args": ["@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "https://automem.up.railway.app"
+        "AUTOMEM_ENDPOINT": "https://automem.up.railway.app",
+        "AUTOMEM_API_KEY": "your-auto-mem-api-key"
       }
     }
   }
@@ -140,7 +173,7 @@ Add to your MCP config file (e.g., `.cursor/mcp.json`):
 
 ### 3. Environment Variables
 
-Create a `.env` file for local development:
+Create a `.env` file for local development (or re-run `npx @verygoodplugins/mcp-automem setup` to update it):
 
 ```env
 # Required: AutoMem service endpoint
@@ -149,6 +182,20 @@ AUTOMEM_ENDPOINT=https://automem.up.railway.app
 # Optional: API key (if your service requires authentication)
 AUTOMEM_API_KEY=your_api_key_here
 
+```
+
+Template config files are available under [`templates/`](templates/) if you prefer to copy them manually. You can also print the snippets again at any time with:
+
+```bash
+npx @verygoodplugins/mcp-automem config --format=json
+```
+
+### Queue Processor (Optional)
+
+If you disable the automatic hook, you can manually flush the queue whenever you like:
+
+```bash
+npx @verygoodplugins/mcp-automem queue --file ~/.claude/scripts/memory-queue.jsonl
 ```
 
 ## Available Tools

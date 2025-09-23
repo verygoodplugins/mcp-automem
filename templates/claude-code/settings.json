@@ -1,0 +1,247 @@
+{
+  "env": {
+    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "true",
+    "DISABLE_COST_WARNINGS": "0",
+    "BASH_MAX_OUTPUT_LENGTH": "50000"
+  },
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Read",
+      "Read(*)",
+      "Bash(composer:*)",
+      "Bash(npm:*)",
+      "Bash(yarn:*)",
+      "Bash(gulp:*)",
+      "Bash(phpunit:*)",
+      "Bash(phpcs:*)",
+      "Bash(phpcbf:*)",
+      "Bash(phpstan:*)",
+      "Bash(git:*)",
+      "Bash(wp:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(rm:*)",
+      "Bash(chmod:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(jq:*)",
+      "Bash(echo:*)",
+      "Bash(gh:*)",
+      "Bash(php -l:*)",
+      "Bash(awk:*)",
+      "Bash(sed:*)",
+      "Bash(base64:*)",
+      "Bash(./vendor/bin/*)",
+      "Bash(node:*)",
+      "Bash(kill:*)",
+      "Bash(cloudflared tunnel:*)",
+      "Bash(pkill:*)",
+      "Bash(NODE_ENV=development node src/proxy/cursor-web-proxy.js)",
+      "Bash(NODE_ENV=development DEBUG=* node src/proxy/cursor-web-proxy.js)",
+      "Bash(command -v eslint prettier tsc jest vitest)",
+      "Bash(timeout:*)",
+      "WebFetch",
+      "WebSearch",
+      "mcp__openmemory__add-memory",
+      "mcp__openmemory__search-memories",
+      "mcp__openmemory__list-memories",
+      "mcp__freescout__freescout_get_ticket",
+      "mcp__freescout__freescout_analyze_ticket",
+      "mcp__freescout__freescout_add_note",
+      "mcp__freescout__freescout_update_ticket",
+      "mcp__freescout__freescout_create_draft_reply",
+      "mcp__freescout__freescout_get_ticket_context",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "mcp__wordpress-wpfusion__list_content",
+      "mcp__wordpress-wpfusion__get_content",
+      "mcp__wordpress-wpfusion__create_content",
+      "mcp__wordpress-wpfusion__update_content",
+      "mcp__wordpress-wpfusion__find_content_by_url",
+      "mcp__wordpress-verygoodplugins__list_content",
+      "mcp__wordpress-verygoodplugins__get_content",
+      "mcp__wordpress-verygoodplugins__create_content",
+      "mcp__wordpress-verygoodplugins__update_content",
+      "mcp__automation-hub__send_notification",
+      "mcp__automation-hub__workflow_notification",
+      "mcp__automation-hub__cursor_cli_deeplink",
+      "mcp__memory__store_memory",
+      "mcp__memory__recall_memory",
+      "mcp__memory__associate_memories",
+      "mcp__memory__update_memory",
+      "mcp__memory__delete_memory",
+      "mcp__memory__search_memory_by_tag",
+      "mcp__memory__check_database_health",
+      "mcp__evernote__list_notes",
+      "mcp__evernote__get_note",
+      "mcp__evernote__create_note",
+      "mcp__evernote__update_note",
+      "mcp__evernote__delete_note",
+      "mcp__evernote__list_notebooks",
+      "mcp__evernote__get_notebook",
+      "mcp__evernote__create_notebook",
+      "mcp__evernote__update_notebook",
+      "mcp__evernote__delete_notebook",
+      "mcp__evernote__list_tags",
+      "mcp__evernote__get_tag",
+      "mcp__evernote__create_tag",
+      "mcp__evernote__update_tag",
+      "mcp__evernote__delete_tag",
+      "mcp__evernote__get_user_info",
+      "mcp__evernote__evernote_health_check",
+      "Bash(python3:*)"
+    ],
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(su:*)",
+      "Bash(rm -rf /*)",
+      "Bash(format:*)",
+      "Bash(fdisk:*)",
+      "Bash(git push:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)"
+    ],
+    "defaultMode": "plan",
+    "additionalDirectories": [
+      "~/Projects/OpenAI/"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__memory__",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '🧠 Memory operation detected - AutoMem integration active'"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git commit*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=git_commit bash \"$HOME/.claude/hooks/session-memory.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(gh pr create*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=pr_created bash \"$HOME/.claude/hooks/session-memory.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(*test*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=test_run bash \"$HOME/.claude/hooks/capture-test-pattern.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(*build*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=build bash \"$HOME/.claude/hooks/capture-build-result.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(*deploy*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=deploy bash \"$HOME/.claude/hooks/capture-deployment.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=code_edit bash \"$HOME/.claude/hooks/capture-code-pattern.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=code_edit bash \"$HOME/.claude/hooks/capture-code-pattern.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "WebSearch(*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=search bash \"$HOME/.claude/hooks/capture-search-result.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(*error*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=error bash \"$HOME/.claude/hooks/capture-error-resolution.sh\""
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/scripts/smart-notify.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/scripts/smart-notify.sh\""
+          },
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=session_end bash \"$HOME/.claude/hooks/session-memory.sh\""
+          },
+          {
+            "type": "command",
+            "command": "npx @verygoodplugins/mcp-automem queue --file \"$HOME/.claude/scripts/memory-queue.jsonl\""
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "npx -y @owloops/claude-powerline@latest --style=powerline"
+  },
+  "model": "opus"
+}

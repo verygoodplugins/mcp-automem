@@ -3,6 +3,9 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { config } from 'dotenv';
+import { runConfig, runSetup } from './cli/setup.js';
+import { runClaudeCodeSetup } from './cli/claude-code.js';
+import { runQueueCommand } from './cli/queue.js';
 import { AutoMemClient } from './automem-client.js';
 import type {
   AutoMemConfig,
@@ -16,8 +19,34 @@ import type {
 
 config();
 
+const command = (process.argv[2] || '').toLowerCase();
+
+if (command === 'setup') {
+  await runSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === 'config') {
+  await runConfig(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === 'claude-code') {
+  await runClaudeCodeSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === 'queue') {
+  await runQueueCommand(process.argv.slice(3));
+  process.exit(0);
+}
+
 const AUTOMEM_ENDPOINT = process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
 const AUTOMEM_API_KEY = process.env.AUTOMEM_API_KEY;
+
+if (!process.env.AUTOMEM_ENDPOINT) {
+  console.warn('⚠️  AUTOMEM_ENDPOINT not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting.');
+}
 
 const clientConfig: AutoMemConfig = {
   endpoint: AUTOMEM_ENDPOINT,

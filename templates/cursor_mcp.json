@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "automem": {
+      "command": "npx",
+      "args": ["@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_ENDPOINT": "https://automem.up.railway.app",
+        "AUTOMEM_API_KEY": "your-auto-mem-api-key"
+      }
+    }
+  }
+}
