@@ -187,28 +187,6 @@ const tools = [
         },
     },
     {
-        name: 'search_memory_by_tag',
-        description: 'Retrieve memories that contain specific tags',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                tags: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    description: 'Tags to match (any of them qualifies)',
-                },
-                limit: {
-                    type: 'integer',
-                    minimum: 1,
-                    maximum: 200,
-                    default: 20,
-                    description: 'Maximum number of memories to return',
-                },
-            },
-            required: ['tags'],
-        },
-    },
-    {
         name: 'check_database_health',
         description: 'Check the health status of the AutoMem service and its connected databases',
         inputSchema: {
@@ -299,36 +277,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         {
                             type: 'text',
                             text: `Memory ${result.memory_id} deleted successfully!`,
-                        },
-                    ],
-                };
-            }
-            case 'search_memory_by_tag': {
-                const tagArgs = args;
-                const result = await client.searchByTag(tagArgs);
-                if (!result.results || result.results.length === 0) {
-                    return {
-                        content: [
-                            {
-                                type: 'text',
-                                text: 'No memories found with the requested tags.',
-                            },
-                        ],
-                    };
-                }
-                const memoriesText = result.results
-                    .map((item, index) => {
-                    const memory = item.memory;
-                    const tags = memory.tags?.length ? ` [${memory.tags.join(', ')}]` : '';
-                    const importance = typeof memory.importance === 'number' ? ` (importance: ${memory.importance})` : '';
-                    return `${index + 1}. ${memory.content}${tags}${importance}\n   ID: ${memory.memory_id}\n   Created: ${memory.created_at}`;
-                })
-                    .join('\n\n');
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `Found ${result.results.length} memories by tag:\n\n${memoriesText}`,
                         },
                     ],
                 };
