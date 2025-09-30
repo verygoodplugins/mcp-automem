@@ -38,6 +38,8 @@ export interface RecallResult {
         end?: string | null;
     };
     tags?: string[];
+    tag_mode?: 'any' | 'all';
+    tag_match?: 'exact' | 'prefix';
 }
 export interface HealthStatus {
     status: 'healthy' | 'error';
@@ -66,6 +68,8 @@ export interface RecallMemoryArgs {
     start?: string;
     end?: string;
     tags?: string[];
+    tag_mode?: 'any' | 'all';
+    tag_match?: 'exact' | 'prefix';
 }
 export interface AssociateMemoryArgs {
     memory1_id: string;

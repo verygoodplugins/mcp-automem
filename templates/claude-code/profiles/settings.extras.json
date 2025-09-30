@@ -1,0 +1,80 @@
+{
+  "env": {
+    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "true",
+    "DISABLE_COST_WARNINGS": "0",
+    "BASH_MAX_OUTPUT_LENGTH": "50000"
+  },
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Read",
+      "Read(*)",
+      "Bash(npm:*)",
+      "Bash(yarn:*)",
+      "Bash(git:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(chmod:*)",
+      "Bash(jq:*)",
+      "Bash(php -l:*)",
+      "Bash(awk:*)",
+      "Bash(sed:*)",
+      "Bash(./vendor/bin/*)",
+      "Bash(node:*)",
+      "Bash(python3:*)",
+      "mcp__memory__store_memory",
+      "mcp__memory__recall_memory",
+      "mcp__memory__associate_memories",
+      "mcp__memory__update_memory",
+      "mcp__memory__delete_memory",
+      "mcp__memory__check_database_health"
+    ],
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(su:*)",
+      "Bash(rm -rf /*)",
+      "Bash(format:*)",
+      "Bash(fdisk:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)"
+    ],
+    "defaultMode": "plan",
+    "additionalDirectories": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "Bash(git commit*)", "hooks": [ { "type": "command", "command": "CLAUDE_HOOK_TYPE=git_commit bash \"$HOME/.claude/hooks/session-memory.sh\"" } ] },
+      { "matcher": "Bash(*build*)",     "hooks": [ { "type": "command", "command": "CLAUDE_HOOK_TYPE=build bash \"$HOME/.claude/hooks/capture-build-result.sh\"" } ] },
+      { "matcher": "Edit(*)",            "hooks": [ { "type": "command", "command": "CLAUDE_HOOK_TYPE=code_edit bash \"$HOME/.claude/hooks/capture-code-pattern.sh\"" } ] },
+      { "matcher": "MultiEdit(*)",       "hooks": [ { "type": "command", "command": "CLAUDE_HOOK_TYPE=code_edit bash \"$HOME/.claude/hooks/capture-code-pattern.sh\"" } ] },
+      { "matcher": "Bash(*test*)",       "hooks": [ { "type": "command", "command": "CLAUDE_HOOK_TYPE=test_run bash \"$HOME/.claude/hooks/capture-test-pattern.sh\"" } ] },
+      { "matcher": "Bash(*deploy*)",     "hooks": [ { "type": "command", "command": "CLAUDE_HOOK_TYPE=deploy bash \"$HOME/.claude/hooks/capture-deployment.sh\"" } ] },
+      { "matcher": "WebSearch(*)",       "hooks": [ { "type": "command", "command": "CLAUDE_HOOK_TYPE=search bash \"$HOME/.claude/hooks/capture-search-result.sh\"" } ] },
+      { "matcher": "Bash(*error*)",      "hooks": [ { "type": "command", "command": "CLAUDE_HOOK_TYPE=error bash \"$HOME/.claude/hooks/capture-error-resolution.sh\"" } ] }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "bash \"$HOME/.claude/scripts/smart-notify.sh\"" },
+          { "type": "command", "command": "CLAUDE_HOOK_TYPE=session_end bash \"$HOME/.claude/hooks/session-memory.sh\"" },
+          { "type": "command", "command": "npx @verygoodplugins/mcp-automem queue --file \"$HOME/.claude/scripts/memory-queue.jsonl\"" }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "npx -y @owloops/claude-powerline@latest --style=powerline"
+  },
+  "model": "opus"
+}
+

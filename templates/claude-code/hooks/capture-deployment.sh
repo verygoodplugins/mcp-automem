@@ -114,7 +114,7 @@ fi
 MEMORY_RECORD=$(cat <<EOF
 {
   "content": "$CONTENT",
-  "tags": ["deployment", "$DEPLOY_PLATFORM", "$DEPLOY_ENV", "$PROJECT_NAME", "$(date +%Y-%m)"],
+  "tags": ["deployment", "$DEPLOY_PLATFORM", "$DEPLOY_ENV", "$PROJECT_NAME"],
   "importance": $IMPORTANCE,
   "type": "$MEMORY_TYPE",
   "metadata": {
@@ -127,9 +127,9 @@ MEMORY_RECORD=$(cat <<EOF
     "git_commit": "${GIT_COMMIT:-null}",
     "exit_code": $EXIT_CODE,
     "command": "$COMMAND",
-    "project": "$PROJECT_NAME",
-    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  }
+    "project": "$PROJECT_NAME"
+  },
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF
 )

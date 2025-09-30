@@ -76,7 +76,7 @@ fi
 MEMORY_RECORD=$(cat <<EOF
 {
   "content": "$CONTENT",
-  "tags": ["test", "$TEST_FRAMEWORK", "$PROJECT_NAME", "$(date +%Y-%m)"],
+  "tags": ["test", "$TEST_FRAMEWORK", "$PROJECT_NAME"],
   "importance": $IMPORTANCE,
   "type": "$MEMORY_TYPE",
   "metadata": {
@@ -85,9 +85,9 @@ MEMORY_RECORD=$(cat <<EOF
     "tests_failed": $TESTS_FAILED,
     "exit_code": $EXIT_CODE,
     "command": "$COMMAND",
-    "project": "$PROJECT_NAME",
-    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  }
+    "project": "$PROJECT_NAME"
+  },
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF
 )

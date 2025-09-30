@@ -138,6 +138,16 @@ const tools: Tool[] = [
           items: { type: 'string' },
           description: 'Return memories containing any of these tags',
         },
+        tag_mode: {
+          type: 'string',
+          enum: ['any', 'all'],
+          description: 'How to combine multiple tags: any (default) or all',
+        },
+        tag_match: {
+          type: 'string',
+          enum: ['exact', 'prefix'],
+          description: 'How to match tags: exact (default) or prefix',
+        },
       },
     },
   },
@@ -157,7 +167,19 @@ const tools: Tool[] = [
         },
         type: {
           type: 'string',
-          enum: ['RELATES_TO', 'LEADS_TO', 'OCCURRED_BEFORE'],
+          enum: [
+            'RELATES_TO',
+            'LEADS_TO',
+            'OCCURRED_BEFORE',
+            'PREFERS_OVER',
+            'EXEMPLIFIES',
+            'CONTRADICTS',
+            'REINFORCES',
+            'INVALIDATED_BY',
+            'EVOLVED_INTO',
+            'DERIVED_FROM',
+            'PART_OF',
+          ],
           description: 'Type of relationship between the memories',
         },
         strength: {
@@ -244,9 +266,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'recall_memory': {
         const recallArgs = args as unknown as RecallMemoryArgs;
-        const result = await client.recallMemory(recallArgs);
 
-        if (!result.results || result.results.length === 0) {
+        // First, call the primary recall endpoint
+        const primary = await client.recallMemory(recallArgs);
+
+        let merged = primary.results || [];
+
+        // If tags are provided, also fetch explicit tag matches and merge
+        if (Array.isArray(recallArgs.tags) && recallArgs.tags.length > 0) {
+          try {
+            const tagOnly = await client.searchByTag({ tags: recallArgs.tags, limit: recallArgs.limit || 5 });
+
+            const byId = new Map<string, typeof merged[number]>();
+            for (const r of merged) byId.set(r.memory.memory_id, r);
+
+            for (const t of tagOnly.results || []) {
+              const id = t.memory.memory_id;
+              if (!byId.has(id)) {
+                byId.set(id, t);
+              }
+            }
+
+            merged = Array.from(byId.values());
+
+            // Sort by final_score desc if present, otherwise by importance desc
+            merged.sort((a, b) => {
+              const as = typeof a.final_score === 'number' ? a.final_score : (a.memory.importance ?? 0);
+              const bs = typeof b.final_score === 'number' ? b.final_score : (b.memory.importance ?? 0);
+              return bs - as;
+            });
+
+            // Enforce limit after merge
+            if (recallArgs.limit && merged.length > recallArgs.limit) {
+              merged = merged.slice(0, recallArgs.limit);
+            }
+          } catch (e) {
+            // Non-fatal: if /by-tag fails, continue with primary results
+          }
+        }
+
+        if (!merged || merged.length === 0) {
           return {
             content: [
               {
@@ -257,7 +316,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
 
-        const memoriesText = result.results
+        const memoriesText = merged
           .map((item, index) => {
             const memory = item.memory;
             const tags = memory.tags?.length ? ` [${memory.tags.join(', ')}]` : '';
@@ -271,7 +330,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [
             {
               type: 'text',
-              text: `Found ${result.results.length} memories:\n\n${memoriesText}`,
+              text: `Found ${merged.length} memories:\n\n${memoriesText}`,
             },
           ],
         };

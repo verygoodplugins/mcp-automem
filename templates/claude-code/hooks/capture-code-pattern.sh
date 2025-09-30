@@ -62,19 +62,19 @@ CONTENT="Code pattern in $LANGUAGE: edited $(basename "$FILE_PATH") in $PROJECT_
 
 # Create memory record (only for significant edits)
 if (( $(echo "$IMPORTANCE >= 0.6" | bc -l) )); then
-    MEMORY_RECORD=$(cat <<EOF
+MEMORY_RECORD=$(cat <<EOF
 {
   "content": "$CONTENT",
-  "tags": ["code-pattern", "$LANGUAGE", "$PROJECT_NAME", "$(date +%Y-%m)"],
+  "tags": ["code-pattern", "$LANGUAGE", "$PROJECT_NAME"],
   "importance": $IMPORTANCE,
   "type": "$MEMORY_TYPE",
   "metadata": {
     "file_path": "$FILE_PATH",
     "language": "$LANGUAGE",
     "edit_type": "$EDIT_TYPE",
-    "project": "$PROJECT_NAME",
-    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  }
+    "project": "$PROJECT_NAME"
+  },
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF
     )

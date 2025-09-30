@@ -112,11 +112,9 @@
     "deployment": ["deploy", "release", "build", "ci", "cd", "pipeline", "docker"]
   },
   "project_importance": {
-    "wp-fusion": 3.0,
-    "claude-automation-hub": 2.5,
-    "personal-ai-memory": 2.5,
-    "AutoHub": 2.0,
-    "mcp-servers": 2.0,
+    "project-alpha": 3.0,
+    "project-beta": 2.5,
+    "project-gamma": 2.0,
     "default": 1.0
   }
 }

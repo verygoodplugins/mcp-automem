@@ -101,7 +101,7 @@ fi
 MEMORY_RECORD=$(cat <<EOF
 {
   "content": "$CONTENT",
-  "tags": ["build", "$BUILD_TOOL", "$PROJECT_NAME", "$(date +%Y-%m)"],
+  "tags": ["build", "$BUILD_TOOL", "$PROJECT_NAME"],
   "importance": $IMPORTANCE,
   "type": "$MEMORY_TYPE",
   "metadata": {
@@ -112,9 +112,9 @@ MEMORY_RECORD=$(cat <<EOF
     "errors": $ERRORS,
     "exit_code": $EXIT_CODE,
     "command": "$COMMAND",
-    "project": "$PROJECT_NAME",
-    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  }
+    "project": "$PROJECT_NAME"
+  },
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF
 )

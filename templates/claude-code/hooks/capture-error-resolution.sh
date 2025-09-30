@@ -39,7 +39,7 @@ CONTENT="Error in $PROJECT_NAME: ${ERROR_MSG:0:200}. Command: $COMMAND"
 MEMORY_RECORD=$(cat <<EOF
 {
   "content": "$CONTENT",
-  "tags": ["error", "unresolved", "$PROJECT_NAME", "$(date +%Y-%m)"],
+  "tags": ["error", "unresolved", "$PROJECT_NAME"],
   "importance": $IMPORTANCE,
   "type": "$MEMORY_TYPE",
   "metadata": {
@@ -47,9 +47,9 @@ MEMORY_RECORD=$(cat <<EOF
     "command": "$COMMAND",
     "exit_code": $EXIT_CODE,
     "project": "$PROJECT_NAME",
-    "needs_resolution": true,
-    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  }
+    "needs_resolution": true
+  },
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF
 )

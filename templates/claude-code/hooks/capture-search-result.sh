@@ -44,18 +44,18 @@ CONTENT="Search: $SEARCH_QUERY (topic: $SEARCH_TOPIC) in context of $PROJECT_NAM
 # Only store if importance is high enough
 if (( $(echo "$IMPORTANCE >= 0.6" | bc -l) )); then
     # Create memory record
-    MEMORY_RECORD=$(cat <<EOF
+MEMORY_RECORD=$(cat <<EOF
 {
   "content": "$CONTENT",
-  "tags": ["search", "$SEARCH_TOPIC", "$PROJECT_NAME", "$(date +%Y-%m)"],
+  "tags": ["search", "$SEARCH_TOPIC", "$PROJECT_NAME"],
   "importance": $IMPORTANCE,
   "type": "$MEMORY_TYPE",
   "metadata": {
     "query": "$SEARCH_QUERY",
     "topic": "$SEARCH_TOPIC",
-    "project": "$PROJECT_NAME",
-    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  }
+    "project": "$PROJECT_NAME"
+  },
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF
     )

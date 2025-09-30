@@ -45,6 +45,34 @@ This command:
 - Merges the required tool permissions and hook definitions into `~/.claude/settings.json`
 - Adds a session-stop hook that drains the memory queue via `npx @verygoodplugins/mcp-automem queue`
 
+Choose a profile during setup (optional):
+
+```bash
+# Quiet defaults (recommended)
+npx @verygoodplugins/mcp-automem claude-code --profile lean
+
+# Enable additional hooks (edit/test/deploy/search/error) and status line
+npx @verygoodplugins/mcp-automem claude-code --profile extras
+```
+
+Profiles:
+- Lean (default): Installs a quiet setup that only captures build results and a single session milestone, then drains the queue on Stop.
+- Extras (optional): Enables additional hooks (edit/test/deploy/search/error) and optional status line. See `templates/claude-code/profiles/`.
+
+To use a profile instead of the default, copy it to your Claude settings and edit as needed:
+
+```bash
+# Lean profile (quiet, recommended)
+cp templates/claude-code/profiles/settings.lean.json ~/.claude/settings.json
+
+# Extras profile (more hooks, more capture)
+cp templates/claude-code/profiles/settings.extras.json ~/.claude/settings.json
+```
+
+Customize filters for best results:
+- Edit `~/.claude/scripts/memory-filters.json` (template at `templates/claude-code/scripts/memory-filters.json`).
+- Tune `project_importance` (placeholders provided), `file_weight`, and thresholds to match your workflow.
+
 Use `--dry-run` to preview changes or `--dir <path>` to target a custom Claude configuration directory.
 
 ### Installation Methods
@@ -190,6 +218,46 @@ Template config files are available under [`templates/`](templates/) if you pref
 npx @verygoodplugins/mcp-automem config --format=json
 ```
 
+### Claude Code Integration (Highly Recommended)
+
+AutoMem provides deep Claude Code integration with automatic memory capture hooks and intelligent context loading.
+
+**📖 [Complete Integration Guide](templates/CLAUDE_CODE_INTEGRATION.md)**
+
+This comprehensive guide covers:
+- How the hook system captures memories automatically
+- What files get modified during installation
+- Memory queue and processing pipeline
+- All 11 relationship types and their uses
+- Expected behavior and troubleshooting
+- Importance scoring and consolidation cycles
+
+**Quick Start:**
+
+1. **Install hooks and memory rules:**
+   ```bash
+   npx @verygoodplugins/mcp-automem claude-code
+   cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md
+   ```
+
+2. **What gets installed:**
+   - Hook scripts in `~/.claude/hooks/` (captures events)
+   - Support scripts in `~/.claude/scripts/` (processes memories)
+   - Merged settings in `~/.claude/settings.json` (configures permissions)
+   - Memory rules in `~/.claude/CLAUDE.md` (teaches Claude)
+
+**What You Get:**
+- ✅ Automatic memory capture (commits, builds, errors, patterns)
+- ✅ Session context loading (project history, preferences, errors)
+- ✅ Knowledge graph building (11 relationship types)
+- ✅ Hybrid search (vector + keyword + tags + recency)
+- ✅ Importance scoring and consolidation cycles
+
+**Quick Links:**
+- [Integration Guide](templates/CLAUDE_CODE_INTEGRATION.md) - Complete setup and how it works
+- [Memory Rules Template](templates/CLAUDE_MD_MEMORY_RULES.md) - AI instructions for CLAUDE.md
+- [Hook Configuration](templates/claude-code/settings.json) - Example settings.json
+
 ### Queue Processor (Optional)
 
 If you disable the automatic hook, you can manually flush the queue whenever you like:
@@ -217,16 +285,34 @@ Store this memory: "Completed the AutoMem MCP server integration" with tags ["de
 ```
 
 #### `recall_memory`
-Retrieve memories using text or semantic search.
+Retrieve memories using text, semantic search, time, and tag filters.
 
 **Parameters:**
 - `query` (optional): Text query to search for in memory content
 - `embedding` (optional): Embedding vector for semantic similarity search
 - `limit` (optional): Maximum number of memories to return (default: 5, max: 50)
+- `time_query` (optional): Natural time window like `today`, `last week`, `last 7 days`
+- `start` (optional): ISO timestamp lower bound
+- `end` (optional): ISO timestamp upper bound
+- `tags` (optional): Array of tags to filter by (e.g. `["slack", "slack/channel-ops"]`)
+- `tag_mode` (optional): `any` (default) or `all` — require any vs all of the provided tags
+- `tag_match` (optional): `exact` (default) or `prefix` — whether tag matching must be exact or can match prefixes (e.g., `slack` matches `slack/*`)
 
-**Example:**
+Notes:
+- When `tags` are provided, the MCP server passes `tags`, `tag_mode`, and `tag_match` through to `/recall`. It also augments results by fetching exact tag matches from `/memory/by-tag` and merging them for better coverage.
+- For tags that act like namespaces (e.g. `slack/channel-ops`), prefer the precise tag for targeted recall. Use `tag_match: "prefix"` to widen matches (requires upstream support).
+
+**Examples:**
 ```
 Recall memories about "MCP server development"
+```
+
+```
+Recall memories tagged with "slack/channel-ops"
+```
+
+```
+Recall memories about "handoff" tagged with "slack"
 ```
 
 #### `associate_memories`
@@ -235,8 +321,21 @@ Create relationships between memories.
 **Parameters:**
 - `memory1_id` (required): ID of the first memory
 - `memory2_id` (required): ID of the second memory
-- `type` (required): Relationship type - `RELATES_TO`, `LEADS_TO`, or `OCCURRED_BEFORE`
+- `type` (required): Relationship type (see below)
 - `strength` (required): Association strength between 0 and 1
+
+**Relationship Types:**
+- `RELATES_TO` - General connection
+- `LEADS_TO` - Causal relationship (e.g., bug → solution)
+- `OCCURRED_BEFORE` - Temporal sequence
+- `PREFERS_OVER` - User/team preferences
+- `EXEMPLIFIES` - Pattern examples
+- `CONTRADICTS` - Conflicting approaches
+- `REINFORCES` - Supporting evidence
+- `INVALIDATED_BY` - Outdated information
+- `EVOLVED_INTO` - Knowledge evolution
+- `DERIVED_FROM` - Source relationships
+- `PART_OF` - Hierarchical structure
 
 **Example:**
 ```

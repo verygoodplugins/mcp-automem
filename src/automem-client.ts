@@ -106,6 +106,14 @@ export class AutoMemClient {
       args.tags.forEach((tag) => params.append('tags', tag));
     }
 
+    if (args.tag_mode && (args.tag_mode === 'any' || args.tag_mode === 'all')) {
+      params.set('tag_mode', args.tag_mode);
+    }
+
+    if (args.tag_match && (args.tag_match === 'exact' || args.tag_match === 'prefix')) {
+      params.set('tag_match', args.tag_match);
+    }
+
     const queryString = params.toString();
     const path = queryString ? `recall?${queryString}` : 'recall';
 
@@ -132,6 +140,8 @@ export class AutoMemClient {
       keywords: response.keywords,
       time_window: response.time_window,
       tags: response.tags,
+      tag_mode: response.tag_mode,
+      tag_match: response.tag_match,
     };
   }
 

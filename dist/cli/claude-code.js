@@ -181,6 +181,14 @@ function parseClaudeArgs(args) {
             case '--quiet':
                 options.quiet = true;
                 break;
+            case '--profile': {
+                const value = (args[i + 1] || '').toLowerCase();
+                if (value === 'lean' || value === 'extras') {
+                    options.profile = value;
+                    i += 1;
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -200,7 +208,20 @@ export async function applyClaudeCodeSetup(cliOptions) {
     ensureDir(path.join(targetDir, 'hooks'), options);
     ensureDir(path.join(targetDir, 'scripts'), options);
     ensureDir(path.join(targetDir, 'logs'), options);
-    mergeSettingsFile(targetDir, options);
+    // If a profile is specified, apply it directly (replace settings.json with backup)
+    if (options.profile) {
+        const profilePath = path.join(TEMPLATE_ROOT, 'profiles', `settings.${options.profile}.json`);
+        if (!fs.existsSync(profilePath)) {
+            throw new Error(`Profile not found: ${options.profile}`);
+        }
+        const profileContent = fs.readFileSync(profilePath, 'utf8');
+        writeFileWithBackup(path.join(targetDir, 'settings.json'), `${profileContent}\n`, options);
+        log(`applied profile: ${options.profile}`, options.quiet);
+    }
+    else {
+        // Merge default settings template if no profile selected
+        mergeSettingsFile(targetDir, options);
+    }
     copyTemplateDirectory('hooks', { ...options, targetDir });
     copyTemplateDirectory('scripts', { ...options, targetDir });
     log('Claude Code automation assets installed.', options.quiet);
