@@ -1,0 +1,62 @@
+{
+  "trivial_patterns": {
+    "files": [
+      "package-lock.json",
+      "yarn.lock",
+      "pnpm-lock.yaml",
+      "Gemfile.lock",
+      "composer.lock",
+      "poetry.lock",
+      ".DS_Store",
+      "thumbs.db"
+    ],
+    "directories": [
+      "node_modules",
+      "vendor",
+      "dist",
+      "build",
+      ".next",
+      ".nuxt",
+      "target",
+      "__pycache__",
+      ".pytest_cache",
+      "coverage",
+      ".git"
+    ],
+    "extensions": [
+      ".log",
+      ".tmp",
+      ".temp",
+      ".cache"
+    ]
+  },
+  "significant_patterns": {
+    "commands": {
+      "git commit": { "importance": 0.8, "type": "git-commit" },
+      "git push": { "importance": 0.7, "type": "git-push" },
+      "deploy": { "importance": 0.9, "type": "deploy" },
+      "build": { "importance": 0.6, "type": "build" },
+      "test": { "importance": 0.6, "type": "test" },
+      "docker": { "importance": 0.7, "type": "docker" }
+    },
+    "file_types": {
+      "config": ["package.json", "tsconfig.json", ".env", "docker-compose.yml"],
+      "source": ["*.ts", "*.js", "*.py", "*.rb", "*.go", "*.rs"],
+      "documentation": ["README.md", "CHANGELOG.md", "*.mdx"]
+    }
+  },
+  "thresholds": {
+    "min_edit_count": 3,
+    "min_chars_changed": 50,
+    "high_importance_edit_count": 10,
+    "high_importance_chars": 500
+  },
+  "file_weight": {
+    "package.json": 0.9,
+    "tsconfig.json": 0.8,
+    "docker-compose.yml": 0.8,
+    "README.md": 0.7,
+    "CHANGELOG.md": 0.8
+  }
+}
+

@@ -5,6 +5,7 @@ interface CursorSetupOptions {
     dryRun?: boolean;
     yes?: boolean;
     quiet?: boolean;
+    hooks?: boolean;
 }
 export declare function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<void>;
 export declare function runCursorSetup(args?: string[]): Promise<void>;

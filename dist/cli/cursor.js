@@ -4,6 +4,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 const TEMPLATE_ROOT = path.resolve(fileURLToPath(new URL('../../templates/cursor', import.meta.url)));
+const HOOKS_TEMPLATE_PATH = path.join(TEMPLATE_ROOT, 'hooks.json');
+const HOOKS_DIR = path.join(TEMPLATE_ROOT, 'hooks');
+const SCRIPTS_DIR = path.join(TEMPLATE_ROOT, 'scripts');
 function log(message, quiet) {
     if (!quiet) {
         console.log(message);
@@ -234,6 +237,96 @@ export async function applyCursorSetup(cliOptions) {
     log('\n💡 Optional: Add memory-first behavior to ALL Cursor projects:', cliOptions.quiet);
     log('   See README section "Global User Rules" for a prompt snippet', cliOptions.quiet);
     log('   you can add to Cursor Settings > General > Rules for AI', cliOptions.quiet);
+    // Install hooks if requested
+    if (cliOptions.hooks) {
+        log('\n🪝 Installing Cursor hooks...', cliOptions.quiet);
+        await installCursorHooks(cliOptions);
+    }
+    else {
+        log('\n💡 Tip: Add --hooks flag to install automatic memory capture hooks', cliOptions.quiet);
+    }
+}
+async function installCursorHooks(options) {
+    const homeDir = os.homedir();
+    const cursorConfigDir = path.join(homeDir, '.cursor');
+    const hooksConfigPath = path.join(cursorConfigDir, 'hooks.json');
+    const hooksDir = path.join(cursorConfigDir, 'hooks');
+    const scriptsDir = path.join(cursorConfigDir, 'scripts');
+    log(`📁 Installing hooks to: ${cursorConfigDir}`, options.quiet);
+    // Create directories
+    if (!options.dryRun) {
+        fs.mkdirSync(hooksDir, { recursive: true });
+        fs.mkdirSync(scriptsDir, { recursive: true });
+        fs.mkdirSync(path.join(cursorConfigDir, 'logs'), { recursive: true });
+    }
+    // Copy hook scripts
+    const hookFiles = fs.readdirSync(HOOKS_DIR);
+    for (const file of hookFiles) {
+        const srcPath = path.join(HOOKS_DIR, file);
+        const destPath = path.join(hooksDir, file);
+        if (options.dryRun) {
+            log(`[DRY RUN] Would copy: hooks/${file}`, options.quiet);
+        }
+        else {
+            fs.copyFileSync(srcPath, destPath);
+            fs.chmodSync(destPath, 0o755);
+            log(`✅ Installed: hooks/${file}`, options.quiet);
+        }
+    }
+    // Copy scripts
+    const scriptFiles = fs.readdirSync(SCRIPTS_DIR);
+    for (const file of scriptFiles) {
+        const srcPath = path.join(SCRIPTS_DIR, file);
+        const destPath = path.join(scriptsDir, file);
+        if (options.dryRun) {
+            log(`[DRY RUN] Would copy: scripts/${file}`, options.quiet);
+        }
+        else {
+            fs.copyFileSync(srcPath, destPath);
+            log(`✅ Installed: scripts/${file}`, options.quiet);
+        }
+    }
+    // Merge or create hooks.json
+    const templateHooksConfig = JSON.parse(fs.readFileSync(HOOKS_TEMPLATE_PATH, 'utf8'));
+    let finalConfig = templateHooksConfig;
+    if (fs.existsSync(hooksConfigPath)) {
+        // Merge with existing config
+        const existingConfig = JSON.parse(fs.readFileSync(hooksConfigPath, 'utf8'));
+        // Backup existing config
+        const backup = backupPath(hooksConfigPath);
+        if (!options.dryRun) {
+            fs.copyFileSync(hooksConfigPath, backup);
+            log(`📦 Backup created: ${backup}`, options.quiet);
+        }
+        // Merge hooks
+        finalConfig = {
+            version: templateHooksConfig.version,
+            hooks: {
+                ...existingConfig.hooks,
+                ...templateHooksConfig.hooks
+            }
+        };
+        log('🔧 Merged with existing hooks.json', options.quiet);
+    }
+    // Write hooks.json
+    if (options.dryRun) {
+        log('[DRY RUN] Would write: hooks.json', options.quiet);
+    }
+    else {
+        fs.writeFileSync(hooksConfigPath, JSON.stringify(finalConfig, null, 2), 'utf8');
+        log('✅ Created: hooks.json', options.quiet);
+    }
+    log('\n✨ Cursor hooks installed successfully!', options.quiet);
+    log('\n📊 Hook Configuration:', options.quiet);
+    log('  • beforeSubmitPrompt: Initialize session + recall memories', options.quiet);
+    log('  • afterFileEdit: Capture code changes', options.quiet);
+    log('  • beforeShellExecution: Audit git commits, builds, deploys', options.quiet);
+    log('  • stop: Drain memory queue to AutoMem', options.quiet);
+    log('\n🔍 Debug:', options.quiet);
+    log(`  • Logs: ${path.join(cursorConfigDir, 'logs/hooks.log')}`, options.quiet);
+    log(`  • Queue: ${path.join(cursorConfigDir, 'memory-queue.jsonl')}`, options.quiet);
+    log(`  • Check: Cursor Settings > Hooks tab`, options.quiet);
+    log('\n⚠️  Important: Restart Cursor to activate hooks', options.quiet);
 }
 function parseCursorArgs(args) {
     const options = {};
@@ -274,6 +367,9 @@ function parseCursorArgs(args) {
                 break;
             case '--quiet':
                 options.quiet = true;
+                break;
+            case '--hooks':
+                options.hooks = true;
                 break;
             default:
                 break;

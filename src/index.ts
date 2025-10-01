@@ -41,18 +41,19 @@ COMMANDS:
   queue              Manage memory queue
   help               Show this help message
 
-CURSOR SETUP:
-  npx @verygoodplugins/mcp-automem cursor [options]
-  
-  Options:
-    --name <name>           Project name (auto-detected if not provided)
-    --desc <description>    Project description
-    --dir <path>            Target directory for .cursor/rules
-    --dry-run              Show what would be changed without modifying files
-    --yes, -y              Skip confirmation prompts
-    --quiet                Suppress output
-  
-  For global behavior across all projects, see README "Global User Rules" section
+        CURSOR SETUP:
+          npx @verygoodplugins/mcp-automem cursor [options]
+
+          Options:
+            --hooks                 Install automation hooks (session init, edit capture, queue drain)
+            --name <name>           Project name (auto-detected if not provided)
+            --desc <description>    Project description
+            --dir <path>            Target directory for .cursor/rules
+            --dry-run              Show what would be changed without modifying files
+            --yes, -y              Skip confirmation prompts
+            --quiet                Suppress output
+
+          For global behavior across all projects, see README "Global User Rules" section
 
 CLAUDE CODE SETUP:
   npx @verygoodplugins/mcp-automem claude-code [options]
@@ -82,20 +83,23 @@ UNINSTALL:
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation
 
-EXAMPLES:
-  # Set up Cursor in current project
-  npx @verygoodplugins/mcp-automem cursor
-  
-  # Set up Claude Code with lean profile
-  npx @verygoodplugins/mcp-automem claude-code --profile lean
-  
-  # Migrate manual memory usage to Cursor
-  npx @verygoodplugins/mcp-automem migrate --from manual --to cursor
-  
-  # Uninstall Cursor AutoMem and clean external configs
-  npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
-  
-  # For global Cursor rules, see README "Global User Rules" section
+        EXAMPLES:
+          # Set up Cursor in current project
+          npx @verygoodplugins/mcp-automem cursor
+
+          # Set up Cursor with automatic memory capture hooks
+          npx @verygoodplugins/mcp-automem cursor --hooks
+
+          # Set up Claude Code with lean profile
+          npx @verygoodplugins/mcp-automem claude-code --profile lean
+
+          # Migrate manual memory usage to Cursor
+          npx @verygoodplugins/mcp-automem migrate --from manual --to cursor
+
+          # Uninstall Cursor AutoMem and clean external configs
+          npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
+
+          # For global Cursor rules, see README "Global User Rules" section
 
 For more information, visit:
 https://github.com/verygoodplugins/mcp-automem

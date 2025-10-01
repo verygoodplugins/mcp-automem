@@ -1,0 +1,27 @@
+# AutoMem MCP Server Configuration for OpenAI Codex
+#
+# Add this to your ~/.codex/config.toml file
+#
+# Setup instructions: https://github.com/verygoodplugins/mcp-automem/blob/main/INSTALLATION.md#openai-codex
+
+[mcp_servers.automem]
+command = "npx"
+args = ["@verygoodplugins/mcp-automem"]
+
+[mcp_servers.automem.env]
+# Replace with your AutoMem instance URL
+# Deploy your own: https://github.com/verygoodplugins/automem#deployment
+AUTOMEM_ENDPOINT = "https://your-automem-instance.railway.app"
+
+# Optional: Add API key if your instance requires authentication
+# Remove this line if not using authentication
+AUTOMEM_API_KEY = "your-api-key-if-required"
+
+# For local development, use:
+# AUTOMEM_ENDPOINT = "http://127.0.0.1:8001"
+
+# For local builds (development), use:
+# [mcp_servers.automem]
+# command = "/opt/homebrew/bin/node"  # macOS Homebrew path
+# args = ["/path/to/mcp-automem/dist/index.js"]
+

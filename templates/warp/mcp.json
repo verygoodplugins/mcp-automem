@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "automem": {
+      "command": "npx",
+      "args": ["@verygoodplugins/mcp-automem"],
+      "env": {
+        "_comment1": "Replace with your AutoMem instance URL",
+        "_comment2": "Deploy your own: https://github.com/verygoodplugins/automem#deployment",
+        "AUTOMEM_ENDPOINT": "https://your-automem-instance.railway.app",
+        
+        "_comment3": "Optional: Add API key if your instance requires authentication",
+        "_comment4": "Remove this line if not using authentication",
+        "AUTOMEM_API_KEY": "your-api-key-if-required"
+      }
+    }
+  }
+}
+

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "./hooks/init-session.sh"
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "./hooks/capture-edit.sh"
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "./hooks/audit-shell.sh"
+      }
+    ],
+    "stop": [
+      {
+        "command": "./hooks/drain-queue.sh"
+      }
+    ]
+  }
+}
+

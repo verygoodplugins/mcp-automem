@@ -205,3 +205,4 @@ npm-debug.log
 # Temporary folders
 tmp/
 temp/
+/.cursor/screenshots

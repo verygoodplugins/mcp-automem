@@ -40,8 +40,10 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 | Platform | Support | Setup Time |
 |----------|---------|------------|
 | **Claude Desktop** | ✅ Full | 30 seconds |
-| **Cursor IDE** | ✅ Full | 30 seconds |
-| **Claude Code** | ✅ Full + Auto-capture | 1 minute |
+| **Cursor IDE** | ✅ Full + Auto-capture hooks | 1 minute |
+| **Claude Code** | ✅ Full + Auto-capture hooks | 1 minute |
+| **Warp Terminal** | ✅ Full + Context-aware | 30 seconds |
+| **OpenAI Codex** | ✅ Full | 30 seconds |
 | **Any MCP client** | ✅ Full | 30 seconds |
 
 ## See It In Action
@@ -113,15 +115,34 @@ npx @verygoodplugins/mcp-automem setup
 ```
 
 **For Cursor IDE:**
+
+<a href="cursor://anysphere.cursor-deeplink/mcp/install?name=automem&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyJAdmVyeWdvb2RwbHVnaW5zL21jcC1hdXRvbWVtIl0sImVudiI6eyJBVVRPTUVNX0VORFBPSU5UIjoiaHR0cHM6Ly95b3VyLWF1dG9tZW0taW5zdGFuY2UucmFpbHdheS5hcHAiLCJBVVRPTUVNX0FQSV9LRVkiOiJ5b3VyLWFwaS1rZXktaWYtcmVxdWlyZWQifX0=">
+  <img src="https://img.shields.io/badge/Install_in_Cursor-000000?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJMMiAyMkgyMkwxMiAyWiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+" alt="Install in Cursor" />
+</a>
+
 ```bash
-# Auto-configures Cursor with memory-first agent rules
+# Or use CLI for full setup with memory-first agent rules
 npx @verygoodplugins/mcp-automem cursor
 ```
+
+> **Note:** After one-click install, configure your `AUTOMEM_ENDPOINT` in Claude Desktop config
 
 **For Claude Code:**
 ```bash
 # Installs automation hooks that capture memories automatically
 npx @verygoodplugins/mcp-automem claude-code
+```
+
+**For Warp Terminal:**
+```bash
+# Auto-configures Warp with memory-first terminal assistance
+npx @verygoodplugins/mcp-automem warp
+```
+
+**For OpenAI Codex:**
+```bash
+# Add to your Codex MCP configuration
+npx @verygoodplugins/mcp-automem config --format=json
 ```
 
 👉 **[Full Installation Guide](INSTALLATION.md)** for detailed setup instructions
@@ -195,6 +216,12 @@ npx @verygoodplugins/mcp-automem claude-code
 - ✅ Manual and automated workflows
 - ✅ Full memory API access
 
+#### Warp Terminal
+- ✅ Project context auto-detection
+- ✅ Memory-first terminal assistance
+- ✅ Smart recall on directory changes
+- ✅ Command history with context
+
 ## Why AutoMem MCP?
 
 ### vs. Building Your Own
@@ -245,6 +272,8 @@ Same factors apply here - go with Postgres."
 - 🔧 **[Configuration](INSTALLATION.md#configuration)** - Environment variables, advanced options
 - 🎯 **[Cursor Setup](INSTALLATION.md#cursor-ide)** - IDE integration guide
 - 🤖 **[Claude Code Hooks](templates/CLAUDE_CODE_INTEGRATION.md)** - Automation setup
+- 💻 **[Warp Terminal Setup](INSTALLATION.md#warp-terminal)** - Terminal integration guide
+- 🚀 **[OpenAI Codex Setup](INSTALLATION.md#openai-codex)** - Codex CLI/IDE/Cloud agent integration
 - 📖 **[API Reference](INSTALLATION.md#mcp-tools)** - All memory operations
 - 🏗️ **[AutoMem Service](https://github.com/verygoodplugins/automem)** - Backend deployment
 - 🌐 **[automem.ai](https://automem.ai)** - Official website and guides
@@ -272,6 +301,8 @@ This MCP package provides the bridge between your AI and that research-validated
 - [Installation Guide](INSTALLATION.md) - Complete setup instructions
 - [Cursor Setup](INSTALLATION.md#cursor-ide) - IDE integration
 - [Claude Code Integration](templates/CLAUDE_CODE_INTEGRATION.md) - Automation hooks
+- [Warp Terminal Setup](INSTALLATION.md#warp-terminal) - Terminal integration
+- [OpenAI Codex Setup](INSTALLATION.md#openai-codex) - Codex integration
 - [AutoMem Service Deployment](https://github.com/verygoodplugins/automem#deployment) - Backend setup
 - [Changelog](CHANGELOG.md) - Release history
 
