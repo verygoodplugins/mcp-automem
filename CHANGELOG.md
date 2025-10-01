@@ -52,6 +52,12 @@ All notable changes to this project will be documented in this file.
 - Filtered processing (skips ~90% of trivial changes)
 - Efficient JSON parsing (jq + python3)
 
+### Fixed
+- **Environment variable inheritance**: Hooks now read `AUTOMEM_ENDPOINT` and `AUTOMEM_API_KEY` from `~/.cursor/mcp.json`
+  - Fixes issue where hooks defaulted to localhost instead of using Cursor's configured endpoint
+  - Both `init-session.sh` and `drain-queue.sh` now export env vars before calling npx
+  - Logs show which endpoint is being used for debugging
+
 ## 0.4.0 - 2025-10-01
 
 ### Added

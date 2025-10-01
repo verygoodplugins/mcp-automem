@@ -47,6 +47,22 @@ log_message "Starting queue processor"
 if command -v npx > /dev/null 2>&1; then
     # Run in background to avoid blocking
     (
+        # Export AUTOMEM env vars from Cursor's MCP config if available
+        if [ -f "$HOME/.cursor/mcp.json" ]; then
+            AUTOMEM_ENDPOINT=$(jq -r '.mcpServers.memory.env.AUTOMEM_ENDPOINT // empty' "$HOME/.cursor/mcp.json" 2>/dev/null)
+            AUTOMEM_API_KEY=$(jq -r '.mcpServers.memory.env.AUTOMEM_API_KEY // empty' "$HOME/.cursor/mcp.json" 2>/dev/null)
+            
+            if [ -n "$AUTOMEM_ENDPOINT" ]; then
+                export AUTOMEM_ENDPOINT
+                log_message "Using AUTOMEM_ENDPOINT from mcp.json: $AUTOMEM_ENDPOINT"
+            fi
+            
+            if [ -n "$AUTOMEM_API_KEY" ]; then
+                export AUTOMEM_API_KEY
+                log_message "Using AUTOMEM_API_KEY from mcp.json"
+            fi
+        fi
+        
         npx @verygoodplugins/mcp-automem queue --file "$QUEUE_FILE" >> "$LOG_FILE" 2>&1
         RESULT=$?
         
