@@ -31,6 +31,63 @@ The wizard will:
 - Show copy-paste snippets for Claude Desktop and Claude Code
 - Add `--claude-code` to run the environment wizard and install Claude Code automation in one step
 
+#### Add Cursor AutoMem Setup
+
+To set up AutoMem for Cursor with automatic memory-first development:
+
+```bash
+npx @verygoodplugins/mcp-automem cursor
+```
+
+This command:
+
+- Auto-detects your project name and description
+- Creates `.cursor/rules/` with memory agent configurations
+- Installs `.cursorrules` with memory-first patterns
+- Checks your Claude Desktop config for memory server
+- Provides setup guidance if memory server is missing
+
+**Installation Options:**
+
+```bash
+# Project-specific install (recommended)
+npx @verygoodplugins/mcp-automem cursor
+
+# Specify project details manually
+npx @verygoodplugins/mcp-automem cursor --name my-project --desc "My awesome project"
+
+# Preview changes without modifying files
+npx @verygoodplugins/mcp-automem cursor --dry-run
+
+# Custom target directory
+npx @verygoodplugins/mcp-automem cursor --dir .cursor/rules
+```
+
+**Global User Rules (Optional):**
+
+For memory-first behavior across ALL Cursor projects, you can add this prompt to `Cursor Settings > General > Rules for AI`:
+
+```markdown
+## Memory-First Development
+
+At the start of EVERY conversation, recall relevant memories:
+
+mcp_memory_recall_memory({
+  query: "<describe the user's current task or question>",
+  tags: ["<project-name>", "cursor"],  // Auto-detect project name from package.json, git, or directory
+  limit: 5
+})
+
+During conversation, store important discoveries:
+- Architectural decisions → importance: 0.9, tags: ["<project-name>", "decision", "architecture"]
+- Bug fixes with root cause → importance: 0.8, tags: ["<project-name>", "bug-fix", "<component>"]
+- Useful patterns → importance: 0.7, tags: ["<project-name>", "pattern", "<type>"]
+
+Always use the current project's name in tags for organization.
+```
+
+This enables basic memory recall/storage globally without needing per-project setup. For full agent features (priority, automatic tool selection), use project-level installation.
+
 #### Add Claude Code Automation Hooks
 
 To install the capture hooks and queue processor that automatically write memories from Claude Code sessions, run:
@@ -264,6 +321,49 @@ If you disable the automatic hook, you can manually flush the queue whenever you
 
 ```bash
 npx @verygoodplugins/mcp-automem queue --file ~/.claude/scripts/memory-queue.jsonl
+```
+
+## Additional Commands
+
+### Migration
+
+Migrate existing projects to AutoMem:
+
+```bash
+# Migrate from manual memory usage to Cursor
+npx @verygoodplugins/mcp-automem migrate --from manual --to cursor
+
+# Migrate from manual to Claude Code
+npx @verygoodplugins/mcp-automem migrate --from manual --to claude-code
+
+# Preview migration without changes
+npx @verygoodplugins/mcp-automem migrate --from manual --to cursor --dry-run
+```
+
+### Uninstall
+
+Remove AutoMem configuration:
+
+```bash
+# Uninstall Cursor AutoMem
+npx @verygoodplugins/mcp-automem uninstall cursor
+
+# Uninstall Claude Code AutoMem
+npx @verygoodplugins/mcp-automem uninstall claude-code
+
+# Also clean Claude Desktop memory server config
+npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
+
+# Preview what would be removed
+npx @verygoodplugins/mcp-automem uninstall cursor --dry-run
+```
+
+### Help
+
+View all available commands:
+
+```bash
+npx @verygoodplugins/mcp-automem help
 ```
 
 ## Available Tools

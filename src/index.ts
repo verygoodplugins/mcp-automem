@@ -5,6 +5,9 @@ import { CallToolRequestSchema, ListToolsRequestSchema, Tool } from '@modelconte
 import { config } from 'dotenv';
 import { runConfig, runSetup } from './cli/setup.js';
 import { runClaudeCodeSetup } from './cli/claude-code.js';
+import { runCursorSetup } from './cli/cursor.js';
+import { runMigrateCommand } from './cli/migrate.js';
+import { runUninstallCommand } from './cli/uninstall.js';
 import { runQueueCommand } from './cli/queue.js';
 import { AutoMemClient } from './automem-client.js';
 import type {
@@ -21,6 +24,85 @@ config();
 
 const command = (process.argv[2] || '').toLowerCase();
 
+if (command === 'help' || command === '--help' || command === '-h') {
+  console.log(`
+AutoMem MCP Server - AI Memory Storage & Recall
+
+USAGE:
+  npx @verygoodplugins/mcp-automem <command> [options]
+
+COMMANDS:
+  setup              Interactive setup for .env configuration
+  config             Show configuration snippets
+  claude-code        Set up AutoMem for Claude Code
+  cursor             Set up AutoMem for Cursor
+  migrate            Migrate existing projects to AutoMem
+  uninstall          Remove AutoMem configuration
+  queue              Manage memory queue
+  help               Show this help message
+
+CURSOR SETUP:
+  npx @verygoodplugins/mcp-automem cursor [options]
+  
+  Options:
+    --name <name>           Project name (auto-detected if not provided)
+    --desc <description>    Project description
+    --dir <path>            Target directory for .cursor/rules
+    --dry-run              Show what would be changed without modifying files
+    --yes, -y              Skip confirmation prompts
+    --quiet                Suppress output
+  
+  For global behavior across all projects, see README "Global User Rules" section
+
+CLAUDE CODE SETUP:
+  npx @verygoodplugins/mcp-automem claude-code [options]
+  
+  Options:
+    --dir <path>           Target directory (default: ~/.claude)
+    --profile <lean|extras> Use a predefined profile
+    --dry-run             Show what would be changed
+    --yes, -y             Skip confirmation prompts
+
+MIGRATION:
+  npx @verygoodplugins/mcp-automem migrate --from <source> --to <target>
+  
+  Options:
+    --from <manual|none>   Source configuration
+    --to <cursor|claude-code> Target platform
+    --dir <path>          Project directory
+    --dry-run             Preview migration
+    --yes, -y             Skip confirmation
+
+UNINSTALL:
+  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code> [options]
+  
+  Options:
+    --dir <path>          Project directory (for cursor)
+    --clean-all          Also remove Claude Desktop memory server config
+    --dry-run           Show what would be removed
+    --yes, -y           Skip confirmation
+
+EXAMPLES:
+  # Set up Cursor in current project
+  npx @verygoodplugins/mcp-automem cursor
+  
+  # Set up Claude Code with lean profile
+  npx @verygoodplugins/mcp-automem claude-code --profile lean
+  
+  # Migrate manual memory usage to Cursor
+  npx @verygoodplugins/mcp-automem migrate --from manual --to cursor
+  
+  # Uninstall Cursor AutoMem and clean external configs
+  npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
+  
+  # For global Cursor rules, see README "Global User Rules" section
+
+For more information, visit:
+https://github.com/verygoodplugins/mcp-automem
+`);
+  process.exit(0);
+}
+
 if (command === 'setup') {
   await runSetup(process.argv.slice(3));
   process.exit(0);
@@ -33,6 +115,21 @@ if (command === 'config') {
 
 if (command === 'claude-code') {
   await runClaudeCodeSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === 'cursor') {
+  await runCursorSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === 'migrate') {
+  await runMigrateCommand(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === 'uninstall') {
+  await runUninstallCommand(process.argv.slice(3));
   process.exit(0);
 }
 
