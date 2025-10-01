@@ -93,7 +93,7 @@ esac
 if [ "$SHOULD_QUEUE" = true ]; then
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
-    python3 <<EOF >> "$QUEUE_FILE" 2>/dev/null || true
+    MEMORY_ENTRY=$(python3 <<EOF
 import json
 
 memory_entry = {
@@ -112,8 +112,12 @@ memory_entry = {
 
 print(json.dumps(memory_entry))
 EOF
+)
+    
+    echo "$MEMORY_ENTRY" >> "$QUEUE_FILE" 2>/dev/null || true
     
     log_message "Command queued: $COMMAND_TYPE"
+    log_message "Memory: $MEMORY_ENTRY"
 fi
 
 # Always allow (we're just auditing, not blocking)

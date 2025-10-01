@@ -53,7 +53,7 @@ SESSION_ID="${CONVERSATION_ID:-$(date +%s)}"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Queue session start marker
-python3 <<EOF >> "$QUEUE_FILE" 2>/dev/null || true
+SESSION_MARKER=$(python3 <<EOF
 import json
 session_marker = {
     "type": "session_start",
@@ -66,8 +66,12 @@ session_marker = {
 }
 print(json.dumps(session_marker))
 EOF
+)
+
+echo "$SESSION_MARKER" >> "$QUEUE_FILE" 2>/dev/null || true
 
 log_message "Session marker queued: $SESSION_ID"
+log_message "Memory content: $SESSION_MARKER"
 
 # Export AUTOMEM env vars from Cursor's MCP config if available
 if [ -f "$HOME/.cursor/mcp.json" ]; then

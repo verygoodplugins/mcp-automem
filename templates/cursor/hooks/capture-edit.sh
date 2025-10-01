@@ -90,7 +90,7 @@ log_message "Processing $EDIT_COUNT edits to $RELATIVE_PATH"
 # Queue the edit for processing
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-python3 <<EOF >> "$QUEUE_FILE" 2>/dev/null || true
+MEMORY_ENTRY=$(python3 <<EOF
 import json
 import sys
 
@@ -126,8 +126,12 @@ memory_entry = {
 
 print(json.dumps(memory_entry))
 EOF
+)
+
+echo "$MEMORY_ENTRY" >> "$QUEUE_FILE" 2>/dev/null || true
 
 log_message "Edit queued for $RELATIVE_PATH"
+log_message "Memory: $MEMORY_ENTRY"
 
 exit 0
 

@@ -40,6 +40,12 @@ fi
 # Count entries
 ENTRY_COUNT=$(wc -l < "$QUEUE_FILE" | tr -d ' ')
 log_message "Draining $ENTRY_COUNT queued memories"
+log_message "Queue contents:"
+
+# Log each queued memory
+while IFS= read -r line; do
+    log_message "  → $line"
+done < "$QUEUE_FILE"
 
 # Run queue processor
 log_message "Starting queue processor"
