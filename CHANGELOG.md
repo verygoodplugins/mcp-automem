@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.1 - 2025-10-01
+
+### Security & Privacy
+- **Removed public AutoMem endpoint** from all templates and default configuration
+- Changed default endpoint to `localhost:8001` (users must deploy their own instance)
+- Updated all template files to use placeholder URLs (`your-automem-instance.railway.app`)
+- Ensures no shared/public endpoints are inadvertently used
+
+### Documentation
+- Split documentation into marketing-focused `README.md` and technical `INSTALLATION.md`
+- Fixed all internal documentation links (removed non-existent `CURSOR_SETUP.md` references)
+- Added `automem.ai` domain references throughout documentation
+- Clarified separation between MCP client (this package) and AutoMem service (backend)
+
+### Changed
+- Updated config templates to require explicit endpoint configuration
+- Improved template placeholder clarity for user customization
+
 ## 0.3.0 - 2025-10-01
 
 ### Added
