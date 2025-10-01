@@ -12,6 +12,12 @@ LOG_FILE="$HOME/.cursor/logs/hooks.log"
 # Ensure directories exist
 mkdir -p "$(dirname "$QUEUE_FILE")" "$(dirname "$LOG_FILE")"
 
+# Rotate log if it's too large (> 10MB)
+if [ -f "$LOG_FILE" ] && [ $(stat -f%z "$LOG_FILE" 2>/dev/null || stat -c%s "$LOG_FILE" 2>/dev/null || echo 0) -gt 10485760 ]; then
+    mv "$LOG_FILE" "$LOG_FILE.old"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [audit-shell] Log rotated (previous log saved to hooks.log.old)" > "$LOG_FILE"
+fi
+
 # Log function
 log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [audit-shell] $1" >> "$LOG_FILE"
