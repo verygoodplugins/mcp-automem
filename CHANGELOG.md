@@ -25,8 +25,8 @@ All notable changes to this project will be documented in this file.
 - Updated README with clearer installation guidance and global setup instructions
 
 ### Documentation
-- Added `CURSOR_SETUP.md` with detailed Cursor integration guide
-- Enhanced README with global user rules section
+- Added `INSTALLATION.md` with comprehensive platform-specific setup guides
+- Enhanced README with marketing-focused content and global user rules section
 - Updated help text to reference README for global configuration
 
 ## 0.2.0 - 2025-09-30

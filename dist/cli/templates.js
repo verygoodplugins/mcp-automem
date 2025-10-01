@@ -1,5 +1,5 @@
 import os from 'os';
-export const DEFAULT_AUTOMEM_ENDPOINT = 'https://automem.up.railway.app';
+export const DEFAULT_AUTOMEM_ENDPOINT = 'http://127.0.0.1:8001';
 export function buildClaudeDesktopSnippet(endpointVar = '${AUTOMEM_ENDPOINT}', apiKeyVar = '${AUTOMEM_API_KEY}') {
     return `{
   "mcpServers": {

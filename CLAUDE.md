@@ -158,9 +158,10 @@ See `templates/CLAUDE_CODE_INTEGRATION.md` for complete architecture, hook syste
 
 ```env
 # Required: AutoMem service endpoint
-AUTOMEM_ENDPOINT=https://automem.up.railway.app
-# Or for local development:
+# For local development:
 AUTOMEM_ENDPOINT=http://127.0.0.1:8001
+# Or for Railway deployment (your own instance):
+AUTOMEM_ENDPOINT=https://your-automem-instance.railway.app
 
 # Optional: API key for authenticated AutoMem instances
 AUTOMEM_API_KEY=your_api_key_here
