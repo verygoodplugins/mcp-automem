@@ -122,9 +122,7 @@ Click to install AutoMem MCP server in Cursor:
 
 The install button uses Cursor's MCP deeplink protocol:
 
-```
-cursor://anysphere.cursor-deeplink/mcp/install?name=automem&config=BASE64_CONFIG
-```
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=automem&config=eyJlbnYiOnsiQVVUT01FTV9FTkRQT0lOVCI6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMSJ9LCJjb21tYW5kIjoibnB4IEB2ZXJ5Z29vZHBsdWdpbnMvbWNwLWF1dG9tZW0ifQ%3D%3D)
 
 **Format breakdown:**
 - `cursor://anysphere.cursor-deeplink/mcp/install` - Cursor's MCP install handler
