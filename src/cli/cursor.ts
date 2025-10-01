@@ -122,8 +122,9 @@ function writeFileWithBackup(targetPath: string, content: string, options: Curso
   const dir = path.dirname(targetPath);
   fs.mkdirSync(dir, { recursive: true });
 
-  const existed = fs.existsSync(targetPath);
-  if (fs.existsSync(targetPath)) {
+  const fileExisted = fs.existsSync(targetPath);
+  
+  if (fileExisted) {
     const current = fs.readFileSync(targetPath, 'utf8');
     if (current === content) {
       log(`✓ Unchanged: ${path.basename(targetPath)}`, options.quiet);
@@ -135,8 +136,6 @@ function writeFileWithBackup(targetPath: string, content: string, options: Curso
   }
 
   fs.writeFileSync(targetPath, content, 'utf8');
-  log(`✅ ${existed ? 'Updated' : 'Created'}: ${path.basename(targetPath)}`, options.quiet);
-}
   log(`✅ ${fileExisted ? 'Updated' : 'Created'}: ${path.basename(targetPath)}`, options.quiet);
 }
 
@@ -288,15 +287,27 @@ function parseCursorArgs(args: string[]): CursorSetupOptions {
     const arg = args[i];
     switch (arg) {
       case '--dir':
+        if (i + 1 >= args.length) {
+          console.error('Error: --dir requires a path value');
+          process.exit(1);
+        }
         options.targetDir = args[i + 1];
         i += 1;
         break;
       case '--name':
+        if (i + 1 >= args.length) {
+          console.error('Error: --name requires a value');
+          process.exit(1);
+        }
         options.projectName = args[i + 1];
         i += 1;
         break;
       case '--desc':
       case '--description':
+        if (i + 1 >= args.length) {
+          console.error('Error: --desc requires a value');
+          process.exit(1);
+        }
         options.projectDescription = args[i + 1];
         i += 1;
         break;

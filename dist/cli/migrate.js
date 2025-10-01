@@ -24,7 +24,7 @@ function findManualMemoryUsage(projectDir) {
                 else if (entry.isFile() && extensions.some(ext => entry.name.endsWith(ext))) {
                     try {
                         const content = fs.readFileSync(fullPath, 'utf8');
-                        if (content.includes('memory') && content.includes('store') || content.includes('recall')) {
+                        if (content.includes('memory') && (content.includes('store') || content.includes('recall'))) {
                             found.push(fullPath);
                         }
                     }

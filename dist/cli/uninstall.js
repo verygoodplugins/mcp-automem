@@ -234,6 +234,10 @@ function parseUninstallArgs(args) {
         const arg = args[i];
         switch (arg) {
             case '--dir':
+                if (i + 1 >= args.length) {
+                    console.error('Error: --dir requires a path value');
+                    process.exit(1);
+                }
                 options.projectDir = args[i + 1];
                 i += 1;
                 break;
