@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.0 - 2025-10-01
+
+### Added
+- **Cursor IDE support**: New `cursor` command for project-level setup with `.cursor/rules/` agent files
+  - `npx @verygoodplugins/mcp-automem cursor` - Sets up memory-first development workflow
+  - Supports `--dry-run`, `--dir`, `--name`, `--desc` options
+  - Creates `.cursorrules` and `.cursor/rules/` directory with memory-keeper and project-assistant agents
+- **Migration tool**: `migrate` command to convert between manual/cursor configurations
+- **Uninstall tool**: `uninstall cursor` command to cleanly remove Cursor setup
+- **Global user rules guide**: README now includes optional prompt for Cursor Settings > General > Rules for AI
+
+### Fixed
+- **Cross-platform compatibility**: Claude Desktop config path now supports macOS, Windows, and Linux
+- **CLI argument validation**: Added bounds checking and error messages for all CLI parsers
+- **Logical operator precedence**: Fixed search condition in migrate.ts to require "memory" AND ("store" OR "recall")
+- **Logging accuracy**: File existence check now tracks state before write operation
+
+### Changed
+- Removed experimental global installation code (database injection approach)
+- Improved CLI error messages with actionable feedback
+- Updated README with clearer installation guidance and global setup instructions
+
+### Documentation
+- Added `CURSOR_SETUP.md` with detailed Cursor integration guide
+- Enhanced README with global user rules section
+- Updated help text to reference README for global configuration
+
 ## 0.2.0 - 2025-09-30
 
 Enhancements
