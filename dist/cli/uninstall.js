@@ -66,8 +66,22 @@ function removeDirectory(dirPath, dryRun, quiet) {
         return false;
     }
 }
+function getClaudeDesktopConfigPath() {
+    const homeDir = os.homedir();
+    const platform = os.platform();
+    if (platform === 'darwin') {
+        return path.join(homeDir, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+    }
+    else if (platform === 'win32') {
+        return path.join(homeDir, 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json');
+    }
+    else {
+        // Linux/other
+        return path.join(homeDir, '.config', 'Claude', 'claude_desktop_config.json');
+    }
+}
 function removeClaudeDesktopMemoryServer(dryRun, quiet) {
-    const configPath = path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+    const configPath = getClaudeDesktopConfigPath();
     if (!fs.existsSync(configPath)) {
         log('ℹ️  Claude Desktop config not found', quiet);
         return false;

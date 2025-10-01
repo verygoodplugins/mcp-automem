@@ -100,7 +100,8 @@ function writeFileWithBackup(targetPath, content, options) {
     }
     const dir = path.dirname(targetPath);
     fs.mkdirSync(dir, { recursive: true });
-    if (fs.existsSync(targetPath)) {
+    const fileExisted = fs.existsSync(targetPath);
+    if (fileExisted) {
         const current = fs.readFileSync(targetPath, 'utf8');
         if (current === content) {
             log(`✓ Unchanged: ${path.basename(targetPath)}`, options.quiet);
@@ -111,14 +112,28 @@ function writeFileWithBackup(targetPath, content, options) {
         log(`📦 Backup created: ${backup}`, options.quiet);
     }
     fs.writeFileSync(targetPath, content, 'utf8');
-    log(`✅ ${fs.existsSync(targetPath) ? 'Updated' : 'Created'}: ${path.basename(targetPath)}`, options.quiet);
+    log(`✅ ${fileExisted ? 'Updated' : 'Created'}: ${path.basename(targetPath)}`, options.quiet);
 }
 function checkCursorConfigExists(targetDir) {
     const settingsPath = path.join(targetDir, '.cursor', 'rules');
     return fs.existsSync(settingsPath);
 }
+function getClaudeDesktopConfigPath() {
+    const homeDir = os.homedir();
+    const platform = os.platform();
+    if (platform === 'darwin') {
+        return path.join(homeDir, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+    }
+    else if (platform === 'win32') {
+        return path.join(homeDir, 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json');
+    }
+    else {
+        // Linux/other
+        return path.join(homeDir, '.config', 'Claude', 'claude_desktop_config.json');
+    }
+}
 function checkClaudeDesktopMemoryServer() {
-    const configPath = path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+    const configPath = getClaudeDesktopConfigPath();
     if (!fs.existsSync(configPath)) {
         return { exists: false, path: configPath, configured: false };
     }

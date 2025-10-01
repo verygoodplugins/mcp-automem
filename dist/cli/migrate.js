@@ -97,20 +97,40 @@ function parseMigrateArgs(args) {
         const arg = args[i];
         switch (arg) {
             case '--from':
+                if (i + 1 >= args.length) {
+                    console.error('Error: --from requires a value (manual|none)');
+                    process.exit(1);
+                }
                 const fromValue = args[i + 1];
                 if (fromValue === 'manual' || fromValue === 'none') {
                     options.from = fromValue;
                 }
+                else {
+                    console.error(`Error: Invalid --from value "${fromValue}". Must be "manual" or "none"`);
+                    process.exit(1);
+                }
                 i += 1;
                 break;
             case '--to':
+                if (i + 1 >= args.length) {
+                    console.error('Error: --to requires a value (cursor|claude-code)');
+                    process.exit(1);
+                }
                 const toValue = args[i + 1];
                 if (toValue === 'cursor' || toValue === 'claude-code') {
                     options.to = toValue;
                 }
+                else {
+                    console.error(`Error: Invalid --to value "${toValue}". Must be "cursor" or "claude-code"`);
+                    process.exit(1);
+                }
                 i += 1;
                 break;
             case '--dir':
+                if (i + 1 >= args.length) {
+                    console.error('Error: --dir requires a path value');
+                    process.exit(1);
+                }
                 options.projectDir = args[i + 1];
                 i += 1;
                 break;
