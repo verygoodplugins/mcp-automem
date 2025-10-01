@@ -1,0 +1,55 @@
+# {{PROJECT_NAME}} - Cursor Rules
+
+## Memory-First Development (CRITICAL)
+
+**ALWAYS start conversations by recalling relevant memories:**
+
+```javascript
+// First action in EVERY conversation
+mcp_memory_recall_memory({
+  query: "<user's task or question>",
+  tags: ["{{PROJECT_NAME}}", "cursor"],
+  limit: 5
+})
+```
+
+**Store important context as you work:**
+- Architectural decisions → `importance: 0.9`
+- Bug fixes with root cause → `importance: 0.8`
+- Useful patterns discovered → `importance: 0.7`
+- Config changes → `importance: 0.6`
+
+See `.cursor/rules/memory-keeper.md` for detailed memory usage patterns.
+
+## Project Overview
+
+{{PROJECT_DESCRIPTION}}
+
+## Memory Tagging Convention
+
+All memories MUST include:
+- `{{PROJECT_NAME}}` - Project identifier
+- `cursor` - Platform tag
+- `YYYY-MM` - Temporal tag (e.g., `{{CURRENT_MONTH}}`)
+- Component tag(s): specific to your project
+- Type tag: `decision`, `pattern`, `bug-fix`, `feature`
+
+## Quick Reference
+
+### Memory Operations
+- Store: `mcp_memory_store_memory({ content, tags, importance, metadata })`
+- Recall: `mcp_memory_recall_memory({ query, tags, limit })`
+- Update: `mcp_memory_update_memory({ memory_id, ... })`
+- Associate: `mcp_memory_associate_memories({ memory1_id, memory2_id, type, strength })`
+
+### Agent Coordination
+This project uses agent files in `.cursor/rules/`:
+- **memory-keeper**: Handles all memory operations (ALWAYS ACTIVE)
+- **project-assistant**: General coding guidance
+- Check AGENTS.md for usage patterns
+
+---
+
+Remember: This codebase has persistent memory. Use it to maintain context across sessions!
+
+**AutoMem Setup**: Installed via `npx @verygoodplugins/mcp-automem cursor`
