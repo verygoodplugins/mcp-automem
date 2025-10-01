@@ -52,6 +52,17 @@ All notable changes to this project will be documented in this file.
 - Filtered processing (skips ~90% of trivial changes)
 - Efficient JSON parsing (jq + python3)
 
+### Improvements
+- **Verbose logging**: All hooks now log full JSON content of captured memories
+  - Users can see exactly what's being stored in `~/.cursor/logs/hooks.log`
+  - Helps with debugging and building trust in the automation
+  - Shows importance scoring, tags, metadata for each memory
+- **Automatic log rotation**: Prevents infinite log file growth
+  - Rotates when `hooks.log` exceeds 10MB
+  - Keeps one backup (`hooks.log.old`)
+  - Maximum disk usage: ~20MB
+  - No user configuration required
+
 ### Fixed
 - **Environment variable inheritance**: Hooks now read `AUTOMEM_ENDPOINT` and `AUTOMEM_API_KEY` from `~/.cursor/mcp.json`
   - Fixes issue where hooks defaulted to localhost instead of using Cursor's configured endpoint

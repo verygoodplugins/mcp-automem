@@ -48,6 +48,14 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 
 ## See It In Action
 
+### Cursor IDE with Auto-Capture Hooks
+![Cursor Hooks in Action](screenshots/cursor-hooks-1.jpg)
+*Automatic memory capture at session start, file edits, and shell commands*
+
+### Claude Code with Session Memory
+![Claude Code Memory Capture](screenshots/claude-code-1.jpg)
+*Git commits, builds, and deployments automatically stored to memory*
+
 ### Your AI Learns Your Code Style
 ```javascript
 // After 1 week, your AI writes EXACTLY like you
@@ -200,16 +208,20 @@ npx @verygoodplugins/mcp-automem config --format=json
 ### Platform Integrations
 
 #### Cursor IDE
-- ✅ Memory-first agent rules (`.cursor/rules/`)
-- ✅ Auto-detects project context
-- ✅ Global user rules option
-- ✅ Migration tools for existing projects
+- ✅ **Automation hooks** (beforeSubmitPrompt, afterFileEdit, stop)
+- ✅ **Memory-first agent rules** (`.cursor/rules/`)
+- ✅ **Automatic memory recall** at session start with context injection
+- ✅ **Smart filtering** (skips lock files, node_modules, trivial changes)
+- ✅ **Auto-detects project context** (package.json, git remote)
+- ✅ **Global user rules option** for all projects
+- ✅ **Migration tools** for existing projects
 
 #### Claude Code
-- ✅ Automatic session capture (git commits, builds, errors)
-- ✅ Queue-based processing (non-blocking)
-- ✅ Configurable profiles (lean/extras)
-- ✅ Relationship tracking
+- ✅ **Automatic session capture** (git commits, builds, errors, deploys)
+- ✅ **Queue-based processing** (non-blocking)
+- ✅ **Configurable profiles** (lean/extras)
+- ✅ **Relationship tracking** between memories
+- ✅ **Smart notifications** (ntfy.sh integration)
 
 #### Claude Desktop
 - ✅ Direct MCP integration
