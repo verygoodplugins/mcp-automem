@@ -1,6 +1,6 @@
 {
   "name": "@verygoodplugins/mcp-automem",
-  "version": "0.3.1",
+  "version": "0.5.0",
   "description": "MCP server for AutoMem: AI memory storage and recall",
   "main": "dist/index.js",
   "type": "module",
