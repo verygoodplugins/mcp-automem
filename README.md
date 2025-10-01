@@ -124,16 +124,14 @@ npx @verygoodplugins/mcp-automem setup
 
 **For Cursor IDE:**
 
-<a href="cursor://anysphere.cursor-deeplink/mcp/install?name=automem&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyJAdmVyeWdvb2RwbHVnaW5zL21jcC1hdXRvbWVtIl0sImVudiI6eyJBVVRPTUVNX0VORFBPSU5UIjoiaHR0cHM6Ly95b3VyLWF1dG9tZW0taW5zdGFuY2UucmFpbHdheS5hcHAiLCJBVVRPTUVNX0FQSV9LRVkiOiJ5b3VyLWFwaS1rZXktaWYtcmVxdWlyZWQifX0=">
-  <img src="https://img.shields.io/badge/Install_in_Cursor-000000?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJMMiAyMkgyMkwxMiAyWiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+" alt="Install in Cursor" />
-</a>
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=automem&config=eyJlbnYiOnsiQVVUT01FTV9FTkRQT0lOVCI6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMSJ9LCJjb21tYW5kIjoibnB4IEB2ZXJ5Z29vZHBsdWdpbnMvbWNwLWF1dG9tZW0ifQ%3D%3D)
 
 ```bash
-# Or use CLI for full setup with memory-first agent rules
-npx @verygoodplugins/mcp-automem cursor
+# Or use CLI for full setup with memory-first agent rules + automation hooks
+npx @verygoodplugins/mcp-automem cursor --hooks
 ```
 
-> **Note:** After one-click install, configure your `AUTOMEM_ENDPOINT` in Claude Desktop config
+> **Note:** After one-click install, configure your `AUTOMEM_ENDPOINT` in `~/.cursor/mcp.json`
 
 **For Claude Code:**
 ```bash
