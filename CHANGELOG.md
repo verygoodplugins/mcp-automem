@@ -2,6 +2,67 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.6.0 - 2025-10-04
+
+### Breaking Changes
+- **Removed Cursor hooks-based installation**: Simplified Cursor integration to use `.cursor/rules/automem.mdc` only
+  - Deleted `templates/cursor/hooks/` directory and all hook scripts
+  - Deleted `templates/CURSOR_HOOKS_INTEGRATION.md` (668 lines)
+  - Deleted `templates/cursor/AGENTS.md.template`, `.cursorrules.template`, and multi-agent templates
+  - Removed `--hooks` flag from `cursor` CLI command
+  - Rationale: Cursor's hook system proved unreliable and overly complex. The `.mdc` rule file approach is simpler, more stable, and gives better results with less maintenance burden.
+
+### Claude Code Improvements
+- **Marked as experimental**: Claude Code hooks-based installation now clearly labeled as experimental throughout
+  - Added prominent ⚠️ warnings to `INSTALLATION.md` and `templates/CLAUDE_CODE_INTEGRATION.md`
+  - Added CLI warning during installation explaining experimental status and default profile
+  - Updated README.md platform table: Changed from "✅ Full" to "⚠️ Experimental"
+- **Simplified setup and documentation**:
+  - Removed redundant `settings.lean.json` profile (main `settings.json` is now the lean default)
+  - Simplified optional hooks documentation - now points to `profiles/settings.extras.json` instead of verbose JSON examples
+  - Added `queue-cleanup.sh` script for deduplication at session end
+  - Strengthened opt-in messaging in `CLAUDE_MD_MEMORY_RULES.md`
+  - Default profile now explicitly documented as minimal (git commits + builds only)
+- **Profile system cleanup**:
+  - Main `settings.json` is the default lean profile (git commits + builds + queue cleanup)
+  - `profiles/settings.extras.json` remains for users who want all optional hooks
+  - Clear guidance on using `--profile extras` flag
+
+### Documentation
+- **Simplified Railway deployment guide**:
+  - Removed screenshot image references throughout (images will be added to documentation site)
+  - Streamlined manual setup instructions
+  - Consolidated storage setup steps (removed redundant FalkorDB volume section from README)
+  - Clearer step numbering and flow
+- **Installation guide improvements**:
+  - More prominent experimental warnings for Claude Code
+  - Simplified Warp Terminal setup (now references template files directly)
+  - Improved clarity around platform support status
+  - Better distinction between stable (Claude Desktop, Cursor) and experimental (Claude Code) integrations
+- **Template cleanup**:
+  - Removed 11 obsolete Cursor template files (hooks, agents, rules)
+  - Updated inline documentation in remaining templates
+  - Simplified config examples
+
+### Fixed
+- **Uninstall command**: Updated to handle new simplified Cursor setup (no hooks to remove)
+- **CLI cursor command**: Removed hook-related logic, focused on `.mdc` rule file only
+
+### Removed
+- All Cursor hooks infrastructure (563 lines of hook scripts)
+- `CURSOR_HOOKS_INTEGRATION.md` documentation
+- Multi-agent Cursor templates (AGENTS.md, memory-keeper.md, project-assistant.md)
+- Obsolete screenshots (cursor-hooks-1.jpg, cursor-settings-1.jpg)
+- Redundant Claude Code lean profile
+
+### Development
+- Built and compiled TypeScript changes to `dist/`
+- Updated all affected CLI commands and handlers
+- Total reduction: ~3,982 lines removed, ~1,218 lines modified/added (net -2,764 lines)
+
+### Philosophy
+This release focuses on **simplicity and reliability**. By removing the experimental Cursor hooks system and marking Claude Code as experimental, we're being more honest about what's production-ready (Claude Desktop + Cursor .mdc rules) versus what's still evolving (Claude Code automation). The default experience is now cleaner, with advanced features clearly opt-in.
+
 ## 0.5.0 - 2025-10-01
 
 ### Added
@@ -185,3 +246,9 @@ Initial release
   - `store_memory`, `recall_memory`, `associate_memories`, `update_memory`, `delete_memory`, `check_database_health`.
 - Node client wrapper for the AutoMem API.
 - Baseline docs and quick start.
+### Added
+- **OpenAI Codex proactive rules + installer**:
+  - New `codex` CLI command to install memory-first rules into `AGENTS.md`
+  - Template: `templates/codex/memory-rules.md` with project/month variables
+  - Example config: `templates/codex/config.toml`
+  - Goal: give Codex similar proactive recall/store behavior as Cursor’s `.mdc` rules

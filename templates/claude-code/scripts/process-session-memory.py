@@ -23,7 +23,7 @@ class SessionMemoryProcessor:
     
     def __init__(self):
         self.filters = self.load_filters()
-        self.significance_threshold = 5  # Minimum score to store memory
+        self.significance_threshold = 8  # Minimum score to store memory
     
     def load_filters(self) -> Dict[str, Any]:
         """Load filtering rules"""
@@ -41,6 +41,17 @@ class SessionMemoryProcessor:
                 r"\.venv/",  # Virtual environments
                 r"venv/",  # Virtual environments
                 r"\.pyc$",  # Python compiled files
+                r"dist/",  # Build output
+                r"build/",  # Build output
+                r"\.next/",  # Next.js build
+                r"\.nuxt/",  # Nuxt build
+                r"coverage/",  # Test coverage
+                r"\.cache/",  # Cache directories
+                r"\.lock$",  # Lock files
+                r"-lock\.json$",  # Package lock files
+                r"\.log$",  # Log files
+                r"\.min\.",  # Minified files
+                r"\.map$",  # Source maps
             ],
             "significant_patterns": [
                 r"feat[:\(]",  # Feature commits
@@ -94,17 +105,31 @@ class SessionMemoryProcessor:
         diff_stats = session_data.get('diff_stats', '')
         staged_stats = session_data.get('staged_stats', '')
         
-        # Count changed files
+        # Count changed files (filter out trivial patterns first)
         if file_changes:
             changed_files = [f for f in file_changes.split('\n') if f.strip()]
-            num_changes = len(changed_files)
-            
+
+            # Filter out trivial files
+            significant_files = []
+            for file_line in changed_files:
+                if len(file_line) > 2:
+                    filename = file_line[2:].strip()
+                    is_trivial = False
+                    for pattern in self.filters['trivial_patterns']:
+                        if re.search(pattern, filename):
+                            is_trivial = True
+                            break
+                    if not is_trivial:
+                        significant_files.append(file_line)
+
+            num_changes = len(significant_files)
+
             if num_changes >= self.filters['minimum_changes']:
                 score += 2
                 reasons.append(f"Modified {num_changes} files")
-            
+
             # Check file types for importance
-            for file_line in changed_files:
+            for file_line in significant_files:
                 if len(file_line) > 2:
                     filename = file_line[2:].strip()
                     for ext, weight in self.filters['file_weight'].items():
@@ -238,11 +263,38 @@ class SessionMemoryProcessor:
         
         return patterns
     
-    def check_duplicate(self, content: str, timeframe_hours: int = 24) -> bool:
+    def check_duplicate(self, content: str, timeframe_hours: int = 1) -> bool:
         """Check if similar memory exists in recent timeframe"""
-        # For now, skip duplicate checking since we can't query MCP from here
-        # Future enhancement: Could store recent hashes in a local file
-        return False
+        try:
+            # Generate content hash
+            content_hash = hashlib.md5(content.encode()).hexdigest()
+
+            # Check last 20 entries in queue for duplicates
+            queue_file = Path.home() / ".claude" / "scripts" / "memory-queue.jsonl"
+            if not queue_file.exists():
+                return False
+
+            # Read recent queue entries
+            with open(queue_file, 'r') as f:
+                lines = f.readlines()
+                recent_lines = lines[-20:] if len(lines) > 20 else lines
+
+            # Check for duplicate content
+            for line in recent_lines:
+                try:
+                    record = json.loads(line)
+                    existing_content = record.get('content', '')
+                    existing_hash = hashlib.md5(existing_content.encode()).hexdigest()
+
+                    if existing_hash == content_hash:
+                        return True  # Duplicate found
+                except:
+                    continue
+
+            return False
+        except Exception as e:
+            print(f"Error checking duplicates: {e}")
+            return False
     
     def format_memory_content(self, session_data: Dict[str, Any], 
                             significance: float, reasons: List[str],

@@ -6,6 +6,7 @@ import { config } from 'dotenv';
 import { runConfig, runSetup } from './cli/setup.js';
 import { runClaudeCodeSetup } from './cli/claude-code.js';
 import { runCursorSetup } from './cli/cursor.js';
+import { runCodexSetup } from './cli/codex.js';
 import { runMigrateCommand } from './cli/migrate.js';
 import { runUninstallCommand } from './cli/uninstall.js';
 import { runQueueCommand } from './cli/queue.js';
@@ -27,21 +28,20 @@ COMMANDS:
   migrate            Migrate existing projects to AutoMem
   uninstall          Remove AutoMem configuration
   queue              Manage memory queue
+  recall             Recall memories via CLI
   help               Show this help message
 
         CURSOR SETUP:
           npx @verygoodplugins/mcp-automem cursor [options]
 
           Options:
-            --hooks                 Install automation hooks (session init, edit capture, queue drain)
             --name <name>           Project name (auto-detected if not provided)
-            --desc <description>    Project description
-            --dir <path>            Target directory for .cursor/rules
+            --dir <path>            Target directory for .cursor/rules (default: .cursor/rules)
             --dry-run              Show what would be changed without modifying files
-            --yes, -y              Skip confirmation prompts
             --quiet                Suppress output
 
-          For global behavior across all projects, see README "Global User Rules" section
+          This command installs the automem.mdc rule file and checks for MCP server configuration.
+          For global behavior across all projects, add memory rules to Cursor Settings > Rules for AI.
 
 CLAUDE CODE SETUP:
   npx @verygoodplugins/mcp-automem claude-code [options]
@@ -67,16 +67,24 @@ UNINSTALL:
   
   Options:
     --dir <path>          Project directory (for cursor)
-    --clean-all          Also remove Claude Desktop memory server config
+    --clean-all          Also remove MCP server config (Cursor/Claude Desktop)
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation
 
+RECALL:
+  npx @verygoodplugins/mcp-automem recall [options]
+  
+  Options:
+    --query <text>        Search query
+    --tags <tag1,tag2>    Filter by tags (comma-separated)
+    --limit <number>      Maximum results (default: 5)
+
         EXAMPLES:
-          # Set up Cursor in current project
+          # Set up Cursor in current project (installs automem.mdc rule)
           npx @verygoodplugins/mcp-automem cursor
 
-          # Set up Cursor with automatic memory capture hooks
-          npx @verygoodplugins/mcp-automem cursor --hooks
+          # Set up with custom project name
+          npx @verygoodplugins/mcp-automem cursor --name my-project
 
           # Set up Claude Code with lean profile
           npx @verygoodplugins/mcp-automem claude-code --profile lean
@@ -84,10 +92,20 @@ UNINSTALL:
           # Migrate manual memory usage to Cursor
           npx @verygoodplugins/mcp-automem migrate --from manual --to cursor
 
-          # Uninstall Cursor AutoMem and clean external configs
-          npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
+          # Uninstall Cursor AutoMem
+          npx @verygoodplugins/mcp-automem uninstall cursor
 
-          # For global Cursor rules, see README "Global User Rules" section
+          # Recall memories matching a query
+          npx @verygoodplugins/mcp-automem recall --query "authentication decisions" --limit 5
+
+CODEX SETUP:
+  npx @verygoodplugins/mcp-automem codex [options]
+  
+  Options:
+    --name <name>         Project name (auto-detected if not provided)
+    --rules <path>        Target rules file (default: ./AGENTS.md)
+    --dry-run             Show what would be changed
+    --quiet               Suppress output
 
 For more information, visit:
 https://github.com/verygoodplugins/mcp-automem
@@ -110,6 +128,10 @@ if (command === 'cursor') {
     await runCursorSetup(process.argv.slice(3));
     process.exit(0);
 }
+if (command === 'codex') {
+    await runCodexSetup(process.argv.slice(3));
+    process.exit(0);
+}
 if (command === 'migrate') {
     await runMigrateCommand(process.argv.slice(3));
     process.exit(0);
@@ -122,6 +144,40 @@ if (command === 'queue') {
     await runQueueCommand(process.argv.slice(3));
     process.exit(0);
 }
+if (command === 'recall') {
+    const AUTOMEM_ENDPOINT = process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
+    const AUTOMEM_API_KEY = process.env.AUTOMEM_API_KEY;
+    if (!AUTOMEM_ENDPOINT) {
+        console.error('❌ AUTOMEM_ENDPOINT not set');
+        process.exit(1);
+    }
+    const client = new AutoMemClient({ endpoint: AUTOMEM_ENDPOINT, apiKey: AUTOMEM_API_KEY });
+    // Parse CLI args
+    const args = process.argv.slice(3);
+    let query = '';
+    let tags = [];
+    let limit = 5;
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--query' && args[i + 1]) {
+            query = args[++i];
+        }
+        else if (args[i] === '--tags' && args[i + 1]) {
+            tags = args[++i].split(',');
+        }
+        else if (args[i] === '--limit' && args[i + 1]) {
+            limit = parseInt(args[++i], 10);
+        }
+    }
+    try {
+        const results = await client.recallMemory({ query, tags, limit });
+        console.log(JSON.stringify(results, null, 2));
+        process.exit(0);
+    }
+    catch (error) {
+        console.error('❌ Recall failed:', error);
+        process.exit(1);
+    }
+}
 const AUTOMEM_ENDPOINT = process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
 const AUTOMEM_API_KEY = process.env.AUTOMEM_API_KEY;
 if (!process.env.AUTOMEM_ENDPOINT) {
@@ -132,7 +188,7 @@ const clientConfig = {
     apiKey: AUTOMEM_API_KEY,
 };
 const client = new AutoMemClient(clientConfig);
-const server = new Server({ name: 'mcp-automem', version: '0.1.0' }, { capabilities: { tools: {} } });
+const server = new Server({ name: 'mcp-automem', version: '0.6.0' }, { capabilities: { tools: {} } });
 const tools = [
     {
         name: 'store_memory',

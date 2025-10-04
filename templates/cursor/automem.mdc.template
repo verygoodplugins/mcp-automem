@@ -1,0 +1,299 @@
+---
+description: AutoMem persistent memory - recall context at start, store decisions during work, summarize at end
+alwaysApply: true
+---
+
+# AutoMem Memory Integration
+
+Use memory tools proactively to maintain persistent context across sessions for {{PROJECT_NAME}}.
+
+## About the Memory System
+
+**AutoMem MCP Server**: You have access to the AutoMem memory system via MCP (Model Context Protocol). The memory server is already installed and active in your environment.
+
+**How it works**:
+- Tools are accessed via MCP with the `mcp_memory_*` prefix (e.g., `mcp_memory_store_memory`)
+- Data is stored in **FalkorDB** (graph database for relationships) and **Qdrant** (vector database for semantic search)
+- Same proven system used by Claude Desktop
+- Memories persist across all conversations and sessions
+
+**Your role**: Use these MCP tools to store important context and recall it when needed. The system handles storage, indexing, and retrieval automatically.
+
+## 3-Phase Memory Pattern
+
+### 1. CONVERSATION START
+Recall relevant context for strategic and contextual questions:
+
+**ALWAYS recall for:**
+- Project context questions (documentation, tooling, deployment)
+- Architecture discussions or decisions
+- User preferences and choices
+- Feature planning or strategy
+- Any question about "why" something exists or how it should be done
+- Questions that benefit from historical decisions
+
+**Skip memory ONLY for:**
+- Pure syntax/language questions ("How does Array.map work?")
+- Trivial edits (typos, formatting, simple renames)
+- Direct factual queries about current code ("What's in this function?")
+- File content requests that can be answered by reading the file
+
+**Examples:**
+
+| **Recall** | **Skip** |
+|------------|----------|
+| "Which screenshots are most important?" | "Fix this typo in README" |
+| "How should we structure the docs?" | "What does this function return?" |
+| "What deployment options did we consider?" | "Show me the imports in index.ts" |
+| "Why did we choose FalkorDB?" | "How do I use Array.filter?" |
+
+```javascript
+mcp_memory_recall_memory({
+  query: "screenshot documentation strategy and priorities",
+  tags: ["{{PROJECT_NAME}}", "cursor", "documentation"],
+  limit: 3
+})
+```
+
+**Natural integration:** If memories found, weave context into response naturally. Avoid robotic phrases like "I'm searching my memory" or "Let me recall..." Just use the information as if you've always known it.
+
+Example: "Based on our previous authentication work, let's continue with the same JWT pattern..."
+
+### 2. DURING CONVERSATION
+Store memories for:
+
+**Decisions** (importance: 0.9)
+- Architecture choices, library selections, pattern decisions
+- `[DECISION] Chose Redis for caching due to performance needs`
+
+**Bug Fixes** (importance: 0.8)
+- Root cause, solution, prevention strategy
+- `[BUG-FIX] UserAuth failing on null input. Added validation. Files: auth/*.ts`
+
+**Patterns** (importance: 0.7)
+- Reusable patterns, best practices discovered
+- `[PATTERN] Using early returns for validation. Improves readability`
+
+**Features** (importance: 0.6-0.8)
+- New capabilities, integrations
+- `[FEATURE] Added JWT authentication with refresh tokens`
+
+**Config/Refactoring** (importance: 0.5-0.7)
+- Configuration changes, code refactoring
+- `[CONFIG] Updated API timeout to 30s for slow endpoints`
+
+**Storage example:**
+```javascript
+mcp_memory_store_memory({
+  content: "[TYPE] Brief title. Context and details. Impact/outcome.",
+  tags: ["{{PROJECT_NAME}}", "cursor", "type-tag", "component", "{{CURRENT_MONTH}}"],
+  importance: 0.8,
+  metadata: {
+    type: "bug_fix",
+    component: "auth",
+    files_modified: ["src/auth/UserAuth.ts"]
+  }
+})
+```
+
+### 3. CONVERSATION END
+Summarize if multiple files modified, significant refactoring, new features, or important decisions:
+
+```javascript
+mcp_memory_store_memory({
+  content: "[SESSION] Added authentication system with JWT. Impact: Users can now login securely.",
+  tags: ["{{PROJECT_NAME}}", "cursor", "feature", "auth", "{{CURRENT_MONTH}}"],
+  importance: 0.9,
+  metadata: {
+    type: "feature",
+    files_modified: ["src/auth/UserAuth.ts", "src/middleware/auth.ts"]
+  }
+})
+```
+
+## Tagging Convention
+
+ALWAYS include these tags:
+1. `{{PROJECT_NAME}}` - Project identifier
+2. `cursor` - Platform tag
+3. `{{CURRENT_MONTH}}` - Current month (YYYY-MM format)
+4. Component tag - Specific area (e.g., "auth", "api", "frontend")
+5. Type tag - One of: `decision`, `pattern`, `bug-fix`, `feature`, `optimization`, `config`, `refactor`
+
+## Importance Scoring
+
+- **0.9-1.0**: Critical decisions, major features, breaking changes
+- **0.7-0.9**: Important patterns, significant bugs, new integrations
+- **0.5-0.7**: Helpful patterns, minor features, config changes
+- **0.3-0.5**: Small fixes, temporary workarounds, notes
+
+## Memory Associations
+
+Link related memories for richer context:
+
+```javascript
+// After storing two related memories
+mcp_memory_associate_memories({
+  memory1_id: "<first-memory-id>",
+  memory2_id: "<second-memory-id>",
+  type: "RELATES_TO",  // or LEADS_TO, EVOLVED_INTO, CONTRADICTS
+  strength: 0.8
+})
+```
+
+Association types (all 11 available):
+- `RELATES_TO`: General connection between concepts
+- `LEADS_TO`: Causal relationship (bug → solution, decision → outcome)
+- `OCCURRED_BEFORE`: Temporal sequence of events
+- `PREFERS_OVER`: User/team preference (chose X over Y)
+- `EXEMPLIFIES`: Concrete example of a pattern/principle
+- `CONTRADICTS`: Conflicting approaches (marks old as outdated)
+- `REINFORCES`: Supporting evidence for a decision
+- `INVALIDATED_BY`: Superseded by newer information
+- `EVOLVED_INTO`: Iterative refinement of an approach
+- `DERIVED_FROM`: Source/inspiration relationship
+- `PART_OF`: Hierarchical structure (component → system)
+
+## Search Strategies
+
+**Broad component search:**
+```javascript
+mcp_memory_recall_memory({
+  query: "authentication patterns",
+  tags: ["{{PROJECT_NAME}}", "auth"]
+})
+```
+
+**Recent work search:**
+```javascript
+mcp_memory_recall_memory({
+  query: "API changes",
+  tags: ["{{PROJECT_NAME}}"],
+  time_query: "last 30 days"
+})
+```
+
+**Bug-related search:**
+```javascript
+mcp_memory_recall_memory({
+  query: "database connection timeout",
+  tags: ["{{PROJECT_NAME}}", "bug-fix"]
+})
+```
+
+## Context-Aware Development
+
+Before suggesting solutions:
+1. Recall relevant patterns/decisions
+2. Check codebase if needed
+3. Make informed suggestions consistent with past work
+
+When proposing architecture:
+1. Check for existing architectural decisions
+2. Follow established patterns
+3. Store new decisions for future reference
+
+When debugging:
+1. Search for similar past issues
+2. Apply known solutions
+3. Store new fixes with root cause
+
+## Content Structure Guidelines
+
+Format: `[TYPE] Brief title. Context and details. Impact/outcome.`
+
+**Good examples:**
+- `[DECISION] Using PostgreSQL over MongoDB. Need ACID guarantees for transactions. Impact: Ensures data consistency.`
+- `[BUG-FIX] Login failing on special characters. Root cause: missing input sanitization. Added validator. Files: auth/login.ts`
+- `[PATTERN] Early returns for validation. Reduces nesting, improves readability. Applied in all API routes.`
+
+**Avoid:**
+- Trivial changes: "Fixed typo", "Updated comment"
+- Missing context: "Changed config" (what config? why?)
+- No tags: Always include all required tags
+- Secrets: Never store API keys, passwords, tokens
+
+## Tool Reference
+
+**Store memory:**
+```javascript
+mcp_memory_store_memory({
+  content: string,
+  tags: string[],
+  importance: number,  // 0.0-1.0
+  metadata?: object
+})
+```
+
+**Recall memories:**
+```javascript
+mcp_memory_recall_memory({
+  query?: string,           // Text search
+  tags?: string[],          // Filter by tags
+  limit?: number,           // default: 3, max: 50
+  time_query?: string,      // "today", "last week", "last 30 days"
+  start?: string,           // ISO timestamp lower bound
+  end?: string,             // ISO timestamp upper bound
+  tag_mode?: "any"|"all",   // OR vs AND for multiple tags
+  tag_match?: "exact"|"prefix",  // Enables namespace search (e.g., "auth/*")
+  embedding?: number[]      // Vector for semantic similarity
+})
+```
+
+**Update memory:**
+```javascript
+mcp_memory_update_memory({
+  memory_id: string,
+  content?: string,
+  tags?: string[],
+  importance?: number,
+  metadata?: object
+})
+```
+
+**Associate memories:**
+```javascript
+mcp_memory_associate_memories({
+  memory1_id: string,
+  memory2_id: string,
+  type: "RELATES_TO" | "LEADS_TO" | "OCCURRED_BEFORE" | "PREFERS_OVER" | 
+        "EXEMPLIFIES" | "CONTRADICTS" | "REINFORCES" | "INVALIDATED_BY" |
+        "EVOLVED_INTO" | "DERIVED_FROM" | "PART_OF",
+  strength: number  // 0.0-1.0
+})
+```
+
+**Delete memory:**
+```javascript
+mcp_memory_delete_memory({
+  memory_id: string
+})
+```
+
+## Error Handling
+
+If memory operations fail:
+- **Recall fails/empty**: Continue without historical context. Don't announce the failure.
+- **Store fails**: Log silently, complete the task normally. Memory is enhancement, not requirement.
+- **Service unavailable**: Gracefully degrade. Focus on solving the immediate problem.
+
+Memory enhances the experience but should never block progress.
+
+## Best Practices Summary
+
+- **Default to recall**: For project-related questions, always check memory first. Skip only for trivial or purely factual queries.
+- **Natural integration**: Use recalled context seamlessly, don't announce memory operations
+- **Tag consistently**: Project, platform, date, component, type on every store
+- **Score importance**: Helps future recall prioritization
+- **Link related memories**: Use associations to build knowledge graphs
+- **Avoid noise**: Don't store trivial changes (typos, formatting, comments)
+- **Include context**: Future you needs to understand "why", not just "what"
+- **Update outdated**: Mark contradictions with INVALIDATED_BY or CONTRADICTS
+
+---
+
+**Installed**: `npx @verygoodplugins/mcp-automem cursor`
+**Project**: {{PROJECT_NAME}}
+**Current Month**: {{CURRENT_MONTH}}
+
+Memory is your persistent brain across sessions. Use it strategically!

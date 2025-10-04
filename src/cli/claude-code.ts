@@ -258,6 +258,15 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
   };
 
   const targetDir = options.targetDir ?? path.join(os.homedir(), '.claude');
+  
+  // Display experimental warning
+  if (!options.quiet) {
+    console.log('\n⚠️  EXPERIMENTAL: Claude Code hooks are actively evolving.');
+    console.log('   Default profile: Lean (git commits + builds only)');
+    console.log('   Optional hooks: Edit, test, deploy, error capture (disabled by default)');
+    console.log('   Use --profile extras to enable all optional hooks\n');
+  }
+  
   log(`Configuring Claude Code automation in ${targetDir}`, options.quiet);
 
   if (!options.dryRun) {

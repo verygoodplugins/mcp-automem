@@ -72,7 +72,6 @@ export async function runMigration(options) {
         await applyCursorSetup({
             targetDir: path.join(projectDir, '.cursor', 'rules'),
             dryRun: options.dryRun,
-            yes: options.yes,
             quiet: options.quiet,
         });
     }

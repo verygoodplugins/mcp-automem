@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "automem": {
+    "memory": {
       "command": "npx",
       "args": ["@verygoodplugins/mcp-automem"],
       "env": {
@@ -15,4 +15,3 @@
     }
   }
 }
-

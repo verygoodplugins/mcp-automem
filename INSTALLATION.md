@@ -6,34 +6,248 @@ Complete setup instructions for AutoMem MCP across all platforms.
 
 You need a running **[AutoMem service](https://github.com/verygoodplugins/automem)** instance. Options:
 
-- **Self-hosted**: Deploy AutoMem service via Docker or Railway ([deployment guide](https://github.com/verygoodplugins/automem#deployment))
-- **Local development**: Run `make dev` in AutoMem project (FalkorDB + Qdrant + API)
+- **Local development** (fastest): Run `make dev` in AutoMem project ([instructions](#local-setup))
+- **Railway cloud** (recommended for production): Deploy to Railway ([instructions](#railway-deployment))
+- **Self-hosted**: Deploy via Docker ([AutoMem repo](https://github.com/verygoodplugins/automem#deployment))
 
 ## Quick Start
 
+Follow these three steps:
+
+1. **[Set up AutoMem service](#automem-service-setup)** - Choose local or Railway
+2. **[Run setup wizard](#assisted-setup)** - Configure MCP client
+3. **[Configure your platform](#platform-specific-mcp-client-setup)** - Claude Desktop, Cursor, etc.
+
 ### Assisted Setup (Recommended)
 
-Run the guided setup wizard:
+After you have an AutoMem service running, use the guided setup wizard:
 
 ```bash
 npx @verygoodplugins/mcp-automem setup
 ```
 
 The wizard will:
-- Prompt for your AutoMem endpoint and API key
+- Prompt for your AutoMem endpoint (localhost or Railway URL)
+- Prompt for API key (if using Railway)
 - Create/update `.env` file in current directory
-- Print config snippets for Claude Desktop and Claude Code
-- Add `--claude-code` flag to install Claude Code automation in one step
+- Print config snippets for your platform
+- Validate connection to AutoMem service
 
-### Platform-Specific Setup
+**Example:**
+```bash
+$ npx @verygoodplugins/mcp-automem setup
+? AutoMem Endpoint: http://localhost:8001
+? API Key (optional): [leave blank for local]
+✓ Connection successful!
+✓ Config saved to .env
+✓ Claude Desktop config snippet generated
+```
 
-Choose your platform:
+---
 
-- [Claude Desktop](#claude-desktop)
-- [Cursor IDE](#cursor-ide)
-- [Claude Code](#claude-code)
-- [Warp Terminal](#warp-terminal)
-- [OpenAI Codex](#openai-codex)
+## AutoMem Service Setup
+
+### Local Setup
+
+**Best for:** Development, testing, single-machine use, or if you prefer privacy.
+
+```bash
+# Clone AutoMem service repository
+git clone https://github.com/verygoodplugins/automem.git
+cd automem
+
+# Start all services (API + FalkorDB + Qdrant)
+make dev
+```
+
+**What just happened?** Docker Compose started three containers:
+- **AutoMem API** at `http://localhost:8001` - Memory storage/retrieval service
+- **FalkorDB** at `localhost:6379` - Graph database for memory relationships
+- **Qdrant** at `localhost:6333` - Vector database for semantic search
+
+**Verify it's running:**
+```bash
+curl http://localhost:8001/health
+# Expected: {"status": "healthy", "falkordb": "connected"}
+```
+
+**Default credentials (local only):**
+- No API token required for local development
+- Service listens on `127.0.0.1` only (not accessible from network)
+
+**Persistent storage:**
+- Memories stored in Docker volumes (survive container restarts)
+- To reset: `make clean` (⚠️ deletes all memories)
+
+**Next step:** Use `http://localhost:8001` as your `AUTOMEM_ENDPOINT` when running `npx @verygoodplugins/mcp-automem setup`
+
+---
+
+### Railway Deployment
+
+**Best for:** Production use, multi-device access, team collaboration, always-on availability.
+
+**What is Railway?** Cloud hosting platform where your AutoMem service runs 24/7 in containers.
+
+**Cost breakdown:**
+- ✅ **$5 free credits** for 30-day trial (no credit card required)
+- ✅ **~$0.50/month** typical AutoMem usage after trial
+- ✅ **$1/month minimum** if you use less than that
+
+---
+
+#### Option A: One-Click Deploy ⭐ (Recommended)
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/yD_u9d?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
+
+**What this does:**
+- Creates AutoMem API + FalkorDB services automatically
+- Sets up persistent storage and volumes
+- Generates secure API tokens (`AUTOMEM_API_TOKEN`, `ADMIN_API_TOKEN`)
+- Configures internal networking (`FALKORDB_HOST`, `FALKORDB_PORT`)
+- Generates public domain automatically
+
+**After clicking:**
+1. Sign in with GitHub (if not logged in)
+2. Review environment variables
+3. (Optional) Add `OPENAI_API_KEY` for real embeddings instead of mock embeddings
+4. Click **"Deploy"**
+5. Wait ~60 seconds for deployment to complete ✅
+
+**Next:** Jump to [Step 3: Get Your AutoMem URL](#step-3-get-your-automem-url-1-minute) below to get your endpoint.
+
+---
+
+#### Option B: Manual Setup (Advanced)
+
+<details>
+<summary><b>Need more control? Click to expand manual deployment steps</b></summary>
+
+#### Step 1: Create Railway Account (2 minutes)
+
+1. Go to **[railway.app](https://railway.app)**
+2. Click **"Start a New Project"** or **"Login"**
+3. Sign in with GitHub (create GitHub account first if needed at [github.com](https://github.com))
+
+---
+
+#### Step 2: Deploy AutoMem Service (5 minutes)
+
+AutoMem runs as **two services** on Railway: the API and FalkorDB database.
+
+**2a. Create New Project**
+
+1. After logging in, click **"New Project"**
+2. Choose **"Deploy from GitHub repo"**
+
+**2b. Connect GitHub Repository**
+
+1. Click **"Configure GitHub App"**
+2. Install Railway app to your GitHub account
+3. Fork **[verygoodplugins/automem](https://github.com/verygoodplugins/automem)** (top right, click "Fork")
+4. Back in Railway, select **your fork** of automem
+5. Click **"Deploy Now"**
+
+**2c. Add FalkorDB Database**
+
+Railway will deploy the AutoMem API automatically. Now add the database:
+
+1. In your project, click **"+ New"** → **"Empty Service"**
+2. In the new service settings:
+   - **Name:** `falkordb`
+   - **Source:** Docker image
+   - **Image:** `falkordb/falkordb:latest`
+3. Click **"Deploy"**
+
+**2d. Configure AutoMem API Environment Variables**
+
+1. Click on your **automem** service (not falkordb)
+2. Go to **"Variables"** tab
+3. Click **"+ New Variable"** and add these:
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `AUTOMEM_API_TOKEN` | Generate a random string* | Auth token for API calls |
+| `ADMIN_API_TOKEN` | Generate another random string* | Admin-only operations |
+| `FALKORDB_HOST` | `falkordb.railway.internal` | Internal FalkorDB hostname |
+| `FALKORDB_PORT` | `6379` | FalkorDB port |
+| `OPENAI_API_KEY` | Your OpenAI API key (optional) | Enables real embeddings |
+
+**Generate random strings:* Use `openssl rand -base64 32` in terminal or any password generator.
+
+**Optional:** Add `QDRANT_URL` and `QDRANT_API_KEY` if using Qdrant Cloud for vector search.
+
+4. Click **"Deploy"** to restart with new variables
+
+---
+
+#### Step 3: Get Your AutoMem URL (1 minute)
+
+1. Click on your **automem** service (the API, not falkordb)
+2. Go to **"Settings"** tab
+3. Scroll to **"Networking"** → **"Public Networking"**
+4. Click **"Generate Domain"**
+5. **Copy the URL** - looks like: `automem-production-abc123.up.railway.app`
+
+**✅ Save this URL!** You'll need it when configuring MCP clients below.
+
+---
+
+#### Step 4: Verify Deployment (30 seconds)
+
+Test that everything works:
+
+```bash
+# Replace with YOUR Railway URL
+curl https://automem-production-abc123.up.railway.app/health
+```
+
+**Expected response:**
+```json
+{"status": "healthy", "falkordb": "connected"}
+```
+
+**Got an error?**
+- `503 Service Unavailable` = FalkorDB can't connect. Check:
+  - `FALKORDB_HOST` is set to `falkordb.railway.internal`
+  - FalkorDB service is running (green dot in Railway dashboard)
+  - Volume is mounted at `/data`
+- `401 Unauthorized` = You're trying a protected endpoint. `/health` should work without auth.
+
+</details>
+
+---
+
+#### What You Just Built
+
+```
+┌─────────────────────────────────────┐
+│  Railway Cloud (Your Free Tier)    │
+│                                     │
+│  ┌────────────────┐  ┌───────────┐ │
+│  │  AutoMem API   │  │ FalkorDB  │ │
+│  │  (Flask)       │──│ (Graph DB)│ │
+│  │  Port: 443     │  │ +Volume   │ │
+│  └────────────────┘  └───────────┘ │
+│         ▲                           │
+│         │ HTTPS                     │
+│         │ (your-url.railway.app)    │
+└─────────┼───────────────────────────┘
+          │
+          ▼
+   Your AI Tools
+   (any device, anywhere)
+```
+
+**Next step:** Use your Railway URL (e.g., `https://automem-production-abc123.up.railway.app`) as your `AUTOMEM_ENDPOINT` when configuring MCP clients below.
+
+👉 **[Advanced Railway Configuration](RAILWAY_TEMPLATE_GUIDE.md)** - Custom domains, monitoring, template creation
+
+---
+
+## Platform-Specific MCP Client Setup
+
+Now that your AutoMem service is running (locally or on Railway), configure your AI platforms to connect to it.
 
 ---
 
@@ -50,7 +264,7 @@ Add AutoMem to your Claude Desktop configuration:
 ```json
 {
   "mcpServers": {
-    "automem": {
+    "memory": {
       "command": "npx",
       "args": ["@verygoodplugins/mcp-automem"],
       "env": {
@@ -66,7 +280,7 @@ Add AutoMem to your Claude Desktop configuration:
 ```json
 {
   "mcpServers": {
-    "automem": {
+    "memory": {
       "command": "npx",
       "args": ["@verygoodplugins/mcp-automem"],
       "env": {
@@ -90,6 +304,50 @@ Check the health of the AutoMem service
 
 You should see connection status for FalkorDB and Qdrant.
 
+### 4. Configure Custom Instructions (Optional but Recommended)
+
+Enable automatic memory usage by adding custom instructions to Claude Desktop.
+
+**How to add Custom Instructions:**
+
+1. Open Claude Desktop
+2. Click the **Settings** icon (gear) in the bottom-left corner
+3. Select **Custom Instructions** from the menu
+4. Add the following to your instructions:
+
+```markdown
+<important>Using the Memory MCP is vital to our operations. When you start conversations, use the Memory tool to give yourself additional context. Wherever appropriate, create or update memories based on important milestones in the conversation.</important>
+```
+
+![Claude Desktop with Custom Instructions](screenshots/claude-desktop-custom-instructions-3.jpg)
+*Add memory instructions to Custom Instructions*
+
+5. Click **Save**
+6. Restart Claude Desktop
+
+**What this does:**
+- Claude automatically recalls relevant memories at conversation start
+- Stores important decisions, patterns, and context throughout conversations
+- Greatly improves response quality by providing continuity across sessions
+
+![Claude Desktop Using Memory](screenshots/claude-desktop-with-instructions.jpg)
+*Claude automatically using memory tools with custom instructions*
+
+**Example behavior:**
+```
+User: "Let's add authentication to the API"
+
+Claude: [Automatically recalls memories]
+📚 From memory:
+- You prefer JWT tokens for authentication (from Project X)
+- Use bcrypt for password hashing (security pattern)
+- Express.js middleware pattern preferred
+
+[Claude responds with context-aware implementation]
+```
+
+**Note:** Custom instructions are evolving rapidly in Claude Desktop. Check back for updates as we optimize the prompt based on new capabilities.
+
 ---
 
 ## Cursor IDE
@@ -98,65 +356,20 @@ You should see connection status for FalkorDB and Qdrant.
 
 Click to install AutoMem MCP server in Cursor:
 
-<a href="cursor://anysphere.cursor-deeplink/mcp/install?name=automem&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyJAdmVyeWdvb2RwbHVnaW5zL21jcC1hdXRvbWVtIl0sImVudiI6eyJBVVRPTUVNX0VORFBPSU5UIjoiaHR0cHM6Ly95b3VyLWF1dG9tZW0taW5zdGFuY2UucmFpbHdheS5hcHAiLCJBVVRPTUVNX0FQSV9LRVkiOiJ5b3VyLWFwaS1rZXktaWYtcmVxdWlyZWQifX0=">
-  <img src="https://img.shields.io/badge/Install_in_Cursor-000000?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJMMiAyMkgyMkwxMiAyWiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+" alt="Install in Cursor" />
-</a>
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=memory&config=eyJlbnYiOnsiQVVUT01FTV9FTkRQT0lOVCI6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMSIsIkFVVE9NRU1fQVBJX0tFWSI6InlvdXItYXBpLWtleS1pZi1yZXF1aXJlZCJ9LCJjb21tYW5kIjoibnB4IEB2ZXJ5Z29vZHBsdWdpbnMvbWNwLWF1dG9tZW0ifQ%3D%3D)
 
 **What this does:**
-- Opens Cursor with install prompt
-- Automatically adds AutoMem to your Claude Desktop MCP config
+- Automatically adds AutoMem MCP server to Cursor's configuration
 - No manual JSON editing required!
 
 **After installation:**
-- Update `AUTOMEM_ENDPOINT` with your AutoMem instance URL
+- Update `AUTOMEM_ENDPOINT` with your AutoMem instance URL in `~/.cursor/mcp.json`
 - Optionally set `AUTOMEM_API_KEY` if using authentication
 - Restart Cursor to load the server
 
-**Config location:**
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
+### 2. Add Memory Rule (Recommended)
 
-<details>
-<summary><b>📋 How the install link works</b></summary>
-
-The install button uses Cursor's MCP deeplink protocol:
-
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=automem&config=eyJlbnYiOnsiQVVUT01FTV9FTkRQT0lOVCI6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMSJ9LCJjb21tYW5kIjoibnB4IEB2ZXJ5Z29vZHBsdWdpbnMvbWNwLWF1dG9tZW0ifQ%3D%3D)
-
-**Format breakdown:**
-- `cursor://anysphere.cursor-deeplink/mcp/install` - Cursor's MCP install handler
-- `name=automem` - MCP server name
-- `config=BASE64_CONFIG` - Base64 encoded JSON configuration
-
-**Configuration being installed:**
-```json
-{
-  "command": "npx",
-  "args": ["@verygoodplugins/mcp-automem"],
-  "env": {
-    "AUTOMEM_ENDPOINT": "https://your-automem-instance.railway.app",
-    "AUTOMEM_API_KEY": "your-api-key-if-required"
-  }
-}
-```
-
-Learn more: [Cursor MCP Install Links](https://cursor.com/docs/context/mcp/install-links)
-
-**Want to use this in your own README?**
-
-Markdown:
-```markdown
-<a href="cursor://anysphere.cursor-deeplink/mcp/install?name=automem&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyJAdmVyeWdvb2RwbHVnaW5zL21jcC1hdXRvbWVtIl0sImVudiI6eyJBVVRPTUVNX0VORFBPSU5UIjoiaHR0cHM6Ly95b3VyLWF1dG9tZW0taW5zdGFuY2UucmFpbHdheS5hcHAiLCJBVVRPTUVNX0FQSV9LRVkiOiJ5b3VyLWFwaS1rZXktaWYtcmVxdWlyZWQifX0=">
-  <img src="https://img.shields.io/badge/Install_in_Cursor-000000?style=for-the-badge" alt="Install in Cursor" />
-</a>
-```
-
-</details>
-
-### 2. Automated Setup with Agent Rules (Recommended)
-
-For complete setup with memory-first agent rules, run:
+Install the `automem.mdc` rule file to teach Cursor how to use memory:
 
 ```bash
 npx @verygoodplugins/mcp-automem cursor
@@ -164,10 +377,8 @@ npx @verygoodplugins/mcp-automem cursor
 
 This will:
 - Auto-detect your project name and description
-- Create `.cursor/rules/` with memory agent configurations
-- Install `.cursorrules` with memory-first patterns
-- Check Claude Desktop config for memory server
-- Provide setup guidance if memory server is missing
+- Create `.cursor/rules/automem.mdc` with memory-first instructions
+- Check for MCP server configuration and provide setup guidance if missing
 
 **Options:**
 ```bash
@@ -181,93 +392,7 @@ npx @verygoodplugins/mcp-automem cursor --dry-run
 npx @verygoodplugins/mcp-automem cursor --dir .cursor/rules
 ```
 
-### 2.5. Install Automation Hooks (Optional but Recommended)
-
-Enable **automatic memory capture** throughout your coding session:
-
-```bash
-npx @verygoodplugins/mcp-automem cursor --hooks
-```
-
-This installs hooks to `~/.cursor/`:
-
-**Hook Flow**:
-1. **Session Start** (`beforeSubmitPrompt`) - Recalls relevant memories, injects context into AI
-2. **Code Changes** (`afterFileEdit`) - Queues significant edits
-3. **Shell Commands** (`beforeShellExecution`) - Audits git commits, builds, deploys
-4. **Session End** (`stop`) - Drains queue to AutoMem
-
-**What Gets Installed**:
-```
-~/.cursor/
-├── hooks.json                    # Hook configuration
-├── hooks/
-│   ├── init-session.sh          # Session init + memory recall
-│   ├── capture-edit.sh          # File edit capture
-│   ├── audit-shell.sh           # Shell command audit
-│   └── drain-queue.sh           # Queue processor
-├── scripts/
-│   └── memory-filters.json      # Filters (skip lock files, etc.)
-└── logs/
-    └── hooks.log                # Hook execution logs
-```
-
-**Verify Installation**:
-1. Restart Cursor
-2. Open Cursor Settings > Hooks tab
-3. Verify 4 hooks are listed
-4. Check logs: `tail -f ~/.cursor/logs/hooks.log`
-
-**Example Session with Hooks**:
-```
-User: "Add authentication to the API"
-
-Hook injects context:
-📚 Context from previous sessions:
-1. You chose JWT tokens for auth (importance: 0.8)
-2. Use bcrypt for password hashing (importance: 0.9)
-
-[AI codes with this context...]
-
-Hook captures:
-✓ Edited src/auth/UserAuth.ts (5 changes, 342 chars)
-✓ Executed: npm test (queued as test run)
-
-Session ends:
-✓ Draining 12 memories to AutoMem
-```
-
-👉 **[Full Hooks Guide](../templates/CURSOR_HOOKS_INTEGRATION.md)** - Architecture, troubleshooting, advanced usage
-
-### 3. Configure Environment Variables
-
-After one-click install or CLI setup, update the AutoMem configuration:
-
-Edit Claude Desktop config (Cursor uses Claude Desktop's MCP servers):
-
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`  
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`  
-**Linux**: `~/.config/Claude/claude_desktop_config.json`
-
-Update the `env` section:
-```json
-{
-  "mcpServers": {
-    "automem": {
-      "command": "npx",
-      "args": ["@verygoodplugins/mcp-automem"],
-      "env": {
-        "AUTOMEM_ENDPOINT": "https://your-automem-instance.railway.app",
-        "AUTOMEM_API_KEY": "your-api-key-if-required"
-      }
-    }
-  }
-}
-```
-
-Restart Claude Desktop/Cursor after updating the config.
-
-### 4. Global User Rules (Optional)
+### 3. Global User Rules (Optional)
 
 For memory-first behavior across **ALL** Cursor projects, add this to `Cursor Settings > General > Rules for AI`:
 
@@ -296,6 +421,8 @@ This enables basic memory recall/storage globally. For full agent features (prio
 
 ## Claude Code
 
+> ⚠️ **EXPERIMENTAL:** Claude Code hooks-based installation is actively evolving as we optimize based on real-world usage and new Claude Code capabilities. The default setup is intentionally minimal (git commits + builds only). Additional capture hooks are optional and should be enabled carefully. Expect frequent updates and improvements.
+
 ### 1. Install Automation Hooks
 
 Run the Claude Code setup:
@@ -305,9 +432,20 @@ npx @verygoodplugins/mcp-automem claude-code
 ```
 
 This command:
-- Installs/updates `~/.claude/hooks/*.sh` and supporting scripts
+- Installs lean, high-signal hooks (git commit, build, session end)
 - Merges tool permissions and hook definitions into `~/.claude/settings.json`
-- Adds session-stop hook that drains memory queue automatically
+- Adds queue cleanup and deduplication to session-stop processing
+- Sets up smart filtering (skips lock files, build artifacts, trivial changes)
+
+**What gets captured by default:**
+- Git commits with significant code changes (3+ meaningful files)
+- Build results (success/failure with context)
+- Session summaries (1-2 per session, deduplicated)
+
+**What doesn't get captured:**
+- Lock files, node_modules, build output
+- Trivial changes (whitespace, formatting)
+- Duplicate memories (content-hash based dedup)
 
 ### 2. Choose Profile (Optional)
 
@@ -364,7 +502,7 @@ Add AutoMem to your Warp MCP configuration:
 ```json
 {
   "mcpServers": {
-    "automem": {
+    "memory": {
       "command": "npx",
       "args": ["@verygoodplugins/mcp-automem"],
       "env": {
@@ -380,7 +518,7 @@ Add AutoMem to your Warp MCP configuration:
 ```json
 {
   "mcpServers": {
-    "automem": {
+    "memory": {
       "command": "npx",
       "args": ["@verygoodplugins/mcp-automem"],
       "env": {
@@ -632,34 +770,45 @@ Add AutoMem to your Codex configuration file.
 Add the following to your `config.toml`:
 
 ```toml
-[mcp_servers.automem]
+[mcp_servers.memory]
 command = "npx"
 args = ["@verygoodplugins/mcp-automem"]
 
-[mcp_servers.automem.env]
+[mcp_servers.memory.env]
 AUTOMEM_ENDPOINT = "https://your-automem-instance.railway.app"
 AUTOMEM_API_KEY = "your-api-key-if-required"
 ```
 
 **For local development:**
 ```toml
-[mcp_servers.automem]
+[mcp_servers.memory]
 command = "npx"
 args = ["@verygoodplugins/mcp-automem"]
 
-[mcp_servers.automem.env]
+[mcp_servers.memory.env]
 AUTOMEM_ENDPOINT = "http://127.0.0.1:8001"
 ```
 
 **Using local build (for development):**
 ```toml
-[mcp_servers.automem]
+[mcp_servers.memory]
 command = "/opt/homebrew/bin/node"  # or "/usr/bin/node" on Linux
 args = ["/path/to/mcp-automem/dist/index.js"]
 
-[mcp_servers.automem.env]
+[mcp_servers.memory.env]
 AUTOMEM_ENDPOINT = "https://your-automem-instance.railway.app"
 AUTOMEM_API_KEY = "your-api-key"
+
+### 3.5. Add Memory Rules (Optional but recommended)
+
+Install memory-first rules into your project so Codex proactively recalls and stores context:
+
+```bash
+npx @verygoodplugins/mcp-automem codex
+```
+
+This creates or updates `AGENTS.md` with an AutoMem section tailored to your project.
+
 ```
 
 ### 4. Restart Codex
@@ -761,7 +910,7 @@ No installation required:
 "args": ["@verygoodplugins/mcp-automem"]
 
 # For Claude Code
-claude mcp add automem "npx @verygoodplugins/mcp-automem"
+claude mcp add memory "npx @verygoodplugins/mcp-automem"
 ```
 
 ### Option 2: Global Installation
@@ -773,7 +922,7 @@ Install once, use anywhere:
 npm install -g @verygoodplugins/mcp-automem
 
 # For Claude Code
-claude mcp add automem "mcp-automem"
+claude mcp add memory "mcp-automem"
 ```
 
 ### Option 3: Local Development
@@ -911,21 +1060,6 @@ Check the health of the AutoMem service
 
 ## Additional Commands
 
-### Migration
-
-Migrate existing projects to AutoMem:
-
-```bash
-# Migrate from manual memory to Cursor
-npx @verygoodplugins/mcp-automem migrate --from manual --to cursor
-
-# Migrate from manual to Claude Code
-npx @verygoodplugins/mcp-automem migrate --from manual --to claude-code
-
-# Preview migration without changes
-npx @verygoodplugins/mcp-automem migrate --from manual --to cursor --dry-run
-```
-
 ### Uninstall
 
 Remove AutoMem configuration:
@@ -942,14 +1076,6 @@ npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
 
 # Preview what would be removed
 npx @verygoodplugins/mcp-automem uninstall cursor --dry-run
-```
-
-### Queue Processor (Manual)
-
-If you disable automatic hooks, manually process memory queue:
-
-```bash
-npx @verygoodplugins/mcp-automem queue --file ~/.claude/scripts/memory-queue.jsonl
 ```
 
 ### Help
@@ -997,7 +1123,6 @@ npx @verygoodplugins/mcp-automem help
 #### Cursor: Rules not applying
 - Reload Cursor window
 - Check `.cursor/rules/` files have correct YAML frontmatter
-- Verify Claude Desktop MCP config is set up
 
 #### Claude Code: Hooks not triggering
 - Check `~/.claude/settings.json` has merged properly
@@ -1010,11 +1135,6 @@ npx @verygoodplugins/mcp-automem help
 - Check Warp logs: `tail -f ~/.warp/logs/warp.log` (macOS/Linux)
 - Restart Warp completely after config changes
 
-#### Warp: AI not using memory tools
-- Verify AI rules are set in Settings → Features → Warp AI → Custom Instructions
-- Test with explicit command: "Check the AutoMem service health"
-- Ensure project name detection is working: "What project am I in?"
-
 #### Codex: MCP server not loading
 - Verify config file exists at `~/.codex/config.toml`
 - Check TOML syntax is valid (no missing brackets or quotes)
@@ -1024,10 +1144,10 @@ npx @verygoodplugins/mcp-automem help
 - Ensure you have ChatGPT Plus/Pro/Team/Enterprise subscription
 
 #### Codex: Memory tools not available
-- Verify `[mcp_servers.automem]` section exists in config.toml
+- Verify `[mcp_servers.memory]` section exists in config.toml
 - Test explicitly: "Check AutoMem database health"
 - Check Codex logs for MCP connection errors
-- Ensure environment variables are set correctly in `[mcp_servers.automem.env]` section
+- Ensure environment variables are set correctly in `[mcp_servers.memory.env]` section
 
 ---
 
@@ -1056,7 +1176,7 @@ npm test
 
 ## Support
 
-- **Documentation**: [automem.ai](https://automem.ai)
+- **Documentation**: This guide and [AutoMem Service Docs](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md)
 - **Issues**: [GitHub Issues](https://github.com/verygoodplugins/mcp-automem/issues)
 - **AutoMem Service**: [AutoMem Repository](https://github.com/verygoodplugins/automem)
 
@@ -1069,4 +1189,3 @@ Built by [Jack Arturo](https://x.com/verygoodplugins) 🧡
 - Powered by [AutoMem](https://github.com/verygoodplugins/automem)
 - Built with [Model Context Protocol SDK](https://github.com/anthropics/model-context-protocol)
 - Part of the [Very Good Plugins](https://verygoodplugins.com) ecosystem
-

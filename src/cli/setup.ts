@@ -238,7 +238,7 @@ export async function runConfig(args: string[] = []): Promise<void> {
   if (options.format === 'json') {
     const snippet = {
       mcpServers: {
-        automem: {
+        memory: {
           command: 'npx',
           args: ['@verygoodplugins/mcp-automem'],
           env: {

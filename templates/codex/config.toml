@@ -4,11 +4,11 @@
 #
 # Setup instructions: https://github.com/verygoodplugins/mcp-automem/blob/main/INSTALLATION.md#openai-codex
 
-[mcp_servers.automem]
+[mcp_servers.memory]
 command = "npx"
 args = ["@verygoodplugins/mcp-automem"]
 
-[mcp_servers.automem.env]
+[mcp_servers.memory.env]
 # Replace with your AutoMem instance URL
 # Deploy your own: https://github.com/verygoodplugins/automem#deployment
 AUTOMEM_ENDPOINT = "https://your-automem-instance.railway.app"
@@ -21,7 +21,6 @@ AUTOMEM_API_KEY = "your-api-key-if-required"
 # AUTOMEM_ENDPOINT = "http://127.0.0.1:8001"
 
 # For local builds (development), use:
-# [mcp_servers.automem]
+# [mcp_servers.memory]
 # command = "/opt/homebrew/bin/node"  # macOS Homebrew path
 # args = ["/path/to/mcp-automem/dist/index.js"]
-

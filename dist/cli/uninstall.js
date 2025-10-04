@@ -80,6 +80,10 @@ function getClaudeDesktopConfigPath() {
         return path.join(homeDir, '.config', 'Claude', 'claude_desktop_config.json');
     }
 }
+function getCursorConfigPath() {
+    const homeDir = os.homedir();
+    return path.join(homeDir, '.cursor', 'mcp.json');
+}
 function removeClaudeDesktopMemoryServer(dryRun, quiet) {
     const configPath = getClaudeDesktopConfigPath();
     if (!fs.existsSync(configPath)) {
@@ -100,6 +104,7 @@ function removeClaudeDesktopMemoryServer(dryRun, quiet) {
         }
         // Remove memory servers
         if (config?.mcpServers) {
+            // Default server id is now "memory" but remove legacy "automem" if present
             delete config.mcpServers.memory;
             delete config.mcpServers.automem;
         }
@@ -117,36 +122,50 @@ function removeClaudeDesktopMemoryServer(dryRun, quiet) {
         return false;
     }
 }
+function removeCursorMcpServer(dryRun, quiet) {
+    const configPath = getCursorConfigPath();
+    if (!fs.existsSync(configPath)) {
+        log('ℹ️  Cursor MCP config not found', quiet);
+        return false;
+    }
+    if (dryRun) {
+        log(`[DRY RUN] Would remove memory server from: ${configPath}`, quiet);
+        return true;
+    }
+    try {
+        const raw = fs.readFileSync(configPath, 'utf8');
+        const config = JSON.parse(raw);
+        const hadMemory = config?.mcpServers?.memory;
+        const hadAutomem = config?.mcpServers?.automem;
+        if (!hadMemory && !hadAutomem) {
+            log('ℹ️  No memory server configured in Cursor MCP config', quiet);
+            return false;
+        }
+        if (config?.mcpServers) {
+            delete config.mcpServers.memory; // default
+            delete config.mcpServers.automem; // legacy
+        }
+        const backupPath = `${configPath}.backup.${Date.now()}`;
+        fs.copyFileSync(configPath, backupPath);
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+        log('🗑️  Removed memory server from Cursor MCP config', quiet);
+        log(`   Backup: ${backupPath}`, quiet);
+        return true;
+    }
+    catch (error) {
+        log(`❌ Failed to update Cursor MCP config: ${error.message}`, quiet);
+        return false;
+    }
+}
 async function uninstallCursor(options) {
     const projectDir = options.projectDir ?? process.cwd();
     const cursorRulesDir = path.join(projectDir, '.cursor', 'rules');
-    const cursorrulesFile = path.join(projectDir, '.cursorrules');
+    const automemRuleFile = path.join(cursorRulesDir, 'automem.mdc');
     log('\n🗑️  Uninstalling Cursor AutoMem...', options.quiet);
-    const filesToRemove = [
-        path.join(cursorRulesDir, 'memory-keeper.md'),
-        path.join(cursorRulesDir, 'project-assistant.md'),
-        path.join(cursorRulesDir, 'AGENTS.md'),
-    ];
     let removedCount = 0;
-    for (const file of filesToRemove) {
-        if (removeFileWithBackup(file, options.dryRun ?? false, options.quiet)) {
-            removedCount++;
-        }
-    }
-    // Check if .cursorrules was created by AutoMem
-    if (fs.existsSync(cursorrulesFile)) {
-        const content = fs.readFileSync(cursorrulesFile, 'utf8');
-        if (content.includes('AutoMem Setup')) {
-            const shouldRemove = options.yes || await confirm('Remove .cursorrules (created by AutoMem)?', false);
-            if (shouldRemove) {
-                if (removeFileWithBackup(cursorrulesFile, options.dryRun ?? false, options.quiet)) {
-                    removedCount++;
-                }
-            }
-        }
-        else {
-            log('ℹ️  .cursorrules exists but was not created by AutoMem (skipping)', options.quiet);
-        }
+    // Remove automem.mdc rule file
+    if (removeFileWithBackup(automemRuleFile, options.dryRun ?? false, options.quiet)) {
+        removedCount++;
     }
     // Remove empty .cursor/rules directory
     if (fs.existsSync(cursorRulesDir)) {
@@ -156,10 +175,10 @@ async function uninstallCursor(options) {
         }
     }
     if (removedCount > 0) {
-        log(`\n✅ Removed ${removedCount} Cursor AutoMem files`, options.quiet);
+        log(`\n✅ Removed Cursor AutoMem rule file`, options.quiet);
     }
     else {
-        log('\nℹ️  No Cursor AutoMem files found to remove', options.quiet);
+        log('\nℹ️  No Cursor AutoMem rule file found to remove', options.quiet);
     }
 }
 async function uninstallClaudeCode(options) {
@@ -213,10 +232,17 @@ export async function runUninstall(options) {
     // Clean up external changes (Claude Desktop config) if requested
     if (options.cleanAll) {
         log('\n🧹 Cleaning external configurations...', options.quiet);
+        // Remove from Claude Desktop config (if present)
         removeClaudeDesktopMemoryServer(options.dryRun ?? false, options.quiet);
+        // Remove from Cursor MCP config (if present)
+        removeCursorMcpServer(options.dryRun ?? false, options.quiet);
     }
     log('\n✨ Uninstall complete!', options.quiet);
-    if (!options.cleanAll && !options.dryRun) {
+    if (options.platform === 'cursor' && !options.cleanAll && !options.dryRun) {
+        log('\n💡 Note: This removed the project rule file.', options.quiet);
+        log('   To also remove the MCP server config from Cursor, re-run with --clean-all', options.quiet);
+    }
+    else if (options.platform === 'claude-code' && !options.cleanAll && !options.dryRun) {
         log('\nNote: To also remove the memory server from Claude Desktop config, run:', options.quiet);
         log(`  npx @verygoodplugins/mcp-automem uninstall ${options.platform} --clean-all`, options.quiet);
     }

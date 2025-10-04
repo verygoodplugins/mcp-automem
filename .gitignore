@@ -198,6 +198,9 @@ npm-debug.log
 .idea
 *.suo
 *.ntvs*
+
+# Cursor IDE local rules/config (generated per-project)
+.cursor/
 *.njsproj
 *.sln
 *.sw?
@@ -206,3 +209,4 @@ npm-debug.log
 tmp/
 temp/
 /.cursor/screenshots
+/.claude

@@ -1,5 +1,7 @@
 # AutoMem Claude Code Integration
 
+> ⚠️ **EXPERIMENTAL:** This integration is actively evolving as we optimize based on real-world usage and new Claude Code capabilities. The default setup is intentionally minimal. Additional capture hooks are optional and should be enabled carefully. Expect frequent updates and improvements.
+
 Complete guide to integrating AutoMem with Claude Code for automatic memory capture, intelligent recall, and knowledge graph building.
 
 ## Table of Contents
@@ -40,65 +42,29 @@ To avoid noisy or risky behavior, the default template installs a lean setup:
   - Error capture (on `Bash(*error*)`)
   - Fancy status line (`statusLine` command)
 
-How to enable optional hooks
+**How to enable optional hooks:**
 
-1) Open `~/.claude/settings.json` (or the target settings file you applied from `templates/claude-code/settings.json`).
-2) Under `hooks.PostToolUse`, add any of the blocks below:
+The default installation only captures git commits and builds. To enable additional hooks:
 
-```jsonc
-// Edit/MultiEdit capture
-{
-  "matcher": "Edit(*)",
-  "hooks": [
-    { "type": "command", "command": "CLAUDE_HOOK_TYPE=code_edit bash \"$HOME/.claude/hooks/capture-code-pattern.sh\"" }
-  ]
-},
-{
-  "matcher": "MultiEdit(*)",
-  "hooks": [
-    { "type": "command", "command": "CLAUDE_HOOK_TYPE=code_edit bash \"$HOME/.claude/hooks/capture-code-pattern.sh\"" }
-  ]
-},
-// Tests
-{
-  "matcher": "Bash(*test*)",
-  "hooks": [
-    { "type": "command", "command": "CLAUDE_HOOK_TYPE=test_run bash \"$HOME/.claude/hooks/capture-test-pattern.sh\"" }
-  ]
-},
-// Deployment
-{
-  "matcher": "Bash(*deploy*)",
-  "hooks": [
-    { "type": "command", "command": "CLAUDE_HOOK_TYPE=deploy bash \"$HOME/.claude/hooks/capture-deployment.sh\"" }
-  ]
-},
-// Search results (if your Claude build supports WebSearch events)
-{
-  "matcher": "WebSearch(*)",
-  "hooks": [
-    { "type": "command", "command": "CLAUDE_HOOK_TYPE=search bash \"$HOME/.claude/hooks/capture-search-result.sh\"" }
-  ]
-},
-// Error capture (broad matcher; enable only if useful)
-{
-  "matcher": "Bash(*error*)",
-  "hooks": [
-    { "type": "command", "command": "CLAUDE_HOOK_TYPE=error bash \"$HOME/.claude/hooks/capture-error-resolution.sh\"" }
-  ]
-}
-```
+1. **Use the extras profile** (easiest):
+   ```bash
+   npx @verygoodplugins/mcp-automem claude-code --profile extras
+   ```
 
-3) Optional status line (runs an external command each session):
+2. **Or manually add hooks** to `~/.claude/settings.json`:
+   - See `templates/claude-code/profiles/settings.extras.json` for complete hook definitions
+   - Optional hooks include: Edit/MultiEdit, test, deploy, search, error capture
+   - Add individual matchers to `hooks.PostToolUse` array as needed
 
-```jsonc
-"statusLine": {
-  "type": "command",
-  "command": "npx -y @owloops/claude-powerline@latest --style=powerline"
-}
-```
+3. **Optional status line**:
+   ```json
+   "statusLine": {
+     "type": "command",
+     "command": "npx -y @owloops/claude-powerline@latest --style=powerline"
+   }
+   ```
 
-Tip: Keep your setup quiet at first; enable only what you find valuable.
+**Tip:** Keep your setup minimal at first. Enable additional hooks only if you find specific value in their capture patterns.
 
 ### Architecture
 
@@ -176,11 +142,16 @@ Example hook triggers:
 When Claude Code session ends (Stop hook):
 1. **smart-notify.sh** - Sends completion notification
 2. **session-memory.sh** - Captures final session context
-3. **Queue processor** - Processes all queued memories:
+3. **queue-cleanup.sh** - Deduplicates and archives queue:
+   - Removes duplicate entries by content hash
+   - Archives original queue if duplicates found
+   - Handles overflow (keeps last 20 if >50 entries)
+   - Logs cleanup operations
+4. **Queue processor** - Processes cleaned queue:
    - Batches memories by content similarity
    - Creates OCCURRED_BEFORE relationships
    - Sends batch to AutoMem service via MCP
-4. **AutoMem enrichment** (background):
+5. **AutoMem enrichment** (background):
    - Extracts entities (tools, projects, people, concepts)
    - Generates summaries
    - Creates temporal links (PRECEDED_BY)
@@ -401,183 +372,37 @@ graph TD
     H --> J[memory-queue.jsonl]
 ```
 
-### Hook Categories
+### Core Hooks (Enabled by Default)
 
-#### 1. Session Lifecycle Hooks
-
-**Trigger:** Git commits, PR creation, session end
+#### 1. Git Commit Hook
+**Trigger:** `Bash(git commit*)`
 **Script:** `session-memory.sh`
-**Captures:**
-- Working directory and project name
-- Git branch and repository
-- Recent commits (last hour)
-- File changes (staged + unstaged)
-- Diff statistics
+**Captures:** Commit context, changed files (filtered for significance), diff stats
+**Importance:** 0.7-0.8
+**Frequency:** On commit
 
-**Example Output:**
-```json
-{
-  "content": "Session in project-alpha/develop: Implemented API rate limiting with exponential backoff",
-  "tags": ["project-alpha", "session", "feature", "api"],
-  "importance": 0.75,
-  "type": "Pattern",
-  "metadata": {
-    "project": "project-alpha",
-    "branch": "develop",
-    "files_changed": 5,
-    "lines_added": 150,
-    "lines_removed": 20
-  }
-}
-```
-
-#### 2. Test Execution Hooks
-
-**Trigger:** Commands containing "test"
-**Script:** `capture-test-pattern.sh`
-**Captures:**
-- Test framework used
-- Pass/fail status
-- Execution time
-- Coverage changes
-
-**Example Output:**
-```json
-{
-  "content": "PHPUnit test suite passed (45 tests, 0 failures) in 2.3s - Added tests for rate limiter backoff logic",
-  "tags": ["testing", "phpunit", "project-alpha", "success"],
-  "importance": 0.6,
-  "type": "Habit",
-  "metadata": {
-    "test_framework": "phpunit",
-    "tests_run": 45,
-    "duration": 2.3
-  }
-}
-```
-
-#### 3. Build Result Hooks
-
-**Trigger:** Commands containing "build"
+#### 2. Build Hook
+**Trigger:** `Bash(*build*)`
 **Script:** `capture-build-result.sh`
-**Captures:**
-- Build tool (webpack, gulp, npm, etc.)
-- Success/failure
-- Timing and size metrics
-- Errors encountered
+**Captures:** Build success/failure, timing, errors
+**Importance:** 0.6-0.7
+**Frequency:** On build command
 
-**Example Output:**
-```json
-{
-  "content": "Build successful: Webpack bundle optimized from 2.1MB to 850KB using tree-shaking",
-  "tags": ["build", "webpack", "optimization", "success"],
-  "importance": 0.7,
-  "type": "Insight",
-  "metadata": {
-    "build_tool": "webpack",
-    "bundle_size_before": "2.1MB",
-    "bundle_size_after": "850KB"
-  }
-}
-```
+#### 3. Session End Hook
+**Trigger:** Stop event
+**Script:** `session-memory.sh`
+**Captures:** Session summary with deduplicated context
+**Importance:** 0.5-0.7
+**Frequency:** Once per session
 
-#### 4. Deployment Hooks
+### Optional Hooks (Disabled by Default)
 
-**Trigger:** Commands containing "deploy"
-**Script:** `capture-deployment.sh`
-**Captures:**
-- Deployment target (staging/production)
-- Status and timing
-- Git commit deployed
-- Rollback status
-
-**Example Output:**
-```json
-{
-  "content": "Deployed project-alpha v1.2.3 to production (commit abc123) - Migration ran successfully, no errors",
-  "tags": ["deployment", "production", "project-alpha", "v1.2.3"],
-  "importance": 0.9,
-  "type": "Context",
-  "metadata": {
-    "environment": "production",
-    "version": "4.2.1",
-    "commit": "abc123"
-  }
-}
-```
-
-#### 5. Error Resolution Hooks
-
-**Trigger:** Commands containing "error"
-**Script:** `capture-error-resolution.sh`
-**Captures:**
-- Error message/type
-- Resolution strategy
-- Root cause analysis
-- Prevention measures
-
-**Example Output:**
-```json
-{
-  "content": "Error: 'Call to undefined method' - Fixed by adding use statement for trait. Root cause: Missing namespace import after refactoring",
-  "tags": ["error", "php", "resolution", "refactoring"],
-  "importance": 0.75,
-  "type": "Insight",
-  "metadata": {
-    "error_type": "fatal",
-    "language": "php",
-    "resolution_time": "5 minutes"
-  }
-}
-```
-
-#### 6. Code Pattern Hooks
-
-**Trigger:** Edit(*), MultiEdit(*)
-**Script:** `capture-code-pattern.sh`
-**Captures:**
-- Refactoring patterns
-- Architectural changes
-- Code style patterns
-- Design decisions
-
-**Example Output:**
-```json
-{
-  "content": "Pattern: Extracted API client logic into dedicated service class for better testability and separation of concerns",
-  "tags": ["refactoring", "pattern", "architecture", "php"],
-  "importance": 0.65,
-  "type": "Pattern",
-  "metadata": {
-    "pattern_type": "service_extraction",
-    "files_affected": 3
-  }
-}
-```
-
-#### 7. Research Hooks
-
-**Trigger:** WebSearch(*)
-**Script:** `capture-search-result.sh`
-**Captures:**
-- Search query
-- Key findings
-- Decisions made
-- Documentation links
-
-**Example Output:**
-```json
-{
-  "content": "Researched WordPress hook execution order - Learned that 'init' fires before 'wp_loaded', crucial for plugin initialization sequence",
-  "tags": ["research", "wordpress", "hooks", "learning"],
-  "importance": 0.7,
-  "type": "Insight",
-  "metadata": {
-    "topic": "wordpress-hooks",
-    "source": "developer.wordpress.org"
-  }
-}
-```
+See lines 48-90 above for installation instructions. Optional hooks include:
+- **Test Execution** (`Bash(*test*)`) - Captures test patterns and results
+- **Deployment** (`Bash(*deploy*)`) - Captures deployment records
+- **Error Resolution** (`Bash(*error*)`) - Captures error fixes (broad matcher, use sparingly)
+- **Code Patterns** (`Edit(*)`, `MultiEdit(*)`) - Captures refactoring patterns (can be noisy)
+- **Search Results** (`WebSearch(*)`) - Captures research findings
 
 ## Memory Queue System
 
@@ -633,70 +458,48 @@ When `npx @verygoodplugins/mcp-automem queue` runs at session end:
 
 ## Features
 
-### 1. Automatic Memory Capture
+### 1. Smart Capture Filtering
 
-**What Gets Captured:**
-- ✅ Bug fixes with solutions and root causes
-- ✅ Feature implementations with approaches
-- ✅ Architectural decisions with rationale
-- ✅ User preferences and corrections
-- ✅ Performance optimizations with metrics
-- ✅ Security issues and mitigations
-- ✅ Error resolutions and prevention strategies
-- ✅ Test patterns and results
-- ✅ Build successes and failures
-- ✅ Deployment records
-- ✅ Code refactorings and patterns
-- ✅ Research findings and learnings
+**Automatically skips:**
+- Lock files (package-lock.json, Cargo.lock, etc.)
+- Build output (dist/, build/, .next/, node_modules/)
+- Generated files (.min.js, .map, .pyc)
+- System files (.DS_Store, __pycache__)
+- Cache directories (.cache/, coverage/)
 
-**What Doesn't Get Captured:**
-- ❌ Trivial file changes (.DS_Store, node_modules, cache files)
-- ❌ Empty commits
-- ❌ Duplicate or redundant information
-- ❌ Temporary debug outputs
-- ❌ Sensitive credentials (automatically filtered)
+**Prioritizes:**
+- Source code changes (.py, .js, .ts, .php, etc.)
+- Configuration updates (.yml, .json, .env)
+- Documentation (.md with context)
 
-### 2. Intelligent Context Loading
+### 2. Intelligent Deduplication
 
-At session start, Claude automatically recalls:
+**Content-hash based:**
+- MD5 hash of normalized content
+- Checks last 20 queue entries
+- Prevents duplicate memories in same session
 
-**Project Context** (last 7 days):
-```python
-recall_memory({
-  "query": f"project: {project_name}",
-  "limit": 20,
-  "time_query": "last 7 days"
-})
-```
+**Queue-level dedup:**
+- jq-based unique_by(.content) on session end
+- Archives duplicates before cleanup
+- Maintains only unique memories
 
-**User Preferences** (all time):
-```python
-recall_memory({
-  "tags": ["preference", "workflow", "style"],
-  "limit": 30
-})
-```
+### 3. Importance Scoring
 
-**Recent Errors** (last 24 hours):
-```python
-recall_memory({
-  "query": f"{project_name} error OR bug OR issue",
-  "tags": ["error", "solution"],
-  "limit": 10,
-  "time_query": "last 24 hours"
-})
-```
+Automatic scoring based on:
+- File types (code files: +2.0x weight)
+- Change volume (3+ files: +2 points)
+- Commit patterns (feat/fix/BREAKING: +3-5 points)
+- Context keywords (security/critical: +5 points)
 
-**Incomplete Work** (last 4 hours):
-```python
-recall_memory({
-  "query": "session incomplete OR todo OR in-progress",
-  "limit": 10,
-  "time_query": "last 4 hours"
-})
-```
+**Threshold:** Score ≥ 8 required for storage
+**Result:** High signal-to-noise ratio (~80%)
 
-### 3. Knowledge Graph Building
+### 4. Intelligent Context Loading
+
+At session start, Claude recalls relevant memories based on project context and recent activity. See CLAUDE_MD_MEMORY_RULES.md for recall patterns.
+
+### 5. Knowledge Graph Building
 
 **11 Relationship Types:**
 
@@ -714,88 +517,7 @@ recall_memory({
 | `DERIVED_FROM` | Source relationships | Solution derived from research |
 | `PART_OF` | Hierarchical structure | Feature is part of module |
 
-**Automatic Relationship Creation:**
-
-1. **Temporal Links** (OCCURRED_BEFORE):
-   - Created between memories in same batch
-   - Preserves session chronology
-
-2. **Semantic Links** (SIMILAR_TO):
-   - Created by enrichment pipeline
-   - Based on vector similarity (threshold: 0.8)
-
-3. **Pattern Links** (EXEMPLIFIES):
-   - Created when code patterns detected
-   - Links to abstract pattern memory
-
-4. **Evolution Links** (EVOLVED_INTO):
-   - Created when memory is updated
-   - Tracks knowledge progression
-
-### 4. Hybrid Search
-
-AutoMem combines multiple scoring dimensions:
-
-**Vector Similarity** (40% weight):
-- Semantic meaning via embeddings
-- Requires OPENAI_API_KEY
-- 768-dimensional vectors
-
-**Keyword Matching** (30% weight):
-- Full-text search in FalkorDB
-- Stemming and stop-word removal
-
-**Tag Overlap** (15% weight):
-- Exact tag matches
-- Tag prefix matching (e.g., "slack" matches "slack/*")
-
-**Recency** (10% weight):
-- Newer memories score higher
-- Exponential decay over time
-
-**Exact Match** (5% weight):
-- Bonus for exact phrase matches
-
-### 5. Importance Scoring
-
-**Guidelines:**
-
-| Score | Category | Examples | Retention |
-|-------|----------|----------|-----------|
-| 0.9-1.0 | Critical | User preferences, security fixes, architectural decisions | Permanent |
-| 0.7-0.8 | Important | Features, major bugs, optimizations | Months |
-| 0.5-0.6 | Standard | Patterns, workflows, common solutions | Weeks |
-| 0.3-0.4 | Minor | Style preferences, routine tasks | Days |
-| 0.0-0.2 | Temporary | Debug info, transient notes | Hours |
-
-**Automatic Scoring Factors:**
-
-```python
-score = base_score
-score += file_weight * num_files_changed
-score += significant_pattern_bonus  # Keywords: feat, fix, BREAKING
-score += line_change_multiplier
-score += test_coverage_bonus
-score -= trivial_pattern_penalty
-```
-
-### 6. Memory Lifecycle
-
-**Creation:**
-- Hooks capture context
-- Queue system deduplicates
-- Processor scores importance
-- AutoMem stores and enriches
-
-**Evolution:**
-- Update existing memories (boost importance)
-- Create EVOLVED_INTO relationship
-- Deprecate old version (lower importance)
-
-**Archival:**
-- Daily consolidation cycle
-- Memories with importance < 0.3 archived
-- Graph relationships preserved
+Relationships are automatically created between memories in the same batch (OCCURRED_BEFORE) and by AutoMem's enrichment pipeline for semantic similarity and pattern detection.
 
 ## Expected Behavior
 
@@ -829,36 +551,14 @@ score -= trivial_pattern_penalty
 👋 Session complete
 ```
 
-### Example Session Flow
+### Typical Session Flow
 
-**User:** "Fix the rate limiting bug in the API client"
+Lean defaults mean you'll see minimal disruption:
+1. **Git commit** → Silent queue of significant changes
+2. **Build command** → Captures build result
+3. **Session end** → Processes 1-2 deduplicated memories
 
-**Claude (internal):**
-1. Recalls memories about API client and rate limiting
-2. Finds previous rate limiting implementation
-3. Identifies pattern from similar bug fix 2 weeks ago
-
-**Claude:** "I see we had a similar issue before. Let me apply the exponential backoff pattern we used successfully..."
-
-[Fixes the bug]
-
-**Hook triggers** (after Edit tool):
-- `capture-code-pattern.sh` queues memory about the fix
-
-**Hook triggers** (after git commit):
-- `session-memory.sh` captures commit context
-
-**Session end:**
-- Queue processor creates:
-  - Memory: "Fixed rate limiting bug using exponential backoff"
-  - Tags: ["bugfix", "api", "rate-limiting", "pattern"]
-  - Importance: 0.75 (important bug)
-  - Type: "Insight"
-  - Relationship: LEADS_TO previous rate limiting pattern
-
-**Next session:**
-- Claude recalls this fix when working on similar API issues
-- Pattern is reinforced in knowledge graph
+Optional hooks (if enabled) add test, deployment, and error captures. All processing happens in background without blocking your workflow.
 
 ## Troubleshooting
 
@@ -886,148 +586,29 @@ chmod +x ~/.claude/scripts/*.py
 
 ### Memories Not Storing
 
-**Check queue:**
-```bash
-cat ~/.claude/scripts/memory-queue.jsonl | wc -l
-# Should show number of pending memories
-```
+Check queue: `cat ~/.claude/scripts/memory-queue.jsonl | wc -l`
+Check logs: `tail -f ~/.claude/logs/session-memory.log`
+Manual processing: `npx @verygoodplugins/mcp-automem queue`
 
-**Check logs:**
-```bash
-tail -f ~/.claude/logs/session-memory.log
-# Watch for errors during memory capture
-```
-
-**Manual queue processing:**
-```bash
-npx @verygoodplugins/mcp-automem queue --file ~/.claude/scripts/memory-queue.jsonl
-```
-
-**Common Issues:**
-1. **AutoMem service not running** - Check health:
-   ```bash
-   curl https://your-automem-service.up.railway.app/health
-   ```
-
-2. **Missing API key** - Verify in MCP config:
-   ```bash
-   cat ~/.claude/mcp.json | grep AUTOMEM_API_KEY
-   ```
-
-3. **Permission denied** - Check MCP tool permissions:
-   ```bash
-   cat ~/.claude/settings.json | grep "mcp__memory__"
-   ```
-
-### Poor Recall Quality
-
-**Enable real embeddings:**
-```bash
-# In AutoMem service environment
-export OPENAI_API_KEY=sk-...
-```
-
-**Check FalkorDB/Qdrant connection:**
-```bash
-# Use Claude to check
-mcp__memory__check_database_health
-```
-
-**Verify importance scoring:**
-```bash
-# Check recent memories
-cat ~/.claude/scripts/memory-queue.jsonl | jq .importance
-# Should vary between 0.3-0.9
-```
+Common issues: AutoMem service down, missing API key, or tool permissions not configured.
 
 ### Queue Not Processing
 
-**Check Stop hook:**
-```bash
-cat ~/.claude/settings.json | jq '.hooks.Stop'
-# Should include: npx @verygoodplugins/mcp-automem queue
-```
-
-**Manual processing:**
-```bash
-# Force process queue
-npx @verygoodplugins/mcp-automem queue
-```
-
-**Check for stale PIDs:**
-```bash
-rm -f /tmp/claude_memory_processor.pid
-```
+Verify Stop hook includes queue-cleanup.sh and queue processor.
+Manual: `npx @verygoodplugins/mcp-automem queue`
 
 ### High Memory Usage
 
-**Clear old logs:**
-```bash
-find ~/.claude/logs/ -name "*.log" -mtime +7 -delete
-```
-
-**Trim queue file:**
-```bash
-# Backup
-cp ~/.claude/scripts/memory-queue.jsonl ~/.claude/scripts/memory-queue.jsonl.bak
-
-# Keep last 1000 lines
-tail -n 1000 ~/.claude/scripts/memory-queue.jsonl > /tmp/queue-trimmed.jsonl
-mv /tmp/queue-trimmed.jsonl ~/.claude/scripts/memory-queue.jsonl
-```
+Clear old logs: `find ~/.claude/logs/ -name "*.log" -mtime +7 -delete`
+Queue overflow is handled automatically by queue-cleanup.sh.
 
 ## Advanced Configuration
 
-### Customizing Filters
+**Customize filters:** Edit `~/.claude/scripts/memory-filters.json` to adjust trivial_patterns, file_weight, and significance keywords.
 
-Edit `~/.claude/scripts/memory-filters.json`:
+**Adjust threshold:** In `process-session-memory.py`, change `significance_threshold` (default: 8). Lower = more memories, higher = fewer.
 
-```json
-{
-  "trivial_patterns": [
-    "^\\.DS_Store",
-    "__pycache__",
-    "node_modules"
-  ],
-  "significant_patterns": [
-    "feat[:\\(]",
-    "fix[:\\(]",
-    "BREAKING",
-    "security"
-  ],
-  "file_weight": {
-    ".py": 2.0,
-    ".js": 2.0,
-    ".md": 1.2
-  },
-  "minimum_changes": 3,
-  "minimum_lines": 10
-}
-```
-
-### Adjusting Significance Threshold
-
-Edit hook scripts to change when memories are captured:
-
-```bash
-# In ~/.claude/scripts/process-session-memory.py
-self.significance_threshold = 5  # Lower = more memories, Higher = fewer
-```
-
-### Disabling Specific Hooks
-
-Remove entries from `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      // Comment out or remove specific hooks
-      // { "matcher": "Edit(*)", ... }
-    ]
-  }
-}
-```
+**Disable hooks:** Remove entries from `~/.claude/settings.json` PostToolUse array.
 
 ## Learn More
 
