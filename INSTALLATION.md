@@ -4,30 +4,80 @@ Complete setup instructions for AutoMem MCP across all platforms.
 
 ## Prerequisites
 
-You need a running **[AutoMem service](https://github.com/verygoodplugins/automem)** instance. Options:
+You need a running **[AutoMem service](https://github.com/verygoodplugins/automem)** instance. Quick options:
 
-- **Local development** (fastest): Run `make dev` in AutoMem project ([instructions](#local-setup))
-- **Railway cloud** (recommended for production): Deploy to Railway ([instructions](#railway-deployment))
-- **Self-hosted**: Deploy via Docker ([AutoMem repo](https://github.com/verygoodplugins/automem#deployment))
+- **Local development** (fastest): Run `make dev` - see [AutoMem Installation Guide](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md#local-development)
+- **Railway cloud** (recommended): One-click deploy - see [AutoMem Railway Guide](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md#railway-deployment)  
+- **Self-hosted**: Docker/production - see [AutoMem Deployment Options](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md)
 
 ## Quick Start
 
-Follow these three steps:
+Follow these two steps:
 
-1. **[Set up AutoMem service](#automem-service-setup)** - Choose local or Railway
-2. **[Run setup wizard](#assisted-setup)** - Configure MCP client
-3. **[Configure your platform](#platform-specific-mcp-client-setup)** - Claude Desktop, Cursor, etc.
+1. **[Set up AutoMem service](#automem-service-setup)** - Deploy the backend (see options above)
+2. **[Install MCP client](#mcp-client-setup)** - Connect your AI platforms
 
-### Assisted Setup (Recommended)
+---
 
-After you have an AutoMem service running, use the guided setup wizard:
+## AutoMem Service Setup
+
+Before installing the MCP client, you need a running AutoMem service (the backend). Choose your deployment option:
+
+### Option 1: Local Development (Recommended for Getting Started)
+
+**Best for:** Development, testing, single-machine use, privacy-focused setups.
+
+```bash
+git clone https://github.com/verygoodplugins/automem.git
+cd automem
+make dev
+```
+
+Service runs at `http://localhost:8001` with no authentication required.
+
+👉 **[Full Local Setup Guide](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md#local-development)**
+
+### Option 2: Railway Cloud (Recommended for Production)
+
+**Best for:** Multi-device access, team collaboration, always-on availability.
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/yD_u9d?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
+
+One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month.
+
+👉 **[Full Railway Deployment Guide](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md#railway-deployment)**
+
+### Option 3: Self-Hosted Production
+
+**Best for:** Enterprise deployments, custom infrastructure, air-gapped environments.
+
+Deploy via Docker Compose, Kubernetes, or any container platform.
+
+👉 **[Deployment Options](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md#deployment-options)**
+
+---
+
+## MCP Client Setup
+
+Now that your AutoMem service is running, install and configure the MCP client to connect your AI platforms.
+
+**Supported Platforms:**
+- [Claude Desktop](#claude-desktop) - Desktop AI assistant
+- [Cursor IDE](#cursor-ide) - AI-powered code editor  
+- [Claude Code](#claude-code) - Terminal coding assistant with automation hooks
+- [Warp Terminal](#warp-terminal) - AI-powered terminal
+- [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
+
+### Guided Setup Wizard
+
+After deploying the AutoMem service, use the setup wizard to configure your MCP client:
 
 ```bash
 npx @verygoodplugins/mcp-automem setup
 ```
 
-The wizard will:
-- Prompt for your AutoMem endpoint (localhost or Railway URL)
+**The wizard will:**
+- Prompt for your AutoMem endpoint (`http://localhost:8001` or Railway URL)
 - Prompt for API key (if using Railway)
 - Create/update `.env` file in current directory
 - Print config snippets for your platform
@@ -42,212 +92,6 @@ $ npx @verygoodplugins/mcp-automem setup
 ✓ Config saved to .env
 ✓ Claude Desktop config snippet generated
 ```
-
----
-
-## AutoMem Service Setup
-
-### Local Setup
-
-**Best for:** Development, testing, single-machine use, or if you prefer privacy.
-
-```bash
-# Clone AutoMem service repository
-git clone https://github.com/verygoodplugins/automem.git
-cd automem
-
-# Start all services (API + FalkorDB + Qdrant)
-make dev
-```
-
-**What just happened?** Docker Compose started three containers:
-- **AutoMem API** at `http://localhost:8001` - Memory storage/retrieval service
-- **FalkorDB** at `localhost:6379` - Graph database for memory relationships
-- **Qdrant** at `localhost:6333` - Vector database for semantic search
-
-**Verify it's running:**
-```bash
-curl http://localhost:8001/health
-# Expected: {"status": "healthy", "falkordb": "connected"}
-```
-
-**Default credentials (local only):**
-- No API token required for local development
-- Service listens on `127.0.0.1` only (not accessible from network)
-
-**Persistent storage:**
-- Memories stored in Docker volumes (survive container restarts)
-- To reset: `make clean` (⚠️ deletes all memories)
-
-**Next step:** Use `http://localhost:8001` as your `AUTOMEM_ENDPOINT` when running `npx @verygoodplugins/mcp-automem setup`
-
----
-
-### Railway Deployment
-
-**Best for:** Production use, multi-device access, team collaboration, always-on availability.
-
-**What is Railway?** Cloud hosting platform where your AutoMem service runs 24/7 in containers.
-
-**Cost breakdown:**
-- ✅ **$5 free credits** for 30-day trial (no credit card required)
-- ✅ **~$0.50/month** typical AutoMem usage after trial
-- ✅ **$1/month minimum** if you use less than that
-
----
-
-#### Option A: One-Click Deploy ⭐ (Recommended)
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/yD_u9d?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
-
-**What this does:**
-- Creates AutoMem API + FalkorDB services automatically
-- Sets up persistent storage and volumes
-- Generates secure API tokens (`AUTOMEM_API_TOKEN`, `ADMIN_API_TOKEN`)
-- Configures internal networking (`FALKORDB_HOST`, `FALKORDB_PORT`)
-- Generates public domain automatically
-
-**After clicking:**
-1. Sign in with GitHub (if not logged in)
-2. Review environment variables
-3. (Optional) Add `OPENAI_API_KEY` for real embeddings instead of mock embeddings
-4. Click **"Deploy"**
-5. Wait ~60 seconds for deployment to complete ✅
-
-**Next:** Jump to [Step 3: Get Your AutoMem URL](#step-3-get-your-automem-url-1-minute) below to get your endpoint.
-
----
-
-#### Option B: Manual Setup (Advanced)
-
-<details>
-<summary><b>Need more control? Click to expand manual deployment steps</b></summary>
-
-#### Step 1: Create Railway Account (2 minutes)
-
-1. Go to **[railway.app](https://railway.app)**
-2. Click **"Start a New Project"** or **"Login"**
-3. Sign in with GitHub (create GitHub account first if needed at [github.com](https://github.com))
-
----
-
-#### Step 2: Deploy AutoMem Service (5 minutes)
-
-AutoMem runs as **two services** on Railway: the API and FalkorDB database.
-
-**2a. Create New Project**
-
-1. After logging in, click **"New Project"**
-2. Choose **"Deploy from GitHub repo"**
-
-**2b. Connect GitHub Repository**
-
-1. Click **"Configure GitHub App"**
-2. Install Railway app to your GitHub account
-3. Fork **[verygoodplugins/automem](https://github.com/verygoodplugins/automem)** (top right, click "Fork")
-4. Back in Railway, select **your fork** of automem
-5. Click **"Deploy Now"**
-
-**2c. Add FalkorDB Database**
-
-Railway will deploy the AutoMem API automatically. Now add the database:
-
-1. In your project, click **"+ New"** → **"Empty Service"**
-2. In the new service settings:
-   - **Name:** `falkordb`
-   - **Source:** Docker image
-   - **Image:** `falkordb/falkordb:latest`
-3. Click **"Deploy"**
-
-**2d. Configure AutoMem API Environment Variables**
-
-1. Click on your **automem** service (not falkordb)
-2. Go to **"Variables"** tab
-3. Click **"+ New Variable"** and add these:
-
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `AUTOMEM_API_TOKEN` | Generate a random string* | Auth token for API calls |
-| `ADMIN_API_TOKEN` | Generate another random string* | Admin-only operations |
-| `FALKORDB_HOST` | `falkordb.railway.internal` | Internal FalkorDB hostname |
-| `FALKORDB_PORT` | `6379` | FalkorDB port |
-| `OPENAI_API_KEY` | Your OpenAI API key (optional) | Enables real embeddings |
-
-**Generate random strings:* Use `openssl rand -base64 32` in terminal or any password generator.
-
-**Optional:** Add `QDRANT_URL` and `QDRANT_API_KEY` if using Qdrant Cloud for vector search.
-
-4. Click **"Deploy"** to restart with new variables
-
----
-
-#### Step 3: Get Your AutoMem URL (1 minute)
-
-1. Click on your **automem** service (the API, not falkordb)
-2. Go to **"Settings"** tab
-3. Scroll to **"Networking"** → **"Public Networking"**
-4. Click **"Generate Domain"**
-5. **Copy the URL** - looks like: `automem-production-abc123.up.railway.app`
-
-**✅ Save this URL!** You'll need it when configuring MCP clients below.
-
----
-
-#### Step 4: Verify Deployment (30 seconds)
-
-Test that everything works:
-
-```bash
-# Replace with YOUR Railway URL
-curl https://automem-production-abc123.up.railway.app/health
-```
-
-**Expected response:**
-```json
-{"status": "healthy", "falkordb": "connected"}
-```
-
-**Got an error?**
-- `503 Service Unavailable` = FalkorDB can't connect. Check:
-  - `FALKORDB_HOST` is set to `falkordb.railway.internal`
-  - FalkorDB service is running (green dot in Railway dashboard)
-  - Volume is mounted at `/data`
-- `401 Unauthorized` = You're trying a protected endpoint. `/health` should work without auth.
-
-</details>
-
----
-
-#### What You Just Built
-
-```
-┌─────────────────────────────────────┐
-│  Railway Cloud (Your Free Tier)    │
-│                                     │
-│  ┌────────────────┐  ┌───────────┐ │
-│  │  AutoMem API   │  │ FalkorDB  │ │
-│  │  (Flask)       │──│ (Graph DB)│ │
-│  │  Port: 443     │  │ +Volume   │ │
-│  └────────────────┘  └───────────┘ │
-│         ▲                           │
-│         │ HTTPS                     │
-│         │ (your-url.railway.app)    │
-└─────────┼───────────────────────────┘
-          │
-          ▼
-   Your AI Tools
-   (any device, anywhere)
-```
-
-**Next step:** Use your Railway URL (e.g., `https://automem-production-abc123.up.railway.app`) as your `AUTOMEM_ENDPOINT` when configuring MCP clients below.
-
-👉 **[Advanced Railway Configuration](RAILWAY_TEMPLATE_GUIDE.md)** - Custom domains, monitoring, template creation
-
----
-
-## Platform-Specific MCP Client Setup
-
-Now that your AutoMem service is running (locally or on Railway), configure your AI platforms to connect to it.
 
 ---
 
@@ -396,24 +240,72 @@ npx @verygoodplugins/mcp-automem cursor --dir .cursor/rules
 
 For memory-first behavior across **ALL** Cursor projects, add this to `Cursor Settings > General > Rules for AI`:
 
-```markdown
+<details>
+<summary><b>Click to expand: Global Memory-First Rules for Cursor</b></summary>
+
 ## Memory-First Development
 
-At the start of EVERY conversation, recall relevant memories:
+### Smart Recall Strategy
+At the start of EVERY conversation, use contextual recall:
 
-mcp_memory_recall_memory({
-  query: "<describe the user's current task or question>",
-  tags: ["<project-name>", "cursor"],  // Auto-detect project name from package.json, git, or directory
-  limit: 5
+```javascript
+// Parallel recall for comprehensive context
+const [projectContext, recentWork, userPrefs] = await Promise.all([
+  mcp_memory_recall_memory({
+    query: "<describe the user's current task or question>",
+    tags: ["<project-name>", "cursor"],
+    limit: 5
+  }),
+  mcp_memory_recall_memory({
+    tags: ["<project-name>"],
+    time_query: "today",
+    limit: 3
+  }),
+  mcp_memory_recall_memory({
+    query: "user preferences coding style",
+    tags: ["<project-name>"],
+    limit: 2
+  })
+]);
+```
+
+### Enhanced Storage Patterns
+During conversation, store discoveries with rich metadata:
+
+```javascript
+// Architectural decisions (importance: 0.9)
+mcp_memory_store_memory({
+  content: "[DECISION] Chose PostgreSQL over MongoDB. Need ACID compliance. Impact: Data consistency guaranteed.",
+  tags: ["<project-name>", "cursor", "decision", "architecture", "<current-month>"],
+  importance: 0.9,
+  metadata: {
+    type: "decision",
+    alternatives_considered: ["MongoDB", "DynamoDB"],
+    deciding_factors: ["ACID", "relationships", "team_expertise"]
+  }
 })
 
-During conversation, store important discoveries:
-- Architectural decisions → importance: 0.9, tags: ["<project-name>", "decision", "architecture"]
-- Bug fixes with root cause → importance: 0.8, tags: ["<project-name>", "bug-fix", "<component>"]
-- Useful patterns → importance: 0.7, tags: ["<project-name>", "pattern", "<type>"]
+// Bug fixes with patterns (importance: 0.8)
+mcp_memory_store_memory({
+  content: "[BUG-FIX] Auth timeout on slow connections. Root: Missing retry logic. Solution: Exponential backoff.",
+  tags: ["<project-name>", "cursor", "bug-fix", "auth", "<current-month>"],
+  importance: 0.8,
+  metadata: {
+    error_signature: "TimeoutError: Authentication request timed out",
+    solution_pattern: "exponential-backoff-retry",
+    files_modified: ["src/auth/client.ts"]
+  }
+})
+```
+
+### Proactive Patterns
+- **Error Learning**: When debugging, always check for similar past issues first
+- **Pattern Reuse**: Before implementing, recall established patterns in the codebase
+- **Impact Analysis**: For refactoring, understand historical decisions and their rationale
 
 Always use the current project's name in tags for organization.
-```
+
+</details>
 
 This enables basic memory recall/storage globally. For full agent features (priority, automatic tool selection), use project-level installation.
 
@@ -1176,9 +1068,14 @@ npm test
 
 ## Support
 
-- **Documentation**: This guide and [AutoMem Service Docs](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md)
-- **Issues**: [GitHub Issues](https://github.com/verygoodplugins/mcp-automem/issues)
-- **AutoMem Service**: [AutoMem Repository](https://github.com/verygoodplugins/automem)
+### MCP Client (this repo)
+- **Issues**: [GitHub Issues](https://github.com/verygoodplugins/mcp-automem/issues) - MCP client bugs, platform integrations
+- **Documentation**: This guide - MCP setup for all platforms
+
+### AutoMem Service (backend)
+- **Service Documentation**: [AutoMem Installation Guide](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md) - Service deployment, Railway setup
+- **Service Issues**: [AutoMem Issues](https://github.com/verygoodplugins/automem/issues) - Backend bugs, API questions
+- **Repository**: [AutoMem Service](https://github.com/verygoodplugins/automem) - Backend source code
 
 ---
 
