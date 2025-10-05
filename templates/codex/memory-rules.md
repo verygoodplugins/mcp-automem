@@ -8,7 +8,7 @@ At the start of a task:
 ```javascript
 mcp_memory_recall_memory({
   query: "<current task or question>",
-  tags: ["{{PROJECT_NAME}}", "codex"],
+  tags: ["{{PROJECT_NAME}}"],
   limit: 3
 })
 ```
@@ -17,13 +17,22 @@ During the task, store important outcomes:
 
 ```javascript
 mcp_memory_store_memory({
-  content: "[TYPE] Brief title. Context and details. Impact/outcome.",
-  tags: ["{{PROJECT_NAME}}", "codex", "<component>", "{{CURRENT_MONTH}}"],
+  content: "Brief title. Context and details. Impact/outcome.",
+  type: "Decision",  // or "Pattern", "Insight", "Preference", "Style", "Habit", "Context"
+  confidence: 0.95,
+  tags: ["{{PROJECT_NAME}}", "<component>", "{{CURRENT_MONTH}}"],
   importance: 0.7
 })
 ```
 
-Types: decision, bug-fix, pattern, feature, config, refactor
+**Memory Types:**
+- **Decision** - Strategic or technical decisions
+- **Pattern** - Recurring approaches, best practices
+- **Insight** - Key learnings, problem resolutions
+- **Preference** - User/team preferences
+- **Style** - Code style or formatting
+- **Habit** - Regular behaviors or workflows
+- **Context** - General information (default)
 
 Guidelines:
 - Weave recalled context naturally; avoid meta commentary.

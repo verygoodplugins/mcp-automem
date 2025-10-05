@@ -137,7 +137,9 @@ When user successfully:
 ```javascript
 mcp_memory_store_memory({
   content: "[What worked] in [project-name]: [command/solution]. Context: [why it was needed]",
-  tags: ["<project>", "warp", "terminal", "<YYYY-MM>", "<type>"],
+  type: "Insight",  // or "Decision", "Pattern", "Preference", "Context"
+  confidence: 0.9,
+  tags: ["<project>", "warp", "terminal", "<YYYY-MM>"],
   importance: 0.7-0.9
 })
 ```
@@ -146,6 +148,8 @@ mcp_memory_store_memory({
 ```javascript
 mcp_memory_store_memory({
   content: "Fixed DATABASE_URL missing error in my-api: Copy .env.example to .env and fill in Heroku credentials. This happens after fresh clone.",
+  type: "Insight",
+  confidence: 0.9,
   tags: ["my-api", "warp", "terminal", "2025-10", "setup"],
   importance: 0.8
 })
@@ -160,6 +164,8 @@ For complex workflows, store the full sequence:
 ```javascript
 mcp_memory_store_memory({
   content: "Deploy backend to production: 1) npm run build 2) npm run test 3) git tag vX.X.X 4) git push --tags 5) railway up --environment production. Wait for health check at /health endpoint.",
+  type: "Pattern",
+  confidence: 0.95,
   tags: ["backend", "warp", "terminal", "2025-10", "deploy"],
   importance: 0.9
 })
@@ -172,6 +178,8 @@ Store error signatures with solutions:
 ```javascript
 mcp_memory_store_memory({
   content: "ECONNREFUSED error on localhost:5432 means PostgreSQL not running. Fix: brew services start postgresql. Verify with: psql -l",
+  type: "Insight",
+  confidence: 0.95,
   tags: ["database", "warp", "terminal", "2025-10", "debug"],
   importance: 0.8
 })
@@ -184,6 +192,8 @@ Store complete onboarding sequences:
 ```javascript
 mcp_memory_store_memory({
   content: "New developer setup for api-project: 1) npm install 2) cp .env.example .env 3) docker-compose up -d (starts DB) 4) npm run migrate 5) npm run seed 6) npm run dev. Access at http://localhost:3000",
+  type: "Pattern",
+  confidence: 0.95,
   tags: ["api-project", "warp", "terminal", "2025-10", "setup"],
   importance: 0.95
 })
@@ -278,8 +288,8 @@ how do I fix this?
 AI: "Kill process on port 3000: lsof -ti:3000 | xargs kill -9
 (You stored this solution last week when debugging the same issue)"
 
-# Success! Store for next time
-[AI automatically stores: "Port 3000 conflict in my-api: lsof -ti:3000 | xargs kill -9"]
+# Success! AI stores for next time
+[AI stores: { content: "Port 3000 conflict in my-api: lsof -ti:3000 | xargs kill -9", type: "Insight", importance: 0.8 }]
 ```
 
 ---

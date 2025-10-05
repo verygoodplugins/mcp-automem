@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.6.1 - 2025-10-05
+
+### Changed
+- **Updated templates for new AutoMem API type field**: All templates now use explicit `type` parameter instead of `[TYPE]` prefixes in content
+  - Added support for memory classification types: `Decision`, `Pattern`, `Insight`, `Preference`, `Style`, `Habit`, `Context`
+  - Added `confidence` parameter (defaults to 0.9 when type is provided, auto-computed otherwise)
+  - Removed `[DECISION]`, `[BUG-FIX]`, `[PATTERN]`, etc. prefixes from content examples
+  - Updated all code examples to use clean content with explicit type field
+  - Type is optional - omit for auto-classification by enrichment pipeline
+- **Template updates**:
+  - `templates/cursor/automem.mdc.template` - Complete rewrite with new type field approach
+  - `AGENTS.md` - Updated with type field examples and removed redundant `codex` tag
+  - `templates/CLAUDE_MD_MEMORY_RULES.md` - Comprehensive type field documentation
+  - `templates/codex/memory-rules.md` - Updated examples and removed redundant `codex` tag
+  - `templates/warp/warp-rules.md` - Terminal-focused type field examples
+- **Documentation improvements**:
+  - Added "Memory Types" section to cursor template explaining all valid types
+  - Added "Type selection guide" with best practices
+  - Updated "Content Structure" section with cleaner examples
+  - Added note to avoid type prefixes in "NEVER STORE" section
+  - Updated Tool Reference with full parameter documentation
+
+### Benefits
+- Cleaner, more semantic memory content without bracket prefixes
+- Better auto-classification when type is omitted
+- More accurate categorization with explicit type field
+- Consistent API usage across all platforms
+- Forward-compatible with future AutoMem API enhancements
+
 ## 0.6.0 - 2025-10-04
 
 ### Breaking Changes
