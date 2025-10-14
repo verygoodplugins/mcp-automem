@@ -1,0 +1,52 @@
+{
+  "name": "verygoodplugins",
+  "description": "Official Very Good Plugins marketplace for Claude Code",
+  "owner": {
+    "name": "Very Good Plugins",
+    "url": "https://github.com/verygoodplugins",
+    "contact": "info@verygoodplugins.com"
+  },
+  "repository": "https://github.com/verygoodplugins/",
+  "plugins": [
+    {
+      "name": "mcp-automem",
+      "source": "./mcp-automem",
+      "description": "Persistent memory system with automatic capture, intelligent recall, and knowledge graph building",
+      "author": {
+        "name": "Very Good Plugins",
+        "url": "https://github.com/verygoodplugins"
+      },
+      "repository": "https://github.com/verygoodplugins/mcp-automem",
+      "version": "1.0.0",
+      "license": "MIT",
+      "tags": [
+        "memory",
+        "context",
+        "automation",
+        "mcp",
+        "knowledge-graph",
+        "semantic-search",
+        "productivity"
+      ],
+      "features": [
+        "Automatic memory capture from git commits, builds, and deployments",
+        "Intelligent semantic recall with hybrid search",
+        "Knowledge graph with 11 relationship types",
+        "Cross-platform sync (Cursor, Claude Code, Codex, Warp)",
+        "Smart filtering and deduplication",
+        "Session context loading"
+      ],
+      "requirements": {
+        "mcp_servers": ["memory"],
+        "external_services": {
+          "automem": {
+            "description": "AutoMem service for persistent memory storage",
+            "url": "https://github.com/verygoodplugins/automem",
+            "optional": false
+          }
+        }
+      }
+    }
+  ]
+}
+

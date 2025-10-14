@@ -1,0 +1,120 @@
+{
+  "trivial_patterns": [
+    "^\\.DS_Store$",
+    "^__pycache__",
+    "^node_modules/",
+    "^\\.git/",
+    "^\\.venv/",
+    "^venv/",
+    "\\.pyc$",
+    "^\\.cache/",
+    "^dist/",
+    "^build/",
+    "^\\.idea/",
+    "^\\.vscode/",
+    "^coverage/",
+    "\\.log$",
+    "^tmp/",
+    "^temp/"
+  ],
+  "significant_patterns": [
+    "feat[:\\(]",
+    "fix[:\\(]",
+    "BREAKING",
+    "performance",
+    "security",
+    "refactor",
+    "test[:\\(]",
+    "release",
+    "hotfix",
+    "critical",
+    "major",
+    "deploy",
+    "merge",
+    "revert"
+  ],
+  "file_weight": {
+    ".py": 2.0,
+    ".js": 2.0,
+    ".ts": 2.0,
+    ".jsx": 2.0,
+    ".tsx": 2.0,
+    ".php": 2.0,
+    ".go": 2.0,
+    ".rs": 2.0,
+    ".java": 2.0,
+    ".c": 2.0,
+    ".cpp": 2.0,
+    ".swift": 2.0,
+    ".rb": 2.0,
+    ".sh": 1.5,
+    ".yml": 1.5,
+    ".yaml": 1.5,
+    ".json": 1.3,
+    ".xml": 1.3,
+    ".toml": 1.3,
+    ".env": 1.5,
+    ".config": 1.3,
+    ".md": 1.2,
+    ".rst": 1.2,
+    ".txt": 0.8,
+    ".gitignore": 0.5,
+    ".editorconfig": 0.5
+  },
+  "minimum_changes": 3,
+  "minimum_lines": 10,
+  "session_keywords": {
+    "high_priority": [
+      "production",
+      "release",
+      "hotfix",
+      "security",
+      "critical",
+      "urgent",
+      "breaking",
+      "vulnerability"
+    ],
+    "medium_priority": [
+      "feature",
+      "enhancement",
+      "improvement",
+      "optimization",
+      "refactor",
+      "migration"
+    ],
+    "low_priority": [
+      "docs",
+      "style",
+      "format",
+      "comment",
+      "typo",
+      "cleanup"
+    ]
+  },
+  "deduplication": {
+    "timeframe_hours": 24,
+    "similarity_threshold": 0.85,
+    "consolidation_window_minutes": 30
+  },
+  "memory_limits": {
+    "max_memories_per_day": 50,
+    "max_memories_per_project": 20,
+    "max_content_length": 500
+  },
+  "domain_mapping": {
+    "coding": ["feat", "implement", "function", "class", "method", "api", "endpoint"],
+    "debugging": ["fix", "bug", "error", "issue", "problem", "crash", "exception"],
+    "testing": ["test", "spec", "unit", "integration", "coverage", "assert"],
+    "architecture": ["refactor", "structure", "pattern", "design", "architecture", "framework"],
+    "documentation": ["docs", "readme", "comment", "docstring", "guide", "tutorial"],
+    "performance": ["optimize", "performance", "speed", "efficiency", "cache", "memory"],
+    "security": ["security", "vulnerability", "auth", "encryption", "permission", "access"],
+    "deployment": ["deploy", "release", "build", "ci", "cd", "pipeline", "docker"]
+  },
+  "project_importance": {
+    "project-alpha": 3.0,
+    "project-beta": 2.5,
+    "project-gamma": 2.0,
+    "default": 1.0
+  }
+}
