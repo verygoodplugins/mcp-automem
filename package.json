@@ -4,6 +4,9 @@
   "description": "MCP server for AutoMem: AI memory storage and recall",
   "main": "dist/index.js",
   "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "bin": {
     "mcp-automem": "dist/index.js"
   },
