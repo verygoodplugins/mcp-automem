@@ -428,16 +428,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'recall_memory': {
         const recallArgs = args as unknown as RecallMemoryArgs;
 
-        // First, call the primary recall endpoint
-        const primary = await client.recallMemory(recallArgs);
+        let merged: any[] = [];
 
-        let merged = primary.results || [];
-
-        // If tags are provided, also fetch explicit tag matches and merge
+        // If tags are provided, fetch both endpoints in parallel for better performance
         if (Array.isArray(recallArgs.tags) && recallArgs.tags.length > 0) {
           try {
-            const tagOnly = await client.searchByTag({ tags: recallArgs.tags, limit: recallArgs.limit || 5 });
+            const [primary, tagOnly] = await Promise.all([
+              client.recallMemory(recallArgs),
+              client.searchByTag({ tags: recallArgs.tags, limit: recallArgs.limit || 5 }).catch(() => ({ results: [] })),
+            ]);
 
+            merged = primary.results || [];
+
+            // Merge tag-only results
             const byId = new Map<string, typeof merged[number]>();
             for (const r of merged) byId.set(r.memory.memory_id, r);
 
@@ -462,8 +465,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               merged = merged.slice(0, recallArgs.limit);
             }
           } catch (e) {
-            // Non-fatal: if /by-tag fails, continue with primary results
+            // Non-fatal: if recall fails, return empty results
           }
+        } else {
+          // No tags provided, just do primary recall
+          const primary = await client.recallMemory(recallArgs);
+          merged = primary.results || [];
         }
 
         if (!merged || merged.length === 0) {

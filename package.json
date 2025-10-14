@@ -50,7 +50,7 @@
   },
   "files": [
     "dist/",
-    "templates/",
+    "templates",
     "env.example",
     "README.md",
     "CHANGELOG.md",

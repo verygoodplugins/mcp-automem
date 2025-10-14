@@ -298,6 +298,50 @@ mcp_memory_store_memory({
 })
 ```
 
+### Association Patterns
+**Always link related memories** to build a knowledge graph:
+
+```javascript
+// After storing a memory, associate it with related ones
+const bugFix = mcp_memory_store_memory({
+  content: "[BUG-FIX] Auth token expiring too quickly. Increased TTL to 24h.",
+  tags: ["<project-name>", "cursor", "bug-fix", "auth", "<current-month>"],
+  importance: 0.8
+});
+
+// Find and link to related memories
+const related = mcp_memory_recall_memory({
+  query: "authentication JWT token",
+  tags: ["<project-name>"],
+  limit: 5
+});
+
+// Associate with original feature
+mcp_memory_associate_memories({
+  memory1_id: bugFix.id,
+  memory2_id: related[0].id,
+  type: "RELATES_TO",
+  strength: 0.9
+});
+
+// Associate with decision it modifies
+mcp_memory_associate_memories({
+  memory1_id: bugFix.id,
+  memory2_id: related[1].id,
+  type: "EVOLVED_INTO",  // Updates the original decision
+  strength: 0.8
+});
+```
+
+**Common association patterns:**
+- Bug fix → Original feature (`RELATES_TO`)
+- New feature → Architecture decision (`DERIVED_FROM`)
+- Pattern → Implementation example (`EXEMPLIFIES`)
+- New decision → Old decision (`EVOLVED_INTO`, `INVALIDATED_BY`)
+- Sequential work → Previous work (`LEADS_TO`, `OCCURRED_BEFORE`)
+
+**Association types:** `RELATES_TO`, `LEADS_TO`, `EVOLVED_INTO`, `DERIVED_FROM`, `EXEMPLIFIES`, `CONTRADICTS`, `REINFORCES`, `INVALIDATED_BY`, `OCCURRED_BEFORE`, `PART_OF`, `PREFERS_OVER`
+
 ### Proactive Patterns
 - **Error Learning**: When debugging, always check for similar past issues first
 - **Pattern Reuse**: Before implementing, recall established patterns in the codebase

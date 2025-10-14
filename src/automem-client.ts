@@ -37,6 +37,7 @@ export class AutoMemClient {
     const options: any = {
       method,
       headers,
+      timeout: 25000, // 25s timeout - Claude Desktop has ~30s MCP timeout
     };
 
     if (body && method !== 'GET') {
