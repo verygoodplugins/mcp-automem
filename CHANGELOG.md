@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.6.2 - 2025-10-14
+
+### Added
+- **Memory association documentation**: Added detailed association patterns and examples to `INSTALLATION.md`
+  - Comprehensive guide on linking related memories
+  - When and how to create associations between memories
+  - Examples of common association patterns
+  - Best practices for building a knowledge graph
+
+### Improved
+- **Parallel recall performance**: Updated `recall_memory` handler to fetch primary and tag-based results in parallel
+  - Better performance through concurrent API calls
+  - More robust error handling and result merging
+  - Enhanced reliability when combining multiple data sources
+- **HTTP request timeout**: Set 25-second timeout for all AutoMem API requests in client
+  - Prevents hung connections
+  - Better error handling for slow/unavailable services
+
 ## 0.6.1 - 2025-10-05
 
 ### Changed
