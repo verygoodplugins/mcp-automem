@@ -51,5 +51,10 @@ if command -v terminal-notifier >/dev/null 2>&1; then
         -message "$MSG" \
         -sound "$SOUND"
 else
-    osascript -e "display notification \"$MSG\" with title \"Claude Code ($SESSION_DIR) - $TITLE\" sound name \"$SOUND\""
+    # Escape special characters for AppleScript (only double quotes and backslashes)
+    MSG_ESCAPED=$(printf '%s' "$MSG" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+    TITLE_FULL="Claude Code ($SESSION_DIR) - $TITLE"
+    TITLE_ESCAPED=$(printf '%s' "$TITLE_FULL" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+
+    osascript -e "display notification \"$MSG_ESCAPED\" with title \"$TITLE_ESCAPED\" sound name \"$SOUND\""
 fi
