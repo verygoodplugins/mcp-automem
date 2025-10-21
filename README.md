@@ -17,6 +17,33 @@ Works with **Claude Desktop**, **Cursor IDE**, **Claude Code** - any MCP-compati
 
 ---
 
+## New: Remote MCP over SSE
+
+You can now connect AutoMem to platforms that support MCP over Server‑Sent Events (SSE) via an optional sidecar service (deployable to Railway or any Docker host).
+
+- ChatGPT (Developer Mode custom connectors)
+- Claude.ai (web) and Claude Mobile (iOS/Android)
+- ElevenLabs Agents Platform
+
+Quick connect URLs (after deploying the sidecar):
+- ChatGPT, Claude Web/Mobile: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+- ElevenLabs: `https://<your-mcp-domain>/mcp/sse` with header `Authorization: Bearer <AUTOMEM_API_TOKEN>`
+
+See the Installation Guide for complete steps and deployment options.
+
+### SSE Platforms in Action
+![ChatGPT Developer Mode – Connector Config](screenshots/chatgpt-connector-config.jpg)
+*ChatGPT Developer Mode: Add your SSE URL as a custom connector*
+
+![ChatGPT with AutoMem Memories](screenshots/chatgpt-memories.jpg)
+*ChatGPT using AutoMem memories via the SSE connector*
+
+![Claude Web Using AutoMem](screenshots/claude-ai-web-memories.jpg)
+*Claude.ai website connected to AutoMem via remote MCP (SSE)*
+
+![Claude iOS App](screenshots/claude-ios-app.jpeg)
+*Claude Mobile (iOS) connected to AutoMem via remote MCP (SSE)*
+
 ## The Problem We Solve
 
 Every AI conversation starts from zero. Claude forgets your coding style. Cursor can't learn your patterns. Your assistant doesn't remember yesterday's decisions.
@@ -108,7 +135,7 @@ Service runs at `http://localhost:8001` - perfect for single-machine use.
 
 **Option B: Railway Cloud** (recommended for production)
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/yD_u9d?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/automem-ai-memory-service?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month after trial.
 
@@ -309,6 +336,7 @@ Same factors apply here - go with Postgres."
 
 ### MCP Client & Integrations (this repo)
 - 📦 **[Installation Guide](INSTALLATION.md)** - MCP client setup for all platforms
+- 🌐 **[Remote MCP via SSE](INSTALLATION.md#remote-mcp-via-sse-sidecar)** - Connect ChatGPT, Claude Web/Mobile, ElevenLabs
 - 🎯 **[Cursor Setup](INSTALLATION.md#cursor-ide)** - IDE integration with rules
 - 🤖 **[Claude Code Hooks](templates/CLAUDE_CODE_INTEGRATION.md)** - Automated capture setup
 - 💻 **[Warp Terminal Setup](INSTALLATION.md#warp-terminal)** - Terminal integration

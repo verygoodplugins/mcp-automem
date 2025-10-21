@@ -41,7 +41,7 @@ Service runs at `http://localhost:8001` with no authentication required.
 
 **Best for:** Multi-device access, team collaboration, always-on availability.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/yD_u9d?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/automem-ai-memory-service?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month.
 
@@ -67,6 +67,83 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [Claude Code](#claude-code) - Terminal coding assistant with automation hooks
 - [Warp Terminal](#warp-terminal) - AI-powered terminal
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
+
+---
+
+## Remote MCP via SSE (Sidecar)
+
+Use this option to connect AutoMem to cloud products that support MCP over Server‑Sent Events (SSE), including ChatGPT (Developer Mode), Claude.ai on the web, Claude Mobile (iOS/Android), and ElevenLabs Agents.
+
+### When to use the SSE sidecar
+- You want AutoMem in ChatGPT’s Developer Mode connectors
+- You use Claude.ai on the web or the Claude mobile app
+- You integrate with ElevenLabs real‑time Agents
+- You need an HTTPS endpoint instead of a local process
+
+### Deploy the SSE sidecar
+Deploy the AutoMem MCP‑over‑SSE sidecar on Railway (one‑click) or any Docker platform. It proxies MCP over HTTPS and connects to your AutoMem service.
+
+- Guide: MCP over SSE Sidecar (AutoMem service repo)
+  - docs: https://github.com/verygoodplugins/automem/blob/main/docs/MCP_SSE.md
+
+Required env vars for the sidecar:
+- `AUTOMEM_ENDPOINT` — URL to your AutoMem service (prefer internal URL on Railway, e.g. `http://memory-service.railway.internal:8001`)
+- `AUTOMEM_API_TOKEN` — Token for your AutoMem service (if enabled)
+
+Sidecar endpoints:
+- `GET /mcp/sse` — SSE stream (server → client)
+- `POST /mcp/messages?sessionId=<id>` — Client → server JSON‑RPC
+- `GET /health` — Health probe
+
+### Configure platforms
+
+#### ChatGPT (Developer Mode)
+1. Enable Developer Mode → Settings → Connectors → Advanced
+2. Add a custom MCP server with this URL:
+   - `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+3. Save and test: ask ChatGPT to “Check the health of the AutoMem service”.
+
+![ChatGPT Developer Mode – Connector Config](screenshots/chatgpt-connector-config.jpg)
+*Configure ChatGPT Developer Mode with your SSE URL*
+
+![ChatGPT with AutoMem Memories](screenshots/chatgpt-connector.jpg)
+*ChatGPT showing the custom connector enabled*
+
+![ChatGPT using AutoMem](screenshots/chatgpt-memories.jpg)
+*ChatGPT using AutoMem tools via the SSE connector*
+
+Notes:
+- ChatGPT requires URL‑based auth for custom connectors → include `?api_token=...` in the URL
+
+#### Claude.ai (Web)
+- Server URL: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+- Then chat with Claude on the web; ask it to recall or store memories.
+
+![Claude Web Using AutoMem](screenshots/claude-ai-web-memories.jpg)
+*Claude.ai connected to AutoMem via remote MCP (SSE)*
+
+#### Claude Mobile (iOS/Android)
+- Server URL: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+- Open the Claude mobile app and add the remote MCP connector.
+
+![Claude iOS App](screenshots/claude-ios-app.jpeg)
+*Claude mobile app connected to AutoMem via remote MCP (SSE)*
+
+#### ElevenLabs Agents
+Use either header‑based auth (recommended) or URL token:
+
+- Server URL (header‑auth): `https://<your-mcp-domain>/mcp/sse`
+- Header: `Authorization: Bearer <AUTOMEM_API_TOKEN>`
+- Or use URL token: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+
+### Troubleshooting (SSE)
+Common fixes from the sidecar guide:
+- Ensure your memory service listens on `PORT=8001`
+- On Railway, prefer internal DNS: `http://memory-service.railway.internal:8001`
+- Check sidecar logs for errors (e.g., `railway logs --service automem-mcp-sse`)
+- As a fallback, set `AUTOMEM_ENDPOINT` to the public URL of your memory service
+
+For deeper details, see the AutoMem service docs linked above.
 
 ### Guided Setup Wizard
 
