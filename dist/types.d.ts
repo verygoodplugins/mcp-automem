@@ -1,6 +1,7 @@
 export interface AutoMemConfig {
     endpoint: string;
     apiKey?: string;
+    projectId?: string;
 }
 export interface MemoryRecord {
     content: string;

@@ -168,13 +168,14 @@ if (command === 'queue') {
 if (command === 'recall') {
   const AUTOMEM_ENDPOINT = process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
   const AUTOMEM_API_KEY = process.env.AUTOMEM_API_KEY;
-  
+  const AUTOMEM_PROJECT_ID = process.env.AUTOMEM_PROJECT_ID;
+
   if (!AUTOMEM_ENDPOINT) {
     console.error('❌ AUTOMEM_ENDPOINT not set');
     process.exit(1);
   }
-  
-  const client = new AutoMemClient({ endpoint: AUTOMEM_ENDPOINT, apiKey: AUTOMEM_API_KEY });
+
+  const client = new AutoMemClient({ endpoint: AUTOMEM_ENDPOINT, apiKey: AUTOMEM_API_KEY, projectId: AUTOMEM_PROJECT_ID });
   
   // Parse CLI args
   const args = process.argv.slice(3);
@@ -204,6 +205,7 @@ if (command === 'recall') {
 
 const AUTOMEM_ENDPOINT = process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
 const AUTOMEM_API_KEY = process.env.AUTOMEM_API_KEY;
+const AUTOMEM_PROJECT_ID = process.env.AUTOMEM_PROJECT_ID;
 
 if (!process.env.AUTOMEM_ENDPOINT) {
   console.warn('⚠️  AUTOMEM_ENDPOINT not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting.');
@@ -212,6 +214,7 @@ if (!process.env.AUTOMEM_ENDPOINT) {
 const clientConfig: AutoMemConfig = {
   endpoint: AUTOMEM_ENDPOINT,
   apiKey: AUTOMEM_API_KEY,
+  projectId: AUTOMEM_PROJECT_ID,
 };
 
 const client = new AutoMemClient(clientConfig);

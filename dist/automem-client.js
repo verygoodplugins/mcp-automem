@@ -12,6 +12,9 @@ export class AutoMemClient {
         if (this.config.apiKey) {
             headers.Authorization = `Bearer ${this.config.apiKey}`;
         }
+        if (this.config.projectId) {
+            headers['X-Project-ID'] = this.config.projectId;
+        }
         const options = {
             method,
             headers,
