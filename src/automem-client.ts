@@ -25,13 +25,17 @@ export class AutoMemClient {
     body?: any
   ): Promise<any> {
     const url = `${this.config.endpoint.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
-    
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
 
     if (this.config.apiKey) {
       headers.Authorization = `Bearer ${this.config.apiKey}`;
+    }
+
+    if (this.config.projectId) {
+      headers['X-Project-ID'] = this.config.projectId;
     }
 
     const options: any = {

@@ -7,6 +7,7 @@ import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildSummaryInstructi
 import { applyClaudeCodeSetup } from './claude-code.js';
 const ENV_ENDPOINT_KEY = 'AUTOMEM_ENDPOINT';
 const ENV_API_KEY = 'AUTOMEM_API_KEY';
+const ENV_PROJECT_ID_KEY = 'AUTOMEM_PROJECT_ID';
 function parseSetupArgs(args) {
     const options = {};
     for (let i = 0; i < args.length; i += 1) {
@@ -23,6 +24,10 @@ function parseSetupArgs(args) {
                 break;
             case '--api-key':
                 options.apiKey = args[i + 1];
+                i += 1;
+                break;
+            case '--project-id':
+                options.projectId = args[i + 1];
                 i += 1;
                 break;
             case '--claude-code':
@@ -146,6 +151,10 @@ export async function runSetup(args = []) {
         ?? existingValues[ENV_API_KEY]
         ?? process.env[ENV_API_KEY]
         ?? '';
+    const defaultProjectId = options.projectId
+        ?? existingValues[ENV_PROJECT_ID_KEY]
+        ?? process.env[ENV_PROJECT_ID_KEY]
+        ?? '';
     const endpoint = options.endpoint
         ?? await promptValue('AutoMem endpoint', DEFAULT_AUTOMEM_ENDPOINT, defaultEndpoint);
     let apiKey = options.apiKey ?? defaultApiKey;
@@ -157,6 +166,21 @@ export async function runSetup(args = []) {
             const trimmed = answer.trim();
             if (trimmed) {
                 apiKey = trimmed;
+            }
+        }
+        finally {
+            rl.close();
+        }
+    }
+    let projectId = options.projectId ?? defaultProjectId;
+    if (!options.projectId && input.isTTY && output.isTTY) {
+        const rl = createInterface({ input, output });
+        try {
+            const promptSuffix = defaultProjectId ? ' (leave blank to keep existing)' : ' (optional - for project isolation)';
+            const answer = await rl.question(`Project ID${promptSuffix}: `);
+            const trimmed = answer.trim();
+            if (trimmed) {
+                projectId = trimmed;
             }
         }
         finally {
@@ -182,6 +206,9 @@ export async function runSetup(args = []) {
     };
     if (apiKey && apiKey !== '<required>' && apiKey !== '<unchanged>') {
         updates[ENV_API_KEY] = apiKey;
+    }
+    if (projectId && projectId !== '<required>' && projectId !== '<unchanged>') {
+        updates[ENV_PROJECT_ID_KEY] = projectId;
     }
     mergeEnvFile(envPath, updates);
     console.log(`\n✅ Saved AutoMem settings to ${envPath}`);
