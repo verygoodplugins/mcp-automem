@@ -11,7 +11,7 @@ npx @verygoodplugins/mcp-automem setup
 
 Your AI assistant now remembers everything. Forever. Across every conversation.
 
-Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **ChatGPT**, **ElevenLabs**, **Warp Terminal**, **OpenAI Codex** - any MCP-compatible AI platform.
+Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex** - any MCP-compatible AI platform.
 
 ## The Problem We Solve
 
@@ -40,7 +40,6 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 | **Claude Desktop** | ✅ Full | 30 seconds |
 | **Cursor IDE** | ✅ Full | 30 seconds |
 | **Claude Code** | ✅ Full | 30 seconds |
-| **Warp Terminal** | ✅ Full | 30 seconds |
 | **OpenAI Codex** | ✅ Full | 30 seconds |
 | **Any MCP client** | ✅ Full | 30 seconds |
 
@@ -60,10 +59,6 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 
 ### OpenAI Codex with Memory Rules
 *OpenAI Codex uses config.toml to automatically recall and store memories*
-
-### Warp Terminal with Memory Rules
-![Warp Terminal with Memory](screenshots/warp-tool-2.jpg)
-*Warp Terminal uses memory rules to automatically recall and store context*
 
 ### Your AI Learns Your Code Style
 ```javascript
@@ -154,10 +149,6 @@ npx @verygoodplugins/mcp-automem cursor
 # Installs automation hooks that capture memories automatically
 npx @verygoodplugins/mcp-automem claude-code
 ```
-
-**For Warp Terminal:**
-See the Warp setup guide and add the MCP configuration from `templates/warp/mcp.json` to your `~/.warp/mcp.json`.
-Follow usage rules in `templates/warp/warp-rules.md`.
 
 **For OpenAI Codex:**
 ```bash
@@ -288,23 +279,14 @@ recall_memory({
 - ✅ **Simple setup** via CLI or one-click install
 
 #### Claude Code
-- ✅ **Automatic session capture** (git commits, builds, tests, deploys)
-- ✅ **Queue-based processing** with deduplication (non-blocking)
-- ✅ **Smart filtering** (skips trivial files, lock files, build artifacts)
-- ✅ **Configurable profiles** (lean/extras)
-- ✅ **Relationship tracking** between memories
-- ✅ **Efficient defaults** (~1-2 captures/session, high signal-to-noise)
+- ✅ **MCP permissions** for memory tools
+- ✅ **Memory rules** in CLAUDE.md guide Claude's memory usage
+- ✅ **Simple setup** - just permissions, Claude decides what to store
 
 #### Claude Desktop
 - ✅ Direct MCP integration
 - ✅ Manual and automated workflows
 - ✅ Full memory API access
-
-#### Warp Terminal
-- ✅ Project context auto-detection
-- ✅ Memory-first terminal assistance
-- ✅ Smart recall on directory changes
-- ✅ Command history with context
 
 ## Why AutoMem MCP?
 
@@ -356,8 +338,7 @@ Same factors apply here - go with Postgres."
 - 📦 **[Installation Guide](INSTALLATION.md)** - MCP client setup for all platforms
 - 🌐 **[Remote MCP via SSE](INSTALLATION.md#remote-mcp-via-sse-sidecar)** - Connect ChatGPT, Claude Web/Mobile, ElevenLabs
 - 🎯 **[Cursor Setup](INSTALLATION.md#cursor-ide)** - IDE integration with rules
-- 🤖 **[Claude Code Hooks](templates/CLAUDE_CODE_INTEGRATION.md)** - Automated capture setup
-- 💻 **[Warp Terminal Setup](INSTALLATION.md#warp-terminal)** - Terminal integration
+- 🤖 **[Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md)** - Memory rules integration
 - 🚀 **[OpenAI Codex Setup](INSTALLATION.md#openai-codex)** - Codex CLI/IDE/Cloud integration
 - 📖 **[MCP Tools Reference](INSTALLATION.md#mcp-tools)** - All memory operations
 
@@ -389,8 +370,7 @@ This MCP package provides the bridge between your AI and that research-validated
 ### MCP Client Setup
 - [Installation Guide](INSTALLATION.md) - MCP client setup for all platforms
 - [Cursor Integration](INSTALLATION.md#cursor-ide) - IDE rules and configuration
-- [Claude Code Hooks](templates/CLAUDE_CODE_INTEGRATION.md) - Automated memory capture
-- [Warp Terminal](INSTALLATION.md#warp-terminal) - Terminal integration
+- [Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md) - Memory rules integration
 - [OpenAI Codex](INSTALLATION.md#openai-codex) - Codex integration
 - [Changelog](CHANGELOG.md) - Release history
 

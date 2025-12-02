@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - `templates/claude-code/scripts/` - Python processors, queue cleanup, notifications
 - `templates/claude-code/profiles/` - Profile system (lean/extras no longer needed)
 - `--profile` CLI flag from `claude-code` command
+- `templates/warp/` - Warp Terminal integration (niche use case, reduces maintenance)
 
 ### Added
 - **Advanced recall capabilities**: Exposed AutoMem server's multi-hop reasoning and context features
