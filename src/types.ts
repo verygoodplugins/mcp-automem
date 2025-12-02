@@ -39,6 +39,7 @@ export interface RecallResult {
     related_to?: Array<Record<string, any>>;
     memory: StoredMemory & Record<string, any>;
     deduped_from?: string[];
+    expanded_from_entity?: string;
   }>;
   count: number;
   dedup_removed?: number;
@@ -53,6 +54,18 @@ export interface RecallResult {
     expanded_count: number;
     relation_limit: number;
     expansion_limit: number;
+  };
+  entity_expansion?: {
+    enabled: boolean;
+    expanded_count: number;
+    entities_found: string[];
+  };
+  context_priority?: {
+    language?: string;
+    context?: string;
+    priority_tags?: string[];
+    priority_types?: string[];
+    injected?: boolean;
   };
 }
 
@@ -88,15 +101,36 @@ export interface RecallMemoryArgs {
   tags?: string[];
   tag_mode?: 'any' | 'all';
   tag_match?: 'exact' | 'prefix';
+  // Graph expansion
   expand_relations?: boolean;
+  expand_entities?: boolean;
+  auto_decompose?: boolean;
   expansion_limit?: number;
   relation_limit?: number;
+  // Context hints for smarter recall
+  context?: string;
+  language?: string;
+  active_path?: string;
+  context_tags?: string[];
+  context_types?: string[];
+  priority_ids?: string[];
 }
 
 export interface AssociateMemoryArgs {
   memory1_id: string;
   memory2_id: string;
-  type: 'RELATES_TO' | 'LEADS_TO' | 'OCCURRED_BEFORE';
+  type: 
+    | 'RELATES_TO'
+    | 'LEADS_TO'
+    | 'OCCURRED_BEFORE'
+    | 'PREFERS_OVER'
+    | 'EXEMPLIFIES'
+    | 'CONTRADICTS'
+    | 'REINFORCES'
+    | 'INVALIDATED_BY'
+    | 'EVOLVED_INTO'
+    | 'DERIVED_FROM'
+    | 'PART_OF';
   strength: number;
 }
 

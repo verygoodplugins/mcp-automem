@@ -2,6 +2,78 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.8.0 - 2025-12-02
+
+### Changed
+- **Claude Code integration simplified**: Removed hook-based capture system in favor of direct MCP usage
+  - Removed all automatic capture hooks (builds, commits, edits, tests, deployments, errors)
+  - Removed queue-based processing (Python processors, cleanup scripts)
+  - Removed desktop notifications (smart-notify.sh)
+  - Now uses simple approach: MCP permissions + memory rules in CLAUDE.md
+  - Philosophy: Trust Claude + good instructions > automated hooks that guess significance
+  - Claude has direct MCP access and can judge what's worth storing
+- **Claude Code now stable**: Removed "experimental" warning from README and documentation
+  - Platform support table updated: Claude Code now shows "✅ Full" status
+  - Simplified installation: just permissions + memory rules
+
+### Removed
+- `templates/claude-code/hooks/` - All hook scripts (capture-*.sh, session-memory.sh)
+- `templates/claude-code/scripts/` - Python processors, queue cleanup, notifications
+- `templates/claude-code/profiles/` - Profile system (lean/extras no longer needed)
+- `--profile` CLI flag from `claude-code` command
+- `templates/warp/` - Warp Terminal integration (niche use case, reduces maintenance)
+
+### Added
+- **Advanced recall capabilities**: Exposed AutoMem server's multi-hop reasoning and context features
+  - `expand_entities` - Multi-hop reasoning via entity expansion (e.g., "What is Amanda's sister's job?" finds Rachel → Rachel's job)
+  - `expand_relations` - Follow graph relationships (RELATES_TO, LEADS_TO, etc.) from seed results
+  - `auto_decompose` - Automatically split complex queries into sub-queries for broader recall
+  - `context` - Context label for preference boosting (e.g., "coding-style", "architecture")
+  - `language` - Programming language hint to prioritize language-specific memories
+  - `active_path` - Current file path for automatic language detection
+  - `context_tags` - Priority tags to boost in results
+  - `context_types` - Priority memory types (Decision, Pattern, etc.) to boost
+  - `priority_ids` - Specific memory IDs to ensure inclusion in results
+  - `expansion_limit`, `relation_limit` - Control expansion depth
+
+- **MCP 2025 best practices**: Enhanced tool definitions for better LLM usage
+  - Added `title` to all tools for human-readable display
+  - Added `annotations` with hints: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`
+  - Added `outputSchema` to all tools for structured response expectations
+  - Added detailed usage examples and "When to use" sections in tool descriptions
+  - All 11 relationship types now properly documented in `associate_memories` schema
+
+- **Enhanced response information**:
+  - `expansion` metadata in recall results (seed_count, expanded_count, relation_limit)
+  - `entity_expansion` metadata (entities_found, expanded_count)
+  - `context_priority` metadata (applied language, context, priority tags/types)
+
+### Changed
+- Updated `RecallMemoryArgs` interface with all new parameters
+- Updated `RecallResult` interface with expansion metadata
+- Enhanced `AutoMemClient.recallMemory()` to pass all new parameters to backend
+- Improved recall handler to display expansion information in response
+
+### Documentation
+- **INSTALLATION.md**: Comprehensive update to MCP Tools section
+  - Full parameter documentation for all tools
+  - Graph expansion examples with multi-hop reasoning
+  - Context-aware recall examples for coding tasks
+  - Association best practices with strength guidelines
+- **templates/cursor/automem.mdc.template**: Added Advanced Recall Features section
+  - Multi-hop reasoning examples
+  - Graph expansion and auto-decomposition
+  - Context-aware coding patterns
+  - Priority injection for specific memories
+- **templates/CLAUDE_MD_MEMORY_RULES.md**: Updated recall patterns
+  - Multi-query recall, entity expansion, graph expansion
+  - Context-aware recall for coding tasks
+  - Auto query decomposition
+
+### Technical
+- Bumped version to 0.8.0 in `src/index.ts`
+- Types now fully aligned with AutoMem server API capabilities
+
 ## 0.7.0 - 2025-12-02
 
 ### Changed
