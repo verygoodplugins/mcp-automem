@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## 0.8.0 - 2025-12-02
 
+### Changed
+- **Claude Code integration simplified**: Removed hook-based capture system in favor of direct MCP usage
+  - Removed all automatic capture hooks (builds, commits, edits, tests, deployments, errors)
+  - Removed queue-based processing (Python processors, cleanup scripts)
+  - Removed desktop notifications (smart-notify.sh)
+  - Now uses simple approach: MCP permissions + memory rules in CLAUDE.md
+  - Philosophy: Trust Claude + good instructions > automated hooks that guess significance
+  - Claude has direct MCP access and can judge what's worth storing
+- **Claude Code now stable**: Removed "experimental" warning from README and documentation
+  - Platform support table updated: Claude Code now shows "✅ Full" status
+  - Simplified installation: just permissions + memory rules
+
+### Removed
+- `templates/claude-code/hooks/` - All hook scripts (capture-*.sh, session-memory.sh)
+- `templates/claude-code/scripts/` - Python processors, queue cleanup, notifications
+- `templates/claude-code/profiles/` - Profile system (lean/extras no longer needed)
+- `--profile` CLI flag from `claude-code` command
+
 ### Added
 - **Advanced recall capabilities**: Exposed AutoMem server's multi-hop reasoning and context features
   - `expand_entities` - Multi-hop reasoning via entity expansion (e.g., "What is Amanda's sister's job?" finds Rachel → Rachel's job)

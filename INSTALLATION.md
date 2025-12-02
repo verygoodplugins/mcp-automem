@@ -474,45 +474,52 @@ This enables basic memory recall/storage globally. For full agent features (prio
 
 ## Claude Code
 
-> ⚠️ **EXPERIMENTAL:** Claude Code hooks-based installation is actively evolving as we optimize based on real-world usage and new Claude Code capabilities. The default setup is intentionally minimal (git commits + builds only). Additional capture hooks are optional and should be enabled carefully. Expect frequent updates and improvements.
+Claude Code integration uses a simple approach: **MCP permissions + memory rules**. Claude has direct MCP access and can judge what's worth storing better than automated hooks.
 
-### 1. Install Automation Hooks
+### 1. Configure MCP Server
 
-Run the Claude Code setup:
+Add AutoMem to `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001",
+        "AUTOMEM_API_KEY": "your-api-key-if-required"
+      }
+    }
+  }
+}
+```
+
+### 2. Add Permissions (Optional)
+
+Run the setup to add MCP tool permissions:
 
 ```bash
 npx @verygoodplugins/mcp-automem claude-code
 ```
 
-This command:
-- Installs lean, high-signal hooks (git commit, build, session end)
-- Merges tool permissions and hook definitions into `~/.claude/settings.json`
-- Adds queue cleanup and deduplication to session-stop processing
-- Sets up smart filtering (skips lock files, build artifacts, trivial changes)
+This merges permissions into `~/.claude/settings.json` so Claude can use memory tools without asking.
 
-**What gets captured by default:**
-- Git commits with significant code changes (3+ meaningful files)
-- Build results (success/failure with context)
-- Session summaries (1-2 per session, deduplicated)
-
-**What doesn't get captured:**
-- Lock files, node_modules, build output
-- Trivial changes (whitespace, formatting)
-- Duplicate memories (content-hash based dedup)
-
-### 2. Choose Profile (Optional)
-
-```bash
-# Quiet defaults (recommended)
-npx @verygoodplugins/mcp-automem claude-code --profile lean
-
-# Enable additional hooks and status line
-npx @verygoodplugins/mcp-automem claude-code --profile extras
+Or manually add to `~/.claude/settings.json`:
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__memory__store_memory",
+      "mcp__memory__recall_memory",
+      "mcp__memory__associate_memories",
+      "mcp__memory__update_memory",
+      "mcp__memory__delete_memory",
+      "mcp__memory__check_database_health"
+    ]
+  }
+}
 ```
-
-**Profiles:**
-- **Lean** (default): Quiet setup, high-signal hooks only (git commit, build, Stop)
-- **Extras**: Optional hooks (edit/test/deploy/search/error) + status line
 
 ### 3. Add Memory Rules
 
@@ -522,22 +529,16 @@ Append memory instructions to `~/.claude/CLAUDE.md`:
 cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md
 ```
 
-### 4. What Gets Installed
+This teaches Claude when to recall (session start, before decisions) and what to store (decisions, patterns, insights).
 
-- `~/.claude/hooks/` - Hook scripts (triggered by PostToolUse, Stop)
-- `~/.claude/scripts/` - Support scripts (queue processor, filters, notifications)
-- `~/.claude/settings.json` - Merged tool permissions and hook config
-- `~/.claude/CLAUDE.md` - Memory rules (manual append)
+### 4. Verify Installation
 
-### 5. Customize Filters
+Ask Claude Code:
+```
+Check the health of the AutoMem service
+```
 
-Edit `~/.claude/scripts/memory-filters.json` to tune:
-- `project_importance` weights
-- `file_weight` patterns
-- `trivial_patterns` to skip
-- `significant_patterns` to capture
-
-See **[Claude Code Integration Guide](templates/CLAUDE_CODE_INTEGRATION.md)** for complete documentation.
+See **[Claude Code Integration Guide](templates/CLAUDE_CODE_INTEGRATION.md)** for more details.
 
 ---
 

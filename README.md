@@ -3,8 +3,6 @@
 [![Version](https://img.shields.io/npm/v/@verygoodplugins/mcp-automem)](https://www.npmjs.com/package/@verygoodplugins/mcp-automem)
 [![License](https://img.shields.io/npm/l/@verygoodplugins/mcp-automem)](LICENSE)
 
-> **⚠️ Beta Notice:** The MCP server and AutoMem cloud service are stable and production-ready. However, platform-specific integrations (Cursor hooks, Claude Code automation, etc.) are actively evolving as we optimize based on new LLM capabilities and real-world usage. Expect frequent updates and improvements.
-
 **One command. Infinite memory. Perfect recall across all your AI tools.**
 
 ```bash
@@ -41,8 +39,8 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 |----------|---------|------------|
 | **Claude Desktop** | ✅ Full | 30 seconds |
 | **Cursor IDE** | ✅ Full | 30 seconds |
-| **Claude Code** | ⚠️ Experimental + Auto-capture hooks | 1 minute |
-| **Warp Terminal** | ✅ Full + Context-aware | 30 seconds |
+| **Claude Code** | ✅ Full | 30 seconds |
+| **Warp Terminal** | ✅ Full | 30 seconds |
 | **OpenAI Codex** | ✅ Full | 30 seconds |
 | **Any MCP client** | ✅ Full | 30 seconds |
 
