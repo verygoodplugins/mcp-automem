@@ -270,6 +270,11 @@ const tools: Tool[] = [
           type: 'string',
           description: 'Text query to search for in memory content',
         },
+        queries: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Multiple queries for broader recall (server-side deduplication)',
+        },
         embedding: {
           type: 'array',
           items: { type: 'number' },
@@ -429,6 +434,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const recallArgs = args as unknown as RecallMemoryArgs;
 
         let merged: any[] = [];
+        let dedupRemoved = 0;
 
         // If tags are provided, fetch both endpoints in parallel for better performance
         if (Array.isArray(recallArgs.tags) && recallArgs.tags.length > 0) {
@@ -439,6 +445,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ]);
 
             merged = primary.results || [];
+            dedupRemoved = primary.dedup_removed || 0;
 
             // Merge tag-only results
             const byId = new Map<string, typeof merged[number]>();
@@ -471,6 +478,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           // No tags provided, just do primary recall
           const primary = await client.recallMemory(recallArgs);
           merged = primary.results || [];
+          dedupRemoved = primary.dedup_removed || 0;
         }
 
         if (!merged || merged.length === 0) {
@@ -490,15 +498,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const tags = memory.tags?.length ? ` [${memory.tags.join(', ')}]` : '';
             const importance = typeof memory.importance === 'number' ? ` (importance: ${memory.importance})` : '';
             const score = typeof item.final_score === 'number' ? ` score=${item.final_score.toFixed(3)}` : '';
-            return `${index + 1}. ${memory.content}${tags}${importance}${score}\n   ID: ${memory.memory_id}\n   Created: ${memory.created_at}`;
+            const matchType = item.match_type ? ` [${item.match_type}]` : '';
+            const relationNote = Array.isArray((item as any).relations) && (item as any).relations.length
+              ? ` relations=${(item as any).relations.length}`
+              : '';
+            const dedupNote = Array.isArray(item.deduped_from) && item.deduped_from.length
+              ? ` (deduped x${item.deduped_from.length})`
+              : '';
+            return `${index + 1}. ${memory.content}${tags}${importance}${score}${matchType}${relationNote}${dedupNote}\n   ID: ${memory.memory_id}\n   Created: ${memory.created_at}`;
           })
           .join('\n\n');
+
+        const dedupInfo = dedupRemoved > 0 ? ` (${dedupRemoved} duplicates removed)` : '';
 
         return {
           content: [
             {
               type: 'text',
-              text: `Found ${merged.length} memories:\n\n${memoriesText}`,
+              text: `Found ${merged.length} memories${dedupInfo}:\n\n${memoriesText}`,
             },
           ],
         };

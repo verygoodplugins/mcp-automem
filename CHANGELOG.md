@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.7.0 - 2025-12-02
+
+### Changed
+- **Unified `recall_memory` tool**: Consolidated `recall_memory` and `recall_memory_multi` into a single tool
+  - Now accepts both `query` (string) for single searches and `queries` (array) for multi-query searches
+  - Server-side deduplication automatically handles overlapping results
+  - Simpler mental model: one tool for all recall operations
+  - Displays deduplication info when multiple queries are used
+
+### Added
+- `queries` parameter to `recall_memory` tool schema
+- `dedup_removed` and `deduped_from` fields in response types
+- Support for `queries` array in `AutoMemClient.recallMemory()`
+
+### Removed
+- `recall_memory_multi` tool (functionality merged into `recall_memory`)
+
+### Benefits
+- Fewer tools = less confusion for LLMs
+- Backward compatible: existing `query` usage unchanged
+- Multi-query support just works when you pass `queries` array
+
 ## 0.6.2 - 2025-10-14
 
 ### Added

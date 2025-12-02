@@ -27,11 +27,18 @@ export interface RecallResult {
     results: Array<{
         id: string;
         match_type: string;
+        match_score?: number;
+        relation_score?: number;
         final_score: number;
         score_components: Record<string, number>;
+        source?: string;
+        relations?: Array<Record<string, any>>;
+        related_to?: Array<Record<string, any>>;
         memory: StoredMemory & Record<string, any>;
+        deduped_from?: string[];
     }>;
     count: number;
+    dedup_removed?: number;
     keywords?: string[];
     time_window?: {
         start?: string | null;
@@ -40,6 +47,13 @@ export interface RecallResult {
     tags?: string[];
     tag_mode?: 'any' | 'all';
     tag_match?: 'exact' | 'prefix';
+    expansion?: {
+        enabled: boolean;
+        seed_count: number;
+        expanded_count: number;
+        relation_limit: number;
+        expansion_limit: number;
+    };
 }
 export interface HealthStatus {
     status: 'healthy' | 'error';
@@ -62,6 +76,7 @@ export interface StoreMemoryArgs {
 }
 export interface RecallMemoryArgs {
     query?: string;
+    queries?: string[];
     embedding?: number[];
     limit?: number;
     time_query?: string;
@@ -70,6 +85,9 @@ export interface RecallMemoryArgs {
     tags?: string[];
     tag_mode?: 'any' | 'all';
     tag_match?: 'exact' | 'prefix';
+    expand_relations?: boolean;
+    expansion_limit?: number;
+    relation_limit?: number;
 }
 export interface AssociateMemoryArgs {
     memory1_id: string;

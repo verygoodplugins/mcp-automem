@@ -79,8 +79,13 @@ export class AutoMemClient {
   async recallMemory(args: RecallMemoryArgs): Promise<RecallResult> {
     const params = new URLSearchParams();
 
+    // Support single query OR multiple queries
     if (args.query) {
       params.set('query', args.query);
+    }
+
+    if (Array.isArray(args.queries) && args.queries.length > 0) {
+      args.queries.filter(q => q && q.trim()).forEach((q) => params.append('queries', q));
     }
 
     if (args.limit) {
@@ -115,6 +120,18 @@ export class AutoMemClient {
       params.set('tag_match', args.tag_match);
     }
 
+    if (typeof args.expand_relations === 'boolean') {
+      params.set('expand_relations', String(args.expand_relations));
+    }
+
+    if (typeof args.expansion_limit === 'number') {
+      params.set('expansion_limit', String(args.expansion_limit));
+    }
+
+    if (typeof args.relation_limit === 'number') {
+      params.set('relation_limit', String(args.relation_limit));
+    }
+
     const queryString = params.toString();
     const path = queryString ? `recall?${queryString}` : 'recall';
 
@@ -123,8 +140,13 @@ export class AutoMemClient {
       results: (response.results || []).map((result: any) => ({
         id: result.id,
         match_type: result.match_type,
+        match_score: result.match_score,
+        relation_score: result.relation_score,
         final_score: result.final_score ?? result.score ?? 0,
         score_components: result.score_components || {},
+        source: result.source,
+        relations: result.relations || [],
+        related_to: result.related_to || result.relations || [],
         memory: {
           memory_id: result.id,
           content: result.memory?.content || '',
@@ -138,11 +160,13 @@ export class AutoMemClient {
         },
       })),
       count: response.count || (response.results ? response.results.length : 0),
+      dedup_removed: response.dedup_removed,
       keywords: response.keywords,
       time_window: response.time_window,
       tags: response.tags,
       tag_mode: response.tag_mode,
       tag_match: response.tag_match,
+      expansion: response.expansion,
     };
   }
 
