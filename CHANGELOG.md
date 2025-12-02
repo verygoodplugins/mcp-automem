@@ -2,6 +2,59 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.8.0 - 2025-12-02
+
+### Added
+- **Advanced recall capabilities**: Exposed AutoMem server's multi-hop reasoning and context features
+  - `expand_entities` - Multi-hop reasoning via entity expansion (e.g., "What is Amanda's sister's job?" finds Rachel → Rachel's job)
+  - `expand_relations` - Follow graph relationships (RELATES_TO, LEADS_TO, etc.) from seed results
+  - `auto_decompose` - Automatically split complex queries into sub-queries for broader recall
+  - `context` - Context label for preference boosting (e.g., "coding-style", "architecture")
+  - `language` - Programming language hint to prioritize language-specific memories
+  - `active_path` - Current file path for automatic language detection
+  - `context_tags` - Priority tags to boost in results
+  - `context_types` - Priority memory types (Decision, Pattern, etc.) to boost
+  - `priority_ids` - Specific memory IDs to ensure inclusion in results
+  - `expansion_limit`, `relation_limit` - Control expansion depth
+
+- **MCP 2025 best practices**: Enhanced tool definitions for better LLM usage
+  - Added `title` to all tools for human-readable display
+  - Added `annotations` with hints: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`
+  - Added `outputSchema` to all tools for structured response expectations
+  - Added detailed usage examples and "When to use" sections in tool descriptions
+  - All 11 relationship types now properly documented in `associate_memories` schema
+
+- **Enhanced response information**:
+  - `expansion` metadata in recall results (seed_count, expanded_count, relation_limit)
+  - `entity_expansion` metadata (entities_found, expanded_count)
+  - `context_priority` metadata (applied language, context, priority tags/types)
+
+### Changed
+- Updated `RecallMemoryArgs` interface with all new parameters
+- Updated `RecallResult` interface with expansion metadata
+- Enhanced `AutoMemClient.recallMemory()` to pass all new parameters to backend
+- Improved recall handler to display expansion information in response
+
+### Documentation
+- **INSTALLATION.md**: Comprehensive update to MCP Tools section
+  - Full parameter documentation for all tools
+  - Graph expansion examples with multi-hop reasoning
+  - Context-aware recall examples for coding tasks
+  - Association best practices with strength guidelines
+- **templates/cursor/automem.mdc.template**: Added Advanced Recall Features section
+  - Multi-hop reasoning examples
+  - Graph expansion and auto-decomposition
+  - Context-aware coding patterns
+  - Priority injection for specific memories
+- **templates/CLAUDE_MD_MEMORY_RULES.md**: Updated recall patterns
+  - Multi-query recall, entity expansion, graph expansion
+  - Context-aware recall for coding tasks
+  - Auto query decomposition
+
+### Technical
+- Bumped version to 0.8.0 in `src/index.ts`
+- Types now fully aligned with AutoMem server API capabilities
+
 ## 0.7.0 - 2025-12-02
 
 ### Changed

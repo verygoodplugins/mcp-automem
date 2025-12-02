@@ -189,6 +189,60 @@ const [decisions, recent, patterns] = await Promise.all([
 ]);
 ```
 
+## Advanced Recall Features
+
+**Multi-hop reasoning with entity expansion:**
+```javascript
+// For complex questions like "What project does Amanda's sister work on?"
+// The system finds "Amanda's sister is Rachel" then expands to memories about Rachel
+mcp_memory_recall_memory({
+  query: "What project does Amanda's sister work on?",
+  expand_entities: true,  // Enable entity-based expansion
+  limit: 10
+})
+```
+
+**Graph-based expansion:**
+```javascript
+// Follow relationships from initial results to find connected memories
+mcp_memory_recall_memory({
+  query: "auth architecture",
+  expand_relations: true,  // Follow RELATES_TO, LEADS_TO, etc.
+  relation_limit: 5        // Max relationships to follow per seed
+})
+```
+
+**Auto query decomposition:**
+```javascript
+// Automatically breaks complex queries into sub-queries
+mcp_memory_recall_memory({
+  query: "authentication patterns for React apps with OAuth",
+  auto_decompose: true  // Extracts ["authentication", "React", "OAuth"] as separate searches
+})
+```
+
+**Context-aware recall for coding tasks:**
+```javascript
+// Boost language-specific and style memories when coding
+mcp_memory_recall_memory({
+  query: "error handling patterns",
+  language: "typescript",           // Inferred from file or specified
+  active_path: "src/api/auth.ts",   // Current file for context
+  context: "coding-style",          // General context label
+  context_types: ["Style", "Pattern"],  // Prioritize these memory types
+  context_tags: ["best-practice"]   // Boost these tags in results
+})
+```
+
+**Priority injection:**
+```javascript
+// Ensure specific memories are included in results
+mcp_memory_recall_memory({
+  query: "recent architecture decisions",
+  priority_ids: ["mem-abc123", "mem-def456"]  // Always include these
+})
+```
+
 ## Content Structure
 
 Format: `Brief title. Context and details. Impact/outcome.`
@@ -225,12 +279,35 @@ mcp_memory_store_memory({
 **Recall memories:**
 ```javascript
 mcp_memory_recall_memory({
-  query?: string,
-  tags?: string[],
-  limit?: number,           // default: 3, max: 50
-  time_query?: string,      // "today", "last week", "last 30 days"
-  tag_mode?: "any"|"all",   // OR (default) vs AND for tags
-  tag_match?: "exact"|"prefix"
+  // Basic search
+  query?: string,              // Natural language search
+  queries?: string[],          // Multiple queries (deduplicated server-side)
+  tags?: string[],             // Filter by tags
+  limit?: number,              // default: 5, max: 50
+  
+  // Time filters
+  time_query?: string,         // "today", "last week", "last 30 days"
+  start?: string,              // ISO timestamp lower bound
+  end?: string,                // ISO timestamp upper bound
+  
+  // Tag matching
+  tag_mode?: "any"|"all",      // OR (default) vs AND for tags
+  tag_match?: "exact"|"prefix", // Prefix supports namespaces (auth/*)
+  
+  // Graph expansion (advanced)
+  expand_entities?: boolean,   // Multi-hop via entity expansion
+  expand_relations?: boolean,  // Follow graph relationships
+  auto_decompose?: boolean,    // Auto-generate sub-queries
+  expansion_limit?: number,    // Max expanded results (default: 25)
+  relation_limit?: number,     // Max relations per seed (default: 5)
+  
+  // Context hints (advanced)
+  context?: string,            // Context label (e.g., "coding-style")
+  language?: string,           // Programming language hint
+  active_path?: string,        // Current file path
+  context_tags?: string[],     // Priority tags to boost
+  context_types?: string[],    // Priority memory types (Decision, Pattern, etc.)
+  priority_ids?: string[]      // Memory IDs to always include
 })
 ```
 

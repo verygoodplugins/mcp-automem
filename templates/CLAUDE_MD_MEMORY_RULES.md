@@ -34,7 +34,10 @@ At session start, recall relevant context:
 
 MCP TOOLS AVAILABLE:
 - store_memory: Save with content, type, confidence, tags, importance (0.0-1.0), metadata
-- recall_memory: Hybrid search (semantic + keyword + tags + time filters)
+- recall_memory: Hybrid search with graph expansion and context awareness
+  - Basic: query, queries (multi-query), tags, limit, time_query
+  - Graph: expand_entities (multi-hop), expand_relations (follow edges), auto_decompose
+  - Context: language, active_path, context, context_tags, context_types, priority_ids
 - associate_memories: Create relationships (11 types including LEADS_TO, REINFORCES, CONTRADICTS)
 - update_memory: Modify existing memories without duplication
 - delete_memory: Remove memories by ID
@@ -96,6 +99,12 @@ Hybrid search (semantic + keyword):
     time_query: "last 30 days"
   })
 
+Multi-query recall (broader coverage):
+  mcp__memory__recall_memory({
+    queries: ["auth patterns", "login flow", "JWT"],  // Server deduplicates
+    limit: 15
+  })
+
 Tag-based filtering:
   mcp__memory__recall_memory({
     tags: ["pattern", "react", "hooks"],
@@ -107,6 +116,36 @@ Time-constrained search:
   mcp__memory__recall_memory({
     query: "[topic]",
     time_query: "today" | "last week" | "last 7 days"
+  })
+
+Multi-hop reasoning (entity expansion):
+  // For questions like "What is Sarah's sister's job?"
+  // Finds "Sarah's sister is Rachel" → expands to memories about Rachel
+  mcp__memory__recall_memory({
+    query: "What is Sarah's sister's job?",
+    expand_entities: true
+  })
+
+Graph expansion (follow relationships):
+  mcp__memory__recall_memory({
+    query: "architecture decisions",
+    expand_relations: true,  // Follow RELATES_TO, LEADS_TO, etc.
+    relation_limit: 5
+  })
+
+Context-aware recall (for coding):
+  mcp__memory__recall_memory({
+    query: "error handling",
+    language: "python",           // Prioritize Python memories
+    context: "coding-style",
+    context_types: ["Style", "Pattern"],  // Boost these types
+    context_tags: ["best-practice"]
+  })
+
+Auto query decomposition:
+  mcp__memory__recall_memory({
+    query: "React OAuth authentication patterns",
+    auto_decompose: true  // Splits into sub-queries automatically
   })
 
 RELATIONSHIP TYPES:

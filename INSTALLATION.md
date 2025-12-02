@@ -1025,84 +1025,171 @@ npx @verygoodplugins/mcp-automem config --format=json
 Store a new memory with optional metadata.
 
 **Parameters:**
-- `content` (required): Memory content
-- `tags` (optional): Array of tags
-- `importance` (optional): Score 0-1
-- `metadata` (optional): Additional metadata
-- `embedding` (optional): Vector for semantic search
+- `content` (required): Memory content - be specific, include context, reasoning, and outcome
+- `tags` (optional): Array of tags for categorization (e.g., `["project-name", "bug-fix", "auth"]`)
+- `importance` (optional): Score 0-1 (0.9+ critical, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes)
+- `metadata` (optional): Structured metadata (e.g., `{ files_modified: ["auth.ts"], error_type: "timeout" }`)
+- `embedding` (optional): Vector for semantic search (auto-generated if omitted)
+- `timestamp` (optional): ISO timestamp (defaults to now)
 
 **Example:**
-```
-Store this memory: "Completed AutoMem MCP integration" with tags ["development", "mcp"] and importance 0.8
+```javascript
+store_memory({
+  content: "Chose PostgreSQL over MongoDB for user service. Need ACID for transactions.",
+  tags: ["my-project", "architecture", "database"],
+  importance: 0.9
+})
 ```
 
 #### `recall_memory`
-Retrieve memories using hybrid search.
+Retrieve memories using hybrid search with semantic, keyword, tag, time, and graph expansion.
 
-**Parameters:**
-- `query` (optional): Text search query
-- `embedding` (optional): Vector for semantic similarity
+**Basic Parameters:**
+- `query` (optional): Natural language search query
+- `queries` (optional): Array of queries for broader recall (deduplicated server-side)
 - `limit` (optional): Max results (default: 5, max: 50)
-- `time_query` (optional): Natural time window (`today`, `last week`, etc.)
-- `start` (optional): ISO timestamp lower bound
-- `end` (optional): ISO timestamp upper bound
 - `tags` (optional): Filter by tags (e.g., `["slack", "slack/channel-ops"]`)
 - `tag_mode` (optional): `any` (default) or `all`
 - `tag_match` (optional): `exact` or `prefix` (prefix supports namespaces)
 
+**Time Filters:**
+- `time_query` (optional): Natural language time window (`today`, `yesterday`, `last week`, `last 30 days`)
+- `start` (optional): ISO timestamp lower bound
+- `end` (optional): ISO timestamp upper bound
+
+**Graph Expansion (Advanced):**
+- `expand_entities` (optional): Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. **Use for complex questions like "What is Sarah's sister's job?"**
+- `expand_relations` (optional): Follow graph relationships from seed results to find connected memories
+- `auto_decompose` (optional): Auto-extract entities and topics from query to generate supplementary searches
+- `expansion_limit` (optional): Max total expanded memories (default: 25)
+- `relation_limit` (optional): Max relations per seed memory (default: 5)
+
+**Context Hints (Advanced):**
+- `context` (optional): Context label (e.g., `"coding-style"`, `"architecture"`) - boosts matching preferences
+- `language` (optional): Programming language hint (e.g., `"python"`, `"typescript"`) - prioritizes language-specific memories
+- `active_path` (optional): Current file path for language auto-detection (e.g., `"src/auth.ts"`)
+- `context_tags` (optional): Priority tags to boost in results (e.g., `["coding-style", "preferences"]`)
+- `context_types` (optional): Priority memory types to boost (e.g., `["Style", "Preference"]`)
+- `priority_ids` (optional): Specific memory IDs to ensure are included in results
+
 **Examples:**
+
+Basic recall:
+```javascript
+recall_memory({ 
+  query: "database architecture decisions", 
+  tags: ["my-project"], 
+  limit: 5 
+})
 ```
-Recall memories about "MCP server development"
+
+Multi-query recall:
+```javascript
+recall_memory({ 
+  queries: ["auth patterns", "login flow", "JWT tokens"], 
+  limit: 10 
+})
 ```
+
+Time-filtered recall:
+```javascript
+recall_memory({ 
+  tags: ["bug-fix"], 
+  time_query: "last 30 days", 
+  limit: 5 
+})
 ```
-Recall memories tagged with "slack/channel-ops"
+
+**Multi-hop reasoning (new!):**
+```javascript
+// "What is Amanda's sister's career?"
+// Step 1: Finds "Amanda's sister is Rachel"
+// Step 2: Expands to find "Rachel works as a counselor"
+recall_memory({ 
+  query: "What is Amanda's sister's career?", 
+  expand_entities: true 
+})
 ```
-```
-Recall memories about "handoff" tagged with "slack"
+
+Context-aware recall:
+```javascript
+recall_memory({ 
+  query: "error handling", 
+  language: "python",
+  context: "coding-style",
+  context_types: ["Style", "Preference"]
+})
 ```
 
 #### `associate_memories`
-Create relationships between memories.
+Create relationships between memories to build a knowledge graph.
 
 **Parameters:**
-- `memory1_id` (required): First memory ID
-- `memory2_id` (required): Second memory ID
-- `type` (required): Relationship type
-- `strength` (required): Association strength 0-1
+- `memory1_id` (required): Source memory ID (from store_memory response or recall results)
+- `memory2_id` (required): Target memory ID to link to
+- `type` (required): Relationship type (see below)
+- `strength` (required): Association strength 0-1 (0.9+ direct causation, 0.7-0.9 strong, 0.5-0.7 moderate)
 
 **Relationship Types:**
-- `RELATES_TO` - General connection
-- `LEADS_TO` - Causal (bug→solution)
-- `OCCURRED_BEFORE` - Temporal sequence
-- `PREFERS_OVER` - User preferences
-- `EXEMPLIFIES` - Pattern examples
-- `CONTRADICTS` - Conflicting approaches
-- `REINFORCES` - Supporting evidence
-- `INVALIDATED_BY` - Outdated info
-- `EVOLVED_INTO` - Knowledge evolution
-- `DERIVED_FROM` - Source relationships
-- `PART_OF` - Hierarchical structure
+- `RELATES_TO` - General connection (default)
+- `LEADS_TO` - Causal relationship (A caused B)
+- `DERIVED_FROM` - Implementation of a decision/pattern
+- `EXEMPLIFIES` - Concrete example of a pattern
+- `EVOLVED_INTO` - Updated version of a concept
+- `INVALIDATED_BY` - Superseded by another memory
+- `CONTRADICTS` - Conflicts with another memory
+- `REINFORCES` - Strengthens another memory's validity
+- `PART_OF` - Component of a larger effort
+- `PREFERS_OVER` - Chosen alternative
+- `OCCURRED_BEFORE` - Temporal ordering
+
+**Example:**
+```javascript
+// Link a bug fix to the original feature it relates to
+associate_memories({
+  memory1_id: "bug-fix-123",
+  memory2_id: "feature-456",
+  type: "RELATES_TO",
+  strength: 0.9
+})
+```
 
 #### `update_memory`
-Update existing memory fields.
+Update existing memory fields. Use this to correct or enhance memories rather than storing duplicates.
 
 **Parameters:**
-- `memory_id` (required): Memory to update
-- `content` (optional): New content
-- `tags` (optional): New tags
+- `memory_id` (required): Memory to update (from store_memory or recall results)
+- `content` (optional): New content (replaces existing)
+- `tags` (optional): New tags (replaces existing)
 - `importance` (optional): New importance score
-- `metadata` (optional): New metadata
+- `metadata` (optional): New metadata (merged with existing)
+- `type` (optional): Memory type classification
+- `confidence` (optional): Confidence score
+
+**Example:**
+```javascript
+update_memory({ 
+  memory_id: "abc123", 
+  importance: 0.95,
+  tags: ["project-x", "critical", "auth"]
+})
+```
 
 #### `delete_memory`
-Delete a memory and its embedding.
+Permanently delete a memory and its embedding. Use sparingly—consider updating instead.
 
 **Parameters:**
 - `memory_id` (required): Memory to delete
 
+**When to use:**
+- Memory contains incorrect information that can't be corrected
+- Memory is a duplicate
+- Memory contains sensitive information that shouldn't persist
+
 ### System Monitoring
 
 #### `check_database_health`
-Check AutoMem service and database status.
+Check AutoMem service and database status (FalkorDB graph + Qdrant vectors).
 
 **Example:**
 ```

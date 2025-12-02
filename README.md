@@ -252,11 +252,33 @@ See the Installation Guide for complete steps and deployment options.
 
 ### Core Memory Operations
 - **`store_memory`** - Save memories with content, tags, importance, metadata
-- **`recall_memory`** - Hybrid search (vector + keyword + tags + time)
-- **`associate_memories`** - Create relationships (RELATES_TO, LEADS_TO, etc.)
+- **`recall_memory`** - Hybrid search with graph expansion and context awareness:
+  - **Basic search**: query, multi-query, tags, time filters
+  - **Graph expansion**: entity expansion (multi-hop reasoning), relation following
+  - **Context hints**: language, active file, priority types/tags
+- **`associate_memories`** - Create relationships (11 types: RELATES_TO, LEADS_TO, etc.)
 - **`update_memory`** - Modify existing memories
 - **`delete_memory`** - Remove memories
 - **`check_database_health`** - Monitor service status
+
+### Advanced Recall (v0.8.0+)
+
+**Multi-hop Reasoning** - Answer complex questions like "What is Amanda's sister's career?"
+```javascript
+recall_memory({ 
+  query: "What is Amanda's sister's career?", 
+  expand_entities: true  // Finds "Amanda's sister is Rachel" → memories about Rachel
+})
+```
+
+**Context-Aware Coding** - Recall prioritizes language and style preferences
+```javascript
+recall_memory({ 
+  query: "error handling patterns", 
+  language: "typescript",
+  context_types: ["Style", "Pattern"]
+})
+```
 
 ### Platform Integrations
 
