@@ -742,6 +742,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'store_memory': {
         const storeArgs = args as unknown as StoreMemoryArgs;
         const result = await client.storeMemory(storeArgs);
+        const output = { memory_id: result.memory_id, message: result.message };
         return {
           content: [
             {
@@ -749,6 +750,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `Memory stored successfully!\n\nMemory ID: ${result.memory_id}\nMessage: ${result.message}`,
             },
           ],
+          structuredContent: output,
         };
       }
 
@@ -810,6 +812,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         if (!merged || merged.length === 0) {
+          const emptyOutput = { memories: [], count: 0 };
           return {
             content: [
               {
@@ -817,6 +820,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 text: 'No memories found matching your query.',
               },
             ],
+            structuredContent: emptyOutput,
           };
         }
 
@@ -853,6 +857,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const notesSuffix = notes.length > 0 ? ` (${notes.join('; ')})` : '';
 
+        // Build structured output
+        const recallOutput = {
+          memories: merged.map((item) => ({
+            memory_id: item.memory.memory_id,
+            content: item.memory.content,
+            tags: item.memory.tags,
+            importance: item.memory.importance,
+            created_at: item.memory.created_at,
+            score: item.final_score,
+            match_type: item.match_type,
+            expanded_from_entity: item.expanded_from_entity,
+          })),
+          count: merged.length,
+          expansion: expansion ? {
+            enabled: expansion.enabled,
+            seed_count: expansion.seed_count,
+            expanded_count: expansion.expanded_count,
+          } : undefined,
+          entity_expansion: entityExpansion ? {
+            enabled: entityExpansion.enabled,
+            entities_found: entityExpansion.entities_found,
+            expanded_count: entityExpansion.expanded_count,
+          } : undefined,
+        };
+
         return {
           content: [
             {
@@ -860,12 +889,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `Found ${merged.length} memories${notesSuffix}:\n\n${memoriesText}`,
             },
           ],
+          structuredContent: recallOutput,
         };
       }
 
       case 'associate_memories': {
         const associateArgs = args as unknown as AssociateMemoryArgs;
         const result = await client.associateMemories(associateArgs);
+        const output = { message: result.message };
         return {
           content: [
             {
@@ -873,12 +904,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `Association created successfully!\n\nMessage: ${result.message}`,
             },
           ],
+          structuredContent: output,
         };
       }
 
       case 'update_memory': {
         const updateArgs = args as unknown as UpdateMemoryArgs;
         const result = await client.updateMemory(updateArgs);
+        const output = { memory_id: result.memory_id, message: `Memory ${result.memory_id} updated successfully!` };
         return {
           content: [
             {
@@ -886,12 +919,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `Memory ${result.memory_id} updated successfully!`,
             },
           ],
+          structuredContent: output,
         };
       }
 
       case 'delete_memory': {
         const deleteArgs = args as unknown as DeleteMemoryArgs;
         const result = await client.deleteMemory(deleteArgs);
+        const output = { memory_id: result.memory_id, message: `Memory ${result.memory_id} deleted successfully!` };
         return {
           content: [
             {
@@ -899,6 +934,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `Memory ${result.memory_id} deleted successfully!`,
             },
           ],
+          structuredContent: output,
         };
       }
 
@@ -922,6 +958,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const errorText = health.error ? `\nError: ${health.error}` : '';
 
+        const output = {
+          status: health.status,
+          backend: health.backend,
+          statistics: health.statistics,
+          error: health.error,
+        };
+
         return {
           content: [
             {
@@ -929,6 +972,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `${statusEmoji} AutoMem Health Status\n\nStatus: ${health.status}\nBackend: ${health.backend}${statsText}${errorText}`,
             },
           ],
+          structuredContent: output,
         };
       }
 
