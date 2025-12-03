@@ -812,7 +812,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         if (!merged || merged.length === 0) {
-          const emptyOutput = { memories: [], count: 0 };
+          const emptyOutput = { results: [], count: 0 };
           return {
             content: [
               {
@@ -857,29 +857,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const notesSuffix = notes.length > 0 ? ` (${notes.join('; ')})` : '';
 
-        // Build structured output
+        // Build structured output (must match outputSchema: results, count, dedup_removed)
         const recallOutput = {
-          memories: merged.map((item) => ({
+          results: merged.map((item) => ({
             memory_id: item.memory.memory_id,
             content: item.memory.content,
             tags: item.memory.tags,
             importance: item.memory.importance,
             created_at: item.memory.created_at,
-            score: item.final_score,
+            final_score: item.final_score,
             match_type: item.match_type,
-            expanded_from_entity: item.expanded_from_entity,
           })),
           count: merged.length,
-          expansion: expansion ? {
-            enabled: expansion.enabled,
-            seed_count: expansion.seed_count,
-            expanded_count: expansion.expanded_count,
-          } : undefined,
-          entity_expansion: entityExpansion ? {
-            enabled: entityExpansion.enabled,
-            entities_found: entityExpansion.entities_found,
-            expanded_count: entityExpansion.expanded_count,
-          } : undefined,
+          dedup_removed: dedupRemoved,
         };
 
         return {

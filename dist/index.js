@@ -707,6 +707,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case 'store_memory': {
                 const storeArgs = args;
                 const result = await client.storeMemory(storeArgs);
+                const output = { memory_id: result.memory_id, message: result.message };
                 return {
                     content: [
                         {
@@ -714,6 +715,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             text: `Memory stored successfully!\n\nMemory ID: ${result.memory_id}\nMessage: ${result.message}`,
                         },
                     ],
+                    structuredContent: output,
                 };
             }
             case 'recall_memory': {
@@ -768,6 +770,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     expansion = primary.expansion;
                 }
                 if (!merged || merged.length === 0) {
+                    const emptyOutput = { results: [], count: 0 };
                     return {
                         content: [
                             {
@@ -775,6 +778,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                                 text: 'No memories found matching your query.',
                             },
                         ],
+                        structuredContent: emptyOutput,
                     };
                 }
                 const memoriesText = merged
@@ -808,6 +812,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     notes.push(`${expansion.expanded_count} via relation expansion`);
                 }
                 const notesSuffix = notes.length > 0 ? ` (${notes.join('; ')})` : '';
+                // Build structured output (must match outputSchema: results, count, dedup_removed)
+                const recallOutput = {
+                    results: merged.map((item) => ({
+                        memory_id: item.memory.memory_id,
+                        content: item.memory.content,
+                        tags: item.memory.tags,
+                        importance: item.memory.importance,
+                        created_at: item.memory.created_at,
+                        final_score: item.final_score,
+                        match_type: item.match_type,
+                    })),
+                    count: merged.length,
+                    dedup_removed: dedupRemoved,
+                };
                 return {
                     content: [
                         {
@@ -815,11 +833,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             text: `Found ${merged.length} memories${notesSuffix}:\n\n${memoriesText}`,
                         },
                     ],
+                    structuredContent: recallOutput,
                 };
             }
             case 'associate_memories': {
                 const associateArgs = args;
                 const result = await client.associateMemories(associateArgs);
+                const output = { message: result.message };
                 return {
                     content: [
                         {
@@ -827,11 +847,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             text: `Association created successfully!\n\nMessage: ${result.message}`,
                         },
                     ],
+                    structuredContent: output,
                 };
             }
             case 'update_memory': {
                 const updateArgs = args;
                 const result = await client.updateMemory(updateArgs);
+                const output = { memory_id: result.memory_id, message: `Memory ${result.memory_id} updated successfully!` };
                 return {
                     content: [
                         {
@@ -839,11 +861,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             text: `Memory ${result.memory_id} updated successfully!`,
                         },
                     ],
+                    structuredContent: output,
                 };
             }
             case 'delete_memory': {
                 const deleteArgs = args;
                 const result = await client.deleteMemory(deleteArgs);
+                const output = { memory_id: result.memory_id, message: `Memory ${result.memory_id} deleted successfully!` };
                 return {
                     content: [
                         {
@@ -851,6 +875,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             text: `Memory ${result.memory_id} deleted successfully!`,
                         },
                     ],
+                    structuredContent: output,
                 };
             }
             case 'check_database_health': {
@@ -870,6 +895,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     statsText += `\nTimestamp: ${health.statistics.timestamp}`;
                 }
                 const errorText = health.error ? `\nError: ${health.error}` : '';
+                const output = {
+                    status: health.status,
+                    backend: health.backend,
+                    statistics: health.statistics,
+                    error: health.error,
+                };
                 return {
                     content: [
                         {
@@ -877,6 +908,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             text: `${statusEmoji} AutoMem Health Status\n\nStatus: ${health.status}\nBackend: ${health.backend}${statsText}${errorText}`,
                         },
                     ],
+                    structuredContent: output,
                 };
             }
             default:
