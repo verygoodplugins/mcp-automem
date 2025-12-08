@@ -402,6 +402,18 @@ const tools: Tool[] = [
           default: 5,
           description: 'Max relations to follow per seed memory (default: 5)',
         },
+        expand_min_importance: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'Minimum importance score for expanded results (default: server-side). Higher values reduce noise.',
+        },
+        expand_min_strength: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'Minimum relation strength to follow during expansion (default: server-side). Only follow strong associations.',
+        },
         context: {
           type: 'string',
           description: 'Context label (e.g., "coding-style", "architecture"). Boosts matching preferences.',

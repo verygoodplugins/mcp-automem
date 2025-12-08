@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 0.9.0
+
+### Added
+- **Expansion filtering parameters**: Reduce noise in graph-expanded results
+  - `expand_min_importance` - Minimum importance score for expanded results (0-1)
+  - `expand_min_strength` - Minimum relation strength to follow during expansion (0-1)
+  - Server-side filtering keeps seed results intact, only filters expanded memories
+  - Addresses issue where `expand_relations=true` returned too many low-relevance memories
+
+### Changed
+- Updated `RecallMemoryArgs` interface with expansion filtering parameters
+- Updated `AutoMemClient.recallMemory()` to pass filtering params to backend
+
+### Note
+- Requires AutoMem server update to implement filtering logic
+
+## 0.8.1 - 2025-12-04
+
+### Fixed
+- **MCP spec compliance**: All tool handlers now return `structuredContent` alongside `content`
+  - Required when `outputSchema` is defined per MCP specification
+  - Fixes error: "Tool has an output schema but did not return structured content"
+- **recall_memory output**: Changed `memories` to `results` to match `outputSchema`
+- Added `dedup_removed` field to recall output
+
 ## 0.8.0 - 2025-12-02
 
 ### Changed

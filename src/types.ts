@@ -107,6 +107,9 @@ export interface RecallMemoryArgs {
   auto_decompose?: boolean;
   expansion_limit?: number;
   relation_limit?: number;
+  // Expansion filtering (reduces noise in expanded results)
+  expand_min_importance?: number;
+  expand_min_strength?: number;
   // Context hints for smarter recall
   context?: string;
   language?: string;
