@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.1 - 2025-12-10
+
+### Fixed
+- **associate_memories structured output**: Fixed missing `success` field in response that caused "Structured content does not match output schema" error
+
 ## 0.9.0 - 2025-12-10
 
 ### Added
