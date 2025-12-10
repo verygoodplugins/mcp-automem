@@ -7,9 +7,8 @@ on:
         branches: [main]
 
 jobs:
-    test:
+    test-matrix:
         runs-on: ubuntu-latest
-
         strategy:
             matrix:
                 node-version: [18, 20, 22]
@@ -35,9 +34,23 @@ jobs:
             - name: Build
               run: npm run build
 
+    # Summary job for branch protection - passes only if all matrix jobs pass
+    test:
+        runs-on: ubuntu-latest
+        needs: test-matrix
+        if: always()
+        steps:
+            - name: Check matrix status
+              run: |
+                  if [ "${{ needs.test-matrix.result }}" != "success" ]; then
+                    echo "Matrix tests failed"
+                    exit 1
+                  fi
+                  echo "All tests passed!"
+
     coverage:
         runs-on: ubuntu-latest
-        needs: test
+        needs: test-matrix
 
         steps:
             - uses: actions/checkout@v4
