@@ -2,6 +2,7 @@
 description: AutoMem persistent memory - recall context at start, store decisions during work, summarize at end
 alwaysApply: true
 ---
+<!-- automem-mdc-version: {{VERSION}} -->
 
 # AutoMem Memory Integration
 

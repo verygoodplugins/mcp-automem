@@ -1,4 +1,5 @@
 <!-- BEGIN AUTOMEM CODEX RULES -->
+<!-- automem-codex-version: 0.9.0 -->
 ## Memory-First Development (AutoMem Codex)
 
 Use the AutoMem MCP proactively to maintain persistent context for {{PROJECT_NAME}}.

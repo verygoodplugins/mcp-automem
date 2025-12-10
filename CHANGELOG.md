@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **Expansion filtering parameters**: Reduce noise in graph-expanded results
+- **Version-aware template updates**: The `cursor` command now detects outdated `automem.mdc` files
+  - Shows what's new in the latest version
+  - Prompts user before updating (use `--yes` to auto-update)
+  - Creates backup before overwriting
+  - Templates now include version markers for future upgrade detection
+  - Version is read dynamically from `package.json` (single source of truth)
   - `expand_min_importance` - Minimum importance score for expanded results (0-1)
   - `expand_min_strength` - Minimum relation strength to follow during expansion (0-1)
   - Server-side filtering keeps seed results intact, only filters expanded memories

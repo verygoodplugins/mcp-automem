@@ -177,6 +177,25 @@ describe('AutoMemClient', () => {
       expect(url).toContain('auto_decompose=true');
     });
 
+    it('should support expansion filtering', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [], count: 0 }),
+      } as any);
+
+      await client.recallMemory({
+        query: 'test',
+        expand_relations: true,
+        expand_min_importance: 0.5,
+        expand_min_strength: 0.3,
+      });
+
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).toContain('expand_relations=true');
+      expect(url).toContain('expand_min_importance=0.5');
+      expect(url).toContain('expand_min_strength=0.3');
+    });
+
     it('should support context hints', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

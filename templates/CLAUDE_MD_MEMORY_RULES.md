@@ -23,6 +23,7 @@ Or manually copy the `<thinking_mode>` and `<memory_rules>` sections below to `~
 Add this to your `~/.claude/CLAUDE.md` file:
 
 ```markdown
+<!-- automem-claude-version: 0.9.0 -->
 <memory_rules>
 MEMORY MCP USAGE - AUTOMEM INTEGRATION
 

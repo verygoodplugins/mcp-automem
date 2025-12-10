@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -12,6 +15,18 @@ import { runUninstallCommand } from './cli/uninstall.js';
 import { runQueueCommand } from './cli/queue.js';
 import { AutoMemClient } from './automem-client.js';
 config();
+// Read version from package.json - single source of truth
+function getPackageVersion() {
+    const packageJsonPath = path.resolve(fileURLToPath(new URL('../package.json', import.meta.url)));
+    try {
+        const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        return pkg.version || '0.0.0';
+    }
+    catch {
+        return '0.0.0';
+    }
+}
+const PACKAGE_VERSION = getPackageVersion();
 const command = (process.argv[2] || '').toLowerCase();
 if (command === 'help' || command === '--help' || command === '-h') {
     console.log(`
@@ -188,7 +203,7 @@ const clientConfig = {
     apiKey: AUTOMEM_API_KEY,
 };
 const client = new AutoMemClient(clientConfig);
-const server = new Server({ name: 'mcp-automem', version: '0.9.0' }, { capabilities: { tools: {} } });
+const server = new Server({ name: 'mcp-automem', version: PACKAGE_VERSION }, { capabilities: { tools: {} } });
 const tools = [
     {
         name: 'store_memory',
