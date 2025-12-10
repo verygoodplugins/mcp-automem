@@ -13,6 +13,10 @@
 #   fix: fix a bug                 → patch version bump
 #   feat!: breaking change         → major version bump
 #   chore/docs: no version bump
+#
+# npm Publishing:
+#   Uses Trusted Publishing (OIDC) - no secrets needed!
+#   Configure at: https://www.npmjs.com/package/@verygoodplugins/mcp-automem/access
 
 name: Release Please
 
@@ -42,6 +46,9 @@ jobs:
         needs: release-please
         if: ${{ needs.release-please.outputs.release_created }}
         runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            id-token: write  # Required for npm Trusted Publishing (OIDC)
         steps:
             - uses: actions/checkout@v4
 
@@ -53,6 +60,7 @@ jobs:
             - run: npm ci
             - run: npm run build
             - run: npm test
-            - run: npm publish --access public
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+            
+            # Trusted Publishing: No NPM_TOKEN needed!
+            # Authentication happens via OIDC token exchange with npm
+            - run: npm publish --access public --provenance
