@@ -813,8 +813,8 @@ Retrieve memories using hybrid search with semantic, keyword, tag, time, and gra
 - `auto_decompose` (optional): Auto-extract entities and topics from query to generate supplementary searches
 - `expansion_limit` (optional): Max total expanded memories (default: 25)
 - `relation_limit` (optional): Max relations per seed memory (default: 5)
-- `expand_min_importance` (optional): Minimum importance score (0-1) for expanded results. **Use to filter out low-relevance memories during expansion.** Seed results are never filtered—only expanded ones. Recommended: 0.3-0.5 for broad context, 0.6-0.8 for focused results.
-- `expand_min_strength` (optional): Minimum relation strength (0-1) to follow during graph expansion. **Only traverse strong associations.** Does not affect entity expansion. Recommended: 0.3 for exploratory, 0.6+ for high-confidence paths only.
+- `expand_min_importance` (optional): Minimum importance score (0-1) for expanded results. **Use to filter out low-relevance memories during expansion** (default: no filter)
+- `expand_min_strength` (optional): Minimum relation strength (0-1) to follow during expansion. **Only follow strong associations** (default: no filter)
 
 **Context Hints (Advanced):**
 - `context` (optional): Context label (e.g., `"coding-style"`, `"architecture"`) - boosts matching preferences
@@ -862,29 +862,6 @@ recall_memory({
   expand_entities: true 
 })
 ```
-
-**Expansion filtering (reduce noise):**
-
-When using `expand_relations` or `expand_entities`, you may get many related memories. Use filtering to focus results:
-
-```javascript
-// Problem: expand_relations returns too many loosely-connected memories
-// Solution: Filter by importance and relation strength
-recall_memory({ 
-  query: "authentication architecture", 
-  expand_relations: true,
-  expand_min_importance: 0.6,  // Only expand to important memories
-  expand_min_strength: 0.5     // Only follow strong associations
-})
-```
-
-| Scenario | Recommended Settings |
-|----------|---------------------|
-| Exploratory / broad context | `expand_min_importance: 0.3`, `expand_min_strength: 0.3` |
-| Focused / production queries | `expand_min_importance: 0.6`, `expand_min_strength: 0.6` |
-| High-precision / critical decisions | `expand_min_importance: 0.8`, `expand_min_strength: 0.8` |
-
-**Note:** Seed results (direct matches) are never filtered—only expanded results are affected. This ensures you always get your primary matches, with controlled expansion.
 
 Context-aware recall:
 ```javascript
