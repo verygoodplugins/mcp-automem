@@ -220,14 +220,39 @@ npx @verygoodplugins/mcp-automem queue --file /tmp/test-queue.jsonl
 
 ## Publishing Workflow
 
-1. Update version in `package.json`
-2. Update `CHANGELOG.md` with changes
-3. Build: `npm run build`
-4. Test: `npm test`
-5. Publish: `npm publish` (requires npm login)
+**Complete Release Checklist:**
+
+1. **Update `package.json` version** - This is the single source of truth
+   - `src/index.ts` and `src/cli/cursor.ts` read version dynamically from package.json
+   - Template version markers use `{{VERSION}}` placeholder, replaced at install time
+
+2. **Update `CHANGELOG.md`** - Add new version section with changes
+
+3. **Update "What's new" message** in `src/cli/cursor.ts` (search for `What's new in v`)
+   - This shows users what changed when upgrading templates
+
+4. **Build and test**
+   ```bash
+   npm run build && npm test
+   ```
+
+5. **Commit and tag**
+   ```bash
+   git add -A
+   git commit -m "Release vX.Y.Z"
+   git tag vX.Y.Z
+   git push origin main --tags
+   ```
+
+6. **Publish to npm**
+   ```bash
+   npm publish --access public
+   ```
+   (Requires `npm login` if not already authenticated)
 
 **Pre-publish checks:**
 - `npm run build` succeeds
+- All tests pass (94 tests)
 - `dist/` contains compiled JS + declarations + maps
 - `package.json` main/bin/types point to correct dist files
 - Templates directory included in published package

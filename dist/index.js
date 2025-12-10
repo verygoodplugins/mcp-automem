@@ -866,7 +866,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case 'associate_memories': {
                 const associateArgs = args;
                 const result = await client.associateMemories(associateArgs);
-                const output = { message: result.message };
+                const output = { success: true, message: result.message };
                 return {
                     content: [
                         {

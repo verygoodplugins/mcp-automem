@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.1 - 2025-12-10
+
+### Fixed
+- **Associate memories structured output bug**: Fixed missing `success` field in `associate_memories` tool response that caused "Structured content does not match the tool's output schema" error
+
 ## 0.9.0 - 2025-12-10
 
 ### Added

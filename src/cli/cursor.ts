@@ -201,9 +201,9 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
         log(`\n📦 Found existing automem.mdc v${existingVersion}`, cliOptions.quiet);
         log(`   New version available: v${PACKAGE_VERSION}`, cliOptions.quiet);
         log(`\n   What's new in v${PACKAGE_VERSION}:`, cliOptions.quiet);
-        log(`   • Expansion filtering: expand_min_importance, expand_min_strength`, cliOptions.quiet);
-        log(`   • Reduces noise in multi-hop and graph expansion results`, cliOptions.quiet);
-        log(`   • Updated examples and best practices\n`, cliOptions.quiet);
+        log(`   • Fixed associate_memories structured output bug`, cliOptions.quiet);
+        log(`   • Added comprehensive handler response validation tests`, cliOptions.quiet);
+        log(`   • Prevents "output schema mismatch" errors\n`, cliOptions.quiet);
         
         if (!cliOptions.skipPrompts && !cliOptions.dryRun) {
           shouldUpdate = await promptUser('Update to latest version? [Y/n] ');
