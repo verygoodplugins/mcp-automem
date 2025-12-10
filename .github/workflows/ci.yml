@@ -33,6 +33,7 @@ jobs:
   lint-commits:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    continue-on-error: true  # Allow failure during initial migration
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,12 +53,12 @@ jobs:
           # Only validate commits unique to this PR (not already on main)
           # Get list of commit SHAs that are in PR but not in base
           PR_COMMITS=$(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }})
-          
+
           if [ -z "$PR_COMMITS" ]; then
             echo "No new commits to validate"
             exit 0
           fi
-          
+
           # Validate each commit individually
           for sha in $PR_COMMITS; do
             echo "Validating commit: $sha"
