@@ -49,6 +49,17 @@ jobs:
 
       - name: Validate PR commits
         run: |
-          # Get merge base to only validate commits in the PR itself
-          MERGE_BASE=$(git merge-base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
-          npx commitlint --from $MERGE_BASE --to ${{ github.event.pull_request.head.sha }} --verbose
+          # Only validate commits unique to this PR (not already on main)
+          # Get list of commit SHAs that are in PR but not in base
+          PR_COMMITS=$(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }})
+          
+          if [ -z "$PR_COMMITS" ]; then
+            echo "No new commits to validate"
+            exit 0
+          fi
+          
+          # Validate each commit individually
+          for sha in $PR_COMMITS; do
+            echo "Validating commit: $sha"
+            npx commitlint --from "${sha}~1" --to "${sha}" --verbose
+          done
