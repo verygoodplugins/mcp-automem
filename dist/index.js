@@ -188,7 +188,7 @@ const clientConfig = {
     apiKey: AUTOMEM_API_KEY,
 };
 const client = new AutoMemClient(clientConfig);
-const server = new Server({ name: 'mcp-automem', version: '0.8.0' }, { capabilities: { tools: {} } });
+const server = new Server({ name: 'mcp-automem', version: '0.9.0' }, { capabilities: { tools: {} } });
 const tools = [
     {
         name: 'store_memory',
@@ -369,6 +369,18 @@ const tools = [
                     maximum: 200,
                     default: 5,
                     description: 'Max relations to follow per seed memory (default: 5)',
+                },
+                expand_min_importance: {
+                    type: 'number',
+                    minimum: 0,
+                    maximum: 1,
+                    description: 'Minimum importance score for expanded results (default: server-side). Higher values reduce noise.',
+                },
+                expand_min_strength: {
+                    type: 'number',
+                    minimum: 0,
+                    maximum: 1,
+                    description: 'Minimum relation strength to follow during expansion (default: server-side). Only follow strong associations.',
                 },
                 context: {
                     type: 'string',

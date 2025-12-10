@@ -244,6 +244,7 @@ See the Installation Guide for complete steps and deployment options.
 - **`recall_memory`** - Hybrid search with graph expansion and context awareness:
   - **Basic search**: query, multi-query, tags, time filters
   - **Graph expansion**: entity expansion (multi-hop reasoning), relation following
+  - **Expansion filtering**: `expand_min_importance` and `expand_min_strength` to reduce noise in expanded results
   - **Context hints**: language, active file, priority types/tags
 - **`associate_memories`** - Create relationships (11 types: RELATES_TO, LEADS_TO, etc.)
 - **`update_memory`** - Modify existing memories

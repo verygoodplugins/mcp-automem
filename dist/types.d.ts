@@ -103,6 +103,8 @@ export interface RecallMemoryArgs {
     auto_decompose?: boolean;
     expansion_limit?: number;
     relation_limit?: number;
+    expand_min_importance?: number;
+    expand_min_strength?: number;
     context?: string;
     language?: string;
     active_path?: string;

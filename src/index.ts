@@ -217,7 +217,7 @@ const clientConfig: AutoMemConfig = {
 const client = new AutoMemClient(clientConfig);
 
 const server = new Server(
-  { name: 'mcp-automem', version: '0.8.0' },
+  { name: 'mcp-automem', version: '0.9.0' },
   { capabilities: { tools: {} } }
 );
 

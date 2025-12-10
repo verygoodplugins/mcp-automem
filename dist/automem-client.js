@@ -97,6 +97,13 @@ export class AutoMemClient {
         if (typeof args.relation_limit === 'number') {
             params.set('relation_limit', String(args.relation_limit));
         }
+        // Expansion filtering (reduces noise)
+        if (typeof args.expand_min_importance === 'number') {
+            params.set('expand_min_importance', String(args.expand_min_importance));
+        }
+        if (typeof args.expand_min_strength === 'number') {
+            params.set('expand_min_strength', String(args.expand_min_strength));
+        }
         // Context hints for smarter recall
         if (args.context) {
             params.set('context', args.context);
