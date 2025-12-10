@@ -19,6 +19,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
+    "prepare": "husky install",
+    "commit": "git-cz",
     "prepublishOnly": "npm run build && npm run test"
   },
   "keywords": [
@@ -50,11 +52,24 @@
     "node-fetch": "^3.3.2"
   },
   "devDependencies": {
+    "@commitlint/cli": "^18.4.3",
+    "@commitlint/config-conventional": "^18.4.3",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
     "@types/node": "^20.10.0",
     "@vitest/coverage-v8": "^4.0.15",
+    "commitizen": "^4.3.0",
+    "cz-conventional-changelog": "^3.3.0",
+    "husky": "^8.0.3",
+    "semantic-release": "^22.0.12",
     "tsx": "^4.6.0",
     "typescript": "^5.3.0",
     "vitest": "^4.0.15"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
   },
   "files": [
     "dist/",

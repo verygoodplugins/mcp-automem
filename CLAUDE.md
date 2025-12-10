@@ -220,42 +220,89 @@ npx @verygoodplugins/mcp-automem queue --file /tmp/test-queue.jsonl
 
 ## Publishing Workflow
 
-**Complete Release Checklist:**
+### 🤖 Automated Release (Recommended)
 
-1. **Update `package.json` version** - This is the single source of truth
-   - `src/index.ts` and `src/cli/cursor.ts` read version dynamically from package.json
-   - Template version markers use `{{VERSION}}` placeholder, replaced at install time
+**We use [semantic-release](https://semantic-release.gitbook.io/) for fully automated releases.** Following [Conventional Commits](https://www.conventionalcommits.org/) triggers versioning, changelog generation, and npm publishing automatically.
 
-2. **Update `CHANGELOG.md`** - Add new version section with changes
+**How it works:**
 
-3. **Update "What's new" message** in `src/cli/cursor.ts` (search for `What's new in v`)
-   - This shows users what changed when upgrading templates
-
-4. **Build and test**
+1. **Create PR with conventional commits**
    ```bash
-   npm run build && npm test
+   # Use commitizen for guided commit messages (recommended)
+   npm run commit
+   
+   # Or manually follow format: type(scope): description
+   git commit -m "feat: add new MCP tool for batch operations"
+   git commit -m "fix: correct outputSchema validation"
+   git commit -m "docs: update installation guide"
    ```
 
-5. **Commit and tag**
+2. **PR merged to main** → GitHub Actions automatically:
+   - ✅ Analyzes commits since last release
+   - ✅ Determines version bump (major/minor/patch)
+   - ✅ Generates CHANGELOG.md
+   - ✅ Updates package.json
+   - ✅ Creates git tag
+   - ✅ Publishes to npm
+   - ✅ Creates GitHub release
+
+**Commit Types:**
+- `feat:` → Minor version bump (0.x.0)
+- `fix:` → Patch version bump (0.0.x)
+- `feat!:` or `BREAKING CHANGE:` footer → Major version bump (x.0.0)
+- `docs:`, `chore:`, `test:` → No release
+- `perf:`, `refactor:` → Patch version bump
+
+**Enforcement Layers:**
+
+1. **Local (Git Hooks)** - Husky + commitlint
+   - Validates commit messages before commit
+   - Blocks invalid commits immediately
+   
+2. **CI (GitHub Actions)** - Pull Request checks
+   - Validates all commits in PR
+   - Runs tests and build
+   - PR cannot merge if checks fail
+   
+3. **Branch Protection** - GitHub repository rules
+   - Requires PR for main branch
+   - Requires passing CI checks
+   - Requires commit signatures (optional)
+
+**Setup (One-Time):**
+
+```bash
+# Install dependencies (includes husky setup)
+npm install
+
+# Configure GitHub repository secrets
+# Settings → Secrets → Actions → New repository secret:
+# - NPM_TOKEN: Create at npmjs.com/settings/tokens (Automation token)
+```
+
+### 📋 Manual Release (Emergency Only)
+
+If automated release fails, manual steps:
+
+1. **Determine version** based on changes since last release
+2. **Update package.json** version manually
+3. **Update CHANGELOG.md** with changes
+4. **Update "What's new"** in `src/cli/cursor.ts`
+5. **Commit, tag, and publish:**
    ```bash
    git add -A
-   git commit -m "Release vX.Y.Z"
+   git commit -m "chore(release): vX.Y.Z"
    git tag vX.Y.Z
    git push origin main --tags
-   ```
-
-6. **Publish to npm**
-   ```bash
    npm publish --access public
    ```
-   (Requires `npm login` if not already authenticated)
 
-**Pre-publish checks:**
-- `npm run build` succeeds
-- All tests pass (94 tests)
-- `dist/` contains compiled JS + declarations + maps
-- `package.json` main/bin/types point to correct dist files
-- Templates directory included in published package
+**Pre-release Checks:**
+- ✅ `npm run build` succeeds
+- ✅ All tests pass (94 tests)
+- ✅ `npm run typecheck` passes
+- ✅ dist/ contains compiled output
+- ✅ Conventional commit format followed
 
 ## Important Patterns
 
