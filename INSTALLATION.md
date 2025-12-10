@@ -813,6 +813,8 @@ Retrieve memories using hybrid search with semantic, keyword, tag, time, and gra
 - `auto_decompose` (optional): Auto-extract entities and topics from query to generate supplementary searches
 - `expansion_limit` (optional): Max total expanded memories (default: 25)
 - `relation_limit` (optional): Max relations per seed memory (default: 5)
+- `expand_min_importance` (optional): Minimum importance score (0-1) for expanded results. **Use to filter out low-relevance memories during expansion** (default: no filter)
+- `expand_min_strength` (optional): Minimum relation strength (0-1) to follow during expansion. **Only follow strong associations** (default: no filter)
 
 **Context Hints (Advanced):**
 - `context` (optional): Context label (e.g., `"coding-style"`, `"architecture"`) - boosts matching preferences

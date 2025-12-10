@@ -99,6 +99,16 @@ describe('Type Definitions', () => {
       expect(args.expand_entities).toBe(true);
     });
 
+    it('should support expansion filtering', () => {
+      const args: RecallMemoryArgs = {
+        expand_relations: true,
+        expand_min_importance: 0.5,
+        expand_min_strength: 0.3,
+      };
+      expect(args.expand_min_importance).toBe(0.5);
+      expect(args.expand_min_strength).toBe(0.3);
+    });
+
     it('should support context hints', () => {
       const args: RecallMemoryArgs = {
         context: 'coding-style',

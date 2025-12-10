@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -22,6 +25,21 @@ import type {
 } from './types.js';
 
 config();
+
+// Read version from package.json - single source of truth
+function getPackageVersion(): string {
+  const packageJsonPath = path.resolve(
+    fileURLToPath(new URL('../package.json', import.meta.url))
+  );
+  try {
+    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const PACKAGE_VERSION = getPackageVersion();
 
 const command = (process.argv[2] || '').toLowerCase();
 
@@ -217,7 +235,7 @@ const clientConfig: AutoMemConfig = {
 const client = new AutoMemClient(clientConfig);
 
 const server = new Server(
-  { name: 'mcp-automem', version: '0.8.0' },
+  { name: 'mcp-automem', version: PACKAGE_VERSION },
   { capabilities: { tools: {} } }
 );
 
@@ -406,13 +424,13 @@ const tools: Tool[] = [
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description: 'Minimum importance score for expanded results (default: server-side). Higher values reduce noise.',
+          description: 'Minimum importance score for expanded results. Filters out low-relevance memories during graph/entity expansion. Recommended: 0.3-0.5 for broad context, 0.6-0.8 for focused results. Seed results are never filtered, only expanded ones.',
         },
         expand_min_strength: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description: 'Minimum relation strength to follow during expansion (default: server-side). Only follow strong associations.',
+          description: 'Minimum relation strength to follow during graph expansion. Only traverses edges above this threshold. Recommended: 0.3 for exploratory, 0.6+ for high-confidence connections only. Does not affect entity expansion.',
         },
         context: {
           type: 'string',

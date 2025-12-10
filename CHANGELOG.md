@@ -2,10 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 0.9.0
+## 0.9.0 - 2025-12-10
 
 ### Added
 - **Expansion filtering parameters**: Reduce noise in graph-expanded results
+- **Version-aware template updates**: The `cursor` command now detects outdated `automem.mdc` files
+  - Shows what's new in the latest version
+  - Prompts user before updating (use `--yes` to auto-update)
+  - Creates backup before overwriting
+  - Templates now include version markers for future upgrade detection
+  - Version is read dynamically from `package.json` (single source of truth)
   - `expand_min_importance` - Minimum importance score for expanded results (0-1)
   - `expand_min_strength` - Minimum relation strength to follow during expansion (0-1)
   - Server-side filtering keeps seed results intact, only filters expanded memories
@@ -15,8 +21,14 @@ All notable changes to this project will be documented in this file.
 - Updated `RecallMemoryArgs` interface with expansion filtering parameters
 - Updated `AutoMemClient.recallMemory()` to pass filtering params to backend
 
+### Documentation
+- Updated `INSTALLATION.md` with new expansion filtering parameters
+- Updated `templates/cursor/automem.mdc.template` with filtering examples
+- Updated `templates/CLAUDE_MD_MEMORY_RULES.md` with filtering parameters
+- Updated `README.md` feature list
+
 ### Note
-- Requires AutoMem server update to implement filtering logic
+- Requires AutoMem server v0.9.2+ for full filtering support
 
 ## 0.8.1 - 2025-12-04
 

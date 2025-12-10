@@ -1,0 +1,58 @@
+# Release Please - Automated versioning and npm publishing
+#
+# How it works:
+# 1. Every push to main with conventional commits updates a "Release PR"
+# 2. When you merge the Release PR, it:
+#    - Updates version in package.json
+#    - Updates CHANGELOG.md
+#    - Creates a GitHub Release with tag
+#    - Triggers the npm publish job below
+#
+# Commit message format:
+#   feat: add new feature          → minor version bump
+#   fix: fix a bug                 → patch version bump
+#   feat!: breaking change         → major version bump
+#   chore/docs: no version bump
+
+name: Release Please
+
+on:
+    push:
+        branches:
+            - main
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    release-please:
+        runs-on: ubuntu-latest
+        outputs:
+            release_created: ${{ steps.release.outputs.release_created }}
+            tag_name: ${{ steps.release.outputs.tag_name }}
+        steps:
+            - uses: googleapis/release-please-action@v4
+              id: release
+              with:
+                  release-type: node
+
+    # Publish to npm when a release is created
+    npm-publish:
+        needs: release-please
+        if: ${{ needs.release-please.outputs.release_created }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  registry-url: "https://registry.npmjs.org"
+
+            - run: npm ci
+            - run: npm run build
+            - run: npm test
+            - run: npm publish --access public
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
