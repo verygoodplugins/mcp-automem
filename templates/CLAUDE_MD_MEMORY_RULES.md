@@ -37,6 +37,7 @@ MCP TOOLS AVAILABLE:
 - recall_memory: Hybrid search with graph expansion and context awareness
   - Basic: query, queries (multi-query), tags, limit, time_query
   - Graph: expand_entities (multi-hop), expand_relations (follow edges), auto_decompose
+  - Expansion filters: expand_min_importance (0-1), expand_min_strength (0-1) to reduce noise
   - Context: language, active_path, context, context_tags, context_types, priority_ids
 - associate_memories: Create relationships (11 types including LEADS_TO, REINFORCES, CONTRADICTS)
 - update_memory: Modify existing memories without duplication
@@ -130,7 +131,9 @@ Graph expansion (follow relationships):
   mcp__memory__recall_memory({
     query: "architecture decisions",
     expand_relations: true,  // Follow RELATES_TO, LEADS_TO, etc.
-    relation_limit: 5
+    relation_limit: 5,
+    expand_min_importance: 0.5,  // Only expand to important memories
+    expand_min_strength: 0.3     // Only follow strong associations
   })
 
 Context-aware recall (for coding):

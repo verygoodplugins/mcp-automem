@@ -208,7 +208,9 @@ mcp_memory_recall_memory({
 mcp_memory_recall_memory({
   query: "auth architecture",
   expand_relations: true,  // Follow RELATES_TO, LEADS_TO, etc.
-  relation_limit: 5        // Max relationships to follow per seed
+  relation_limit: 5,       // Max relationships to follow per seed
+  expand_min_importance: 0.5,  // Only include expanded memories with importance >= 0.5
+  expand_min_strength: 0.3     // Only follow relations with strength >= 0.3
 })
 ```
 
@@ -300,6 +302,8 @@ mcp_memory_recall_memory({
   auto_decompose?: boolean,    // Auto-generate sub-queries
   expansion_limit?: number,    // Max expanded results (default: 25)
   relation_limit?: number,     // Max relations per seed (default: 5)
+  expand_min_importance?: number, // Filter expanded results by importance (0-1)
+  expand_min_strength?: number,   // Filter expansion by relation strength (0-1)
   
   // Context hints (advanced)
   context?: string,            // Context label (e.g., "coding-style")

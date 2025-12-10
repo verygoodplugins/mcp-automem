@@ -15,8 +15,14 @@ All notable changes to this project will be documented in this file.
 - Updated `RecallMemoryArgs` interface with expansion filtering parameters
 - Updated `AutoMemClient.recallMemory()` to pass filtering params to backend
 
+### Documentation
+- Updated `INSTALLATION.md` with new expansion filtering parameters
+- Updated `templates/cursor/automem.mdc.template` with filtering examples
+- Updated `templates/CLAUDE_MD_MEMORY_RULES.md` with filtering parameters
+- Updated `README.md` feature list
+
 ### Note
-- Requires AutoMem server update to implement filtering logic
+- Requires AutoMem server v0.9.2+ for full filtering support
 
 ## 0.8.1 - 2025-12-04
 
