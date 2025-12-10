@@ -406,13 +406,13 @@ const tools: Tool[] = [
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description: 'Minimum importance score for expanded results (default: server-side). Higher values reduce noise.',
+          description: 'Minimum importance score for expanded results. Filters out low-relevance memories during graph/entity expansion. Recommended: 0.3-0.5 for broad context, 0.6-0.8 for focused results. Seed results are never filtered, only expanded ones.',
         },
         expand_min_strength: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description: 'Minimum relation strength to follow during expansion (default: server-side). Only follow strong associations.',
+          description: 'Minimum relation strength to follow during graph expansion. Only traverses edges above this threshold. Recommended: 0.3 for exploratory, 0.6+ for high-confidence connections only. Does not affect entity expansion.',
         },
         context: {
           type: 'string',
