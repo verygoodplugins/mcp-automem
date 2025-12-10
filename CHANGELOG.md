@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1](https://github.com/verygoodplugins/mcp-automem/compare/v0.9.0...v0.9.1) (2025-12-10)
+
+
+### Bug Fixes
+
+* add missing success field to associate_memories response ([#12](https://github.com/verygoodplugins/mcp-automem/issues/12)) ([baa697b](https://github.com/verygoodplugins/mcp-automem/commit/baa697b6fd07a4e2e9b193ee0e7f5e88b476e0d0))
+
 ## 0.9.1 - 2025-12-10
 
 ### Fixed
