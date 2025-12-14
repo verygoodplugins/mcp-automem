@@ -51,6 +51,23 @@ function mergeSettings(targetSettings, templateSettings) {
     if (!merged.env && templateSettings.env) {
         merged.env = templateSettings.env;
     }
+    // Merge hooks - add SessionStart hook for automem if not already present
+    if (templateSettings.hooks) {
+        merged.hooks = merged.hooks ?? {};
+        for (const [hookName, hookConfigs] of Object.entries(templateSettings.hooks)) {
+            if (!merged.hooks[hookName]) {
+                merged.hooks[hookName] = hookConfigs;
+            }
+            else {
+                // Check if automem hook already exists
+                const existingHooks = merged.hooks[hookName];
+                const hasAutoMemHook = existingHooks.some((config) => config.hooks?.some((h) => h.command?.includes('automem-session-start.sh')));
+                if (!hasAutoMemHook) {
+                    merged.hooks[hookName] = [...existingHooks, ...hookConfigs];
+                }
+            }
+        }
+    }
     // Merge permissions
     merged.permissions = merged.permissions ?? {};
     const templatePermissions = templateSettings.permissions ?? {};
@@ -58,6 +75,24 @@ function mergeSettings(targetSettings, templateSettings) {
     merged.permissions.deny = mergeUniqueStrings(merged.permissions.deny ?? [], templatePermissions.deny ?? []);
     merged.permissions.ask = mergeUniqueStrings(merged.permissions.ask ?? [], templatePermissions.ask ?? []);
     return merged;
+}
+function installHookScript(targetDir, options) {
+    const hookTemplateDir = path.join(TEMPLATE_ROOT, 'hooks');
+    const hookTargetDir = path.join(targetDir, 'hooks');
+    const hookScriptName = 'automem-session-start.sh';
+    const templatePath = path.join(hookTemplateDir, hookScriptName);
+    const targetPath = path.join(hookTargetDir, hookScriptName);
+    if (!fs.existsSync(templatePath)) {
+        log(`Warning: Hook template not found at ${templatePath}`, options.quiet);
+        return;
+    }
+    const content = fs.readFileSync(templatePath, 'utf8');
+    writeFileWithBackup(targetPath, content, options);
+    // Make executable
+    if (!options.dryRun) {
+        fs.chmodSync(targetPath, 0o755);
+        log(`installed hook script: ${hookScriptName}`, options.quiet);
+    }
 }
 function mergeSettingsFile(targetDir, options) {
     const templateSettingsPath = path.join(TEMPLATE_ROOT, 'settings.json');
@@ -120,10 +155,13 @@ export async function applyClaudeCodeSetup(cliOptions) {
     if (!options.dryRun) {
         fs.mkdirSync(targetDir, { recursive: true });
     }
-    // Merge MCP permissions into settings.json
+    // Install hook script for SessionStart memory recall
+    installHookScript(targetDir, options);
+    // Merge MCP permissions and hooks into settings.json
     mergeSettingsFile(targetDir, options);
     log('', options.quiet);
-    log('✓ MCP permissions added to settings.json', options.quiet);
+    log('✓ SessionStart hook installed for automatic memory recall', options.quiet);
+    log('✓ MCP permissions and hooks added to settings.json', options.quiet);
     log('', options.quiet);
     log('Next steps:', options.quiet);
     log('1. Add MCP server to ~/.claude.json (see INSTALLATION.md)', options.quiet);
