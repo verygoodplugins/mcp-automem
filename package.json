@@ -51,6 +51,8 @@
   "files": [
     "dist/",
     "templates",
+    "plugins",
+    ".claude-plugin",
     "env.example",
     "README.md",
     "CHANGELOG.md",

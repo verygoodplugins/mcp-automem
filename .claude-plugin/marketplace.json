@@ -1,0 +1,20 @@
+{
+  "name": "verygoodplugins-mcp-automem",
+  "owner": {
+    "name": "Very Good Plugins",
+    "email": "info@verygoodplugins.com",
+    "url": "https://github.com/verygoodplugins"
+  },
+  "description": "AutoMem persistent memory plugin for Claude Code",
+  "plugins": [
+    {
+      "name": "automem",
+      "source": "./plugins/automem",
+      "description": "Persistent memory for Claude Code - store decisions, patterns, and context across sessions",
+      "version": "1.0.0",
+      "author": {
+        "name": "Very Good Plugins"
+      }
+    }
+  ]
+}
