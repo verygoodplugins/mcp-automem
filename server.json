@@ -1,0 +1,47 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.verygoodplugins/mcp-automem",
+  "description": "MCP server for AutoMem: Graph-vector memory service that gives AI assistants durable, relational memory using FalkorDB (graph) and Qdrant (vectors).",
+  "version": "0.9.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/verygoodplugins/mcp-automem"
+  },
+  "packages": [
+    {
+      "registry_type": "npm",
+      "identifier": "@verygoodplugins/mcp-automem",
+      "version": "0.9.1"
+    }
+  ],
+  "tools": [
+    {
+      "name": "store_memory",
+      "description": "Store memory with content, tags, importance, and metadata"
+    },
+    {
+      "name": "recall_memory",
+      "description": "Hybrid search (vector + keyword + tags + recency)"
+    },
+    {
+      "name": "associate_memories",
+      "description": "Create typed relationships between memories"
+    },
+    {
+      "name": "update_memory",
+      "description": "Update existing memory fields"
+    },
+    {
+      "name": "delete_memory",
+      "description": "Delete memory and embedding"
+    },
+    {
+      "name": "check_database_health",
+      "description": "Check FalkorDB/Qdrant connection status"
+    }
+  ],
+  "author": {
+    "name": "Very Good Plugins",
+    "url": "https://automem.ai/?utm_source=mcp-registry"
+  }
+}
