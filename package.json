@@ -4,6 +4,7 @@
   "description": "MCP server for AutoMem: AI memory storage and recall",
   "main": "dist/index.js",
   "type": "module",
+  "mcpName": "io.github.verygoodplugins/mcp-automem",
   "engines": {
     "node": ">=18.0.0"
   },
