@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_ENDPOINT": "${AUTOMEM_ENDPOINT:-http://127.0.0.1:8001}"
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "automem",
+  "version": "1.0.0",
+  "description": "Persistent memory for Claude Code - store decisions, patterns, and context across sessions",
+  "author": {
+    "name": "Very Good Plugins",
+    "email": "info@verygoodplugins.com",
+    "url": "https://github.com/verygoodplugins"
+  },
+  "homepage": "https://github.com/verygoodplugins/mcp-automem",
+  "repository": "https://github.com/verygoodplugins/mcp-automem",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "context",
+    "automem",
+    "mcp",
+    "persistence",
+    "knowledge-graph"
+  ],
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
+}

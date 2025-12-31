@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Claude Code Plugin**: Native plugin for Claude Code with `/plugin install` support
+  - New plugin structure at `plugins/automem/` with proper Claude Code plugin spec
+  - **Memory Management Skill**: Teaches Claude the 3-phase memory pattern (Recall → Store → Summarize)
+  - **Slash Commands**: `/memory-recall`, `/memory-store`, `/memory-health`
+  - **SessionStart Hook**: Automatic memory recall prompt at session start
+  - **MCP Server Configuration**: Pre-configured connection to AutoMem service
+  - **Marketplace Support**: Install via `/plugin marketplace add verygoodplugins/mcp-automem`
+
+### Changed
+
+- Updated package.json to include `plugins/` and `.claude-plugin/` directories
+- Updated README with plugin installation instructions for Claude Code
 ## 0.9.1 - 2025-12-10
 
 ### Fixed
