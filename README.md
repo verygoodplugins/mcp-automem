@@ -155,14 +155,15 @@ npx @verygoodplugins/mcp-automem cursor
 
 **For Claude Code:**
 
-*Option A: Plugin (Recommended)*
+#### Option A: Plugin (Recommended)
 ```bash
 # In Claude Code, install the plugin:
 /plugin marketplace add verygoodplugins/mcp-automem
 /plugin install automem@verygoodplugins-mcp-automem
 ```
+Only one Claude Code plugin ships in this repo: `plugins/automem` with the marketplace catalog at `.claude-plugin/marketplace.json`.
 
-*Option B: CLI Setup*
+#### Option B: CLI Setup
 ```bash
 # Installs SessionStart hook and MCP permissions
 npx @verygoodplugins/mcp-automem claude-code

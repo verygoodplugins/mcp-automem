@@ -6,6 +6,9 @@
     "url": "https://github.com/verygoodplugins"
   },
   "description": "AutoMem persistent memory plugin for Claude Code",
+  "metadata": {
+    "description": "Marketplace catalog for the AutoMem Claude Code plugin and MCP server."
+  },
   "plugins": [
     {
       "name": "automem",

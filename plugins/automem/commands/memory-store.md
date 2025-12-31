@@ -14,7 +14,7 @@ Store important information for future recall:
    - **Context** (0.5-0.7): Feature summaries, notes
 
 2. **Format Content**:
-   ```
+   ```text
    Brief title. Context and details. Impact/outcome.
    ```
 

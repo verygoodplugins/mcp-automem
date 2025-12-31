@@ -95,7 +95,7 @@ mcp__memory__recall_memory({
 
 ### Storage Format
 
-```
+```text
 Content: "Brief title. Context and details. Impact/outcome."
 Tags: [project-name, component, YYYY-MM, type]
 Type: Decision | Pattern | Insight | Preference | Style | Habit | Context

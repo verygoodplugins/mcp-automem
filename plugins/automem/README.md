@@ -16,6 +16,7 @@ Persistent memory for Claude Code via the AutoMem MCP server. Store decisions, p
 
 - AutoMem service running (see [main README](../../README.md))
 - `AUTOMEM_ENDPOINT` environment variable set
+- `AUTOMEM_API_KEY` if your AutoMem deployment requires auth
 
 ## What's Included
 
@@ -61,6 +62,13 @@ export AUTOMEM_ENDPOINT=http://127.0.0.1:8001
 echo 'export AUTOMEM_ENDPOINT=http://127.0.0.1:8001' >> ~/.zshrc
 ```
 
+If your AutoMem deployment requires authentication, also export `AUTOMEM_API_KEY`:
+
+```bash
+# Replace with your issued key
+export AUTOMEM_API_KEY=your_api_key_here
+```
+
 ## Memory Types
 
 | Type | Importance | Use For |
@@ -74,6 +82,7 @@ echo 'export AUTOMEM_ENDPOINT=http://127.0.0.1:8001' >> ~/.zshrc
 ## Tagging Convention
 
 Always include:
+
 1. **Project name** - Primary identifier
 2. **Component** - Specific area (auth, api, frontend)
 3. **Type** - decision, bug-fix, pattern, feature
