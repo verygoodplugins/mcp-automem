@@ -82,7 +82,7 @@ describe('AutoMemClient', () => {
     });
 
     it('should throw on HTTP error', async () => {
-      mockFetch.mockResolvedValueOnce({
+      mockFetch.mockResolvedValue({
         ok: false,
         status: 500,
         json: async () => ({ message: 'Server error' }),
@@ -303,7 +303,7 @@ describe('AutoMemClient', () => {
     });
 
     it('should return error status on failure', async () => {
-      mockFetch.mockRejectedValueOnce(new Error('Connection refused'));
+      mockFetch.mockRejectedValue(new Error('Connection refused'));
 
       const result = await client.checkHealth();
 
@@ -368,5 +368,4 @@ describe('AutoMemClient', () => {
     });
   });
 });
-
 
