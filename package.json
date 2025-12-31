@@ -1,9 +1,13 @@
 {
   "name": "@verygoodplugins/mcp-automem",
-  "version": "0.6.1",
+  "version": "0.9.1",
   "description": "MCP server for AutoMem: AI memory storage and recall",
   "main": "dist/index.js",
   "type": "module",
+  "mcpName": "io.github.verygoodplugins/mcp-automem",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "bin": {
     "mcp-automem": "dist/index.js"
   },
@@ -12,8 +16,11 @@
     "postbuild": "chmod +x dist/index.js",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "tsx src/index.ts --help || true",
-    "prepublishOnly": "npm run build"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run test"
   },
   "keywords": [
     "mcp",
@@ -45,8 +52,10 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@vitest/coverage-v8": "^4.0.15",
     "tsx": "^4.6.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.15"
   },
   "files": [
     "dist/",

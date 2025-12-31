@@ -3,6 +3,7 @@ interface CursorSetupOptions {
     projectName?: string;
     dryRun?: boolean;
     quiet?: boolean;
+    skipPrompts?: boolean;
 }
 export declare function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<void>;
 export declare function runCursorSetup(args?: string[]): Promise<void>;

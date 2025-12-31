@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -22,6 +25,21 @@ import type {
 } from './types.js';
 
 config();
+
+// Read version from package.json - single source of truth
+function getPackageVersion(): string {
+  const packageJsonPath = path.resolve(
+    fileURLToPath(new URL('../package.json', import.meta.url))
+  );
+  try {
+    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const PACKAGE_VERSION = getPackageVersion();
 
 const command = (process.argv[2] || '').toLowerCase();
 
@@ -217,114 +235,307 @@ const clientConfig: AutoMemConfig = {
 const client = new AutoMemClient(clientConfig);
 
 const server = new Server(
-  { name: 'mcp-automem', version: '0.6.0' },
+  { name: 'mcp-automem', version: PACKAGE_VERSION },
   { capabilities: { tools: {} } }
 );
 
 const tools: Tool[] = [
   {
     name: 'store_memory',
-    description: 'Store a memory with optional tags, importance score, metadata, timestamps, and embedding vector',
+    title: 'Store Memory',
+    description: `Store a memory with optional tags, importance score, and metadata. Use this to persist important information for future recall.
+
+**When to use:**
+- After making a decision: store the reasoning and outcome
+- When discovering a pattern: store the pattern and where it applies
+- After fixing a bug: store the root cause and solution
+- When learning user preferences: store what they prefer and why
+
+**Examples:**
+- store_memory({ content: "Chose PostgreSQL over MongoDB for user service. Need ACID for transactions.", tags: ["architecture", "database"], importance: 0.9 })
+- store_memory({ content: "User prefers early returns over nested conditionals in validation code.", tags: ["code-style", "preferences"], importance: 0.7 })
+- store_memory({ content: "Auth timeout fixed by adding retry with exponential backoff. Root cause: flaky network.", tags: ["bug-fix", "auth"], importance: 0.8 })`,
+    annotations: {
+      title: 'Store Memory',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
     inputSchema: {
       type: 'object',
       properties: {
         content: {
           type: 'string',
-          description: 'The memory content to store',
+          description: 'The memory content to store. Be specific: include context, reasoning, and outcome.',
         },
         tags: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Optional tags to categorize the memory',
+          description: 'Tags to categorize the memory (e.g., ["project-name", "bug-fix", "auth"])',
         },
         importance: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description: 'Optional importance score between 0 and 1',
+          description: 'Importance score: 0.9+ critical decisions, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes',
         },
         embedding: {
           type: 'array',
           items: { type: 'number' },
-          description: 'Optional embedding vector for semantic search',
+          description: 'Optional embedding vector for semantic search (auto-generated if omitted)',
         },
         metadata: {
           type: 'object',
-          description: 'Optional metadata payload (entities, source, etc.)',
+          description: 'Optional structured metadata (e.g., { files_modified: ["auth.ts"], error_type: "timeout" })',
         },
         timestamp: {
           type: 'string',
-          description: 'Optional ISO timestamp indicating when this memory was created',
+          description: 'Optional ISO timestamp (defaults to now)',
         },
       },
       required: ['content'],
     },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        memory_id: {
+          type: 'string',
+          description: 'Unique ID of the stored memory (use this for associations)',
+        },
+        message: {
+          type: 'string',
+          description: 'Confirmation message',
+        },
+      },
+      required: ['memory_id', 'message'],
+    },
   },
   {
     name: 'recall_memory',
-    description: 'Recall memories with hybrid semantic/keyword search and optional time/tag filters',
+    title: 'Recall Memory',
+    description: `Search and retrieve relevant memories using semantic search, keywords, tags, time filters, and graph expansion. This is the primary tool for accessing stored knowledge.
+
+**When to use:**
+- At conversation start: recall context about the current project/topic
+- Before making decisions: check for past decisions on similar topics
+- When debugging: search for similar past errors and their solutions
+- When implementing: find established patterns and preferences
+- For complex questions: use expand_entities for multi-hop reasoning
+
+**Search strategies:**
+- Semantic: Use natural language queries like "authentication timeout issues"
+- Tags: Filter by project or category with tags: ["my-project", "bug-fix"]
+- Time: Use time_query for recency like "last 7 days" or "today"
+- Multi-query: Pass multiple queries in 'queries' array for broader recall
+- Multi-hop: Use expand_entities=true for questions requiring connected reasoning
+
+**Examples:**
+- recall_memory({ query: "database architecture decisions", tags: ["my-project"], limit: 5 })
+- recall_memory({ queries: ["auth patterns", "login flow", "JWT tokens"], limit: 10 })
+- recall_memory({ tags: ["bug-fix"], time_query: "last 30 days", limit: 5 })
+- recall_memory({ query: "What is Sarah's sister's job?", expand_entities: true })  // Multi-hop
+- recall_memory({ query: "Python style preferences", language: "python", context: "coding-style" })`,
+    annotations: {
+      title: 'Recall Memory',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: 'Text query to search for in memory content',
+          description: 'Semantic search query (natural language). Describe what you\'re looking for.',
+        },
+        queries: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Multiple queries for broader recall. Results are deduplicated server-side.',
         },
         embedding: {
           type: 'array',
           items: { type: 'number' },
-          description: 'Embedding vector for semantic similarity search',
+          description: 'Optional embedding vector for direct similarity search',
         },
         limit: {
           type: 'integer',
           minimum: 1,
           maximum: 50,
           default: 5,
-          description: 'Maximum number of memories to return',
+          description: 'Max memories to return (default: 5, increase for broader context)',
         },
         time_query: {
           type: 'string',
-          description: 'Natural language time window (e.g. "today", "last week", "last 7 days")',
+          description: 'Natural language time filter: "today", "yesterday", "last week", "last 30 days"',
         },
         start: {
           type: 'string',
-          description: 'Explicit ISO timestamp lower bound',
+          description: 'ISO timestamp lower bound (alternative to time_query)',
         },
         end: {
           type: 'string',
-          description: 'Explicit ISO timestamp upper bound',
+          description: 'ISO timestamp upper bound',
         },
         tags: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Return memories containing any of these tags',
+          description: 'Filter by tags. Use project name as first tag for scoping.',
         },
         tag_mode: {
           type: 'string',
           enum: ['any', 'all'],
-          description: 'How to combine multiple tags: any (default) or all',
+          description: '"any" matches memories with any tag (default), "all" requires all tags',
         },
         tag_match: {
           type: 'string',
           enum: ['exact', 'prefix'],
-          description: 'How to match tags: exact (default) or prefix',
+          description: '"exact" for exact tag match (default), "prefix" for starts-with matching',
+        },
+        expand_entities: {
+          type: 'boolean',
+          description: 'Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. Use for "What is X\'s sister\'s job?" type questions.',
+        },
+        expand_relations: {
+          type: 'boolean',
+          description: 'Follow graph relationships from seed results to find related memories.',
+        },
+        auto_decompose: {
+          type: 'boolean',
+          description: 'Auto-extract entities and topics from query to generate supplementary searches.',
+        },
+        expansion_limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 500,
+          default: 25,
+          description: 'Max total expanded memories (default: 25)',
+        },
+        relation_limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 200,
+          default: 5,
+          description: 'Max relations to follow per seed memory (default: 5)',
+        },
+        expand_min_importance: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'Minimum importance score for expanded results. Filters out low-relevance memories during graph/entity expansion. Recommended: 0.3-0.5 for broad context, 0.6-0.8 for focused results. Seed results are never filtered, only expanded ones.',
+        },
+        expand_min_strength: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'Minimum relation strength to follow during graph expansion. Only traverses edges above this threshold. Recommended: 0.3 for exploratory, 0.6+ for high-confidence connections only. Does not affect entity expansion.',
+        },
+        context: {
+          type: 'string',
+          description: 'Context label (e.g., "coding-style", "architecture"). Boosts matching preferences.',
+        },
+        language: {
+          type: 'string',
+          description: 'Programming language hint (e.g., "python", "typescript"). Prioritizes language-specific memories.',
+        },
+        active_path: {
+          type: 'string',
+          description: 'Current file path for language auto-detection (e.g., "src/auth.ts")',
+        },
+        context_tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Priority tags to boost in results (e.g., ["coding-style", "preferences"])',
+        },
+        context_types: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Priority memory types to boost (e.g., ["Style", "Preference"])',
+        },
+        priority_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Specific memory IDs to ensure are included in results',
         },
       },
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        count: {
+          type: 'integer',
+          description: 'Number of memories returned',
+        },
+        results: {
+          type: 'array',
+          description: 'Array of matching memories with scores',
+          items: {
+            type: 'object',
+            properties: {
+              memory_id: { type: 'string' },
+              content: { type: 'string' },
+              tags: { type: 'array', items: { type: 'string' } },
+              importance: { type: 'number' },
+              final_score: { type: 'number' },
+              match_type: { type: 'string' },
+              created_at: { type: 'string' },
+            },
+          },
+        },
+        dedup_removed: {
+          type: 'integer',
+          description: 'Number of duplicate results removed (when using multiple queries)',
+        },
+      },
+      required: ['count', 'results'],
     },
   },
   {
     name: 'associate_memories',
-    description: 'Create an association between two memories with a relationship type and strength',
+    title: 'Associate Memories',
+    description: `Create a typed relationship between two memories. This builds a knowledge graph that improves recall by surfacing related context.
+
+**When to use:**
+- After storing a new memory: link it to related existing memories
+- When a bug fix relates to an original feature implementation
+- When a new decision updates or invalidates a previous one
+- To connect patterns with their concrete examples
+
+**Relationship types:**
+- RELATES_TO: General relationship (default)
+- LEADS_TO: Causal relationship (A caused B)
+- DERIVED_FROM: Implementation of a decision/pattern
+- EXEMPLIFIES: Concrete example of a pattern
+- EVOLVED_INTO: Updated version of a concept
+- INVALIDATED_BY: Superseded by another memory
+- CONTRADICTS: Conflicts with another memory
+- REINFORCES: Strengthens another memory's validity
+- PART_OF: Component of a larger effort
+- PREFERS_OVER: Chosen alternative
+- OCCURRED_BEFORE: Temporal ordering
+
+**Examples:**
+- associate_memories({ memory1_id: "bug-fix-123", memory2_id: "feature-456", type: "RELATES_TO", strength: 0.9 })
+- associate_memories({ memory1_id: "new-decision", memory2_id: "old-decision", type: "EVOLVED_INTO", strength: 0.8 })`,
+    annotations: {
+      title: 'Associate Memories',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     inputSchema: {
       type: 'object',
       properties: {
         memory1_id: {
           type: 'string',
-          description: 'ID of the first memory',
+          description: 'ID of the source memory (from store_memory response or recall results)',
         },
         memory2_id: {
           type: 'string',
-          description: 'ID of the second memory',
+          description: 'ID of the target memory to link to',
         },
         type: {
           type: 'string',
@@ -341,64 +552,210 @@ const tools: Tool[] = [
             'DERIVED_FROM',
             'PART_OF',
           ],
-          description: 'Type of relationship between the memories',
+          description: 'Relationship type (see tool description for meanings)',
         },
         strength: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description: 'Strength of the association between 0 and 1',
+          description: 'Relationship strength: 0.9+ direct causation, 0.7-0.9 strong relation, 0.5-0.7 moderate',
         },
       },
       required: ['memory1_id', 'memory2_id', 'type', 'strength'],
     },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        success: {
+          type: 'boolean',
+          description: 'Whether the association was created',
+        },
+        message: {
+          type: 'string',
+          description: 'Confirmation message',
+        },
+      },
+      required: ['success', 'message'],
+    },
   },
   {
     name: 'update_memory',
-    description: 'Update an existing memory (content, tags, metadata, timestamps, importance)',
+    title: 'Update Memory',
+    description: `Update an existing memory's content, tags, importance, or metadata. Use this to correct or enhance memories rather than storing duplicates.
+
+**When to use:**
+- To correct inaccurate information in a memory
+- To add tags that were forgotten
+- To adjust importance based on new understanding
+- To add metadata after the fact
+
+**Examples:**
+- update_memory({ memory_id: "abc123", importance: 0.95 })  // Increase importance
+- update_memory({ memory_id: "abc123", tags: ["project-x", "critical", "auth"] })  // Add tags
+- update_memory({ memory_id: "abc123", content: "Updated: PostgreSQL chosen for ACID + team expertise" })`,
+    annotations: {
+      title: 'Update Memory',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     inputSchema: {
       type: 'object',
       properties: {
         memory_id: {
           type: 'string',
-          description: 'ID of the memory to update',
+          description: 'ID of the memory to update (from store_memory or recall results)',
         },
-        content: { type: 'string' },
+        content: {
+          type: 'string',
+          description: 'New content (replaces existing)',
+        },
         tags: {
           type: 'array',
           items: { type: 'string' },
+          description: 'New tags (replaces existing)',
         },
-        importance: { type: 'number', minimum: 0, maximum: 1 },
-        metadata: { type: 'object' },
-        timestamp: { type: 'string' },
-        updated_at: { type: 'string' },
-        last_accessed: { type: 'string' },
-        type: { type: 'string' },
-        confidence: { type: 'number', minimum: 0, maximum: 1 },
+        importance: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'New importance score',
+        },
+        metadata: {
+          type: 'object',
+          description: 'New metadata (merged with existing)',
+        },
+        timestamp: {
+          type: 'string',
+          description: 'Override creation timestamp',
+        },
+        updated_at: {
+          type: 'string',
+          description: 'Explicit update timestamp',
+        },
+        last_accessed: {
+          type: 'string',
+          description: 'Last access timestamp',
+        },
+        type: {
+          type: 'string',
+          description: 'Memory type classification',
+        },
+        confidence: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'Confidence score for the memory',
+        },
       },
       required: ['memory_id'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        memory_id: {
+          type: 'string',
+          description: 'ID of the updated memory',
+        },
+        message: {
+          type: 'string',
+          description: 'Confirmation message',
+        },
+      },
+      required: ['memory_id', 'message'],
     },
   },
   {
     name: 'delete_memory',
-    description: 'Delete a memory and its embedding',
+    title: 'Delete Memory',
+    description: `Permanently delete a memory and its embedding. Use sparingly - consider updating instead.
+
+**When to use:**
+- Memory contains incorrect information that can't be corrected
+- Memory is a duplicate
+- Memory contains sensitive information that shouldn't persist
+- Memory is no longer relevant and clutters recall results
+
+**Example:**
+- delete_memory({ memory_id: "abc123" })`,
+    annotations: {
+      title: 'Delete Memory',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     inputSchema: {
       type: 'object',
       properties: {
         memory_id: {
           type: 'string',
-          description: 'ID of the memory to delete',
+          description: 'ID of the memory to delete (from store_memory or recall results)',
         },
       },
       required: ['memory_id'],
     },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        memory_id: {
+          type: 'string',
+          description: 'ID of the deleted memory',
+        },
+        message: {
+          type: 'string',
+          description: 'Confirmation message',
+        },
+      },
+      required: ['memory_id', 'message'],
+    },
   },
   {
     name: 'check_database_health',
-    description: 'Check the health status of the AutoMem service and its connected databases',
+    title: 'Check Database Health',
+    description: `Check the health status of the AutoMem service and its connected databases (FalkorDB graph + Qdrant vectors).
+
+**When to use:**
+- Before a session to verify the memory service is available
+- When memory operations are failing unexpectedly
+- To check storage statistics
+
+**Example:**
+- check_database_health({})`,
+    annotations: {
+      title: 'Check Database Health',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     inputSchema: {
       type: 'object',
       properties: {},
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          enum: ['healthy', 'error'],
+          description: 'Overall health status',
+        },
+        backend: {
+          type: 'string',
+          description: 'Backend type (automem)',
+        },
+        statistics: {
+          type: 'object',
+          description: 'Database statistics (memory counts, etc.)',
+        },
+        error: {
+          type: 'string',
+          description: 'Error message if status is error',
+        },
+      },
+      required: ['status', 'backend'],
     },
   },
 ];
@@ -415,6 +772,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'store_memory': {
         const storeArgs = args as unknown as StoreMemoryArgs;
         const result = await client.storeMemory(storeArgs);
+        const output = { memory_id: result.memory_id, message: result.message };
         return {
           content: [
             {
@@ -422,6 +780,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `Memory stored successfully!\n\nMemory ID: ${result.memory_id}\nMessage: ${result.message}`,
             },
           ],
+          structuredContent: output,
         };
       }
 
@@ -429,6 +788,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const recallArgs = args as unknown as RecallMemoryArgs;
 
         let merged: any[] = [];
+        let dedupRemoved = 0;
+        let entityExpansion: any = null;
+        let expansion: any = null;
 
         // If tags are provided, fetch both endpoints in parallel for better performance
         if (Array.isArray(recallArgs.tags) && recallArgs.tags.length > 0) {
@@ -439,6 +801,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ]);
 
             merged = primary.results || [];
+            dedupRemoved = primary.dedup_removed || 0;
+            entityExpansion = primary.entity_expansion;
+            expansion = primary.expansion;
 
             // Merge tag-only results
             const byId = new Map<string, typeof merged[number]>();
@@ -471,9 +836,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           // No tags provided, just do primary recall
           const primary = await client.recallMemory(recallArgs);
           merged = primary.results || [];
+          dedupRemoved = primary.dedup_removed || 0;
+          entityExpansion = primary.entity_expansion;
+          expansion = primary.expansion;
         }
 
         if (!merged || merged.length === 0) {
+          const emptyOutput = { results: [], count: 0 };
           return {
             content: [
               {
@@ -481,6 +850,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 text: 'No memories found matching your query.',
               },
             ],
+            structuredContent: emptyOutput,
           };
         }
 
@@ -490,23 +860,63 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const tags = memory.tags?.length ? ` [${memory.tags.join(', ')}]` : '';
             const importance = typeof memory.importance === 'number' ? ` (importance: ${memory.importance})` : '';
             const score = typeof item.final_score === 'number' ? ` score=${item.final_score.toFixed(3)}` : '';
-            return `${index + 1}. ${memory.content}${tags}${importance}${score}\n   ID: ${memory.memory_id}\n   Created: ${memory.created_at}`;
+            const matchType = item.match_type ? ` [${item.match_type}]` : '';
+            const relationNote = Array.isArray((item as any).relations) && (item as any).relations.length
+              ? ` relations=${(item as any).relations.length}`
+              : '';
+            const dedupNote = Array.isArray(item.deduped_from) && item.deduped_from.length
+              ? ` (deduped x${item.deduped_from.length})`
+              : '';
+            const entityNote = item.expanded_from_entity
+              ? ` [via entity: ${item.expanded_from_entity}]`
+              : '';
+            return `${index + 1}. ${memory.content}${tags}${importance}${score}${matchType}${relationNote}${entityNote}${dedupNote}\n   ID: ${memory.memory_id}\n   Created: ${memory.created_at}`;
           })
           .join('\n\n');
+
+        // Build metadata notes
+        const notes: string[] = [];
+        if (dedupRemoved > 0) {
+          notes.push(`${dedupRemoved} duplicates removed`);
+        }
+        if (entityExpansion?.enabled && entityExpansion.expanded_count > 0) {
+          notes.push(`${entityExpansion.expanded_count} via entity expansion (${entityExpansion.entities_found?.join(', ') || 'entities found'})`);
+        }
+        if (expansion?.enabled && expansion.expanded_count > 0) {
+          notes.push(`${expansion.expanded_count} via relation expansion`);
+        }
+        const notesSuffix = notes.length > 0 ? ` (${notes.join('; ')})` : '';
+
+        // Build structured output (must match outputSchema: results, count, dedup_removed)
+        const recallOutput = {
+          results: merged.map((item) => ({
+            memory_id: item.memory.memory_id,
+            content: item.memory.content,
+            tags: item.memory.tags,
+            importance: item.memory.importance,
+            created_at: item.memory.created_at,
+            final_score: item.final_score,
+            match_type: item.match_type,
+          })),
+          count: merged.length,
+          dedup_removed: dedupRemoved,
+        };
 
         return {
           content: [
             {
               type: 'text',
-              text: `Found ${merged.length} memories:\n\n${memoriesText}`,
+              text: `Found ${merged.length} memories${notesSuffix}:\n\n${memoriesText}`,
             },
           ],
+          structuredContent: recallOutput,
         };
       }
 
       case 'associate_memories': {
         const associateArgs = args as unknown as AssociateMemoryArgs;
         const result = await client.associateMemories(associateArgs);
+        const output = { success: true, message: result.message };
         return {
           content: [
             {
@@ -514,12 +924,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `Association created successfully!\n\nMessage: ${result.message}`,
             },
           ],
+          structuredContent: output,
         };
       }
 
       case 'update_memory': {
         const updateArgs = args as unknown as UpdateMemoryArgs;
         const result = await client.updateMemory(updateArgs);
+        const output = { memory_id: result.memory_id, message: `Memory ${result.memory_id} updated successfully!` };
         return {
           content: [
             {
@@ -527,12 +939,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `Memory ${result.memory_id} updated successfully!`,
             },
           ],
+          structuredContent: output,
         };
       }
 
       case 'delete_memory': {
         const deleteArgs = args as unknown as DeleteMemoryArgs;
         const result = await client.deleteMemory(deleteArgs);
+        const output = { memory_id: result.memory_id, message: `Memory ${result.memory_id} deleted successfully!` };
         return {
           content: [
             {
@@ -540,6 +954,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `Memory ${result.memory_id} deleted successfully!`,
             },
           ],
+          structuredContent: output,
         };
       }
 
@@ -563,6 +978,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const errorText = health.error ? `\nError: ${health.error}` : '';
 
+        const output = {
+          status: health.status,
+          backend: health.backend,
+          statistics: health.statistics,
+          error: health.error,
+        };
+
         return {
           content: [
             {
@@ -570,6 +992,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `${statusEmoji} AutoMem Health Status\n\nStatus: ${health.status}\nBackend: ${health.backend}${statsText}${errorText}`,
             },
           ],
+          structuredContent: output,
         };
       }
 

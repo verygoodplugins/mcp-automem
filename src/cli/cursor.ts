@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import readline from 'readline';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 
@@ -9,6 +10,55 @@ interface CursorSetupOptions {
   projectName?: string;
   dryRun?: boolean;
   quiet?: boolean;
+  skipPrompts?: boolean;
+}
+
+// Read version from package.json - single source of truth
+function getPackageVersion(): string {
+  const packageJsonPath = path.resolve(
+    fileURLToPath(new URL('../../package.json', import.meta.url))
+  );
+  try {
+    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const PACKAGE_VERSION = getPackageVersion();
+
+function extractMdcVersion(content: string): string | null {
+  const match = content.match(/<!--\s*automem-mdc-version:\s*([\d.]+)\s*-->/);
+  return match ? match[1] : null;
+}
+
+function compareVersions(v1: string, v2: string): number {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+  
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const p1 = parts1[i] || 0;
+    const p2 = parts2[i] || 0;
+    if (p1 > p2) return 1;
+    if (p1 < p2) return -1;
+  }
+  return 0;
+}
+
+async function promptUser(question: string): Promise<boolean> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      const normalized = answer.trim().toLowerCase();
+      resolve(normalized === '' || normalized === 'y' || normalized === 'yes');
+    });
+  });
 }
 
 const TEMPLATE_ROOT = path.resolve(
@@ -129,10 +179,68 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
 
   // Project-level installation
   const targetDir = cliOptions.targetDir ?? path.join(projectRoot, '.cursor', 'rules');
+  const targetPath = path.join(targetDir, 'automem.mdc');
+
+  // Check for existing installation and version
+  let existingVersion: string | null = null;
+  let shouldUpdate = true;
+  
+  if (fs.existsSync(targetPath)) {
+    const existingContent = fs.readFileSync(targetPath, 'utf8');
+    existingVersion = extractMdcVersion(existingContent);
+    
+    if (existingVersion) {
+      const comparison = compareVersions(PACKAGE_VERSION, existingVersion);
+      
+      if (comparison === 0) {
+        // Same version
+        log(`\n✅ automem.mdc is already up to date (v${existingVersion})`, cliOptions.quiet);
+        shouldUpdate = false;
+      } else if (comparison > 0) {
+        // New version available
+        log(`\n📦 Found existing automem.mdc v${existingVersion}`, cliOptions.quiet);
+        log(`   New version available: v${PACKAGE_VERSION}`, cliOptions.quiet);
+        log(`\n   What's new in v${PACKAGE_VERSION}:`, cliOptions.quiet);
+        log(`   • Expansion filtering: expand_min_importance, expand_min_strength`, cliOptions.quiet);
+        log(`   • Reduces noise in multi-hop and graph expansion results`, cliOptions.quiet);
+        log(`   • Updated examples and best practices\n`, cliOptions.quiet);
+        
+        if (!cliOptions.skipPrompts && !cliOptions.dryRun) {
+          shouldUpdate = await promptUser('Update to latest version? [Y/n] ');
+          if (!shouldUpdate) {
+            log('Skipping update. Run with --yes to auto-update next time.\n', cliOptions.quiet);
+          }
+        }
+      } else {
+        // Existing is newer (shouldn't happen normally)
+        log(`\n⚠️  Existing automem.mdc (v${existingVersion}) is newer than package (v${PACKAGE_VERSION})`, cliOptions.quiet);
+        shouldUpdate = false;
+      }
+    } else {
+      // No version marker - legacy file
+      log(`\n📦 Found legacy automem.mdc (no version marker)`, cliOptions.quiet);
+      log(`   Updating to v${PACKAGE_VERSION} with new features.\n`, cliOptions.quiet);
+      
+      if (!cliOptions.skipPrompts && !cliOptions.dryRun) {
+        shouldUpdate = await promptUser('Update to latest version? [Y/n] ');
+      }
+    }
+  }
+
+  if (!shouldUpdate) {
+    // Skip to MCP config check
+    const mcpCheck = checkCursorMcpConfigured();
+    if (!mcpCheck.configured) {
+      log(`\n⚠️  AutoMem MCP server not configured in Cursor`, cliOptions.quiet);
+      log(`   Add to ${mcpCheck.configPath} - see README for config snippet.`, cliOptions.quiet);
+    }
+    return;
+  }
 
   const vars: Record<string, string> = {
     PROJECT_NAME: projectName,
     CURRENT_MONTH: getCurrentMonth(),
+    VERSION: PACKAGE_VERSION,
   };
 
   log(`\n🔧 Setting up Cursor AutoMem for: ${projectName}`, cliOptions.quiet);
@@ -145,7 +253,6 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
 
   // Install automem.mdc rule
   const templatePath = path.join(TEMPLATE_ROOT, 'automem.mdc.template');
-  const targetPath = path.join(targetDir, 'automem.mdc');
   
   const templateContent = fs.readFileSync(templatePath, 'utf8');
   const processedContent = replaceTemplateVars(templateContent, vars);
@@ -223,7 +330,7 @@ function parseCursorArgs(args: string[]): CursorSetupOptions {
         break;
       case '--yes':
       case '-y':
-        // deprecated; ignore
+        options.skipPrompts = true;
         break;
       case '--quiet':
         options.quiet = true;

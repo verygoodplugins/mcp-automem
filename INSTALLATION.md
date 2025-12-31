@@ -41,7 +41,7 @@ Service runs at `http://localhost:8001` with no authentication required.
 
 **Best for:** Multi-device access, team collaboration, always-on availability.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/yD_u9d?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/automem-ai-memory-service?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month.
 
@@ -65,8 +65,84 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [Claude Desktop](#claude-desktop) - Desktop AI assistant
 - [Cursor IDE](#cursor-ide) - AI-powered code editor  
 - [Claude Code](#claude-code) - Terminal coding assistant with automation hooks
-- [Warp Terminal](#warp-terminal) - AI-powered terminal
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
+
+---
+
+## Remote MCP via SSE (Sidecar)
+
+Use this option to connect AutoMem to cloud products that support MCP over Server‑Sent Events (SSE), including ChatGPT (Developer Mode), Claude.ai on the web, Claude Mobile (iOS/Android), and ElevenLabs Agents.
+
+### When to use the SSE sidecar
+- You want AutoMem in ChatGPT’s Developer Mode connectors
+- You use Claude.ai on the web or the Claude mobile app
+- You integrate with ElevenLabs real‑time Agents
+- You need an HTTPS endpoint instead of a local process
+
+### Deploy the SSE sidecar
+Deploy the AutoMem MCP‑over‑SSE sidecar on Railway (one‑click) or any Docker platform. It proxies MCP over HTTPS and connects to your AutoMem service.
+
+- Guide: MCP over SSE Sidecar (AutoMem service repo)
+  - docs: https://github.com/verygoodplugins/automem/blob/main/docs/MCP_SSE.md
+
+Required env vars for the sidecar:
+- `AUTOMEM_ENDPOINT` — URL to your AutoMem service (prefer internal URL on Railway, e.g. `http://memory-service.railway.internal:8001`)
+- `AUTOMEM_API_TOKEN` — Token for your AutoMem service (if enabled)
+
+Sidecar endpoints:
+- `GET /mcp/sse` — SSE stream (server → client)
+- `POST /mcp/messages?sessionId=<id>` — Client → server JSON‑RPC
+- `GET /health` — Health probe
+
+### Configure platforms
+
+#### ChatGPT (Developer Mode)
+1. Enable Developer Mode → Settings → Connectors → Advanced
+2. Add a custom MCP server with this URL:
+   - `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+3. Save and test: ask ChatGPT to “Check the health of the AutoMem service”.
+
+![ChatGPT Developer Mode – Connector Config](screenshots/chatgpt-connector-config.jpg)
+*Configure ChatGPT Developer Mode with your SSE URL*
+
+![ChatGPT with AutoMem Memories](screenshots/chatgpt-connector.jpg)
+*ChatGPT showing the custom connector enabled*
+
+![ChatGPT using AutoMem](screenshots/chatgpt-memories.jpg)
+*ChatGPT using AutoMem tools via the SSE connector*
+
+Notes:
+- ChatGPT requires URL‑based auth for custom connectors → include `?api_token=...` in the URL
+
+#### Claude.ai (Web)
+- Server URL: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+- Then chat with Claude on the web; ask it to recall or store memories.
+
+![Claude Web Using AutoMem](screenshots/claude-ai-web-memories.jpg)
+*Claude.ai connected to AutoMem via remote MCP (SSE)*
+
+#### Claude Mobile (iOS/Android)
+- Server URL: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+- Open the Claude mobile app and add the remote MCP connector.
+
+![Claude iOS App](screenshots/claude-ios-app.jpeg)
+*Claude mobile app connected to AutoMem via remote MCP (SSE)*
+
+#### ElevenLabs Agents
+Use either header‑based auth (recommended) or URL token:
+
+- Server URL (header‑auth): `https://<your-mcp-domain>/mcp/sse`
+- Header: `Authorization: Bearer <AUTOMEM_API_TOKEN>`
+- Or use URL token: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+
+### Troubleshooting (SSE)
+Common fixes from the sidecar guide:
+- Ensure your memory service listens on `PORT=8001`
+- On Railway, prefer internal DNS: `http://memory-service.railway.internal:8001`
+- Check sidecar logs for errors (e.g., `railway logs --service automem-mcp-sse`)
+- As a fallback, set `AUTOMEM_ENDPOINT` to the public URL of your memory service
+
+For deeper details, see the AutoMem service docs linked above.
 
 ### Guided Setup Wizard
 
@@ -160,7 +236,32 @@ Enable automatic memory usage by adding custom instructions to Claude Desktop.
 4. Add the following to your instructions:
 
 ```markdown
-<important>Using the Memory MCP is vital to our operations. When you start conversations, use the Memory tool to give yourself additional context. Wherever appropriate, create or update memories based on important milestones in the conversation.</important>
+<important>
+The Memory MCP is vital to our operations and should be used strategically.
+
+AT CONVERSATION START:
+- Always recall memories for context about recent work and ongoing topics
+- Check for relevant decisions, preferences, or patterns
+- Skip memory for trivial questions or simple factual queries
+
+BEFORE CREATING CONTENT:
+- Check memories for style preferences and past corrections
+- Review relevant patterns from previous interactions
+- Look for any established conventions or preferences
+
+CREATE/UPDATE MEMORIES FOR:
+- Important decisions and milestones (importance: 0.85+)
+- Observed patterns and preferences (importance: 0.75+)
+- Corrections you make to my outputs (these are critical style signals)
+- Significant outcomes from our conversations
+
+SKIP MEMORY FOR:
+- Simple edits or basic questions
+- Routine operations
+- Already well-documented information
+
+When creating substantial content, briefly note which memories informed the approach. Use associations to connect related memories when appropriate.
+</important>
 ```
 
 ![Claude Desktop with Custom Instructions](screenshots/claude-desktop-custom-instructions-3.jpg)
@@ -169,28 +270,43 @@ Enable automatic memory usage by adding custom instructions to Claude Desktop.
 5. Click **Save**
 6. Restart Claude Desktop
 
-**What this does:**
-- Claude automatically recalls relevant memories at conversation start
-- Stores important decisions, patterns, and context throughout conversations
-- Greatly improves response quality by providing continuity across sessions
+**How this works:**
+
+This prompt solves three core problems:
+
+*Prompt design inspired by [James Kemp](https://x.com/jamesckemp)*
+
+1. **Prevents over-fetching**: Without clear triggers, Claude either recalls memory constantly (slow) or randomly (inconsistent). The prompt defines exactly when to recall: conversation start for context, before creating content for style/patterns, but skip for trivial queries.
+
+2. **Importance scoring prevents noise**: Generic "store important things" leads to database bloat. The thresholds (0.85+ for decisions, 0.75+ for patterns) create a hierarchy:
+   - **High importance (0.85+)**: Architectural decisions, major milestones - stuff you'll reference months later
+   - **Medium importance (0.75+)**: Patterns, preferences - useful across projects
+   - **Skip**: Bug fixes, simple edits - clutters search results
+
+3. **Corrections as style signals**: This is the key insight. When you correct Claude's output (formatting, tone, structure), that's a strong signal about your preferences. Storing these as memories prevents Claude from making the same mistake twice.
+
+
 
 ![Claude Desktop Using Memory](screenshots/claude-desktop-with-instructions.jpg)
 *Claude automatically using memory tools with custom instructions*
 
 **Example behavior:**
+
+*Without the prompt:*
 ```
-User: "Let's add authentication to the API"
-
-Claude: [Automatically recalls memories]
-📚 From memory:
-- You prefer JWT tokens for authentication (from Project X)
-- Use bcrypt for password hashing (security pattern)
-- Express.js middleware pattern preferred
-
-[Claude responds with context-aware implementation]
+User: "Add auth to the API"
+Claude: [Generates generic JWT implementation]
 ```
 
-**Note:** Custom instructions are evolving rapidly in Claude Desktop. Check back for updates as we optimize the prompt based on new capabilities.
+*With the prompt:*
+```
+User: "Add auth to the API"
+Claude: [Recalls: "User prefers bcrypt + JWT", "Express middleware pattern"]
+       [Generates implementation matching your established patterns]
+       [Stores: "Added JWT auth to ProjectX API (importance: 0.85)"]
+```
+
+The "briefly note which memories informed" part ensures transparency - you'll see what context Claude is using, making it easier to spot when memories are outdated or wrong.
 
 ---
 
@@ -357,45 +473,52 @@ This enables basic memory recall/storage globally. For full agent features (prio
 
 ## Claude Code
 
-> ⚠️ **EXPERIMENTAL:** Claude Code hooks-based installation is actively evolving as we optimize based on real-world usage and new Claude Code capabilities. The default setup is intentionally minimal (git commits + builds only). Additional capture hooks are optional and should be enabled carefully. Expect frequent updates and improvements.
+Claude Code integration uses a simple approach: **MCP permissions + memory rules**. Claude has direct MCP access and can judge what's worth storing better than automated hooks.
 
-### 1. Install Automation Hooks
+### 1. Configure MCP Server
 
-Run the Claude Code setup:
+Add AutoMem to `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001",
+        "AUTOMEM_API_KEY": "your-api-key-if-required"
+      }
+    }
+  }
+}
+```
+
+### 2. Add Permissions (Optional)
+
+Run the setup to add MCP tool permissions:
 
 ```bash
 npx @verygoodplugins/mcp-automem claude-code
 ```
 
-This command:
-- Installs lean, high-signal hooks (git commit, build, session end)
-- Merges tool permissions and hook definitions into `~/.claude/settings.json`
-- Adds queue cleanup and deduplication to session-stop processing
-- Sets up smart filtering (skips lock files, build artifacts, trivial changes)
+This merges permissions into `~/.claude/settings.json` so Claude can use memory tools without asking.
 
-**What gets captured by default:**
-- Git commits with significant code changes (3+ meaningful files)
-- Build results (success/failure with context)
-- Session summaries (1-2 per session, deduplicated)
-
-**What doesn't get captured:**
-- Lock files, node_modules, build output
-- Trivial changes (whitespace, formatting)
-- Duplicate memories (content-hash based dedup)
-
-### 2. Choose Profile (Optional)
-
-```bash
-# Quiet defaults (recommended)
-npx @verygoodplugins/mcp-automem claude-code --profile lean
-
-# Enable additional hooks and status line
-npx @verygoodplugins/mcp-automem claude-code --profile extras
+Or manually add to `~/.claude/settings.json`:
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__memory__store_memory",
+      "mcp__memory__recall_memory",
+      "mcp__memory__associate_memories",
+      "mcp__memory__update_memory",
+      "mcp__memory__delete_memory",
+      "mcp__memory__check_database_health"
+    ]
+  }
+}
 ```
-
-**Profiles:**
-- **Lean** (default): Quiet setup, high-signal hooks only (git commit, build, Stop)
-- **Extras**: Optional hooks (edit/test/deploy/search/error) + status line
 
 ### 3. Add Memory Rules
 
@@ -405,271 +528,16 @@ Append memory instructions to `~/.claude/CLAUDE.md`:
 cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md
 ```
 
-### 4. What Gets Installed
-
-- `~/.claude/hooks/` - Hook scripts (triggered by PostToolUse, Stop)
-- `~/.claude/scripts/` - Support scripts (queue processor, filters, notifications)
-- `~/.claude/settings.json` - Merged tool permissions and hook config
-- `~/.claude/CLAUDE.md` - Memory rules (manual append)
-
-### 5. Customize Filters
-
-Edit `~/.claude/scripts/memory-filters.json` to tune:
-- `project_importance` weights
-- `file_weight` patterns
-- `trivial_patterns` to skip
-- `significant_patterns` to capture
-
-See **[Claude Code Integration Guide](templates/CLAUDE_CODE_INTEGRATION.md)** for complete documentation.
-
----
-
-## Warp Terminal
-
-Warp's MCP integration enables AI-powered terminal assistance with persistent memory. Your AI assistant remembers project setups, common commands, debugging patterns, and past solutions.
-
-### 1. Configure MCP Server
-
-Add AutoMem to your Warp MCP configuration:
-
-**macOS/Linux**: `~/.warp/mcp.json`  
-**Windows**: `%USERPROFILE%\.warp\mcp.json`
-
-```json
-{
-  "mcpServers": {
-    "memory": {
-      "command": "npx",
-      "args": ["@verygoodplugins/mcp-automem"],
-      "env": {
-        "AUTOMEM_ENDPOINT": "https://your-automem-instance.railway.app",
-        "AUTOMEM_API_KEY": "your-api-key-if-required"
-      }
-    }
-  }
-}
-```
-
-**For local development:**
-```json
-{
-  "mcpServers": {
-    "memory": {
-      "command": "npx",
-      "args": ["@verygoodplugins/mcp-automem"],
-      "env": {
-        "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"
-      }
-    }
-  }
-}
-```
-
-### 2. Add AI Rules
-
-Configure Warp's AI assistant to use memory-first patterns.
-
-Open Warp → Settings (⌘,) → Features → Warp AI → Custom Instructions
-
-Add the following rules:
-
-```markdown
-# Memory-First Terminal Assistance
-
-## Project Context Detection (CRITICAL)
-
-When the user:
-- Changes directory to a new project (`cd`, `z`, etc.)
-- Asks "where am I?" or "what is this project?"
-- Requests help without prior context
-- Starts debugging or running commands in unfamiliar code
-
-**IMMEDIATELY recall project memories:**
-
-```javascript
-mcp_memory_recall_memory({
-  query: "project overview architecture setup common commands",
-  tags: ["<detect-project-name>", "warp", "terminal"],
-  limit: 5
-})
-```
-
-## Auto-Detect Project Name
-
-Extract from (in order):
-1. `package.json` → `name` field
-2. `.git/config` → remote origin repo name  
-3. Current directory name as fallback
-
-Use this as the primary tag for all memory operations.
-
-## When to Store Memories
-
-**High Priority (importance: 0.9)**
-- Setup commands that worked (especially complex ones)
-- Environment variable configurations
-- Build/deploy procedures that succeeded after debugging
-- Critical file locations and their purposes
-
-**Medium Priority (importance: 0.7-0.8)**
-- Common debugging patterns that worked
-- Useful aliases or scripts created
-- Dependencies and version requirements
-- Test command sequences
-
-**Low Priority (importance: 0.5-0.6)**
-- Frequently used commands in this project
-- Directory navigation shortcuts
-- Log file locations
-
-## Memory Tagging for Terminal Context
-
-ALWAYS include:
-- Project name (auto-detected)
-- `warp` - Platform identifier
-- `terminal` - Context type
-- `YYYY-MM` - Current month
-- Command type: `setup`, `debug`, `build`, `deploy`, `test`
-
-## Smart Context Triggers
-
-Recall memories when user asks:
-- "How do I start/run/build this?"
-- "What commands are available?"
-- "Why isn't X working?"
-- "Where is the Y file?"
-- "What environment variables do I need?"
-- Shows error output without explanation
-- Types `git clone` or `npm install` (new project setup)
-
-## Communication Style
-
-- **Be terse**: Terminal users want answers fast
-- **Command-first**: Lead with the command, explanation after
-- **One-liners preferred**: Use `&&` chains when safe
-- **Flag dangerous commands**: Warn about `rm -rf`, force pushes, etc.
-- **Copy-pastable**: Format commands in code blocks
-
-## Auto-store After Success
-
-When user successfully:
-- Fixes an error → Store solution with error message as context
-- Runs complex command → Store with description
-- Completes setup → Store complete sequence
-- Discovers useful tool → Store with use case
-
-**Auto-store format:**
-```javascript
-mcp_memory_store_memory({
-  content: "[What worked] in [project-name]: [command/solution]. Context: [why it was needed]",
-  tags: ["<project>", "warp", "terminal", "<YYYY-MM>", "<type>"],
-  importance: 0.7-0.9
-})
-```
-```
-
-### 3. Restart Warp
-
-Close and reopen Warp terminal to load the MCP server.
+This teaches Claude when to recall (session start, before decisions) and what to store (decisions, patterns, insights).
 
 ### 4. Verify Installation
 
-In any Warp session, type or ask:
-
+Ask Claude Code:
 ```
 Check the health of the AutoMem service
 ```
 
-You should see connection status for FalkorDB and Qdrant.
-
-### 5. Test Project Context
-
-Navigate to a project and ask:
-
-```
-what's happened in this project this week?
-```
-
-The AI should:
-- Detect your current project name
-- Recall relevant memories
-- Show git history
-- Display recent changes
-
-### How It Works
-
-**Smart Project Detection:**
-- Warp AI auto-detects project name from `package.json`, `.git/config`, or directory name
-- Automatically recalls project-specific memories when you `cd` into projects
-- Tags all memories with project context for easy filtering
-
-**Context-Aware Assistance:**
-- Remembers setup commands you've run before
-- Recalls debugging solutions from past sessions
-- Knows your project's common workflows
-- Suggests commands based on project history
-
-**Example Workflow:**
-
-```bash
-# You navigate to a project
-cd ~/Projects/my-api
-
-# Ask about the project
-what is this project?
-
-# AI recalls: "my-api (REST API with Node.js + PostgreSQL)
-# Common commands: npm run dev (port 3000), npm test
-# Last deployed: v2.1.0 (Railway). Database: Heroku Postgres."
-
-# Hit an error
-npm run build
-# Error: Missing env var DATABASE_URL
-
-# Ask for help
-how do I fix this?
-
-# AI recalls: "You need DATABASE_URL from .env.example.
-# Copy: cp .env.example .env, then fill in Heroku credentials.
-# (This came up before in commit abc123f)"
-```
-
-### Memory Management Tips
-
-**Best Practices:**
-- Let the AI auto-detect project names (don't override unless necessary)
-- Store memories after successful troubleshooting
-- Use consistent importance scores (0.9 for critical setup, 0.7 for common commands)
-- Tag memories with command types (`setup`, `debug`, `deploy`)
-
-**Cleaning Up:**
-- Old memories automatically decay in importance
-- Use `delete_memory` to remove obsolete info
-- Update memories when procedures change
-
-### Advanced Configuration
-
-**Custom Project Detection:**
-
-If auto-detection doesn't work for your project structure:
-
-```javascript
-// Manually recall with explicit project name
-mcp_memory_recall_memory({
-  query: "deployment procedure",
-  tags: ["my-custom-project-name", "warp", "deploy"],
-  limit: 3
-})
-```
-
-**Integration with Other Tools:**
-
-Combine Warp with other AutoMem platforms:
-- Store memories in Warp → Recall in Cursor IDE
-- Claude Code hooks → Available in Warp sessions
-- Cross-device sync (same memories on all machines)
-
-See **[Memory Tagging Best Practices](#memory-tagging-for-terminal-context)** in the AI rules above.
+See **[Claude Code Integration Guide](templates/CLAUDE_CODE_INTEGRATION.md)** for more details.
 
 ---
 
@@ -826,9 +694,8 @@ Since Codex integrates with GitHub repositories:
 
 Memories stored in Codex are available in:
 - Cursor IDE (via AutoMem MCP)
-- Claude Code (via AutoMem hooks)
+- Claude Code (via AutoMem MCP)
 - Claude Desktop (via AutoMem MCP)
-- Warp Terminal (via AutoMem MCP)
 
 Use consistent project names and tags across platforms.
 
@@ -908,84 +775,173 @@ npx @verygoodplugins/mcp-automem config --format=json
 Store a new memory with optional metadata.
 
 **Parameters:**
-- `content` (required): Memory content
-- `tags` (optional): Array of tags
-- `importance` (optional): Score 0-1
-- `metadata` (optional): Additional metadata
-- `embedding` (optional): Vector for semantic search
+- `content` (required): Memory content - be specific, include context, reasoning, and outcome
+- `tags` (optional): Array of tags for categorization (e.g., `["project-name", "bug-fix", "auth"]`)
+- `importance` (optional): Score 0-1 (0.9+ critical, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes)
+- `metadata` (optional): Structured metadata (e.g., `{ files_modified: ["auth.ts"], error_type: "timeout" }`)
+- `embedding` (optional): Vector for semantic search (auto-generated if omitted)
+- `timestamp` (optional): ISO timestamp (defaults to now)
 
 **Example:**
-```
-Store this memory: "Completed AutoMem MCP integration" with tags ["development", "mcp"] and importance 0.8
+```javascript
+store_memory({
+  content: "Chose PostgreSQL over MongoDB for user service. Need ACID for transactions.",
+  tags: ["my-project", "architecture", "database"],
+  importance: 0.9
+})
 ```
 
 #### `recall_memory`
-Retrieve memories using hybrid search.
+Retrieve memories using hybrid search with semantic, keyword, tag, time, and graph expansion.
 
-**Parameters:**
-- `query` (optional): Text search query
-- `embedding` (optional): Vector for semantic similarity
+**Basic Parameters:**
+- `query` (optional): Natural language search query
+- `queries` (optional): Array of queries for broader recall (deduplicated server-side)
 - `limit` (optional): Max results (default: 5, max: 50)
-- `time_query` (optional): Natural time window (`today`, `last week`, etc.)
-- `start` (optional): ISO timestamp lower bound
-- `end` (optional): ISO timestamp upper bound
 - `tags` (optional): Filter by tags (e.g., `["slack", "slack/channel-ops"]`)
 - `tag_mode` (optional): `any` (default) or `all`
 - `tag_match` (optional): `exact` or `prefix` (prefix supports namespaces)
 
+**Time Filters:**
+- `time_query` (optional): Natural language time window (`today`, `yesterday`, `last week`, `last 30 days`)
+- `start` (optional): ISO timestamp lower bound
+- `end` (optional): ISO timestamp upper bound
+
+**Graph Expansion (Advanced):**
+- `expand_entities` (optional): Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. **Use for complex questions like "What is Sarah's sister's job?"**
+- `expand_relations` (optional): Follow graph relationships from seed results to find connected memories
+- `auto_decompose` (optional): Auto-extract entities and topics from query to generate supplementary searches
+- `expansion_limit` (optional): Max total expanded memories (default: 25)
+- `relation_limit` (optional): Max relations per seed memory (default: 5)
+- `expand_min_importance` (optional): Minimum importance score (0-1) for expanded results. **Use to filter out low-relevance memories during expansion** (default: no filter)
+- `expand_min_strength` (optional): Minimum relation strength (0-1) to follow during expansion. **Only follow strong associations** (default: no filter)
+
+**Context Hints (Advanced):**
+- `context` (optional): Context label (e.g., `"coding-style"`, `"architecture"`) - boosts matching preferences
+- `language` (optional): Programming language hint (e.g., `"python"`, `"typescript"`) - prioritizes language-specific memories
+- `active_path` (optional): Current file path for language auto-detection (e.g., `"src/auth.ts"`)
+- `context_tags` (optional): Priority tags to boost in results (e.g., `["coding-style", "preferences"]`)
+- `context_types` (optional): Priority memory types to boost (e.g., `["Style", "Preference"]`)
+- `priority_ids` (optional): Specific memory IDs to ensure are included in results
+
 **Examples:**
+
+Basic recall:
+```javascript
+recall_memory({ 
+  query: "database architecture decisions", 
+  tags: ["my-project"], 
+  limit: 5 
+})
 ```
-Recall memories about "MCP server development"
+
+Multi-query recall:
+```javascript
+recall_memory({ 
+  queries: ["auth patterns", "login flow", "JWT tokens"], 
+  limit: 10 
+})
 ```
+
+Time-filtered recall:
+```javascript
+recall_memory({ 
+  tags: ["bug-fix"], 
+  time_query: "last 30 days", 
+  limit: 5 
+})
 ```
-Recall memories tagged with "slack/channel-ops"
+
+**Multi-hop reasoning (new!):**
+```javascript
+// "What is Amanda's sister's career?"
+// Step 1: Finds "Amanda's sister is Rachel"
+// Step 2: Expands to find "Rachel works as a counselor"
+recall_memory({ 
+  query: "What is Amanda's sister's career?", 
+  expand_entities: true 
+})
 ```
-```
-Recall memories about "handoff" tagged with "slack"
+
+Context-aware recall:
+```javascript
+recall_memory({ 
+  query: "error handling", 
+  language: "python",
+  context: "coding-style",
+  context_types: ["Style", "Preference"]
+})
 ```
 
 #### `associate_memories`
-Create relationships between memories.
+Create relationships between memories to build a knowledge graph.
 
 **Parameters:**
-- `memory1_id` (required): First memory ID
-- `memory2_id` (required): Second memory ID
-- `type` (required): Relationship type
-- `strength` (required): Association strength 0-1
+- `memory1_id` (required): Source memory ID (from store_memory response or recall results)
+- `memory2_id` (required): Target memory ID to link to
+- `type` (required): Relationship type (see below)
+- `strength` (required): Association strength 0-1 (0.9+ direct causation, 0.7-0.9 strong, 0.5-0.7 moderate)
 
 **Relationship Types:**
-- `RELATES_TO` - General connection
-- `LEADS_TO` - Causal (bug→solution)
-- `OCCURRED_BEFORE` - Temporal sequence
-- `PREFERS_OVER` - User preferences
-- `EXEMPLIFIES` - Pattern examples
-- `CONTRADICTS` - Conflicting approaches
-- `REINFORCES` - Supporting evidence
-- `INVALIDATED_BY` - Outdated info
-- `EVOLVED_INTO` - Knowledge evolution
-- `DERIVED_FROM` - Source relationships
-- `PART_OF` - Hierarchical structure
+- `RELATES_TO` - General connection (default)
+- `LEADS_TO` - Causal relationship (A caused B)
+- `DERIVED_FROM` - Implementation of a decision/pattern
+- `EXEMPLIFIES` - Concrete example of a pattern
+- `EVOLVED_INTO` - Updated version of a concept
+- `INVALIDATED_BY` - Superseded by another memory
+- `CONTRADICTS` - Conflicts with another memory
+- `REINFORCES` - Strengthens another memory's validity
+- `PART_OF` - Component of a larger effort
+- `PREFERS_OVER` - Chosen alternative
+- `OCCURRED_BEFORE` - Temporal ordering
+
+**Example:**
+```javascript
+// Link a bug fix to the original feature it relates to
+associate_memories({
+  memory1_id: "bug-fix-123",
+  memory2_id: "feature-456",
+  type: "RELATES_TO",
+  strength: 0.9
+})
+```
 
 #### `update_memory`
-Update existing memory fields.
+Update existing memory fields. Use this to correct or enhance memories rather than storing duplicates.
 
 **Parameters:**
-- `memory_id` (required): Memory to update
-- `content` (optional): New content
-- `tags` (optional): New tags
+- `memory_id` (required): Memory to update (from store_memory or recall results)
+- `content` (optional): New content (replaces existing)
+- `tags` (optional): New tags (replaces existing)
 - `importance` (optional): New importance score
-- `metadata` (optional): New metadata
+- `metadata` (optional): New metadata (merged with existing)
+- `type` (optional): Memory type classification
+- `confidence` (optional): Confidence score
+
+**Example:**
+```javascript
+update_memory({ 
+  memory_id: "abc123", 
+  importance: 0.95,
+  tags: ["project-x", "critical", "auth"]
+})
+```
 
 #### `delete_memory`
-Delete a memory and its embedding.
+Permanently delete a memory and its embedding. Use sparingly—consider updating instead.
 
 **Parameters:**
 - `memory_id` (required): Memory to delete
 
+**When to use:**
+- Memory contains incorrect information that can't be corrected
+- Memory is a duplicate
+- Memory contains sensitive information that shouldn't persist
+
 ### System Monitoring
 
 #### `check_database_health`
-Check AutoMem service and database status.
+Check AutoMem service and database status (FalkorDB graph + Qdrant vectors).
 
 **Example:**
 ```
@@ -1060,16 +1016,10 @@ npx @verygoodplugins/mcp-automem help
 - Reload Cursor window
 - Check `.cursor/rules/` files have correct YAML frontmatter
 
-#### Claude Code: Hooks not triggering
-- Check `~/.claude/settings.json` has merged properly
-- Verify hook scripts have execute permissions
-- Test with `--dry-run` flag first
-
-#### Warp: MCP server not loading
-- Check `~/.warp/mcp.json` exists and has valid JSON syntax
-- Verify AutoMem endpoint is reachable: `curl $AUTOMEM_ENDPOINT/health`
-- Check Warp logs: `tail -f ~/.warp/logs/warp.log` (macOS/Linux)
-- Restart Warp completely after config changes
+#### Claude Code: Permissions not working
+- Check `~/.claude/settings.json` has the MCP permissions
+- Verify MCP server is configured in `~/.claude.json`
+- Run setup again: `npx @verygoodplugins/mcp-automem claude-code`
 
 #### Codex: MCP server not loading
 - Verify config file exists at `~/.codex/config.toml`

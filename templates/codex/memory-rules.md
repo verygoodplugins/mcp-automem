@@ -1,4 +1,5 @@
 <!-- BEGIN AUTOMEM CODEX RULES -->
+<!-- automem-codex-version: 0.9.0 -->
 ## Memory-First Development (AutoMem Codex)
 
 Use the AutoMem MCP proactively to maintain persistent context for {{PROJECT_NAME}}.
@@ -52,6 +53,36 @@ mcp_memory_associate_memories({
 
 Tagging:
 1) {{PROJECT_NAME}}  2) codex  3) component  4) {{CURRENT_MONTH}}
+
+### Advanced Recall (for complex questions)
+
+**Multi-hop reasoning** (entity expansion):
+```javascript
+// "What does Amanda's sister do?" → finds "Amanda's sister is Rachel" → finds Rachel's job
+mcp_memory_recall_memory({
+  query: "What does Amanda's sister do?",
+  expand_entities: true
+})
+```
+
+**Graph expansion with filtering** (reduce noise):
+```javascript
+mcp_memory_recall_memory({
+  query: "auth architecture",
+  expand_relations: true,           // Follow relationships from seed results
+  expand_min_importance: 0.5,       // Only include expanded memories with importance >= 0.5
+  expand_min_strength: 0.3          // Only follow associations with strength >= 0.3
+})
+```
+
+**Context-aware coding recall**:
+```javascript
+mcp_memory_recall_memory({
+  query: "error handling patterns",
+  language: "python",
+  context_types: ["Style", "Pattern"]
+})
+```
 
 <!-- END AUTOMEM CODEX RULES -->
 

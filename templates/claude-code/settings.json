@@ -1,8 +1,18 @@
 {
   "env": {
-    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "true",
-    "DISABLE_COST_WARNINGS": "0",
-    "BASH_MAX_OUTPUT_LENGTH": "50000"
+    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "true"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/hooks/automem-session-start.sh\""
+          }
+        ]
+      }
+    ]
   },
   "permissions": {
     "allow": [
@@ -23,10 +33,8 @@
       "Bash(mv:*)",
       "Bash(chmod:*)",
       "Bash(jq:*)",
-      "Bash(php -l:*)",
       "Bash(awk:*)",
       "Bash(sed:*)",
-      "Bash(./vendor/bin/*)",
       "Bash(node:*)",
       "Bash(python3:*)",
       "mcp__memory__store_memory",
@@ -45,54 +53,6 @@
     ],
     "ask": [
       "Bash(git push:*)"
-    ],
-    "defaultMode": "plan",
-    "additionalDirectories": []
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Bash(git commit*)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "CLAUDE_HOOK_TYPE=git_commit bash \"$HOME/.claude/hooks/session-memory.sh\""
-          }
-        ]
-      },
-      {
-        "matcher": "Bash(*build*)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "CLAUDE_HOOK_TYPE=build bash \"$HOME/.claude/hooks/capture-build-result.sh\""
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$HOME/.claude/scripts/smart-notify.sh\""
-          },
-          {
-            "type": "command",
-            "command": "CLAUDE_HOOK_TYPE=session_end bash \"$HOME/.claude/hooks/session-memory.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$HOME/.claude/scripts/queue-cleanup.sh\""
-          },
-          {
-            "type": "command",
-            "command": "npx @verygoodplugins/mcp-automem queue --file \"$HOME/.claude/scripts/memory-queue.jsonl\""
-          }
-        ]
-      }
     ]
-  },
-  "model": "opus"
+  }
 }

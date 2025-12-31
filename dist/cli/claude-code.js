@@ -8,11 +8,6 @@ function log(message, quiet) {
         console.log(message);
     }
 }
-function ensureDir(dirPath, options) {
-    if (!options.dryRun) {
-        fs.mkdirSync(dirPath, { recursive: true });
-    }
-}
 function backupPath(filePath) {
     let candidate = `${filePath}.bak`;
     let counter = 1;
@@ -40,43 +35,6 @@ function writeFileWithBackup(targetPath, content, options) {
     }
     fs.writeFileSync(targetPath, content, 'utf8');
 }
-function copyTemplateFile(relativePath, options) {
-    const templatePath = path.join(TEMPLATE_ROOT, relativePath);
-    const targetPath = path.join(options.targetDir ?? '', relativePath);
-    const templateContent = fs.readFileSync(templatePath, 'utf8');
-    if (fs.existsSync(targetPath)) {
-        const current = fs.readFileSync(targetPath, 'utf8');
-        if (current === templateContent) {
-            log(`unchanged ${relativePath}`, options.quiet);
-            return;
-        }
-    }
-    writeFileWithBackup(targetPath, templateContent, options);
-    if (options.dryRun) {
-        log(`dry-run: would update ${relativePath}`, options.quiet);
-        return;
-    }
-    const ext = path.extname(relativePath);
-    if (ext === '.sh' || ext === '.py') {
-        fs.chmodSync(targetPath, 0o755);
-    }
-    log(`updated ${relativePath}`, options.quiet);
-}
-function copyTemplateDirectory(relativeDir, options) {
-    const templateDir = path.join(TEMPLATE_ROOT, relativeDir);
-    if (!fs.existsSync(templateDir)) {
-        return;
-    }
-    const entries = fs.readdirSync(templateDir, { withFileTypes: true });
-    for (const entry of entries) {
-        if (entry.isDirectory()) {
-            copyTemplateDirectory(path.join(relativeDir, entry.name), options);
-        }
-        else if (entry.isFile()) {
-            copyTemplateFile(path.join(relativeDir, entry.name), options);
-        }
-    }
-}
 function mergeUniqueStrings(target = [], additions) {
     const set = new Set(target);
     for (const value of additions) {
@@ -87,54 +45,54 @@ function mergeUniqueStrings(target = [], additions) {
     }
     return target;
 }
-function mergeHookEntries(target = [], additions) {
-    for (const addition of additions) {
-        const matcher = addition?.matcher;
-        if (!matcher)
-            continue;
-        const existingIndex = target.findIndex((item) => item?.matcher === matcher);
-        if (existingIndex === -1) {
-            target.push(addition);
-            continue;
-        }
-        const existingHooks = target[existingIndex].hooks ?? [];
-        const existingCommands = new Set(existingHooks.map((hook) => hook.command));
-        for (const hook of addition.hooks ?? []) {
-            if (!existingCommands.has(hook.command)) {
-                existingHooks.push(hook);
-                existingCommands.add(hook.command);
-            }
-        }
-        target[existingIndex].hooks = existingHooks;
-    }
-    return target;
-}
 function mergeSettings(targetSettings, templateSettings) {
     const merged = { ...targetSettings };
+    // Merge env if not present
     if (!merged.env && templateSettings.env) {
         merged.env = templateSettings.env;
     }
-    if (!merged.statusLine && templateSettings.statusLine) {
-        merged.statusLine = templateSettings.statusLine;
+    // Merge hooks - add SessionStart hook for automem if not already present
+    if (templateSettings.hooks) {
+        merged.hooks = merged.hooks ?? {};
+        for (const [hookName, hookConfigs] of Object.entries(templateSettings.hooks)) {
+            if (!merged.hooks[hookName]) {
+                merged.hooks[hookName] = hookConfigs;
+            }
+            else {
+                // Check if automem hook already exists
+                const existingHooks = merged.hooks[hookName];
+                const hasAutoMemHook = existingHooks.some((config) => config.hooks?.some((h) => h.command?.includes('automem-session-start.sh')));
+                if (!hasAutoMemHook) {
+                    merged.hooks[hookName] = [...existingHooks, ...hookConfigs];
+                }
+            }
+        }
     }
-    if (!merged.model && templateSettings.model) {
-        merged.model = templateSettings.model;
-    }
+    // Merge permissions
     merged.permissions = merged.permissions ?? {};
     const templatePermissions = templateSettings.permissions ?? {};
     merged.permissions.allow = mergeUniqueStrings(merged.permissions.allow ?? [], templatePermissions.allow ?? []);
     merged.permissions.deny = mergeUniqueStrings(merged.permissions.deny ?? [], templatePermissions.deny ?? []);
     merged.permissions.ask = mergeUniqueStrings(merged.permissions.ask ?? [], templatePermissions.ask ?? []);
-    if (!merged.permissions.defaultMode && templatePermissions.defaultMode) {
-        merged.permissions.defaultMode = templatePermissions.defaultMode;
-    }
-    merged.hooks = merged.hooks ?? {};
-    const templateHooks = templateSettings.hooks ?? {};
-    for (const [category, hookList] of Object.entries(templateHooks)) {
-        const existingList = Array.isArray(merged.hooks[category]) ? merged.hooks[category] : [];
-        merged.hooks[category] = mergeHookEntries(existingList, hookList);
-    }
     return merged;
+}
+function installHookScript(targetDir, options) {
+    const hookTemplateDir = path.join(TEMPLATE_ROOT, 'hooks');
+    const hookTargetDir = path.join(targetDir, 'hooks');
+    const hookScriptName = 'automem-session-start.sh';
+    const templatePath = path.join(hookTemplateDir, hookScriptName);
+    const targetPath = path.join(hookTargetDir, hookScriptName);
+    if (!fs.existsSync(templatePath)) {
+        log(`Warning: Hook template not found at ${templatePath}`, options.quiet);
+        return;
+    }
+    const content = fs.readFileSync(templatePath, 'utf8');
+    writeFileWithBackup(targetPath, content, options);
+    // Make executable
+    if (!options.dryRun) {
+        fs.chmodSync(targetPath, 0o755);
+        log(`installed hook script: ${hookScriptName}`, options.quiet);
+    }
 }
 function mergeSettingsFile(targetDir, options) {
     const templateSettingsPath = path.join(TEMPLATE_ROOT, 'settings.json');
@@ -160,7 +118,7 @@ function mergeSettingsFile(targetDir, options) {
         return;
     }
     writeFileWithBackup(targetPath, output, options);
-    log('updated settings.json', options.quiet);
+    log('updated settings.json (merged MCP permissions)', options.quiet);
 }
 function parseClaudeArgs(args) {
     const options = {};
@@ -181,14 +139,6 @@ function parseClaudeArgs(args) {
             case '--quiet':
                 options.quiet = true;
                 break;
-            case '--profile': {
-                const value = (args[i + 1] || '').toLowerCase();
-                if (value === 'lean' || value === 'extras') {
-                    options.profile = value;
-                    i += 1;
-                }
-                break;
-            }
             default:
                 break;
         }
@@ -201,38 +151,22 @@ export async function applyClaudeCodeSetup(cliOptions) {
         targetDir: cliOptions.targetDir ?? path.join(os.homedir(), '.claude'),
     };
     const targetDir = options.targetDir ?? path.join(os.homedir(), '.claude');
-    // Display experimental warning
-    if (!options.quiet) {
-        console.log('\n⚠️  EXPERIMENTAL: Claude Code hooks are actively evolving.');
-        console.log('   Default profile: Lean (git commits + builds only)');
-        console.log('   Optional hooks: Edit, test, deploy, error capture (disabled by default)');
-        console.log('   Use --profile extras to enable all optional hooks\n');
-    }
-    log(`Configuring Claude Code automation in ${targetDir}`, options.quiet);
+    log(`Configuring Claude Code in ${targetDir}`, options.quiet);
     if (!options.dryRun) {
         fs.mkdirSync(targetDir, { recursive: true });
     }
-    ensureDir(path.join(targetDir, 'hooks'), options);
-    ensureDir(path.join(targetDir, 'scripts'), options);
-    ensureDir(path.join(targetDir, 'logs'), options);
-    // If a profile is specified, apply it directly (replace settings.json with backup)
-    if (options.profile) {
-        const profilePath = path.join(TEMPLATE_ROOT, 'profiles', `settings.${options.profile}.json`);
-        if (!fs.existsSync(profilePath)) {
-            throw new Error(`Profile not found: ${options.profile}`);
-        }
-        const profileContent = fs.readFileSync(profilePath, 'utf8');
-        writeFileWithBackup(path.join(targetDir, 'settings.json'), `${profileContent}\n`, options);
-        log(`applied profile: ${options.profile}`, options.quiet);
-    }
-    else {
-        // Merge default settings template if no profile selected
-        mergeSettingsFile(targetDir, options);
-    }
-    copyTemplateDirectory('hooks', { ...options, targetDir });
-    copyTemplateDirectory('scripts', { ...options, targetDir });
-    log('Claude Code automation assets installed.', options.quiet);
-    log('Restart Claude Code to load the updated hooks.', options.quiet);
+    // Install hook script for SessionStart memory recall
+    installHookScript(targetDir, options);
+    // Merge MCP permissions and hooks into settings.json
+    mergeSettingsFile(targetDir, options);
+    log('', options.quiet);
+    log('✓ SessionStart hook installed for automatic memory recall', options.quiet);
+    log('✓ MCP permissions and hooks added to settings.json', options.quiet);
+    log('', options.quiet);
+    log('Next steps:', options.quiet);
+    log('1. Add MCP server to ~/.claude.json (see INSTALLATION.md)', options.quiet);
+    log('2. Add memory rules: cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md', options.quiet);
+    log('3. Restart Claude Code', options.quiet);
 }
 export async function runClaudeCodeSetup(args = []) {
     const options = parseClaudeArgs(args);

@@ -18,6 +18,159 @@ All notable changes to this project will be documented in this file.
 
 - Updated package.json to include `plugins/` and `.claude-plugin/` directories
 - Updated README with plugin installation instructions for Claude Code
+## 0.9.1 - 2025-12-10
+
+### Fixed
+- **associate_memories structured output**: Fixed missing `success` field in response that caused "Structured content does not match output schema" error
+
+## 0.9.0 - 2025-12-10
+
+### Added
+- **Expansion filtering parameters**: Reduce noise in graph-expanded results
+- **Version-aware template updates**: The `cursor` command now detects outdated `automem.mdc` files
+  - Shows what's new in the latest version
+  - Prompts user before updating (use `--yes` to auto-update)
+  - Creates backup before overwriting
+  - Templates now include version markers for future upgrade detection
+  - Version is read dynamically from `package.json` (single source of truth)
+  - `expand_min_importance` - Minimum importance score for expanded results (0-1)
+  - `expand_min_strength` - Minimum relation strength to follow during expansion (0-1)
+  - Server-side filtering keeps seed results intact, only filters expanded memories
+  - Addresses issue where `expand_relations=true` returned too many low-relevance memories
+
+### Changed
+- Updated `RecallMemoryArgs` interface with expansion filtering parameters
+- Updated `AutoMemClient.recallMemory()` to pass filtering params to backend
+
+### Documentation
+- Updated `INSTALLATION.md` with new expansion filtering parameters
+- Updated `templates/cursor/automem.mdc.template` with filtering examples
+- Updated `templates/CLAUDE_MD_MEMORY_RULES.md` with filtering parameters
+- Updated `README.md` feature list
+
+### Note
+- Requires AutoMem server v0.9.2+ for full filtering support
+
+## 0.8.1 - 2025-12-04
+
+### Fixed
+- **MCP spec compliance**: All tool handlers now return `structuredContent` alongside `content`
+  - Required when `outputSchema` is defined per MCP specification
+  - Fixes error: "Tool has an output schema but did not return structured content"
+- **recall_memory output**: Changed `memories` to `results` to match `outputSchema`
+- Added `dedup_removed` field to recall output
+
+## 0.8.0 - 2025-12-02
+
+### Changed
+- **Claude Code integration simplified**: Removed hook-based capture system in favor of direct MCP usage
+  - Removed all automatic capture hooks (builds, commits, edits, tests, deployments, errors)
+  - Removed queue-based processing (Python processors, cleanup scripts)
+  - Removed desktop notifications (smart-notify.sh)
+  - Now uses simple approach: MCP permissions + memory rules in CLAUDE.md
+  - Philosophy: Trust Claude + good instructions > automated hooks that guess significance
+  - Claude has direct MCP access and can judge what's worth storing
+- **Claude Code now stable**: Removed "experimental" warning from README and documentation
+  - Platform support table updated: Claude Code now shows "✅ Full" status
+  - Simplified installation: just permissions + memory rules
+
+### Removed
+- `templates/claude-code/hooks/` - All hook scripts (capture-*.sh, session-memory.sh)
+- `templates/claude-code/scripts/` - Python processors, queue cleanup, notifications
+- `templates/claude-code/profiles/` - Profile system (lean/extras no longer needed)
+- `--profile` CLI flag from `claude-code` command
+- `templates/warp/` - Warp Terminal integration (niche use case, reduces maintenance)
+
+### Added
+- **Advanced recall capabilities**: Exposed AutoMem server's multi-hop reasoning and context features
+  - `expand_entities` - Multi-hop reasoning via entity expansion (e.g., "What is Amanda's sister's job?" finds Rachel → Rachel's job)
+  - `expand_relations` - Follow graph relationships (RELATES_TO, LEADS_TO, etc.) from seed results
+  - `auto_decompose` - Automatically split complex queries into sub-queries for broader recall
+  - `context` - Context label for preference boosting (e.g., "coding-style", "architecture")
+  - `language` - Programming language hint to prioritize language-specific memories
+  - `active_path` - Current file path for automatic language detection
+  - `context_tags` - Priority tags to boost in results
+  - `context_types` - Priority memory types (Decision, Pattern, etc.) to boost
+  - `priority_ids` - Specific memory IDs to ensure inclusion in results
+  - `expansion_limit`, `relation_limit` - Control expansion depth
+
+- **MCP 2025 best practices**: Enhanced tool definitions for better LLM usage
+  - Added `title` to all tools for human-readable display
+  - Added `annotations` with hints: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`
+  - Added `outputSchema` to all tools for structured response expectations
+  - Added detailed usage examples and "When to use" sections in tool descriptions
+  - All 11 relationship types now properly documented in `associate_memories` schema
+
+- **Enhanced response information**:
+  - `expansion` metadata in recall results (seed_count, expanded_count, relation_limit)
+  - `entity_expansion` metadata (entities_found, expanded_count)
+  - `context_priority` metadata (applied language, context, priority tags/types)
+
+### Changed
+- Updated `RecallMemoryArgs` interface with all new parameters
+- Updated `RecallResult` interface with expansion metadata
+- Enhanced `AutoMemClient.recallMemory()` to pass all new parameters to backend
+- Improved recall handler to display expansion information in response
+
+### Documentation
+- **INSTALLATION.md**: Comprehensive update to MCP Tools section
+  - Full parameter documentation for all tools
+  - Graph expansion examples with multi-hop reasoning
+  - Context-aware recall examples for coding tasks
+  - Association best practices with strength guidelines
+- **templates/cursor/automem.mdc.template**: Added Advanced Recall Features section
+  - Multi-hop reasoning examples
+  - Graph expansion and auto-decomposition
+  - Context-aware coding patterns
+  - Priority injection for specific memories
+- **templates/CLAUDE_MD_MEMORY_RULES.md**: Updated recall patterns
+  - Multi-query recall, entity expansion, graph expansion
+  - Context-aware recall for coding tasks
+  - Auto query decomposition
+
+### Technical
+- Bumped version to 0.8.0 in `src/index.ts`
+- Types now fully aligned with AutoMem server API capabilities
+
+## 0.7.0 - 2025-12-02
+
+### Changed
+- **Unified `recall_memory` tool**: Consolidated `recall_memory` and `recall_memory_multi` into a single tool
+  - Now accepts both `query` (string) for single searches and `queries` (array) for multi-query searches
+  - Server-side deduplication automatically handles overlapping results
+  - Simpler mental model: one tool for all recall operations
+  - Displays deduplication info when multiple queries are used
+
+### Added
+- `queries` parameter to `recall_memory` tool schema
+- `dedup_removed` and `deduped_from` fields in response types
+- Support for `queries` array in `AutoMemClient.recallMemory()`
+
+### Removed
+- `recall_memory_multi` tool (functionality merged into `recall_memory`)
+
+### Benefits
+- Fewer tools = less confusion for LLMs
+- Backward compatible: existing `query` usage unchanged
+- Multi-query support just works when you pass `queries` array
+
+## 0.6.2 - 2025-10-14
+
+### Added
+- **Memory association documentation**: Added detailed association patterns and examples to `INSTALLATION.md`
+  - Comprehensive guide on linking related memories
+  - When and how to create associations between memories
+  - Examples of common association patterns
+  - Best practices for building a knowledge graph
+
+### Improved
+- **Parallel recall performance**: Updated `recall_memory` handler to fetch primary and tag-based results in parallel
+  - Better performance through concurrent API calls
+  - More robust error handling and result merging
+  - Enhanced reliability when combining multiple data sources
+- **HTTP request timeout**: Set 25-second timeout for all AutoMem API requests in client
+  - Prevents hung connections
+  - Better error handling for slow/unavailable services
 
 ## 0.6.1 - 2025-10-05
 

@@ -3,8 +3,6 @@
 [![Version](https://img.shields.io/npm/v/@verygoodplugins/mcp-automem)](https://www.npmjs.com/package/@verygoodplugins/mcp-automem)
 [![License](https://img.shields.io/npm/l/@verygoodplugins/mcp-automem)](LICENSE)
 
-> **⚠️ Beta Notice:** The MCP server and AutoMem cloud service are stable and production-ready. However, platform-specific integrations (Cursor hooks, Claude Code automation, etc.) are actively evolving as we optimize based on new LLM capabilities and real-world usage. Expect frequent updates and improvements.
-
 **One command. Infinite memory. Perfect recall across all your AI tools.**
 
 ```bash
@@ -13,9 +11,7 @@ npx @verygoodplugins/mcp-automem setup
 
 Your AI assistant now remembers everything. Forever. Across every conversation.
 
-Works with **Claude Desktop**, **Cursor IDE**, **Claude Code** - any MCP-compatible AI platform.
-
----
+Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex** - any MCP-compatible AI platform.
 
 ## The Problem We Solve
 
@@ -43,8 +39,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 |----------|---------|------------|
 | **Claude Desktop** | ✅ Full | 30 seconds |
 | **Cursor IDE** | ✅ Full | 30 seconds |
-| **Claude Code** | ⚠️ Experimental + Auto-capture hooks | 1 minute |
-| **Warp Terminal** | ✅ Full + Context-aware | 30 seconds |
+| **Claude Code** | ✅ Full | 30 seconds |
 | **OpenAI Codex** | ✅ Full | 30 seconds |
 | **Any MCP client** | ✅ Full | 30 seconds |
 
@@ -64,10 +59,6 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 
 ### OpenAI Codex with Memory Rules
 *OpenAI Codex uses config.toml to automatically recall and store memories*
-
-### Warp Terminal with Memory Rules
-![Warp Terminal with Memory](screenshots/warp-tool-2.jpg)
-*Warp Terminal uses memory rules to automatically recall and store context*
 
 ### Your AI Learns Your Code Style
 ```javascript
@@ -108,7 +99,7 @@ Service runs at `http://localhost:8001` - perfect for single-machine use.
 
 **Option B: Railway Cloud** (recommended for production)
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/yD_u9d?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/automem-ai-memory-service?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month after trial.
 
@@ -169,10 +160,6 @@ Only one Claude Code plugin ships in this repo: `plugins/automem` with the marke
 npx @verygoodplugins/mcp-automem claude-code
 ```
 
-**For Warp Terminal:**
-See the Warp setup guide and add the MCP configuration from `templates/warp/mcp.json` to your `~/.warp/mcp.json`.
-Follow usage rules in `templates/warp/warp-rules.md`.
-
 **For OpenAI Codex:**
 ```bash
 # Add to your Codex MCP configuration
@@ -185,6 +172,33 @@ npx @verygoodplugins/mcp-automem codex
 👉 **[Full Installation Guide](INSTALLATION.md)** for detailed MCP client and platform-specific setup
 
 ---
+
+## New: Remote MCP over SSE
+
+You can now connect AutoMem to platforms that support MCP over Server‑Sent Events (SSE) via an optional sidecar service (deployable to Railway or any Docker host).
+
+- ChatGPT (Developer Mode custom connectors)
+- Claude.ai (web) and Claude Mobile (iOS/Android)
+- ElevenLabs Agents Platform
+
+Quick connect URLs (after deploying the sidecar):
+- ChatGPT, Claude Web/Mobile: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+- ElevenLabs: `https://<your-mcp-domain>/mcp/sse` with header `Authorization: Bearer <AUTOMEM_API_TOKEN>`
+
+See the Installation Guide for complete steps and deployment options.
+
+### SSE Platforms in Action
+![ChatGPT Developer Mode – Connector Config](screenshots/chatgpt-connector-config.jpg)
+*ChatGPT Developer Mode: Add your SSE URL as a custom connector*
+
+![ChatGPT with AutoMem Memories](screenshots/chatgpt-memories.jpg)
+*ChatGPT using AutoMem memories via the SSE connector*
+
+![Claude Web Using AutoMem](screenshots/claude-ai-web-memories.jpg)
+*Claude.ai website connected to AutoMem via remote MCP (SSE)*
+
+![Claude iOS App](screenshots/claude-ios-app.jpeg)
+*Claude Mobile (iOS) connected to AutoMem via remote MCP (SSE)*
 
 ## What Happens Next
 
@@ -237,11 +251,34 @@ npx @verygoodplugins/mcp-automem codex
 
 ### Core Memory Operations
 - **`store_memory`** - Save memories with content, tags, importance, metadata
-- **`recall_memory`** - Hybrid search (vector + keyword + tags + time)
-- **`associate_memories`** - Create relationships (RELATES_TO, LEADS_TO, etc.)
+- **`recall_memory`** - Hybrid search with graph expansion and context awareness:
+  - **Basic search**: query, multi-query, tags, time filters
+  - **Graph expansion**: entity expansion (multi-hop reasoning), relation following
+  - **Expansion filtering**: `expand_min_importance` and `expand_min_strength` to reduce noise in expanded results
+  - **Context hints**: language, active file, priority types/tags
+- **`associate_memories`** - Create relationships (11 types: RELATES_TO, LEADS_TO, etc.)
 - **`update_memory`** - Modify existing memories
 - **`delete_memory`** - Remove memories
 - **`check_database_health`** - Monitor service status
+
+### Advanced Recall (v0.8.0+)
+
+**Multi-hop Reasoning** - Answer complex questions like "What is Amanda's sister's career?"
+```javascript
+recall_memory({ 
+  query: "What is Amanda's sister's career?", 
+  expand_entities: true  // Finds "Amanda's sister is Rachel" → memories about Rachel
+})
+```
+
+**Context-Aware Coding** - Recall prioritizes language and style preferences
+```javascript
+recall_memory({ 
+  query: "error handling patterns", 
+  language: "typescript",
+  context_types: ["Style", "Pattern"]
+})
+```
 
 ### Platform Integrations
 
@@ -253,23 +290,14 @@ npx @verygoodplugins/mcp-automem codex
 - ✅ **Simple setup** via CLI or one-click install
 
 #### Claude Code
-- ✅ **Automatic session capture** (git commits, builds, tests, deploys)
-- ✅ **Queue-based processing** with deduplication (non-blocking)
-- ✅ **Smart filtering** (skips trivial files, lock files, build artifacts)
-- ✅ **Configurable profiles** (lean/extras)
-- ✅ **Relationship tracking** between memories
-- ✅ **Efficient defaults** (~1-2 captures/session, high signal-to-noise)
+- ✅ **MCP permissions** for memory tools
+- ✅ **Memory rules** in CLAUDE.md guide Claude's memory usage
+- ✅ **Simple setup** - just permissions, Claude decides what to store
 
 #### Claude Desktop
 - ✅ Direct MCP integration
 - ✅ Manual and automated workflows
 - ✅ Full memory API access
-
-#### Warp Terminal
-- ✅ Project context auto-detection
-- ✅ Memory-first terminal assistance
-- ✅ Smart recall on directory changes
-- ✅ Command history with context
 
 ## Why AutoMem MCP?
 
@@ -319,9 +347,9 @@ Same factors apply here - go with Postgres."
 
 ### MCP Client & Integrations (this repo)
 - 📦 **[Installation Guide](INSTALLATION.md)** - MCP client setup for all platforms
+- 🌐 **[Remote MCP via SSE](INSTALLATION.md#remote-mcp-via-sse-sidecar)** - Connect ChatGPT, Claude Web/Mobile, ElevenLabs
 - 🎯 **[Cursor Setup](INSTALLATION.md#cursor-ide)** - IDE integration with rules
-- 🤖 **[Claude Code Hooks](templates/CLAUDE_CODE_INTEGRATION.md)** - Automated capture setup
-- 💻 **[Warp Terminal Setup](INSTALLATION.md#warp-terminal)** - Terminal integration
+- 🤖 **[Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md)** - Memory rules integration
 - 🚀 **[OpenAI Codex Setup](INSTALLATION.md#openai-codex)** - Codex CLI/IDE/Cloud integration
 - 📖 **[MCP Tools Reference](INSTALLATION.md#mcp-tools)** - All memory operations
 
@@ -353,8 +381,7 @@ This MCP package provides the bridge between your AI and that research-validated
 ### MCP Client Setup
 - [Installation Guide](INSTALLATION.md) - MCP client setup for all platforms
 - [Cursor Integration](INSTALLATION.md#cursor-ide) - IDE rules and configuration
-- [Claude Code Hooks](templates/CLAUDE_CODE_INTEGRATION.md) - Automated memory capture
-- [Warp Terminal](INSTALLATION.md#warp-terminal) - Terminal integration
+- [Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md) - Memory rules integration
 - [OpenAI Codex](INSTALLATION.md#openai-codex) - Codex integration
 - [Changelog](CHANGELOG.md) - Release history
 

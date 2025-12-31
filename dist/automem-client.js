@@ -50,8 +50,12 @@ export class AutoMemClient {
     }
     async recallMemory(args) {
         const params = new URLSearchParams();
+        // Support single query OR multiple queries
         if (args.query) {
             params.set('query', args.query);
+        }
+        if (Array.isArray(args.queries) && args.queries.length > 0) {
+            args.queries.filter(q => q && q.trim()).forEach((q) => params.append('queries', q));
         }
         if (args.limit) {
             params.set('limit', String(args.limit));
@@ -77,6 +81,48 @@ export class AutoMemClient {
         if (args.tag_match && (args.tag_match === 'exact' || args.tag_match === 'prefix')) {
             params.set('tag_match', args.tag_match);
         }
+        // Graph expansion options
+        if (typeof args.expand_relations === 'boolean') {
+            params.set('expand_relations', String(args.expand_relations));
+        }
+        if (typeof args.expand_entities === 'boolean') {
+            params.set('expand_entities', String(args.expand_entities));
+        }
+        if (typeof args.auto_decompose === 'boolean') {
+            params.set('auto_decompose', String(args.auto_decompose));
+        }
+        if (typeof args.expansion_limit === 'number') {
+            params.set('expansion_limit', String(args.expansion_limit));
+        }
+        if (typeof args.relation_limit === 'number') {
+            params.set('relation_limit', String(args.relation_limit));
+        }
+        // Expansion filtering (reduces noise)
+        if (typeof args.expand_min_importance === 'number') {
+            params.set('expand_min_importance', String(args.expand_min_importance));
+        }
+        if (typeof args.expand_min_strength === 'number') {
+            params.set('expand_min_strength', String(args.expand_min_strength));
+        }
+        // Context hints for smarter recall
+        if (args.context) {
+            params.set('context', args.context);
+        }
+        if (args.language) {
+            params.set('language', args.language);
+        }
+        if (args.active_path) {
+            params.set('active_path', args.active_path);
+        }
+        if (Array.isArray(args.context_tags) && args.context_tags.length > 0) {
+            args.context_tags.forEach((tag) => params.append('context_tags', tag));
+        }
+        if (Array.isArray(args.context_types) && args.context_types.length > 0) {
+            args.context_types.forEach((t) => params.append('context_types', t));
+        }
+        if (Array.isArray(args.priority_ids) && args.priority_ids.length > 0) {
+            args.priority_ids.forEach((id) => params.append('priority_ids', id));
+        }
         const queryString = params.toString();
         const path = queryString ? `recall?${queryString}` : 'recall';
         const response = await this.makeRequest('GET', path);
@@ -84,8 +130,14 @@ export class AutoMemClient {
             results: (response.results || []).map((result) => ({
                 id: result.id,
                 match_type: result.match_type,
+                match_score: result.match_score,
+                relation_score: result.relation_score,
                 final_score: result.final_score ?? result.score ?? 0,
                 score_components: result.score_components || {},
+                source: result.source,
+                relations: result.relations || [],
+                related_to: result.related_to || result.relations || [],
+                expanded_from_entity: result.expanded_from_entity,
                 memory: {
                     memory_id: result.id,
                     content: result.memory?.content || '',
@@ -99,11 +151,15 @@ export class AutoMemClient {
                 },
             })),
             count: response.count || (response.results ? response.results.length : 0),
+            dedup_removed: response.dedup_removed,
             keywords: response.keywords,
             time_window: response.time_window,
             tags: response.tags,
             tag_mode: response.tag_mode,
             tag_match: response.tag_match,
+            expansion: response.expansion,
+            entity_expansion: response.entity_expansion,
+            context_priority: response.context_priority,
         };
     }
     async associateMemories(args) {
