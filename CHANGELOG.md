@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0](https://github.com/verygoodplugins/mcp-automem/compare/v0.9.1...v0.10.0) (2025-12-31)
+
+
+### Features
+
+* add MCP Registry support ([#16](https://github.com/verygoodplugins/mcp-automem/issues/16)) ([ee9571e](https://github.com/verygoodplugins/mcp-automem/commit/ee9571eb874eb188a48f58859cb43be368435c0c))
+* **claude-code:** add SessionStart hook for automatic memory recall ([2a4859b](https://github.com/verygoodplugins/mcp-automem/commit/2a4859b1d552dd147246701da5a9513aa66f86e8))
+* **claude-code:** add SessionStart hook for automatic memory recall ([8e4fdc7](https://github.com/verygoodplugins/mcp-automem/commit/8e4fdc7ccb69ad6b9663277d402a39c71e3c6eb3))
+
+
+### Bug Fixes
+
+* add exponential backoff retry logic for transient API failures ([6395689](https://github.com/verygoodplugins/mcp-automem/commit/63956893dd3b911038c6d8eaaabf5ec57b941c7a))
+* Refactor AutoMem plugin structure and update docs ([0c2453a](https://github.com/verygoodplugins/mcp-automem/commit/0c2453a73fcaeff2081dafd036dca4b67a43191c))
+
 ## [Unreleased]
 
 ### Added
