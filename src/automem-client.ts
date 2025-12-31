@@ -22,7 +22,8 @@ export class AutoMemClient {
   private async makeRequest(
     method: string,
     path: string,
-    body?: any
+    body?: any,
+    retryCount = 0
   ): Promise<any> {
     const url = `${this.config.endpoint.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
     
@@ -44,19 +45,50 @@ export class AutoMemClient {
       options.body = JSON.stringify(body);
     }
 
-    try {
-      const response = await fetch(url, options);
-      const data = await response.json();
+    const maxRetries = 3;
+    const baseDelay = 500; // 500ms base delay
 
-      if (!response.ok) {
-        throw new Error((data as any).message || (data as any).detail || `HTTP ${response.status}`);
+    // Network errors (fetch) should be retried; HTTP errors handled below
+    let response;
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      if (error instanceof Error && retryCount < maxRetries) {
+        const delay = baseDelay * Math.pow(2, retryCount);
+        console.error(`[AutoMem] Network error, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.makeRequest(method, path, body, retryCount + 1);
       }
 
-      return data;
-    } catch (error) {
       console.error(`AutoMem API error (${method} ${url}):`, error);
       throw error;
     }
+
+    let data: any = null;
+    try {
+      // Some error responses may not be JSON; treat parse errors as non-retryable
+      data = await response.json();
+    } catch (parseError) {
+      throw new Error(`Invalid JSON response (${response.status})`);
+    }
+
+    if (!response.ok) {
+      // Retry on 5xx only
+      const isRetryable = response.status >= 500 && response.status < 600;
+
+      if (isRetryable && retryCount < maxRetries) {
+        const delay = baseDelay * Math.pow(2, retryCount); // 500ms, 1s, 2s
+        console.error(`[AutoMem] Retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.makeRequest(method, path, body, retryCount + 1);
+      }
+
+      const error = new Error((data as any)?.message || (data as any)?.detail || `HTTP ${response.status}`);
+      console.error(`AutoMem API error (${method} ${url}):`, error);
+      throw error;
+    }
+
+    return data;
   }
 
   async storeMemory(args: StoreMemoryArgs): Promise<{ memory_id: string; message: string }> {

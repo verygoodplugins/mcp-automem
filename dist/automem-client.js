@@ -4,7 +4,7 @@ export class AutoMemClient {
     constructor(config) {
         this.config = config;
     }
-    async makeRequest(method, path, body) {
+    async makeRequest(method, path, body, retryCount = 0) {
         const url = `${this.config.endpoint.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
         const headers = {
             'Content-Type': 'application/json',
@@ -20,15 +20,33 @@ export class AutoMemClient {
         if (body && method !== 'GET') {
             options.body = JSON.stringify(body);
         }
+        const maxRetries = 3;
+        const baseDelay = 500; // 500ms base delay
         try {
             const response = await fetch(url, options);
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.message || data.detail || `HTTP ${response.status}`);
+                const error = new Error(data.message || data.detail || `HTTP ${response.status}`);
+                // Retry on 500/502/503/504 (server errors) but not 4xx (client errors like auth)
+                const isRetryable = response.status >= 500 && response.status < 600;
+                if (isRetryable && retryCount < maxRetries) {
+                    const delay = baseDelay * Math.pow(2, retryCount); // Exponential backoff: 500ms, 1s, 2s
+                    console.error(`[AutoMem] Retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return this.makeRequest(method, path, body, retryCount + 1);
+                }
+                throw error;
             }
             return data;
         }
         catch (error) {
+            // Network errors (timeouts, connection refused) - also retry
+            if (error instanceof Error && retryCount < maxRetries) {
+                const delay = baseDelay * Math.pow(2, retryCount);
+                console.error(`[AutoMem] Network error, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return this.makeRequest(method, path, body, retryCount + 1);
+            }
             console.error(`AutoMem API error (${method} ${url}):`, error);
             throw error;
         }
