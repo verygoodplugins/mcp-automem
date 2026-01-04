@@ -10,7 +10,7 @@ import sys
 import os
 import re
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -189,11 +189,11 @@ class SessionMemoryProcessor:
             stats_text = f"{diff_stats} {staged_stats}"
             
             # Extract line change numbers
-            line_matches = re.findall(r'(\d+)\s+insertion', stats_text)
+            line_matches = re.findall(r'(\d+)\s+insertions?', stats_text)
             for match in line_matches:
                 total_lines_changed += int(match)
             
-            line_matches = re.findall(r'(\d+)\s+deletion', stats_text)
+            line_matches = re.findall(r'(\d+)\s+deletions?', stats_text)
             for match in line_matches:
                 total_lines_changed += int(match)
             
@@ -296,30 +296,36 @@ class SessionMemoryProcessor:
     def check_duplicate(self, content: str, timeframe_hours: int = 1) -> bool:
         """Check if similar memory exists in recent timeframe"""
         try:
-            # Generate content hash
             content_hash = hashlib.md5(content.encode()).hexdigest()
-
-            # Check last 20 entries in queue for duplicates
             queue_file = Path.home() / ".claude" / "scripts" / "memory-queue.jsonl"
             if not queue_file.exists():
                 return False
 
-            # Read recent queue entries
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=timeframe_hours)
+
             with open(queue_file, 'r') as f:
                 lines = f.readlines()
                 recent_lines = lines[-20:] if len(lines) > 20 else lines
 
-            # Check for duplicate content
             for line in recent_lines:
                 try:
                     record = json.loads(line)
-                    existing_content = record.get('content', '')
-                    existing_hash = hashlib.md5(existing_content.encode()).hexdigest()
-
-                    if existing_hash == content_hash:
-                        return True  # Duplicate found
-                except:
+                except json.JSONDecodeError:
                     continue
+
+                timestamp = record.get('timestamp')
+                if timestamp:
+                    try:
+                        parsed_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                        if parsed_time < cutoff:
+                            continue
+                    except ValueError:
+                        pass
+
+                existing_content = record.get('content', '')
+                existing_hash = hashlib.md5(existing_content.encode()).hexdigest()
+                if existing_hash == content_hash:
+                    return True
 
             return False
         except Exception as e:
@@ -368,10 +374,11 @@ class SessionMemoryProcessor:
             memory_record = {
                 "content": content,
                 "metadata": metadata,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             }
             
             # Append to queue file
+            memory_queue_file.parent.mkdir(parents=True, exist_ok=True)
             with open(memory_queue_file, 'a') as f:
                 f.write(json.dumps(memory_record) + '\n')
             
@@ -421,7 +428,6 @@ class SessionMemoryProcessor:
                 'git_branch': session_info.get('git_branch', ''),
                 'git_repo': session_info.get('git_repo', ''),
                 'significance_score': significance,
-                'timestamp': session_info.get('timestamp', datetime.now().isoformat()),
                 'patterns': patterns,
                 'reasons': reasons,
             }
@@ -440,11 +446,15 @@ class SessionMemoryProcessor:
                     elif 'refactor' in focus:
                         metadata['tags'].append('architecture')
             
-            # Add significance level tag
-            if significance >= 10:
+            # Add significance level tag relative to the threshold
+            minor_cutoff = self.significance_threshold
+            moderate_cutoff = self.significance_threshold + 2
+            major_cutoff = self.significance_threshold + 5
+
+            if significance >= major_cutoff:
                 metadata['tags'].append('major')
                 metadata['significance_level'] = 'major'
-            elif significance >= 7:
+            elif significance >= moderate_cutoff:
                 metadata['tags'].append('moderate')
                 metadata['significance_level'] = 'moderate'
             else:
@@ -473,7 +483,6 @@ class SessionMemoryProcessor:
                         'tags': ['pattern', 'insight', 'work_style', 'automated'],
                         'type': 'work_pattern',
                         'project': session_info.get('project_name', 'unknown'),
-                        'timestamp': datetime.now().isoformat(),
                     }
                     
                     self.store_memory(insight_content, insight_metadata)

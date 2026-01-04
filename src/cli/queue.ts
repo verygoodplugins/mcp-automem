@@ -93,11 +93,15 @@ function resolveAutoMemConfig(): AutoMemConfig {
 
 async function isEndpointHealthy(endpoint: string): Promise<boolean> {
   const url = `${endpoint.replace(/\/$/, '')}/health`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 2000);
   try {
-    const response = await fetch(url, { timeout: 2000 });
+    const response = await fetch(url, { signal: controller.signal });
     return response.ok;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

@@ -96,7 +96,7 @@ fi
 # Extract error details if deployment failed
 ERROR_DETAILS=""
 if [ "$EXIT_CODE" -ne 0 ]; then
-    ERROR_DETAILS=$(echo "$OUTPUT" | grep -A 3 -E "ERROR|FAILED|error:|Failed" | head -10 | tr '\n' ' ' | sed 's/"/\\"/g')
+    ERROR_DETAILS=$(echo "$OUTPUT" | grep -A 3 -E "ERROR|FAILED|error:|Failed" | head -10)
 fi
 
 # Create memory content
@@ -115,32 +115,71 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
     GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "")
 fi
 
-# Create memory record
-MEMORY_RECORD=$(cat <<EOF
-{
-  "content": "$CONTENT",
-  "tags": ["deployment", "$DEPLOY_PLATFORM", "$DEPLOY_ENV", "$PROJECT_NAME"],
-  "importance": $IMPORTANCE,
-  "type": "$MEMORY_TYPE",
-  "metadata": {
-    "platform": "$DEPLOY_PLATFORM",
-    "environment": "$DEPLOY_ENV",
-    "url": "${DEPLOY_URL:-null}",
-    "version": "${VERSION:-null}",
-    "build_id": "${BUILD_ID:-null}",
-    "deploy_time": "${DEPLOY_TIME:-null}",
-    "git_commit": "${GIT_COMMIT:-null}",
-    "exit_code": $EXIT_CODE,
-    "command": "$COMMAND",
-    "project": "$PROJECT_NAME"
-  },
-  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-}
-EOF
-)
+# Queue memory for processing with safe JSON encoding and file locking
+AUTOMEM_QUEUE="$MEMORY_QUEUE" \
+AUTOMEM_CONTENT="$CONTENT" \
+AUTOMEM_DEPLOY_PLATFORM="$DEPLOY_PLATFORM" \
+AUTOMEM_DEPLOY_ENV="$DEPLOY_ENV" \
+AUTOMEM_PROJECT="$PROJECT_NAME" \
+AUTOMEM_IMPORTANCE="$IMPORTANCE" \
+AUTOMEM_TYPE="$MEMORY_TYPE" \
+AUTOMEM_DEPLOY_URL="$DEPLOY_URL" \
+AUTOMEM_VERSION="$VERSION" \
+AUTOMEM_BUILD_ID="$BUILD_ID" \
+AUTOMEM_DEPLOY_TIME="$DEPLOY_TIME" \
+AUTOMEM_GIT_COMMIT="$GIT_COMMIT" \
+AUTOMEM_EXIT_CODE="$EXIT_CODE" \
+AUTOMEM_COMMAND="$COMMAND" \
+AUTOMEM_ERROR_DETAILS="$ERROR_DETAILS" \
+python3 - <<'PY'
+import json
+import os
+import fcntl
+from datetime import datetime, timezone
 
-# Queue memory for processing
-echo "$MEMORY_RECORD" >> "$MEMORY_QUEUE"
+def optional_text(value):
+    return value if value else None
+
+def to_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+record = {
+    "content": os.environ.get("AUTOMEM_CONTENT", ""),
+    "tags": [
+        "deployment",
+        os.environ.get("AUTOMEM_DEPLOY_PLATFORM", "unknown"),
+        os.environ.get("AUTOMEM_DEPLOY_ENV", "production"),
+        os.environ.get("AUTOMEM_PROJECT", ""),
+    ],
+    "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.8")),
+    "type": os.environ.get("AUTOMEM_TYPE", "Context"),
+    "metadata": {
+        "platform": os.environ.get("AUTOMEM_DEPLOY_PLATFORM", "unknown"),
+        "environment": os.environ.get("AUTOMEM_DEPLOY_ENV", "production"),
+        "url": optional_text(os.environ.get("AUTOMEM_DEPLOY_URL", "")),
+        "version": optional_text(os.environ.get("AUTOMEM_VERSION", "")),
+        "build_id": optional_text(os.environ.get("AUTOMEM_BUILD_ID", "")),
+        "deploy_time": optional_text(os.environ.get("AUTOMEM_DEPLOY_TIME", "")),
+        "git_commit": optional_text(os.environ.get("AUTOMEM_GIT_COMMIT", "")),
+        "exit_code": to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0")),
+        "command": os.environ.get("AUTOMEM_COMMAND", ""),
+        "project": os.environ.get("AUTOMEM_PROJECT", ""),
+        "error_details": os.environ.get("AUTOMEM_ERROR_DETAILS", ""),
+    },
+    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+}
+
+queue_path = os.environ.get("AUTOMEM_QUEUE", "")
+if queue_path:
+    os.makedirs(os.path.dirname(queue_path), exist_ok=True)
+    with open(queue_path, "a", encoding="utf-8") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+        fcntl.flock(handle, fcntl.LOCK_UN)
+PY
 log_message "Deployment captured: platform=$DEPLOY_PLATFORM, env=$DEPLOY_ENV, success=$([[ $EXIT_CODE -eq 0 ]] && echo true || echo false)"
 
 # Quick feedback

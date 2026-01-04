@@ -2,6 +2,7 @@
 
 # Queue Cleanup Script for AutoMem
 # Deduplicates and archives processed memories
+set -o pipefail
 
 QUEUE_FILE="$HOME/.claude/scripts/memory-queue.jsonl"
 LOG_FILE="$HOME/.claude/logs/queue-cleanup.log"

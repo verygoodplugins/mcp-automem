@@ -87,7 +87,7 @@ fi
 ERROR_DETAILS=""
 if [ "$EXIT_CODE" -ne 0 ] || [ "$ERRORS" -gt 0 ]; then
     # Get first few error lines
-    ERROR_DETAILS=$(echo "$OUTPUT" | grep -A 2 -E "ERROR|error:|Error:" | head -10 | tr '\n' ' ' | sed 's/"/\\"/g')
+    ERROR_DETAILS=$(echo "$OUTPUT" | grep -A 2 -E "ERROR|error:|Error:" | head -10)
 fi
 
 # Create memory content
@@ -102,30 +102,60 @@ else
     CONTENT="Build failed in $PROJECT_NAME using $BUILD_TOOL: $ERRORS errors. ${ERROR_DETAILS:0:200}"
 fi
 
-# Create memory record
-MEMORY_RECORD=$(cat <<EOF
-{
-  "content": "$CONTENT",
-  "tags": ["build", "$BUILD_TOOL", "$PROJECT_NAME"],
-  "importance": $IMPORTANCE,
-  "type": "$MEMORY_TYPE",
-  "metadata": {
-    "build_tool": "$BUILD_TOOL",
-    "build_time": "${BUILD_TIME:-null}",
-    "build_size": "${BUILD_SIZE:-null}",
-    "warnings": $WARNINGS,
-    "errors": $ERRORS,
-    "exit_code": $EXIT_CODE,
-    "command": "$COMMAND",
-    "project": "$PROJECT_NAME"
-  },
-  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-}
-EOF
-)
+# Queue memory for processing with safe JSON encoding and file locking
+AUTOMEM_QUEUE="$MEMORY_QUEUE" \
+AUTOMEM_CONTENT="$CONTENT" \
+AUTOMEM_BUILD_TOOL="$BUILD_TOOL" \
+AUTOMEM_PROJECT="$PROJECT_NAME" \
+AUTOMEM_IMPORTANCE="$IMPORTANCE" \
+AUTOMEM_TYPE="$MEMORY_TYPE" \
+AUTOMEM_BUILD_TIME="$BUILD_TIME" \
+AUTOMEM_BUILD_SIZE="$BUILD_SIZE" \
+AUTOMEM_WARNINGS="$WARNINGS" \
+AUTOMEM_ERRORS="$ERRORS" \
+AUTOMEM_EXIT_CODE="$EXIT_CODE" \
+AUTOMEM_COMMAND="$COMMAND" \
+python3 - <<'PY'
+import json
+import os
+import fcntl
+from datetime import datetime, timezone
 
-# Queue memory for processing
-echo "$MEMORY_RECORD" >> "$MEMORY_QUEUE"
+def optional_text(value):
+    return value if value else None
+
+def to_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+record = {
+    "content": os.environ.get("AUTOMEM_CONTENT", ""),
+    "tags": ["build", os.environ.get("AUTOMEM_BUILD_TOOL", "unknown"), os.environ.get("AUTOMEM_PROJECT", "")],
+    "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.5")),
+    "type": os.environ.get("AUTOMEM_TYPE", "Context"),
+    "metadata": {
+        "build_tool": os.environ.get("AUTOMEM_BUILD_TOOL", "unknown"),
+        "build_time": optional_text(os.environ.get("AUTOMEM_BUILD_TIME", "")),
+        "build_size": optional_text(os.environ.get("AUTOMEM_BUILD_SIZE", "")),
+        "warnings": to_int(os.environ.get("AUTOMEM_WARNINGS", "0")),
+        "errors": to_int(os.environ.get("AUTOMEM_ERRORS", "0")),
+        "exit_code": to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0")),
+        "command": os.environ.get("AUTOMEM_COMMAND", ""),
+        "project": os.environ.get("AUTOMEM_PROJECT", ""),
+    },
+    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+}
+
+queue_path = os.environ.get("AUTOMEM_QUEUE", "")
+if queue_path:
+    os.makedirs(os.path.dirname(queue_path), exist_ok=True)
+    with open(queue_path, "a", encoding="utf-8") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+        fcntl.flock(handle, fcntl.LOCK_UN)
+PY
 log_message "Build result captured: exit_code=$EXIT_CODE, errors=$ERRORS, warnings=$WARNINGS"
 
 # Quick feedback

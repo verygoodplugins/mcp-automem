@@ -8,7 +8,6 @@
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELATIVE_PROCESSOR="$(cd "$HOOK_DIR/../scripts" 2>/dev/null && pwd)/process-session-memory.py"
 MEMORY_PROCESSOR="$HOME/.claude/scripts/process-session-memory.py"
-SESSION_STATE="$HOME/.claude/scripts/session-state.json"
 LOG_FILE="$HOME/.claude/logs/session-memory.log"
 
 if [ -f "$RELATIVE_PROCESSOR" ]; then
@@ -39,20 +38,6 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
     log_message "Git context: repo=$GIT_REPO, branch=$GIT_BRANCH"
 fi
 
-# Collect session data
-SESSION_DATA=$(cat <<EOF
-{
-    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-    "project_name": "$PROJECT_NAME",
-    "working_directory": "$CURRENT_DIR",
-    "git_branch": "$GIT_BRANCH",
-    "git_repo": "$GIT_REPO",
-    "hook_type": "${CLAUDE_HOOK_TYPE:-session_end}",
-    "session_id": "${CLAUDE_SESSION_ID:-unknown}"
-}
-EOF
-)
-
 # Check for recent git activity
 RECENT_COMMITS=""
 if [ -n "$GIT_BRANCH" ]; then
@@ -71,36 +56,58 @@ if [ -n "$GIT_BRANCH" ]; then
     STAGED_STATS=$(git diff --cached --stat 2>/dev/null || echo "")
 fi
 
-# Create full session context with proper JSON escaping
-FULL_CONTEXT=$(python3 -c "
-import json
-import sys
+# Save session context to temporary file
+TEMP_FILE="/tmp/claude_session_$(date +%s)_$$.json"
+cleanup() {
+    rm -f "$TEMP_FILE"
+}
+trap cleanup EXIT
 
-session_data = $SESSION_DATA
-recent_commits = '''$RECENT_COMMITS'''
-file_changes = '''$FILE_CHANGES'''
-diff_stats = '''$DIFF_STATS'''
-staged_stats = '''$STAGED_STATS'''
+AUTOMEM_PROJECT_NAME="$PROJECT_NAME" \
+AUTOMEM_WORKING_DIR="$CURRENT_DIR" \
+AUTOMEM_GIT_BRANCH="$GIT_BRANCH" \
+AUTOMEM_GIT_REPO="$GIT_REPO" \
+AUTOMEM_HOOK_TYPE="${CLAUDE_HOOK_TYPE:-session_end}" \
+AUTOMEM_SESSION_ID="${CLAUDE_SESSION_ID:-unknown}" \
+AUTOMEM_RECENT_COMMITS="$RECENT_COMMITS" \
+AUTOMEM_FILE_CHANGES="$FILE_CHANGES" \
+AUTOMEM_DIFF_STATS="$DIFF_STATS" \
+AUTOMEM_STAGED_STATS="$STAGED_STATS" \
+AUTOMEM_USER="$USER" \
+AUTOMEM_HOSTNAME="$(hostname)" \
+AUTOMEM_PLATFORM="$(uname -s)" \
+AUTOMEM_TEMP_FILE="$TEMP_FILE" \
+python3 - <<'PY'
+import json
+import os
+from datetime import datetime, timezone
 
 context = {
-    'session_data': session_data,
-    'recent_commits': recent_commits,
-    'file_changes': file_changes,
-    'diff_stats': diff_stats,
-    'staged_stats': staged_stats,
-    'environment': {
-        'user': '$USER',
-        'hostname': '$(hostname)',
-        'platform': '$(uname -s)'
-    }
+    "session_data": {
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "project_name": os.environ.get("AUTOMEM_PROJECT_NAME", ""),
+        "working_directory": os.environ.get("AUTOMEM_WORKING_DIR", ""),
+        "git_branch": os.environ.get("AUTOMEM_GIT_BRANCH", ""),
+        "git_repo": os.environ.get("AUTOMEM_GIT_REPO", ""),
+        "hook_type": os.environ.get("AUTOMEM_HOOK_TYPE", "session_end"),
+        "session_id": os.environ.get("AUTOMEM_SESSION_ID", "unknown"),
+    },
+    "recent_commits": os.environ.get("AUTOMEM_RECENT_COMMITS", ""),
+    "file_changes": os.environ.get("AUTOMEM_FILE_CHANGES", ""),
+    "diff_stats": os.environ.get("AUTOMEM_DIFF_STATS", ""),
+    "staged_stats": os.environ.get("AUTOMEM_STAGED_STATS", ""),
+    "environment": {
+        "user": os.environ.get("AUTOMEM_USER", ""),
+        "hostname": os.environ.get("AUTOMEM_HOSTNAME", ""),
+        "platform": os.environ.get("AUTOMEM_PLATFORM", ""),
+    },
 }
 
-print(json.dumps(context, indent=2))
-" 2>/dev/null || echo '{}')
-
-# Save session context to temporary file
-TEMP_FILE="/tmp/claude_session_$(date +%s).json"
-echo "$FULL_CONTEXT" > "$TEMP_FILE"
+temp_file = os.environ.get("AUTOMEM_TEMP_FILE")
+if temp_file:
+    with open(temp_file, "w", encoding="utf-8") as handle:
+        json.dump(context, handle, indent=2)
+PY
 
 log_message "Session context saved to $TEMP_FILE"
 
@@ -108,8 +115,27 @@ log_message "Session context saved to $TEMP_FILE"
 if [ -f "$MEMORY_PROCESSOR" ]; then
     log_message "Processing session with Python processor"
     
-    python3 "$MEMORY_PROCESSOR" "$TEMP_FILE" >> "$LOG_FILE" 2>&1
-    RESULT=$?
+    PROCESS_TIMEOUT=10
+    python3 "$MEMORY_PROCESSOR" "$TEMP_FILE" >> "$LOG_FILE" 2>&1 &
+    PROCESS_PID=$!
+    RESULT=0
+
+    while kill -0 "$PROCESS_PID" 2>/dev/null; do
+        if [ "$PROCESS_TIMEOUT" -le 0 ]; then
+            log_message "Session memory processing timed out"
+            kill "$PROCESS_PID" 2>/dev/null
+            wait "$PROCESS_PID" 2>/dev/null
+            RESULT=124
+            break
+        fi
+        sleep 1
+        PROCESS_TIMEOUT=$((PROCESS_TIMEOUT - 1))
+    done
+
+    if [ "$RESULT" -eq 0 ]; then
+        wait "$PROCESS_PID"
+        RESULT=$?
+    fi
     
     if [ $RESULT -eq 0 ]; then
         log_message "Session memory processed successfully"
@@ -117,11 +143,8 @@ if [ -f "$MEMORY_PROCESSOR" ]; then
         log_message "Session memory processing failed with code $RESULT"
     fi
     
-    # Clean up temp file
-    rm -f "$TEMP_FILE"
 else
     log_message "Memory processor not found at $MEMORY_PROCESSOR"
-    rm -f "$TEMP_FILE"
 fi
 
 # Quick notification for user (non-blocking)
