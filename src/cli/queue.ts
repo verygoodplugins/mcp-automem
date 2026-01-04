@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import fetch from 'node-fetch';
 import { AutoMemClient } from '../automem-client.js';
 import type { AssociateMemoryArgs, StoreMemoryArgs } from '../types.js';
 
@@ -53,6 +54,53 @@ function ensureObject(value: unknown): Record<string, unknown> {
   return {};
 }
 
+type AutoMemConfig = { endpoint: string; apiKey?: string };
+
+function resolveAutoMemConfig(): AutoMemConfig {
+  const envEndpoint = process.env.AUTOMEM_ENDPOINT;
+  const envApiKey = process.env.AUTOMEM_API_KEY;
+
+  if (envEndpoint || envApiKey) {
+    return {
+      endpoint: envEndpoint ?? 'http://127.0.0.1:8001',
+      apiKey: envApiKey,
+    };
+  }
+
+  try {
+    const configPath = path.join(os.homedir(), '.claude.json');
+    if (!fs.existsSync(configPath)) {
+      return { endpoint: 'http://127.0.0.1:8001' };
+    }
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(raw) as { mcpServers?: Record<string, any> };
+    const servers = parsed?.mcpServers ?? {};
+    for (const server of Object.values(servers)) {
+      const env = server?.env ?? {};
+      if (env.AUTOMEM_ENDPOINT || env.AUTOMEM_API_KEY) {
+        return {
+          endpoint: env.AUTOMEM_ENDPOINT ?? 'http://127.0.0.1:8001',
+          apiKey: env.AUTOMEM_API_KEY,
+        };
+      }
+    }
+  } catch {
+    // Ignore read/parse errors and use defaults.
+  }
+
+  return { endpoint: 'http://127.0.0.1:8001' };
+}
+
+async function isEndpointHealthy(endpoint: string): Promise<boolean> {
+  const url = `${endpoint.replace(/\/$/, '')}/health`;
+  try {
+    const response = await fetch(url, { timeout: 2000 });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function runQueueCommand(args: string[] = []): Promise<void> {
   const options = parseQueueArgs(args);
   const queuePath = path.resolve(
@@ -75,9 +123,16 @@ export async function runQueueCommand(args: string[] = []): Promise<void> {
     return;
   }
 
+  const config = resolveAutoMemConfig();
+  const healthy = await isEndpointHealthy(config.endpoint);
+  if (!healthy) {
+    console.log('AutoMem endpoint unavailable; skipping queue drain.');
+    return;
+  }
+
   const client = new AutoMemClient({
-    endpoint: process.env.AUTOMEM_ENDPOINT ?? 'http://127.0.0.1:8001',
-    apiKey: process.env.AUTOMEM_API_KEY ?? undefined,
+    endpoint: config.endpoint,
+    apiKey: config.apiKey,
   });
 
   const remaining: string[] = [];
