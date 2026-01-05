@@ -173,21 +173,22 @@ npx @verygoodplugins/mcp-automem codex
 
 ---
 
-## New: Remote MCP over SSE
+## New: Remote MCP via HTTP
 
-You can now connect AutoMem to platforms that support MCP over Server‑Sent Events (SSE) via an optional sidecar service (deployable to Railway or any Docker host).
+You can now connect AutoMem to platforms that support remote MCP via **Streamable HTTP** (recommended) or **SSE** transport via an optional sidecar service (deployable to Railway or any Docker host).
 
 - ChatGPT (Developer Mode custom connectors)
 - Claude.ai (web) and Claude Mobile (iOS/Android)
 - ElevenLabs Agents Platform
 
 Quick connect URLs (after deploying the sidecar):
-- ChatGPT, Claude Web/Mobile: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
-- ElevenLabs: `https://<your-mcp-domain>/mcp/sse` with header `Authorization: Bearer <AUTOMEM_API_TOKEN>`
+- **Streamable HTTP** (recommended): `https://<your-mcp-domain>/mcp?api_token=<AUTOMEM_API_TOKEN>`
+- **SSE** (legacy): `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+- ElevenLabs: `https://<your-mcp-domain>/mcp` with header `Authorization: Bearer <AUTOMEM_API_TOKEN>`
 
 See the Installation Guide for complete steps and deployment options.
 
-### SSE Platforms in Action
+### Remote MCP Platforms in Action
 ![ChatGPT Developer Mode – Connector Config](screenshots/chatgpt-connector-config.jpg)
 *ChatGPT Developer Mode: Add your SSE URL as a custom connector*
 

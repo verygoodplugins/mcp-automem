@@ -69,20 +69,20 @@ Now that your AutoMem service is running, install and configure the MCP client t
 
 ---
 
-## Remote MCP via SSE (Sidecar)
+## Remote MCP via HTTP (Sidecar)
 
-Use this option to connect AutoMem to cloud products that support MCP over Server‑Sent Events (SSE), including ChatGPT (Developer Mode), Claude.ai on the web, Claude Mobile (iOS/Android), and ElevenLabs Agents.
+Use this option to connect AutoMem to cloud products that support remote MCP via **Streamable HTTP** (recommended) or **SSE** transport, including ChatGPT (Developer Mode), Claude.ai on the web, Claude Mobile (iOS/Android), and ElevenLabs Agents.
 
-### When to use the SSE sidecar
-- You want AutoMem in ChatGPT’s Developer Mode connectors
+### When to use the remote MCP sidecar
+- You want AutoMem in ChatGPT's Developer Mode connectors
 - You use Claude.ai on the web or the Claude mobile app
 - You integrate with ElevenLabs real‑time Agents
 - You need an HTTPS endpoint instead of a local process
 
-### Deploy the SSE sidecar
-Deploy the AutoMem MCP‑over‑SSE sidecar on Railway (one‑click) or any Docker platform. It proxies MCP over HTTPS and connects to your AutoMem service.
+### Deploy the remote MCP sidecar
+Deploy the AutoMem remote MCP sidecar on Railway (one‑click) or any Docker platform. It supports both **Streamable HTTP** (recommended) and **SSE** transports, proxies MCP over HTTPS, and connects to your AutoMem service.
 
-- Guide: MCP over SSE Sidecar (AutoMem service repo)
+- Guide: Remote MCP Sidecar (AutoMem service repo)
   - docs: https://github.com/verygoodplugins/automem/blob/main/docs/MCP_SSE.md
 
 Required env vars for the sidecar:
@@ -90,8 +90,9 @@ Required env vars for the sidecar:
 - `AUTOMEM_API_TOKEN` — Token for your AutoMem service (if enabled)
 
 Sidecar endpoints:
-- `GET /mcp/sse` — SSE stream (server → client)
-- `POST /mcp/messages?sessionId=<id>` — Client → server JSON‑RPC
+- `POST /mcp` — Streamable HTTP (recommended) - full duplex MCP-over-HTTP
+- `GET /mcp/sse` — SSE stream (legacy) - server → client events
+- `POST /mcp/messages?sessionId=<id>` — SSE client → server JSON‑RPC (legacy)
 - `GET /health` — Health probe
 
 ### Configure platforms
@@ -99,8 +100,9 @@ Sidecar endpoints:
 #### ChatGPT (Developer Mode)
 1. Enable Developer Mode → Settings → Connectors → Advanced
 2. Add a custom MCP server with this URL:
-   - `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
-3. Save and test: ask ChatGPT to “Check the health of the AutoMem service”.
+   - **Streamable HTTP** (recommended): `https://<your-mcp-domain>/mcp?api_token=<AUTOMEM_API_TOKEN>`
+   - **SSE** (legacy): `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+3. Save and test: ask ChatGPT to "Check the health of the AutoMem service".
 
 ![ChatGPT Developer Mode – Connector Config](screenshots/chatgpt-connector-config.jpg)
 *Configure ChatGPT Developer Mode with your SSE URL*
@@ -115,14 +117,16 @@ Notes:
 - ChatGPT requires URL‑based auth for custom connectors → include `?api_token=...` in the URL
 
 #### Claude.ai (Web)
-- Server URL: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+- **Streamable HTTP** (recommended): `https://<your-mcp-domain>/mcp?api_token=<AUTOMEM_API_TOKEN>`
+- **SSE** (legacy): `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
 - Then chat with Claude on the web; ask it to recall or store memories.
 
 ![Claude Web Using AutoMem](screenshots/claude-ai-web-memories.jpg)
 *Claude.ai connected to AutoMem via remote MCP (SSE)*
 
 #### Claude Mobile (iOS/Android)
-- Server URL: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+- **Streamable HTTP** (recommended): `https://<your-mcp-domain>/mcp?api_token=<AUTOMEM_API_TOKEN>`
+- **SSE** (legacy): `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
 - Open the Claude mobile app and add the remote MCP connector.
 
 ![Claude iOS App](screenshots/claude-ios-app.jpeg)
@@ -131,11 +135,16 @@ Notes:
 #### ElevenLabs Agents
 Use either header‑based auth (recommended) or URL token:
 
-- Server URL (header‑auth): `https://<your-mcp-domain>/mcp/sse`
-- Header: `Authorization: Bearer <AUTOMEM_API_TOKEN>`
-- Or use URL token: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
+- **Streamable HTTP** (recommended):
+  - Server URL: `https://<your-mcp-domain>/mcp`
+  - Header: `Authorization: Bearer <AUTOMEM_API_TOKEN>`
+  - Or use URL token: `https://<your-mcp-domain>/mcp?api_token=<AUTOMEM_API_TOKEN>`
+- **SSE** (legacy):
+  - Server URL: `https://<your-mcp-domain>/mcp/sse`
+  - Header: `Authorization: Bearer <AUTOMEM_API_TOKEN>`
+  - Or use URL token: `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
 
-### Troubleshooting (SSE)
+### Troubleshooting (Remote MCP)
 Common fixes from the sidecar guide:
 - Ensure your memory service listens on `PORT=8001`
 - On Railway, prefer internal DNS: `http://memory-service.railway.internal:8001`

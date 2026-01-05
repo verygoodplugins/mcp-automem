@@ -11,11 +11,29 @@
   },
   "remotes": [
     {
+      "type": "streamable-http",
+      "url": "https://{endpoint}/mcp",
+      "variables": {
+        "endpoint": {
+          "description": "Your deployed AutoMem MCP server URL (e.g., your-app.railway.app)",
+          "isRequired": true
+        }
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer token for authentication (optional if using URL-based auth with ?api_token=...)",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    },
+    {
       "type": "sse",
       "url": "https://{endpoint}/mcp/sse",
       "variables": {
         "endpoint": {
-          "description": "Your deployed AutoMem SSE sidecar URL (e.g., your-app.railway.app)",
+          "description": "Your deployed AutoMem MCP server URL (e.g., your-app.railway.app)",
           "isRequired": true
         }
       },
