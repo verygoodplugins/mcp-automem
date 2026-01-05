@@ -57,92 +57,84 @@ if [ -n "$GIT_BRANCH" ]; then
 fi
 
 # Save session context to temporary file
-TEMP_FILE="/tmp/claude_session_$(date +%s)_$$.json"
+TEMP_FILE=$(mktemp "/tmp/claude_session.XXXXXX.json")
 cleanup() {
     rm -f "$TEMP_FILE"
 }
 trap cleanup EXIT
 
-AUTOMEM_PROJECT_NAME="$PROJECT_NAME" \
-AUTOMEM_WORKING_DIR="$CURRENT_DIR" \
-AUTOMEM_GIT_BRANCH="$GIT_BRANCH" \
-AUTOMEM_GIT_REPO="$GIT_REPO" \
-AUTOMEM_HOOK_TYPE="${CLAUDE_HOOK_TYPE:-session_end}" \
-AUTOMEM_SESSION_ID="${CLAUDE_SESSION_ID:-unknown}" \
-AUTOMEM_RECENT_COMMITS="$RECENT_COMMITS" \
-AUTOMEM_FILE_CHANGES="$FILE_CHANGES" \
-AUTOMEM_DIFF_STATS="$DIFF_STATS" \
-AUTOMEM_STAGED_STATS="$STAGED_STATS" \
-AUTOMEM_USER="$USER" \
-AUTOMEM_HOSTNAME="$(hostname)" \
-AUTOMEM_PLATFORM="$(uname -s)" \
-AUTOMEM_TEMP_FILE="$TEMP_FILE" \
-python3 - <<'PY'
-import json
-import os
-from datetime import datetime, timezone
+if ! command -v jq >/dev/null 2>&1; then
+    log_message "jq not available; cannot encode session context"
+    exit 1
+fi
 
-context = {
-    "session_data": {
-        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "project_name": os.environ.get("AUTOMEM_PROJECT_NAME", ""),
-        "working_directory": os.environ.get("AUTOMEM_WORKING_DIR", ""),
-        "git_branch": os.environ.get("AUTOMEM_GIT_BRANCH", ""),
-        "git_repo": os.environ.get("AUTOMEM_GIT_REPO", ""),
-        "hook_type": os.environ.get("AUTOMEM_HOOK_TYPE", "session_end"),
-        "session_id": os.environ.get("AUTOMEM_SESSION_ID", "unknown"),
-    },
-    "recent_commits": os.environ.get("AUTOMEM_RECENT_COMMITS", ""),
-    "file_changes": os.environ.get("AUTOMEM_FILE_CHANGES", ""),
-    "diff_stats": os.environ.get("AUTOMEM_DIFF_STATS", ""),
-    "staged_stats": os.environ.get("AUTOMEM_STAGED_STATS", ""),
-    "environment": {
-        "user": os.environ.get("AUTOMEM_USER", ""),
-        "hostname": os.environ.get("AUTOMEM_HOSTNAME", ""),
-        "platform": os.environ.get("AUTOMEM_PLATFORM", ""),
-    },
-}
+TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
+if ! FULL_CONTEXT=$(jq -n \
+    --arg timestamp "$TIMESTAMP" \
+    --arg project_name "$PROJECT_NAME" \
+    --arg working_directory "$CURRENT_DIR" \
+    --arg git_branch "$GIT_BRANCH" \
+    --arg git_repo "$GIT_REPO" \
+    --arg hook_type "${CLAUDE_HOOK_TYPE:-session_end}" \
+    --arg session_id "${CLAUDE_SESSION_ID:-unknown}" \
+    --arg recent_commits "$RECENT_COMMITS" \
+    --arg file_changes "$FILE_CHANGES" \
+    --arg diff_stats "$DIFF_STATS" \
+    --arg staged_stats "$STAGED_STATS" \
+    --arg user "$USER" \
+    --arg hostname "$(hostname)" \
+    --arg platform "$(uname -s)" \
+    '{
+      session_data: {
+        timestamp: $timestamp,
+        project_name: $project_name,
+        working_directory: $working_directory,
+        git_branch: $git_branch,
+        git_repo: $git_repo,
+        hook_type: $hook_type,
+        session_id: $session_id
+      },
+      recent_commits: $recent_commits,
+      file_changes: $file_changes,
+      diff_stats: $diff_stats,
+      staged_stats: $staged_stats,
+      environment: {
+        user: $user,
+        hostname: $hostname,
+        platform: $platform
+      }
+    }'); then
+    log_message "Failed to build session context via jq"
+    exit 1
+fi
 
-temp_file = os.environ.get("AUTOMEM_TEMP_FILE")
-if temp_file:
-    with open(temp_file, "w", encoding="utf-8") as handle:
-        json.dump(context, handle, indent=2)
-PY
+if ! printf '%s' "$FULL_CONTEXT" > "$TEMP_FILE"; then
+    log_message "Failed to write session context to $TEMP_FILE"
+    exit 1
+fi
 
 log_message "Session context saved to $TEMP_FILE"
 
 # Process the session data with Python script
 if [ -f "$MEMORY_PROCESSOR" ]; then
     log_message "Processing session with Python processor"
-    
-    PROCESS_TIMEOUT=10
-    python3 "$MEMORY_PROCESSOR" "$TEMP_FILE" >> "$LOG_FILE" 2>&1 &
-    PROCESS_PID=$!
-    RESULT=0
 
-    while kill -0 "$PROCESS_PID" 2>/dev/null; do
-        if [ "$PROCESS_TIMEOUT" -le 0 ]; then
-            log_message "Session memory processing timed out"
-            kill "$PROCESS_PID" 2>/dev/null
-            wait "$PROCESS_PID" 2>/dev/null
-            RESULT=124
-            break
-        fi
-        sleep 1
-        PROCESS_TIMEOUT=$((PROCESS_TIMEOUT - 1))
-    done
-
-    if [ "$RESULT" -eq 0 ]; then
-        wait "$PROCESS_PID"
+    if ! command -v timeout >/dev/null 2>&1; then
+        log_message "timeout command not found; running without timeout"
+        python3 "$MEMORY_PROCESSOR" "$TEMP_FILE" >> "$LOG_FILE" 2>&1
+        RESULT=$?
+    else
+        timeout 30s python3 "$MEMORY_PROCESSOR" "$TEMP_FILE" >> "$LOG_FILE" 2>&1
         RESULT=$?
     fi
-    
+
     if [ $RESULT -eq 0 ]; then
         log_message "Session memory processed successfully"
+    elif [ $RESULT -eq 124 ]; then
+        log_message "Session memory processing timed out (exit $RESULT)"
     else
         log_message "Session memory processing failed with code $RESULT"
     fi
-    
 else
     log_message "Memory processor not found at $MEMORY_PROCESSOR"
 fi

@@ -2,10 +2,42 @@
 
 # Queue Cleanup Script for AutoMem
 # Deduplicates and archives processed memories
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec /bin/bash "$0" "$@"
+fi
+
 set -o pipefail
 
 QUEUE_FILE="$HOME/.claude/scripts/memory-queue.jsonl"
 LOG_FILE="$HOME/.claude/logs/queue-cleanup.log"
+
+log_message() {
+    mkdir -p "$(dirname "$LOG_FILE")"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+}
+
+if [ ! -s "$QUEUE_FILE" ]; then
+    log_message "Queue file empty or doesn't exist, nothing to clean"
+    exit 0
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    log_message "jq not available; aborting queue cleanup"
+    exit 1
+fi
+
+VALIDATION_FILE=$(mktemp "/tmp/automem-queue-check.XXXXXX")
+cleanup_validation() {
+    rm -f "$VALIDATION_FILE"
+}
+trap cleanup_validation EXIT
+
+jq -c . "$QUEUE_FILE" | jq -s 'length' > "$VALIDATION_FILE"
+pipe_status=(${PIPESTATUS[@]})
+if [ ${pipe_status[0]} -ne 0 ] || [ ${pipe_status[1]} -ne 0 ] || [ ! -s "$VALIDATION_FILE" ]; then
+    log_message "Queue validation failed; aborting cleanup"
+    exit 1
+fi
 
 QUEUE_FILE="$QUEUE_FILE" LOG_FILE="$LOG_FILE" python3 - <<'PY'
 import json

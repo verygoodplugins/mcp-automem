@@ -347,19 +347,29 @@ class SessionMemoryProcessor:
         recent_lines = lines[-20:] if len(lines) > 20 else lines
 
         for line in recent_lines:
+            if not line.strip():
+                continue
             try:
                 record = json.loads(line)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                print(f"Error parsing queued memory JSON: {exc}")
                 continue
 
-            timestamp = record.get('timestamp')
-            if timestamp:
-                try:
-                    parsed_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                    if parsed_time < cutoff:
-                        continue
-                except ValueError:
-                    pass
+            if not isinstance(record, dict):
+                continue
+
+            record_time = None
+            for key in ("timestamp", "created_at"):
+                timestamp = record.get(key)
+                if timestamp:
+                    try:
+                        record_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    except (TypeError, ValueError) as exc:
+                        print(f"Error parsing memory timestamp '{timestamp}': {exc}")
+                    break
+
+            if record_time and record_time < cutoff:
+                continue
 
             existing_content = record.get('content', '')
             existing_hash = hashlib.sha256(existing_content.encode("utf-8")).hexdigest()
@@ -418,8 +428,13 @@ class SessionMemoryProcessor:
             return False
 
         try:
-            # Append to queue file
             memory_queue_file.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            print(f"Error creating memory queue directory: {e}")
+            return False
+
+        try:
+            # Append to queue file
             with open(memory_queue_file, 'a', encoding='utf-8') as f:
                 lock_file(f)
                 try:
@@ -494,8 +509,9 @@ class SessionMemoryProcessor:
                         metadata['tags'].append('architecture')
             
             # Add significance level tag relative to the threshold
-            moderate_cutoff = self.significance_threshold + 2
-            major_cutoff = self.significance_threshold + 5
+            storage_threshold = self.significance_threshold
+            moderate_cutoff = storage_threshold + 2
+            major_cutoff = storage_threshold + 5
 
             if significance >= major_cutoff:
                 metadata['tags'].append('major')
