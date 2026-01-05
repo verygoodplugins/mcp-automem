@@ -10,6 +10,7 @@ import sys
 import os
 import re
 import hashlib
+import fcntl
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
@@ -53,6 +54,7 @@ class SessionMemoryProcessor:
                 r"\.log$",  # Log files
                 r"\.min\.",  # Minified files
                 r"\.map$",  # Source maps
+                r"(^|/)\.env",  # Environment files
             ],
             "significant_patterns": [
                 r"feat[:\(]",  # Feature commits
@@ -83,13 +85,13 @@ class SessionMemoryProcessor:
                 ".txt": 0.8,  # Text files
             },
             "sensitive_patterns": [
-                r"token",
-                r"secret",
-                r"password",
-                r"credential",
-                r"api[_-]?key",
-                r"private[_-]?key",
-                r"access[_-]?key",
+                r"\btoken\b",
+                r"\bsecret\b",
+                r"\bpassword\b",
+                r"\bcredential\b",
+                r"\bapi[_-]?key\b",
+                r"\bprivate[_-]?key\b",
+                r"\baccess[_-]?key\b",
             ],
             "minimum_changes": 3,  # Minimum file changes for significance
             "minimum_lines": 10,  # Minimum lines changed
@@ -97,14 +99,15 @@ class SessionMemoryProcessor:
         
         if filters_path.exists():
             try:
-                with open(filters_path, 'r') as f:
+                with open(filters_path, 'r', encoding='utf-8') as f:
                     loaded = json.load(f)
+            except (OSError, json.JSONDecodeError) as e:
+                print(f"Error loading filters: {e}")
+            else:
                 for key, value in default_filters.items():
                     if key not in loaded:
                         loaded[key] = value
                 return loaded
-            except Exception as e:
-                print(f"Error loading filters: {e}")
         
         return default_filters
 
@@ -295,46 +298,49 @@ class SessionMemoryProcessor:
     
     def check_duplicate(self, content: str, timeframe_hours: int = 1) -> bool:
         """Check if similar memory exists in recent timeframe"""
-        try:
-            content_hash = hashlib.md5(content.encode()).hexdigest()
-            queue_file = Path.home() / ".claude" / "scripts" / "memory-queue.jsonl"
-            if not queue_file.exists():
-                return False
-
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=timeframe_hours)
-
-            with open(queue_file, 'r') as f:
-                lines = f.readlines()
-                recent_lines = lines[-20:] if len(lines) > 20 else lines
-
-            for line in recent_lines:
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-
-                timestamp = record.get('timestamp')
-                if timestamp:
-                    try:
-                        parsed_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                        if parsed_time < cutoff:
-                            continue
-                    except ValueError:
-                        pass
-
-                existing_content = record.get('content', '')
-                existing_hash = hashlib.md5(existing_content.encode()).hexdigest()
-                if existing_hash == content_hash:
-                    return True
-
+        if not content:
             return False
-        except Exception as e:
+
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        queue_file = Path.home() / ".claude" / "scripts" / "memory-queue.jsonl"
+        if not queue_file.exists():
+            return False
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=timeframe_hours)
+
+        try:
+            with open(queue_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except OSError as e:
             print(f"Error checking duplicates: {e}")
             return False
+
+        recent_lines = lines[-20:] if len(lines) > 20 else lines
+
+        for line in recent_lines:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            timestamp = record.get('timestamp')
+            if timestamp:
+                try:
+                    parsed_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    if parsed_time < cutoff:
+                        continue
+                except ValueError:
+                    pass
+
+            existing_content = record.get('content', '')
+            existing_hash = hashlib.sha256(existing_content.encode("utf-8")).hexdigest()
+            if existing_hash == content_hash:
+                return True
+
+        return False
     
-    def format_memory_content(self, session_data: Dict[str, Any], 
-                            significance: float, reasons: List[str],
-                            patterns: Dict[str, Any]) -> str:
+    def format_memory_content(self, session_data: Dict[str, Any],
+                            reasons: List[str], patterns: Dict[str, Any]) -> str:
         """Format memory content for storage"""
         session_info = session_data.get('session_data', {})
         project_name = session_info.get('project_name', 'Unknown Project')
@@ -370,23 +376,35 @@ class SessionMemoryProcessor:
         # Write to a file that Claude will process when it has MCP access
         memory_queue_file = Path.home() / ".claude" / "scripts" / "memory-queue.jsonl"
         
+        memory_record = {
+            "content": content,
+            "metadata": metadata,
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        }
+
         try:
-            memory_record = {
-                "content": content,
-                "metadata": metadata,
-                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-            }
-            
-            # Append to queue file
-            memory_queue_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(memory_queue_file, 'a') as f:
-                f.write(json.dumps(memory_record) + '\n')
-            
-            print(f"Queued memory: {content[:100]}...")
-            return True
-        except Exception as e:
+            payload = json.dumps(memory_record)
+        except (TypeError, ValueError) as e:
             print(f"Error queuing memory: {e}")
             return False
+
+        try:
+            # Append to queue file
+            memory_queue_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(memory_queue_file, 'a', encoding='utf-8') as f:
+                fcntl.flock(f, fcntl.LOCK_EX)
+                try:
+                    f.write(payload + '\n')
+                    f.flush()
+                    os.fsync(f.fileno())
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+        except OSError as e:
+            print(f"Error queuing memory: {e}")
+            return False
+
+        print(f"Queued memory: {content[:100]}...")
+        return True
     
     def process_session(self, session_file: str):
         """Main processing function"""
@@ -411,7 +429,7 @@ class SessionMemoryProcessor:
             
             # Format memory content
             memory_content = self.format_memory_content(
-                session_data, significance, reasons, patterns
+                session_data, reasons, patterns
             )
             
             # Check for duplicates
@@ -447,7 +465,6 @@ class SessionMemoryProcessor:
                         metadata['tags'].append('architecture')
             
             # Add significance level tag relative to the threshold
-            minor_cutoff = self.significance_threshold
             moderate_cutoff = self.significance_threshold + 2
             major_cutoff = self.significance_threshold + 5
 
@@ -463,7 +480,7 @@ class SessionMemoryProcessor:
             
             # Store the memory
             if self.store_memory(memory_content, metadata):
-                print(f"Successfully stored session memory")
+                print("Successfully stored session memory")
                 
                 # Store additional insight if patterns are significant
                 if patterns.get('commit_style') or patterns.get('work_focus'):
@@ -488,7 +505,7 @@ class SessionMemoryProcessor:
                     self.store_memory(insight_content, insight_metadata)
                     print("Stored additional work pattern insight")
             
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError, TypeError) as e:
             print(f"Error processing session: {e}")
             import traceback
             traceback.print_exc()

@@ -16,8 +16,8 @@ log_message() {
 }
 
 # Get test context from command output
-COMMAND="${CLAUDE_LAST_COMMAND:-}"
-OUTPUT="${CLAUDE_COMMAND_OUTPUT:-}"
+COMMAND="${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}"
+OUTPUT="${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}"
 EXIT_CODE="${CLAUDE_EXIT_CODE:-0}"
 PROJECT_NAME=$(basename "$(pwd)")
 
@@ -34,12 +34,16 @@ TEST_FRAMEWORK="unknown"
 # Detect test framework and parse results
 if echo "$COMMAND" | grep -q "pytest\|python.*test"; then
     TEST_FRAMEWORK="pytest"
-    TESTS_PASSED=$(echo "$OUTPUT" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1 || echo 0)
-    TESTS_FAILED=$(echo "$OUTPUT" | grep -oE "[0-9]+ failed" | grep -oE "[0-9]+" | head -1 || echo 0)
+    TESTS_PASSED=$(echo "$OUTPUT" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1)
+    TESTS_PASSED="${TESTS_PASSED:-0}"
+    TESTS_FAILED=$(echo "$OUTPUT" | grep -oE "[0-9]+ failed" | grep -oE "[0-9]+" | head -1)
+    TESTS_FAILED="${TESTS_FAILED:-0}"
 elif echo "$COMMAND" | grep -q "npm test\|jest\|vitest"; then
     TEST_FRAMEWORK="jest/vitest"
-    TESTS_PASSED=$(echo "$OUTPUT" | grep -oE "Tests:.*[0-9]+ passed" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" || echo 0)
-    TESTS_FAILED=$(echo "$OUTPUT" | grep -oE "Tests:.*[0-9]+ failed" | grep -oE "[0-9]+ failed" | grep -oE "[0-9]+" || echo 0)
+    TESTS_PASSED=$(echo "$OUTPUT" | grep -oE "Tests:.*[0-9]+ passed" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1)
+    TESTS_PASSED="${TESTS_PASSED:-0}"
+    TESTS_FAILED=$(echo "$OUTPUT" | grep -oE "Tests:.*[0-9]+ failed" | grep -oE "[0-9]+ failed" | grep -oE "[0-9]+" | head -1)
+    TESTS_FAILED="${TESTS_FAILED:-0}"
 elif echo "$COMMAND" | grep -q "go test"; then
     TEST_FRAMEWORK="go"
     TESTS_PASSED=$(echo "$OUTPUT" | grep -c "PASS" || echo 0)
@@ -47,8 +51,10 @@ elif echo "$COMMAND" | grep -q "go test"; then
 elif echo "$COMMAND" | grep -q "phpunit"; then
     TEST_FRAMEWORK="phpunit"
     # Parse PHPUnit output
-    TESTS_PASSED=$(echo "$OUTPUT" | grep -oE "OK \([0-9]+ test" | grep -oE "[0-9]+" || echo 0)
-    TESTS_FAILED=$(echo "$OUTPUT" | grep -oE "FAILURES.*Tests: [0-9]+" | grep -oE "[0-9]+" | tail -1 || echo 0)
+    TESTS_PASSED=$(echo "$OUTPUT" | grep -oE "OK \([0-9]+ test" | grep -oE "[0-9]+" | head -1)
+    TESTS_PASSED="${TESTS_PASSED:-0}"
+    TESTS_FAILED=$(echo "$OUTPUT" | grep -oE "FAILURES.*Tests: [0-9]+" | grep -oE "[0-9]+" | tail -1)
+    TESTS_FAILED="${TESTS_FAILED:-0}"
 fi
 
 # Calculate test significance

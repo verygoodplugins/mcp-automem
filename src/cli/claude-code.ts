@@ -75,6 +75,46 @@ function mergeUniqueStrings(target: string[] = [], additions: string[]): string[
   return target;
 }
 
+function mergeHookEntries(existingHooks: any[] = [], templateHooks: any[]): any[] {
+  const merged = existingHooks.map((entry) => ({
+    ...entry,
+    hooks: Array.isArray(entry?.hooks) ? [...entry.hooks] : [],
+  }));
+
+  for (const templateEntry of templateHooks) {
+    const matcher = templateEntry?.matcher ?? '';
+    const index = merged.findIndex((entry) => (entry?.matcher ?? '') === matcher);
+
+    if (index === -1) {
+      merged.push(templateEntry);
+      continue;
+    }
+
+    const mergedEntry = merged[index];
+    const existingHookList = Array.isArray(mergedEntry?.hooks) ? mergedEntry.hooks : [];
+    const templateHookList = Array.isArray(templateEntry?.hooks) ? templateEntry.hooks : [];
+
+    for (const hook of templateHookList) {
+      const command = hook?.command;
+      const alreadyExists = command
+        ? existingHookList.some((existing: any) => existing?.command === command)
+        : existingHookList.includes(hook);
+
+      if (!alreadyExists) {
+        existingHookList.push(hook);
+      }
+    }
+
+    merged[index] = {
+      ...mergedEntry,
+      matcher: mergedEntry?.matcher ?? templateEntry?.matcher,
+      hooks: existingHookList,
+    };
+  }
+
+  return merged;
+}
+
 function mergeSettings(targetSettings: any, templateSettings: any): any {
   const merged = { ...targetSettings };
 
@@ -91,19 +131,7 @@ function mergeSettings(targetSettings: any, templateSettings: any): any {
         merged.hooks[hookName] = hookConfigs;
       } else {
         const existingHooks = merged.hooks[hookName] as any[];
-        for (const config of hookConfigs as any[]) {
-          const command = config?.hooks?.[0]?.command;
-          if (!command) {
-            continue;
-          }
-          const alreadyExists = existingHooks.some((existing: any) =>
-            existing.hooks?.some((hook: any) => hook.command === command)
-          );
-          if (!alreadyExists) {
-            existingHooks.push(config);
-          }
-        }
-        merged.hooks[hookName] = existingHooks;
+        merged.hooks[hookName] = mergeHookEntries(existingHooks, hookConfigs as any[]);
       }
     }
   }

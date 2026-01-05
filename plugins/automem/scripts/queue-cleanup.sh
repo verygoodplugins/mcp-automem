@@ -38,9 +38,10 @@ TEMP_FILE="/tmp/memory-queue.dedup.$$.jsonl"
 
 # Deduplicate by content field (keeps first occurrence)
 jq -s 'unique_by(.content)' "$QUEUE_FILE" | jq -c '.[]' > "$TEMP_FILE" 2>/dev/null
+PIPE_STATUS=("${PIPESTATUS[@]}")
 
 # Check if deduplication succeeded
-if [ $? -eq 0 ] && [ -s "$TEMP_FILE" ]; then
+if [ "${PIPE_STATUS[0]}" -eq 0 ] && [ "${PIPE_STATUS[1]}" -eq 0 ] && [ -s "$TEMP_FILE" ]; then
     # Count deduped entries
     DEDUPED_COUNT=$(wc -l < "$TEMP_FILE" | tr -d ' ')
     REMOVED_COUNT=$((ORIGINAL_COUNT - DEDUPED_COUNT))

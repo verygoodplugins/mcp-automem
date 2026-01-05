@@ -246,10 +246,11 @@ npx @verygoodplugins/mcp-automem queue --file /tmp/test-queue.jsonl
   - You can specify `tag_mode=all` to require all tags, or `tag_match=exact` for strict matches.
 
 **Hook Script Patterns:**
-- Hooks receive context via env vars: `CLAUDE_HOOK_TYPE`, `CLAUDE_CONTEXT`, `TOOL_NAME`, `TOOL_RESULT`
+- Hooks receive context via env vars. Capture scripts prefer `CLAUDE_LAST_COMMAND`, `CLAUDE_COMMAND_OUTPUT`, `CLAUDE_EXIT_CODE`, and fall back to `CLAUDE_CONTEXT`, `TOOL_NAME`, `TOOL_RESULT` when present.
 - All hooks should be idempotent and safe to retry
 - Use `memory-filters.json` to avoid storing trivial changes
 - Queue format: JSONL (one JSON object per line)
+- Template hook scripts in `templates/` are duplicated in `plugins/` for distribution; update both when changing hook behavior.
 
 **Settings Merge Strategy:**
 - `mergeSettings()` in `claude-code.ts` preserves existing configs
