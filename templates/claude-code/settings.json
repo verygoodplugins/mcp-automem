@@ -3,6 +3,54 @@
     "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "true"
   },
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=build bash \"$HOME/.claude/hooks/capture-build-result.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=test_run bash \"$HOME/.claude/hooks/capture-test-pattern.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=deploy bash \"$HOME/.claude/hooks/capture-deployment.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_HOOK_TYPE=session_end bash \"$HOME/.claude/hooks/session-memory.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/scripts/queue-cleanup.sh\""
+          },
+          {
+            "type": "command",
+            "command": "npx @verygoodplugins/mcp-automem queue --file \"$HOME/.claude/scripts/memory-queue.jsonl\" --limit 5"
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [
@@ -37,6 +85,7 @@
       "Bash(sed:*)",
       "Bash(node:*)",
       "Bash(python3:*)",
+      "Bash(npx:*)",
       "mcp__memory__store_memory",
       "mcp__memory__recall_memory",
       "mcp__memory__associate_memories",
