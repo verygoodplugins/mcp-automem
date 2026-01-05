@@ -34,8 +34,25 @@ def lock_file(handle) -> None:
         fcntl.flock(handle, fcntl.LOCK_EX)
         return
     if msvcrt is not None:
-        handle.seek(0)
-        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        original_pos = handle.tell()
+        try:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        except OSError:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() != 0:
+                raise
+            try:
+                handle.write("\0")
+                handle.flush()
+                os.fsync(handle.fileno())
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                handle.truncate(0)
+            except OSError:
+                raise
+        finally:
+            handle.seek(original_pos)
 
 def unlock_file(handle) -> None:
     if fcntl is not None:
