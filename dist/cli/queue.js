@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import fetch from 'node-fetch';
 import { AutoMemClient } from '../automem-client.js';
 function parseQueueArgs(args) {
     const options = {};
@@ -44,6 +45,53 @@ function ensureObject(value) {
     }
     return {};
 }
+function resolveAutoMemConfig() {
+    const envEndpoint = process.env.AUTOMEM_ENDPOINT;
+    const envApiKey = process.env.AUTOMEM_API_KEY;
+    if (envEndpoint || envApiKey) {
+        return {
+            endpoint: envEndpoint ?? 'http://127.0.0.1:8001',
+            apiKey: envApiKey,
+        };
+    }
+    try {
+        const configPath = path.join(os.homedir(), '.claude.json');
+        if (!fs.existsSync(configPath)) {
+            return { endpoint: 'http://127.0.0.1:8001' };
+        }
+        const raw = fs.readFileSync(configPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        const servers = parsed?.mcpServers ?? {};
+        for (const server of Object.values(servers)) {
+            const env = server?.env ?? {};
+            if (env.AUTOMEM_ENDPOINT || env.AUTOMEM_API_KEY) {
+                return {
+                    endpoint: env.AUTOMEM_ENDPOINT ?? 'http://127.0.0.1:8001',
+                    apiKey: env.AUTOMEM_API_KEY,
+                };
+            }
+        }
+    }
+    catch {
+        // Ignore read/parse errors and use defaults.
+    }
+    return { endpoint: 'http://127.0.0.1:8001' };
+}
+async function isEndpointHealthy(endpoint) {
+    const url = `${endpoint.replace(/\/$/, '')}/health`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        return response.ok;
+    }
+    catch {
+        return false;
+    }
+    finally {
+        clearTimeout(timeoutId);
+    }
+}
 export async function runQueueCommand(args = []) {
     const options = parseQueueArgs(args);
     const queuePath = path.resolve(options.filePath ?? path.join(os.homedir(), '.claude', 'scripts', 'memory-queue.jsonl'));
@@ -60,9 +108,15 @@ export async function runQueueCommand(args = []) {
         console.log('Memory queue empty.');
         return;
     }
+    const config = resolveAutoMemConfig();
+    const healthy = await isEndpointHealthy(config.endpoint);
+    if (!healthy) {
+        console.log('AutoMem endpoint unavailable; skipping queue drain.');
+        return;
+    }
     const client = new AutoMemClient({
-        endpoint: process.env.AUTOMEM_ENDPOINT ?? 'http://127.0.0.1:8001',
-        apiKey: process.env.AUTOMEM_API_KEY ?? undefined,
+        endpoint: config.endpoint,
+        apiKey: config.apiKey,
     });
     const remaining = [];
     const associations = [];
