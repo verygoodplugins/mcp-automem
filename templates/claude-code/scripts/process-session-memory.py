@@ -2,7 +2,8 @@
 """
 AutoMem-Enhanced Session Memory Processor
 Analyzes Claude Code session data with importance scoring, type classification,
-and relationship creation for the new AutoMem service
+and relationship creation for the new AutoMem service.
+Canonical processor script; plugin wrapper delegates here.
 """
 
 import json
@@ -10,7 +11,6 @@ import sys
 import os
 import re
 import hashlib
-import fcntl
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
@@ -18,6 +18,35 @@ from typing import Dict, List, Any, Optional, Tuple
 # Configuration for AutoMem integration
 AUTOMEM_QUEUE_FILE = Path.home() / '.claude' / 'scripts' / 'memory-queue.jsonl'
 STORAGE_AVAILABLE = False  # We'll queue for MCP processing
+
+try:
+    import fcntl  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None
+
+try:
+    import msvcrt  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - non-Windows fallback
+    msvcrt = None
+
+def lock_file(handle) -> None:
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        return
+    if msvcrt is not None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+
+def unlock_file(handle) -> None:
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return
+    if msvcrt is not None:
+        try:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
 
 class SessionMemoryProcessor:
     """Processes Claude session data and stores significant memories"""
@@ -392,13 +421,13 @@ class SessionMemoryProcessor:
             # Append to queue file
             memory_queue_file.parent.mkdir(parents=True, exist_ok=True)
             with open(memory_queue_file, 'a', encoding='utf-8') as f:
-                fcntl.flock(f, fcntl.LOCK_EX)
+                lock_file(f)
                 try:
                     f.write(payload + '\n')
                     f.flush()
                     os.fsync(f.fileno())
                 finally:
-                    fcntl.flock(f, fcntl.LOCK_UN)
+                    unlock_file(f)
         except OSError as e:
             print(f"Error queuing memory: {e}")
             return False

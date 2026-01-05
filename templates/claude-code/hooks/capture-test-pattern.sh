@@ -98,8 +98,36 @@ AUTOMEM_ERROR_DETAILS="$ERROR_DETAILS" \
 python3 - <<'PY'
 import json
 import os
-import fcntl
 from datetime import datetime, timezone
+
+try:
+    import fcntl  # type: ignore[attr-defined]
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt  # type: ignore[import-not-found]
+except ImportError:
+    msvcrt = None
+
+def lock_file(handle):
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        return
+    if msvcrt is not None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+
+def unlock_file(handle):
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return
+    if msvcrt is not None:
+        try:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
 
 def to_int(value, default=0):
     try:
@@ -128,9 +156,11 @@ queue_path = os.environ.get("AUTOMEM_QUEUE", "")
 if queue_path:
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        handle.write(json.dumps(record, ensure_ascii=True) + "\n")
-        fcntl.flock(handle, fcntl.LOCK_UN)
+        lock_file(handle)
+        try:
+            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+        finally:
+            unlock_file(handle)
 PY
 log_message "Test pattern captured: $TESTS_PASSED passed, $TESTS_FAILED failed"
 

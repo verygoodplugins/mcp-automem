@@ -7,80 +7,136 @@ set -o pipefail
 QUEUE_FILE="$HOME/.claude/scripts/memory-queue.jsonl"
 LOG_FILE="$HOME/.claude/logs/queue-cleanup.log"
 
-# Ensure log directory exists
-mkdir -p "$(dirname "$LOG_FILE")"
+QUEUE_FILE="$QUEUE_FILE" LOG_FILE="$LOG_FILE" python3 - <<'PY'
+import json
+import os
+import sys
+import time
+from pathlib import Path
 
-# Log function
-log_message() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
-}
+queue_file = Path(os.environ.get("QUEUE_FILE", ""))
+log_file = Path(os.environ.get("LOG_FILE", ""))
 
-log_message "Queue cleanup started"
+try:
+    import fcntl  # type: ignore[attr-defined]
+except ImportError:
+    fcntl = None
 
-# Check if queue file exists and has content
-if [ ! -f "$QUEUE_FILE" ] || [ ! -s "$QUEUE_FILE" ]; then
-    log_message "Queue file empty or doesn't exist, nothing to clean"
-    exit 0
-fi
+try:
+    import msvcrt  # type: ignore[import-not-found]
+except ImportError:
+    msvcrt = None
 
-# Count original entries
-ORIGINAL_COUNT=$(wc -l < "$QUEUE_FILE" | tr -d ' ')
-log_message "Original queue size: $ORIGINAL_COUNT entries"
 
-# If queue is empty or has 1 line, skip
-if [ "$ORIGINAL_COUNT" -le 1 ]; then
-    log_message "Queue too small to deduplicate"
-    exit 0
-fi
+def lock_file(handle) -> None:
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        return
+    if msvcrt is not None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
 
-# Create temporary deduped file using jq
-TEMP_FILE="/tmp/memory-queue.dedup.$$.jsonl"
 
-# Deduplicate by content field (keeps first occurrence)
-jq -s 'unique_by(.content)' "$QUEUE_FILE" | jq -c '.[]' > "$TEMP_FILE" 2>/dev/null
-PIPE_STATUS=("${PIPESTATUS[@]}")
+def unlock_file(handle) -> None:
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return
+    if msvcrt is not None:
+        try:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
 
-# Check if deduplication succeeded
-if [ "${PIPE_STATUS[0]}" -eq 0 ] && [ "${PIPE_STATUS[1]}" -eq 0 ] && [ -s "$TEMP_FILE" ]; then
-    # Count deduped entries
-    DEDUPED_COUNT=$(wc -l < "$TEMP_FILE" | tr -d ' ')
-    REMOVED_COUNT=$((ORIGINAL_COUNT - DEDUPED_COUNT))
 
-    log_message "Deduplication complete: removed $REMOVED_COUNT duplicates"
-    log_message "New queue size: $DEDUPED_COUNT entries"
+def log_message(message: str) -> None:
+    if not log_file:
+        return
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    with log_file.open("a", encoding="utf-8") as handle:
+        handle.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
 
-    # Archive original if we removed duplicates
-    if [ "$REMOVED_COUNT" -gt 0 ]; then
-        ARCHIVE_FILE="$HOME/.claude/scripts/memory-queue.$(date +%Y%m%d_%H%M%S).deduped.jsonl"
-        cp "$QUEUE_FILE" "$ARCHIVE_FILE"
-        log_message "Original archived to: $ARCHIVE_FILE"
 
-        # Replace queue with deduped version
-        mv "$TEMP_FILE" "$QUEUE_FILE"
-        log_message "Queue replaced with deduplicated version"
-    else
-        rm -f "$TEMP_FILE"
-        log_message "No duplicates found, original queue unchanged"
-    fi
-else
-    log_message "Deduplication failed, keeping original queue"
-    rm -f "$TEMP_FILE"
-    exit 1
-fi
+log_message("Queue cleanup started")
 
-# If queue is very large (>50 entries), archive and truncate to last 20
-CURRENT_COUNT=$(wc -l < "$QUEUE_FILE" | tr -d ' ')
-if [ "$CURRENT_COUNT" -gt 50 ]; then
-    ARCHIVE_FILE="$HOME/.claude/scripts/memory-queue.$(date +%Y%m%d_%H%M%S).overflow.jsonl"
-    cp "$QUEUE_FILE" "$ARCHIVE_FILE"
+if not queue_file.exists() or queue_file.stat().st_size == 0:
+    log_message("Queue file empty or doesn't exist, nothing to clean")
+    sys.exit(0)
 
-    # Keep only last 20 entries
-    tail -20 "$QUEUE_FILE" > "/tmp/memory-queue.truncated.$$.jsonl"
-    mv "/tmp/memory-queue.truncated.$$.jsonl" "$QUEUE_FILE"
+with queue_file.open("r+", encoding="utf-8") as handle:
+    lock_file(handle)
+    try:
+        handle.seek(0)
+        lines = handle.readlines()
+        original_count = len(lines)
+        log_message(f"Original queue size: {original_count} entries")
 
-    NEW_COUNT=$(wc -l < "$QUEUE_FILE" | tr -d ' ')
-    log_message "Queue overflow: archived $CURRENT_COUNT entries, kept last $NEW_COUNT"
-fi
+        if original_count <= 1:
+            log_message("Queue too small to deduplicate")
+            sys.exit(0)
 
-log_message "Queue cleanup complete"
-exit 0
+        records = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                log_message("Deduplication failed: invalid JSON in queue")
+                sys.exit(1)
+            records.append((record, line if line.endswith("\n") else f"{line}\n"))
+
+        seen = set()
+        deduped_lines = []
+        for record, line in records:
+            content = record.get("content") if isinstance(record, dict) else None
+            if content in seen:
+                continue
+            seen.add(content)
+            deduped_lines.append(line)
+
+        deduped_count = len(deduped_lines)
+        removed_count = original_count - deduped_count
+        current_lines = lines
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+        if removed_count > 0:
+            archive_file = queue_file.parent / f"memory-queue.{timestamp}.deduped.jsonl"
+            archive_file.write_text("".join(lines), encoding="utf-8")
+
+            handle.seek(0)
+            handle.truncate()
+            handle.write("".join(deduped_lines))
+            handle.flush()
+            os.fsync(handle.fileno())
+
+            log_message(f"Deduplication complete: removed {removed_count} duplicates")
+            log_message(f"New queue size: {deduped_count} entries")
+            log_message(f"Original archived to: {archive_file}")
+            log_message("Queue replaced with deduplicated version")
+            current_lines = deduped_lines
+        else:
+            log_message("No duplicates found, original queue unchanged")
+
+        current_count = len(current_lines)
+        if current_count > 50:
+            archive_file = queue_file.parent / f"memory-queue.{timestamp}.overflow.jsonl"
+            archive_file.write_text("".join(current_lines), encoding="utf-8")
+
+            trimmed = current_lines[-20:]
+            handle.seek(0)
+            handle.truncate()
+            handle.write("".join(trimmed))
+            handle.flush()
+            os.fsync(handle.fileno())
+
+            log_message(
+                f"Queue overflow: archived {current_count} entries, kept last {len(trimmed)}"
+            )
+
+    finally:
+        unlock_file(handle)
+
+log_message("Queue cleanup complete")
+PY

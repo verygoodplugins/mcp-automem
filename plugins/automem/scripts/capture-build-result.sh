@@ -32,6 +32,8 @@ if echo "$COMMAND" | grep -q "npm run build\|npm build"; then
     BUILD_TOOL="npm"
 elif echo "$COMMAND" | grep -q "yarn build"; then
     BUILD_TOOL="yarn"
+elif echo "$COMMAND" | grep -q "pnpm build"; then
+    BUILD_TOOL="pnpm"
 elif echo "$COMMAND" | grep -q "webpack\|vite\|rollup\|parcel"; then
     BUILD_TOOL=$(echo "$COMMAND" | grep -oE "webpack|vite|rollup|parcel" | head -1)
 elif echo "$COMMAND" | grep -q "go build"; then
@@ -118,8 +120,36 @@ AUTOMEM_COMMAND="$COMMAND" \
 python3 - <<'PY'
 import json
 import os
-import fcntl
 from datetime import datetime, timezone
+
+try:
+    import fcntl  # type: ignore[attr-defined]
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt  # type: ignore[import-not-found]
+except ImportError:
+    msvcrt = None
+
+def lock_file(handle):
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        return
+    if msvcrt is not None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+
+def unlock_file(handle):
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return
+    if msvcrt is not None:
+        try:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
 
 def optional_text(value):
     return value if value else None
@@ -152,9 +182,11 @@ queue_path = os.environ.get("AUTOMEM_QUEUE", "")
 if queue_path:
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        handle.write(json.dumps(record, ensure_ascii=True) + "\n")
-        fcntl.flock(handle, fcntl.LOCK_UN)
+        lock_file(handle)
+        try:
+            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+        finally:
+            unlock_file(handle)
 PY
 log_message "Build result captured: exit_code=$EXIT_CODE, errors=$ERRORS, warnings=$WARNINGS"
 
