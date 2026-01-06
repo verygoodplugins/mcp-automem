@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0](https://github.com/verygoodplugins/mcp-automem/compare/v0.9.1...v0.10.0) (2026-01-06)
+
+
+### Features
+
+* add MCP Registry support ([#16](https://github.com/verygoodplugins/mcp-automem/issues/16)) ([ee9571e](https://github.com/verygoodplugins/mcp-automem/commit/ee9571eb874eb188a48f58859cb43be368435c0c))
+* add memory content size guidelines and warnings ([5ac5833](https://github.com/verygoodplugins/mcp-automem/commit/5ac5833cfd357dd173fbb7638d6e5b44a87e3fc8))
+* **claude-code:** add SessionStart hook for automatic memory recall ([2a4859b](https://github.com/verygoodplugins/mcp-automem/commit/2a4859b1d552dd147246701da5a9513aa66f86e8))
+* **claude-code:** add SessionStart hook for automatic memory recall ([8e4fdc7](https://github.com/verygoodplugins/mcp-automem/commit/8e4fdc7ccb69ad6b9663277d402a39c71e3c6eb3))
+* Memory content size guidelines and warnings ([909f07a](https://github.com/verygoodplugins/mcp-automem/commit/909f07ab91ad2c48945d363192e121c7a3f1c3db))
+* upgrade SDK to 1.25.1 and add MCP registry support ([766c857](https://github.com/verygoodplugins/mcp-automem/commit/766c857aacf8be9dc4056e99a84ace952713d354))
+* upgrade SDK to 1.25.1 and add MCP registry support ([14a06ce](https://github.com/verygoodplugins/mcp-automem/commit/14a06ce7f0b7797289f149d04eed0b871d4caa0e))
+
+
+### Bug Fixes
+
+* add exponential backoff retry logic for transient API failures ([6395689](https://github.com/verygoodplugins/mcp-automem/commit/63956893dd3b911038c6d8eaaabf5ec57b941c7a))
+* add security.yml workflow with CodeQL v4 ([861d60f](https://github.com/verygoodplugins/mcp-automem/commit/861d60f3d6a00484e9dfcc8f96c876ae61b7c581))
+* address coderabbit review feedback ([7e15521](https://github.com/verygoodplugins/mcp-automem/commit/7e15521097fc56b604b887b1b345ac7dbeaacb9e))
+* allowlist MCP SDK ReDoS vulnerability (GHSA-8r9q-7v3j-jr4g) ([129b665](https://github.com/verygoodplugins/mcp-automem/commit/129b665cd2fa59628d229e3855aee13852c2c68a))
+* enforce security audits and fix server.json structure ([f7dc0a1](https://github.com/verygoodplugins/mcp-automem/commit/f7dc0a1aa63f0c1f021f661297022c36718b7e73))
+* function name in CLAUDE_MD_MEMORY_RULES.md ([3d102d5](https://github.com/verygoodplugins/mcp-automem/commit/3d102d53adcd81dda8deca2f8beb46115f1a3fd3))
+* harden hook scripts and queue cleanup ([0d992d7](https://github.com/verygoodplugins/mcp-automem/commit/0d992d721184ca3a058b91c740094bf1c218add9))
+* reduce Cursor stderr noise and stdio flapping ([6354d64](https://github.com/verygoodplugins/mcp-automem/commit/6354d64cf6fde6f12996da9e2894e8de3e934851))
+* reduce Cursor stderr noise and stdio flapping ([c07171a](https://github.com/verygoodplugins/mcp-automem/commit/c07171a75d390524d197da1c18c3bb5d8850be9e))
+* Refactor AutoMem plugin structure and update docs ([0c2453a](https://github.com/verygoodplugins/mcp-automem/commit/0c2453a73fcaeff2081dafd036dca4b67a43191c))
+* reject oversized memories and use placeholder for month tags ([bc6f730](https://github.com/verygoodplugins/mcp-automem/commit/bc6f7301cf3f003ab47ac0de51b158fb3c187473))
+* resolve MD033 linter warnings for HTML elements ([bc2a4a5](https://github.com/verygoodplugins/mcp-automem/commit/bc2a4a5996ba8fb63941d53517b3ab45d16f953d))
+* use correct better-npm-audit version (3.11.0) ([31db0ab](https://github.com/verygoodplugins/mcp-automem/commit/31db0aba8fc7a77c7296779310f5f908cb22d372))
+
 ## [Unreleased]
 
 ### Added
