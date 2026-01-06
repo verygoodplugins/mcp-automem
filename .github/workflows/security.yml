@@ -46,8 +46,6 @@ jobs:
 
       - name: Audit dependencies
         run: npm audit --audit-level=high
-        continue-on-error: true
 
       - name: Check for known vulnerabilities
-        run: npx better-npm-audit audit --level high
-        continue-on-error: true
+        run: npx better-npm-audit@3.2.2 audit --level high

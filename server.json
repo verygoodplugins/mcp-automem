@@ -14,36 +14,36 @@
     {
       "type": "streamable-http",
       "url": "https://{endpoint}/mcp",
-      "headers": [
-        {
-          "name": "FORWARD_VAR_ENDPOINT",
+      "variables": {
+        "endpoint": {
           "description": "Your deployed AutoMem MCP server URL (e.g., your-app.railway.app)",
-          "is_required": true,
-          "is_secret": false
-        },
+          "isRequired": true
+        }
+      },
+      "headers": [
         {
           "name": "Authorization",
           "description": "Bearer token for authentication (optional if using URL-based auth with ?api_token=...)",
-          "is_required": false,
-          "is_secret": true
+          "isRequired": false,
+          "isSecret": true
         }
       ]
     },
     {
       "type": "sse",
       "url": "https://{endpoint}/mcp/sse",
-      "headers": [
-        {
-          "name": "FORWARD_VAR_ENDPOINT",
+      "variables": {
+        "endpoint": {
           "description": "Your deployed AutoMem MCP server URL (e.g., your-app.railway.app)",
-          "is_required": true,
-          "is_secret": false
-        },
+          "isRequired": true
+        }
+      },
+      "headers": [
         {
           "name": "Authorization",
           "description": "Bearer token for authentication (optional if using URL-based auth with ?api_token=...)",
-          "is_required": false,
-          "is_secret": true
+          "isRequired": false,
+          "isSecret": true
         }
       ]
     }
