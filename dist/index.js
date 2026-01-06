@@ -757,15 +757,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         switch (name) {
             case "store_memory": {
                 const storeArgs = args;
-                // Content size governance: warn if content exceeds recommended size
+                // Content size governance: reject if content exceeds hard limit
                 const SOFT_LIMIT = 500;
                 const HARD_LIMIT = 2000;
                 const contentLength = storeArgs.content?.length || 0;
                 let sizeWarning = "";
+                // Hard limit: reject oversized content outright
                 if (contentLength > HARD_LIMIT) {
-                    sizeWarning = `\n⚠️ Content length (${contentLength} chars) exceeds hard limit (${HARD_LIMIT}). Consider splitting into multiple memories.`;
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `❌ Memory rejected: Content length (${contentLength} chars) exceeds hard limit (${HARD_LIMIT} chars).\n\nPlease split into smaller, focused memories or summarize the content before storing.`,
+                            },
+                        ],
+                        structuredContent: {
+                            error: "content_too_large",
+                            content_length: contentLength,
+                            hard_limit: HARD_LIMIT,
+                            message: `Content exceeds maximum allowed length of ${HARD_LIMIT} characters`,
+                        },
+                        isError: true,
+                    };
                 }
-                else if (contentLength > SOFT_LIMIT) {
+                // Soft limit: warn that backend may auto-summarize
+                if (contentLength > SOFT_LIMIT) {
                     sizeWarning = `\n📝 Content length (${contentLength} chars) exceeds recommended size (${SOFT_LIMIT}). Backend may auto-summarize.`;
                 }
                 const result = await client.storeMemory(storeArgs);
