@@ -957,33 +957,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 async function main() {
     const transport = new StdioServerTransport();
-    // Handle process signals gracefully
-    process.on('SIGINT', () => {
-        console.error('AutoMem MCP server shutting down (SIGINT)');
-        process.exit(0);
-    });
-    process.on('SIGTERM', () => {
-        console.error('AutoMem MCP server shutting down (SIGTERM)');
-        process.exit(0);
-    });
-    // Handle uncaught errors to prevent silent crashes
-    process.on('uncaughtException', (error) => {
-        console.error('AutoMem MCP uncaught exception:', error);
-        // Don't exit - try to keep running
-    });
-    process.on('unhandledRejection', (reason) => {
-        console.error('AutoMem MCP unhandled rejection:', reason);
-        // Don't exit - try to keep running
-    });
-    // Keepalive: log periodically to keep the process "active"
-    // This helps prevent the parent process from thinking we're dead
-    const KEEPALIVE_INTERVAL_MS = 60000; // 1 minute
-    setInterval(() => {
-        // Write to stderr (not stdout which is for MCP protocol)
-        // This keeps the Node.js event loop active
-    }, KEEPALIVE_INTERVAL_MS).unref(); // unref() so it doesn't prevent process exit
     await server.connect(transport);
-    console.error('AutoMem MCP server running (v' + PACKAGE_VERSION + ')');
+    console.error('AutoMem MCP server running');
 }
 main().catch((error) => {
     console.error('Server error:', error);
