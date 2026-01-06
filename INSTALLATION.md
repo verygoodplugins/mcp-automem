@@ -390,7 +390,8 @@ npx @verygoodplugins/mcp-automem cursor --dir .cursor/rules
 For memory-first behavior across **ALL** Cursor projects, add this to `Cursor Settings > General > Rules for AI`:
 
 <details>
-<summary><b>Click to expand: Global Memory-First Rules for Cursor</b></summary>
+
+<summary>**Click to expand: Global Memory-First Rules for Cursor**</summary>
 
 ## Memory-First Development
 
@@ -581,7 +582,7 @@ This teaches Claude when to recall (session start, before decisions) and what to
 
 Ask Claude Code:
 
-```
+```bash
 Check the health of the AutoMem service
 ```
 
@@ -663,7 +664,7 @@ npx @verygoodplugins/mcp-automem codex
 
 This creates or updates `AGENTS.md` with an AutoMem section tailored to your project.
 
-```
+`````bash
 
 ### 4. Restart Codex
 
@@ -672,11 +673,11 @@ Restart the Codex CLI or reload your IDE extension to load the MCP server.
 ### 5. Verify Installation
 
 Ask Codex:
-```
+```bash
 
 Check the health of the AutoMem service
 
-````
+````bash
 
 You should see connection status for FalkorDB and Qdrant.
 
@@ -688,7 +689,7 @@ cd ~/Projects/my-app
 
 # Ask Codex to use memory
 codex "What were the key decisions made in this project last week?"
-````
+`````
 
 **In the IDE:**
 
@@ -1031,7 +1032,7 @@ Check AutoMem service and database status (FalkorDB graph + Qdrant vectors).
 
 **Example:**
 
-```
+```bash
 Check the health of the AutoMem service
 ```
 
