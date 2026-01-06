@@ -7,7 +7,7 @@ export function buildClaudeDesktopSnippet(endpointVar = '${AUTOMEM_ENDPOINT}', a
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
         "AUTOMEM_ENDPOINT": "${endpointVar}",
         "AUTOMEM_API_KEY": "${apiKeyVar}"
@@ -19,7 +19,7 @@ export function buildClaudeDesktopSnippet(endpointVar = '${AUTOMEM_ENDPOINT}', a
 
 export function buildClaudeCodeExport(endpoint = DEFAULT_AUTOMEM_ENDPOINT, apiKey = 'your-auto-mem-api-key') {
   return [
-    'claude mcp add memory "npx @verygoodplugins/mcp-automem"',
+    'claude mcp add memory "npx -y @verygoodplugins/mcp-automem"',
     `export AUTOMEM_ENDPOINT="${endpoint}"`,
     `export AUTOMEM_API_KEY="${apiKey}"`
   ].join(os.EOL);

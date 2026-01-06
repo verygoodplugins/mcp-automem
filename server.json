@@ -4,11 +4,50 @@
   "title": "MCP AutoMem",
   "description": "Graph-vector memory for AI assistants using FalkorDB and Qdrant",
   "version": "0.9.1",
+  "x-release-please-version": "0.9.1",
   "websiteUrl": "https://automem.ai/?utm_source=mcp-registry",
   "repository": {
     "url": "https://github.com/verygoodplugins/mcp-automem",
     "source": "github"
   },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://{endpoint}/mcp",
+      "variables": {
+        "endpoint": {
+          "description": "Your deployed AutoMem MCP server URL (e.g., your-app.railway.app)",
+          "isRequired": true
+        }
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer token for authentication (optional if using URL-based auth with ?api_token=...)",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    },
+    {
+      "type": "sse",
+      "url": "https://{endpoint}/mcp/sse",
+      "variables": {
+        "endpoint": {
+          "description": "Your deployed AutoMem MCP server URL (e.g., your-app.railway.app)",
+          "isRequired": true
+        }
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer token for authentication (optional if using URL-based auth with ?api_token=...)",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
   "packages": [
     {
       "registryType": "npm",

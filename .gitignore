@@ -212,3 +212,7 @@ temp/
 /.claude
 AGENTS.md
 mcp-automem.code-workspace
+
+# MCP Registry publisher
+mcp-publisher
+.mcpregistry_*

@@ -6,7 +6,7 @@
 
 [mcp_servers.memory]
 command = "npx"
-args = ["@verygoodplugins/mcp-automem"]
+args = ["-y", "@verygoodplugins/mcp-automem"]
 
 [mcp_servers.memory.env]
 # Replace with your AutoMem instance URL

@@ -22,25 +22,12 @@ export class AutoMemClient {
         }
         const maxRetries = 3;
         const baseDelay = 500; // 500ms base delay
+        // Network errors (fetch) should be retried; HTTP errors handled below
+        let response;
         try {
-            const response = await fetch(url, options);
-            const data = await response.json();
-            if (!response.ok) {
-                const error = new Error(data.message || data.detail || `HTTP ${response.status}`);
-                // Retry on 500/502/503/504 (server errors) but not 4xx (client errors like auth)
-                const isRetryable = response.status >= 500 && response.status < 600;
-                if (isRetryable && retryCount < maxRetries) {
-                    const delay = baseDelay * Math.pow(2, retryCount); // Exponential backoff: 500ms, 1s, 2s
-                    console.error(`[AutoMem] Retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                    return this.makeRequest(method, path, body, retryCount + 1);
-                }
-                throw error;
-            }
-            return data;
+            response = await fetch(url, options);
         }
         catch (error) {
-            // Network errors (timeouts, connection refused) - also retry
             if (error instanceof Error && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
                 console.error(`[AutoMem] Network error, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
@@ -50,6 +37,28 @@ export class AutoMemClient {
             console.error(`AutoMem API error (${method} ${url}):`, error);
             throw error;
         }
+        let data = null;
+        try {
+            // Some error responses may not be JSON; treat parse errors as non-retryable
+            data = await response.json();
+        }
+        catch (parseError) {
+            throw new Error(`Invalid JSON response (${response.status})`);
+        }
+        if (!response.ok) {
+            // Retry on 5xx only
+            const isRetryable = response.status >= 500 && response.status < 600;
+            if (isRetryable && retryCount < maxRetries) {
+                const delay = baseDelay * Math.pow(2, retryCount); // 500ms, 1s, 2s
+                console.error(`[AutoMem] Retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return this.makeRequest(method, path, body, retryCount + 1);
+            }
+            const error = new Error(data?.message || data?.detail || `HTTP ${response.status}`);
+            console.error(`AutoMem API error (${method} ${url}):`, error);
+            throw error;
+        }
+        return data;
     }
     async storeMemory(args) {
         const body = {

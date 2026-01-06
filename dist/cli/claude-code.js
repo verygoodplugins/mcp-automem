@@ -3,6 +3,18 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 const TEMPLATE_ROOT = path.resolve(fileURLToPath(new URL('../../templates/claude-code', import.meta.url)));
+const HOOK_SCRIPTS = [
+    'automem-session-start.sh',
+    'capture-build-result.sh',
+    'capture-test-pattern.sh',
+    'capture-deployment.sh',
+    'session-memory.sh',
+];
+const SUPPORT_SCRIPTS = [
+    'queue-cleanup.sh',
+    'process-session-memory.py',
+    'memory-filters.json',
+];
 function log(message, quiet) {
     if (!quiet) {
         console.log(message);
@@ -45,6 +57,38 @@ function mergeUniqueStrings(target = [], additions) {
     }
     return target;
 }
+function mergeHookEntries(existingHooks = [], templateHooks) {
+    const merged = existingHooks.map((entry) => ({
+        ...entry,
+        hooks: Array.isArray(entry?.hooks) ? [...entry.hooks] : [],
+    }));
+    for (const templateEntry of templateHooks) {
+        const matcher = templateEntry?.matcher ?? '';
+        const index = merged.findIndex((entry) => (entry?.matcher ?? '') === matcher);
+        if (index === -1) {
+            merged.push(templateEntry);
+            continue;
+        }
+        const mergedEntry = merged[index];
+        const existingHookList = Array.isArray(mergedEntry?.hooks) ? mergedEntry.hooks : [];
+        const templateHookList = Array.isArray(templateEntry?.hooks) ? templateEntry.hooks : [];
+        for (const hook of templateHookList) {
+            const command = hook?.command;
+            const alreadyExists = command
+                ? existingHookList.some((existing) => existing?.command === command)
+                : existingHookList.includes(hook);
+            if (!alreadyExists) {
+                existingHookList.push(hook);
+            }
+        }
+        merged[index] = {
+            ...mergedEntry,
+            matcher: mergedEntry?.matcher ?? templateEntry?.matcher,
+            hooks: existingHookList,
+        };
+    }
+    return merged;
+}
 function mergeSettings(targetSettings, templateSettings) {
     const merged = { ...targetSettings };
     // Merge env if not present
@@ -59,12 +103,8 @@ function mergeSettings(targetSettings, templateSettings) {
                 merged.hooks[hookName] = hookConfigs;
             }
             else {
-                // Check if automem hook already exists
                 const existingHooks = merged.hooks[hookName];
-                const hasAutoMemHook = existingHooks.some((config) => config.hooks?.some((h) => h.command?.includes('automem-session-start.sh')));
-                if (!hasAutoMemHook) {
-                    merged.hooks[hookName] = [...existingHooks, ...hookConfigs];
-                }
+                merged.hooks[hookName] = mergeHookEntries(existingHooks, hookConfigs);
             }
         }
     }
@@ -76,22 +116,40 @@ function mergeSettings(targetSettings, templateSettings) {
     merged.permissions.ask = mergeUniqueStrings(merged.permissions.ask ?? [], templatePermissions.ask ?? []);
     return merged;
 }
-function installHookScript(targetDir, options) {
+function installHookScripts(targetDir, options) {
     const hookTemplateDir = path.join(TEMPLATE_ROOT, 'hooks');
     const hookTargetDir = path.join(targetDir, 'hooks');
-    const hookScriptName = 'automem-session-start.sh';
-    const templatePath = path.join(hookTemplateDir, hookScriptName);
-    const targetPath = path.join(hookTargetDir, hookScriptName);
-    if (!fs.existsSync(templatePath)) {
-        log(`Warning: Hook template not found at ${templatePath}`, options.quiet);
-        return;
+    for (const hookScriptName of HOOK_SCRIPTS) {
+        const templatePath = path.join(hookTemplateDir, hookScriptName);
+        const targetPath = path.join(hookTargetDir, hookScriptName);
+        if (!fs.existsSync(templatePath)) {
+            log(`Warning: Hook template not found at ${templatePath}`, options.quiet);
+            continue;
+        }
+        const content = fs.readFileSync(templatePath, 'utf8');
+        writeFileWithBackup(targetPath, content, options);
+        if (!options.dryRun) {
+            fs.chmodSync(targetPath, 0o755);
+            log(`installed hook script: ${hookScriptName}`, options.quiet);
+        }
     }
-    const content = fs.readFileSync(templatePath, 'utf8');
-    writeFileWithBackup(targetPath, content, options);
-    // Make executable
-    if (!options.dryRun) {
-        fs.chmodSync(targetPath, 0o755);
-        log(`installed hook script: ${hookScriptName}`, options.quiet);
+}
+function installSupportScripts(targetDir, options) {
+    const scriptTemplateDir = path.join(TEMPLATE_ROOT, 'scripts');
+    const scriptTargetDir = path.join(targetDir, 'scripts');
+    for (const scriptName of SUPPORT_SCRIPTS) {
+        const templatePath = path.join(scriptTemplateDir, scriptName);
+        const targetPath = path.join(scriptTargetDir, scriptName);
+        if (!fs.existsSync(templatePath)) {
+            log(`Warning: Script template not found at ${templatePath}`, options.quiet);
+            continue;
+        }
+        const content = fs.readFileSync(templatePath, 'utf8');
+        writeFileWithBackup(targetPath, content, options);
+        if (!options.dryRun && (scriptName.endsWith('.sh') || scriptName.endsWith('.py'))) {
+            fs.chmodSync(targetPath, 0o755);
+            log(`installed script: ${scriptName}`, options.quiet);
+        }
     }
 }
 function mergeSettingsFile(targetDir, options) {
@@ -155,12 +213,14 @@ export async function applyClaudeCodeSetup(cliOptions) {
     if (!options.dryRun) {
         fs.mkdirSync(targetDir, { recursive: true });
     }
-    // Install hook script for SessionStart memory recall
-    installHookScript(targetDir, options);
+    // Install hook scripts and support scripts
+    installHookScripts(targetDir, options);
+    installSupportScripts(targetDir, options);
     // Merge MCP permissions and hooks into settings.json
     mergeSettingsFile(targetDir, options);
     log('', options.quiet);
-    log('✓ SessionStart hook installed for automatic memory recall', options.quiet);
+    log('✓ Hook scripts installed for automatic memory capture', options.quiet);
+    log('✓ Support scripts installed for queue processing', options.quiet);
     log('✓ MCP permissions and hooks added to settings.json', options.quiet);
     log('', options.quiet);
     log('Next steps:', options.quiet);

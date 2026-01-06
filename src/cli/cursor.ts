@@ -272,7 +272,7 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
     log(`    "mcpServers": {`, cliOptions.quiet);
     log(`      "memory": {`, cliOptions.quiet);
     log(`        "command": "npx",`, cliOptions.quiet);
-    log(`        "args": ["@verygoodplugins/mcp-automem"],`, cliOptions.quiet);
+    log(`        "args": ["-y", "@verygoodplugins/mcp-automem"],`, cliOptions.quiet);
     log(`        "env": {`, cliOptions.quiet);
     log(`          "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"`, cliOptions.quiet);
     log(`        }`, cliOptions.quiet);
