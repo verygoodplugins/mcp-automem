@@ -21,7 +21,7 @@ At session start, recall relevant context:
 
 - mcp**memory**recall_memory({ query: "project: [name]", limit: 10 })
 - mcp**memory**recall_memory({ tags: ["preference", "workflow"], limit: 10 })
-- For debugging: recall_memory({ query: "[project] error", tags: ["solution"], time_query: "last 24 hours" })
+- For debugging: mcp**memory**recall_memory({ query: "[project] error", tags: ["solution"], time_query: "last 24 hours" })
 
 MCP TOOLS AVAILABLE:
 
