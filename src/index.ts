@@ -26,6 +26,22 @@ import type {
 
 config();
 
+function isInteractiveTerminal(): boolean {
+  return Boolean(process.stdout.isTTY && process.stderr.isTTY);
+}
+
+function installStdioErrorGuards() {
+  const handler = (error: unknown) => {
+    const err = error as { code?: string } | undefined;
+    if (err?.code === 'EPIPE' || err?.code === 'ECONNRESET') {
+      process.exit(0);
+    }
+  };
+
+  process.stdout.on('error', handler);
+  process.stderr.on('error', handler);
+}
+
 // Read version from package.json - single source of truth
 function getPackageVersion(): string {
   const packageJsonPath = path.resolve(
@@ -224,7 +240,11 @@ const AUTOMEM_ENDPOINT = process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001'
 const AUTOMEM_API_KEY = process.env.AUTOMEM_API_KEY;
 
 if (!process.env.AUTOMEM_ENDPOINT) {
-  console.warn('⚠️  AUTOMEM_ENDPOINT not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting.');
+  if (isInteractiveTerminal()) {
+    console.warn(
+      '⚠️  AUTOMEM_ENDPOINT not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting.'
+    );
+  }
 }
 
 const clientConfig: AutoMemConfig = {
@@ -1014,9 +1034,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 async function main() {
+  installStdioErrorGuards();
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('AutoMem MCP server running');
+  if (process.env.AUTOMEM_LOG_LEVEL === 'debug') {
+    console.error('AutoMem MCP server running');
+  }
 }
 
 main().catch((error) => {
