@@ -1,19 +1,23 @@
 #!/usr/bin/env node
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema, Tool } from '@modelcontextprotocol/sdk/types.js';
-import { config } from 'dotenv';
-import { runConfig, runSetup } from './cli/setup.js';
-import { runClaudeCodeSetup } from './cli/claude-code.js';
-import { runCursorSetup } from './cli/cursor.js';
-import { runCodexSetup } from './cli/codex.js';
-import { runMigrateCommand } from './cli/migrate.js';
-import { runUninstallCommand } from './cli/uninstall.js';
-import { runQueueCommand } from './cli/queue.js';
-import { AutoMemClient } from './automem-client.js';
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
+import { config } from "dotenv";
+import { runConfig, runSetup } from "./cli/setup.js";
+import { runClaudeCodeSetup } from "./cli/claude-code.js";
+import { runCursorSetup } from "./cli/cursor.js";
+import { runCodexSetup } from "./cli/codex.js";
+import { runMigrateCommand } from "./cli/migrate.js";
+import { runUninstallCommand } from "./cli/uninstall.js";
+import { runQueueCommand } from "./cli/queue.js";
+import { AutoMemClient } from "./automem-client.js";
 import type {
   AutoMemConfig,
   StoreMemoryArgs,
@@ -22,7 +26,7 @@ import type {
   UpdateMemoryArgs,
   DeleteMemoryArgs,
   TagSearchArgs,
-} from './types.js';
+} from "./types.js";
 
 config();
 
@@ -33,33 +37,33 @@ function isInteractiveTerminal(): boolean {
 function installStdioErrorGuards() {
   const handler = (error: unknown) => {
     const err = error as { code?: string } | undefined;
-    if (err?.code === 'EPIPE' || err?.code === 'ECONNRESET') {
+    if (err?.code === "EPIPE" || err?.code === "ECONNRESET") {
       process.exit(0);
     }
   };
 
-  process.stdout.on('error', handler);
-  process.stderr.on('error', handler);
+  process.stdout.on("error", handler);
+  process.stderr.on("error", handler);
 }
 
 // Read version from package.json - single source of truth
 function getPackageVersion(): string {
   const packageJsonPath = path.resolve(
-    fileURLToPath(new URL('../package.json', import.meta.url))
+    fileURLToPath(new URL("../package.json", import.meta.url))
   );
   try {
-    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    return pkg.version || '0.0.0';
+    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    return pkg.version || "0.0.0";
   } catch {
-    return '0.0.0';
+    return "0.0.0";
   }
 }
 
 const PACKAGE_VERSION = getPackageVersion();
 
-const command = (process.argv[2] || '').toLowerCase();
+const command = (process.argv[2] || "").toLowerCase();
 
-if (command === 'help' || command === '--help' || command === '-h') {
+if (command === "help" || command === "--help" || command === "-h") {
   console.log(`
 AutoMem MCP Server - AI Memory Storage & Recall
 
@@ -159,90 +163,95 @@ https://github.com/verygoodplugins/mcp-automem
   process.exit(0);
 }
 
-if (command === 'setup') {
+if (command === "setup") {
   await runSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === 'config') {
+if (command === "config") {
   await runConfig(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === 'claude-code') {
+if (command === "claude-code") {
   await runClaudeCodeSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === 'cursor') {
+if (command === "cursor") {
   await runCursorSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === 'codex') {
+if (command === "codex") {
   await runCodexSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === 'migrate') {
+if (command === "migrate") {
   await runMigrateCommand(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === 'uninstall') {
+if (command === "uninstall") {
   await runUninstallCommand(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === 'queue') {
+if (command === "queue") {
   await runQueueCommand(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === 'recall') {
-  const AUTOMEM_ENDPOINT = process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
+if (command === "recall") {
+  const AUTOMEM_ENDPOINT =
+    process.env.AUTOMEM_ENDPOINT || "http://127.0.0.1:8001";
   const AUTOMEM_API_KEY = process.env.AUTOMEM_API_KEY;
-  
+
   if (!AUTOMEM_ENDPOINT) {
-    console.error('❌ AUTOMEM_ENDPOINT not set');
+    console.error("❌ AUTOMEM_ENDPOINT not set");
     process.exit(1);
   }
-  
-  const client = new AutoMemClient({ endpoint: AUTOMEM_ENDPOINT, apiKey: AUTOMEM_API_KEY });
-  
+
+  const client = new AutoMemClient({
+    endpoint: AUTOMEM_ENDPOINT,
+    apiKey: AUTOMEM_API_KEY,
+  });
+
   // Parse CLI args
   const args = process.argv.slice(3);
-  let query = '';
+  let query = "";
   let tags: string[] = [];
   let limit = 5;
-  
+
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--query' && args[i + 1]) {
+    if (args[i] === "--query" && args[i + 1]) {
       query = args[++i];
-    } else if (args[i] === '--tags' && args[i + 1]) {
-      tags = args[++i].split(',');
-    } else if (args[i] === '--limit' && args[i + 1]) {
+    } else if (args[i] === "--tags" && args[i + 1]) {
+      tags = args[++i].split(",");
+    } else if (args[i] === "--limit" && args[i + 1]) {
       limit = parseInt(args[++i], 10);
     }
   }
-  
+
   try {
     const results = await client.recallMemory({ query, tags, limit });
     console.log(JSON.stringify(results, null, 2));
     process.exit(0);
   } catch (error) {
-    console.error('❌ Recall failed:', error);
+    console.error("❌ Recall failed:", error);
     process.exit(1);
   }
 }
 
-const AUTOMEM_ENDPOINT = process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
+const AUTOMEM_ENDPOINT =
+  process.env.AUTOMEM_ENDPOINT || "http://127.0.0.1:8001";
 const AUTOMEM_API_KEY = process.env.AUTOMEM_API_KEY;
 
 if (!process.env.AUTOMEM_ENDPOINT) {
   if (isInteractiveTerminal()) {
     console.warn(
-      '⚠️  AUTOMEM_ENDPOINT not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting.'
+      "⚠️  AUTOMEM_ENDPOINT not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting."
     );
   }
 }
@@ -255,15 +264,21 @@ const clientConfig: AutoMemConfig = {
 const client = new AutoMemClient(clientConfig);
 
 const server = new Server(
-  { name: 'mcp-automem', version: PACKAGE_VERSION },
+  { name: "mcp-automem", version: PACKAGE_VERSION },
   { capabilities: { tools: {} } }
 );
 
 const tools: Tool[] = [
   {
-    name: 'store_memory',
-    title: 'Store Memory',
+    name: "store_memory",
+    title: "Store Memory",
     description: `Store a memory with optional tags, importance score, and metadata. Use this to persist important information for future recall.
+
+**Content size guidelines:**
+- Target: 150-300 characters (one meaningful paragraph)
+- Maximum: 500 characters (auto-summarized if exceeded)
+- Hard limit: 2000 characters (rejected)
+- Format: "Brief title. Context and details. Impact/outcome."
 
 **When to use:**
 - After making a decision: store the reasoning and outcome
@@ -276,64 +291,70 @@ const tools: Tool[] = [
 - store_memory({ content: "User prefers early returns over nested conditionals in validation code.", tags: ["code-style", "preferences"], importance: 0.7 })
 - store_memory({ content: "Auth timeout fixed by adding retry with exponential backoff. Root cause: flaky network.", tags: ["bug-fix", "auth"], importance: 0.8 })`,
     annotations: {
-      title: 'Store Memory',
+      title: "Store Memory",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
       openWorldHint: false,
     },
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         content: {
-          type: 'string',
-          description: 'The memory content to store. Be specific: include context, reasoning, and outcome.',
+          type: "string",
+          description:
+            "The memory content to store. Be specific: include context, reasoning, and outcome.",
         },
         tags: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Tags to categorize the memory (e.g., ["project-name", "bug-fix", "auth"])',
+          type: "array",
+          items: { type: "string" },
+          description:
+            'Tags to categorize the memory (e.g., ["project-name", "bug-fix", "auth"])',
         },
         importance: {
-          type: 'number',
+          type: "number",
           minimum: 0,
           maximum: 1,
-          description: 'Importance score: 0.9+ critical decisions, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes',
+          description:
+            "Importance score: 0.9+ critical decisions, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes",
         },
         embedding: {
-          type: 'array',
-          items: { type: 'number' },
-          description: 'Optional embedding vector for semantic search (auto-generated if omitted)',
+          type: "array",
+          items: { type: "number" },
+          description:
+            "Optional embedding vector for semantic search (auto-generated if omitted)",
         },
         metadata: {
-          type: 'object',
-          description: 'Optional structured metadata (e.g., { files_modified: ["auth.ts"], error_type: "timeout" })',
+          type: "object",
+          description:
+            'Optional structured metadata (e.g., { files_modified: ["auth.ts"], error_type: "timeout" })',
         },
         timestamp: {
-          type: 'string',
-          description: 'Optional ISO timestamp (defaults to now)',
+          type: "string",
+          description: "Optional ISO timestamp (defaults to now)",
         },
       },
-      required: ['content'],
+      required: ["content"],
     },
     outputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         memory_id: {
-          type: 'string',
-          description: 'Unique ID of the stored memory (use this for associations)',
+          type: "string",
+          description:
+            "Unique ID of the stored memory (use this for associations)",
         },
         message: {
-          type: 'string',
-          description: 'Confirmation message',
+          type: "string",
+          description: "Confirmation message",
         },
       },
-      required: ['memory_id', 'message'],
+      required: ["memory_id", "message"],
     },
   },
   {
-    name: 'recall_memory',
-    title: 'Recall Memory',
+    name: "recall_memory",
+    title: "Recall Memory",
     description: `Search and retrieve relevant memories using semantic search, keywords, tags, time filters, and graph expansion. This is the primary tool for accessing stored knowledge.
 
 **When to use:**
@@ -357,164 +378,182 @@ const tools: Tool[] = [
 - recall_memory({ query: "What is Sarah's sister's job?", expand_entities: true })  // Multi-hop
 - recall_memory({ query: "Python style preferences", language: "python", context: "coding-style" })`,
     annotations: {
-      title: 'Recall Memory',
+      title: "Recall Memory",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         query: {
-          type: 'string',
-          description: 'Semantic search query (natural language). Describe what you\'re looking for.',
+          type: "string",
+          description:
+            "Semantic search query (natural language). Describe what you're looking for.",
         },
         queries: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Multiple queries for broader recall. Results are deduplicated server-side.',
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Multiple queries for broader recall. Results are deduplicated server-side.",
         },
         embedding: {
-          type: 'array',
-          items: { type: 'number' },
-          description: 'Optional embedding vector for direct similarity search',
+          type: "array",
+          items: { type: "number" },
+          description: "Optional embedding vector for direct similarity search",
         },
         limit: {
-          type: 'integer',
+          type: "integer",
           minimum: 1,
           maximum: 50,
           default: 5,
-          description: 'Max memories to return (default: 5, increase for broader context)',
+          description:
+            "Max memories to return (default: 5, increase for broader context)",
         },
         time_query: {
-          type: 'string',
-          description: 'Natural language time filter: "today", "yesterday", "last week", "last 30 days"',
+          type: "string",
+          description:
+            'Natural language time filter: "today", "yesterday", "last week", "last 30 days"',
         },
         start: {
-          type: 'string',
-          description: 'ISO timestamp lower bound (alternative to time_query)',
+          type: "string",
+          description: "ISO timestamp lower bound (alternative to time_query)",
         },
         end: {
-          type: 'string',
-          description: 'ISO timestamp upper bound',
+          type: "string",
+          description: "ISO timestamp upper bound",
         },
         tags: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Filter by tags. Use project name as first tag for scoping.',
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Filter by tags. Use project name as first tag for scoping.",
         },
         tag_mode: {
-          type: 'string',
-          enum: ['any', 'all'],
-          description: '"any" matches memories with any tag (default), "all" requires all tags',
+          type: "string",
+          enum: ["any", "all"],
+          description:
+            '"any" matches memories with any tag (default), "all" requires all tags',
         },
         tag_match: {
-          type: 'string',
-          enum: ['exact', 'prefix'],
-          description: '"exact" for exact tag match (default), "prefix" for starts-with matching',
+          type: "string",
+          enum: ["exact", "prefix"],
+          description:
+            '"exact" for exact tag match (default), "prefix" for starts-with matching',
         },
         expand_entities: {
-          type: 'boolean',
-          description: 'Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. Use for "What is X\'s sister\'s job?" type questions.',
+          type: "boolean",
+          description:
+            "Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. Use for \"What is X's sister's job?\" type questions.",
         },
         expand_relations: {
-          type: 'boolean',
-          description: 'Follow graph relationships from seed results to find related memories.',
+          type: "boolean",
+          description:
+            "Follow graph relationships from seed results to find related memories.",
         },
         auto_decompose: {
-          type: 'boolean',
-          description: 'Auto-extract entities and topics from query to generate supplementary searches.',
+          type: "boolean",
+          description:
+            "Auto-extract entities and topics from query to generate supplementary searches.",
         },
         expansion_limit: {
-          type: 'integer',
+          type: "integer",
           minimum: 1,
           maximum: 500,
           default: 25,
-          description: 'Max total expanded memories (default: 25)',
+          description: "Max total expanded memories (default: 25)",
         },
         relation_limit: {
-          type: 'integer',
+          type: "integer",
           minimum: 1,
           maximum: 200,
           default: 5,
-          description: 'Max relations to follow per seed memory (default: 5)',
+          description: "Max relations to follow per seed memory (default: 5)",
         },
         expand_min_importance: {
-          type: 'number',
+          type: "number",
           minimum: 0,
           maximum: 1,
-          description: 'Minimum importance score for expanded results. Filters out low-relevance memories during graph/entity expansion. Recommended: 0.3-0.5 for broad context, 0.6-0.8 for focused results. Seed results are never filtered, only expanded ones.',
+          description:
+            "Minimum importance score for expanded results. Filters out low-relevance memories during graph/entity expansion. Recommended: 0.3-0.5 for broad context, 0.6-0.8 for focused results. Seed results are never filtered, only expanded ones.",
         },
         expand_min_strength: {
-          type: 'number',
+          type: "number",
           minimum: 0,
           maximum: 1,
-          description: 'Minimum relation strength to follow during graph expansion. Only traverses edges above this threshold. Recommended: 0.3 for exploratory, 0.6+ for high-confidence connections only. Does not affect entity expansion.',
+          description:
+            "Minimum relation strength to follow during graph expansion. Only traverses edges above this threshold. Recommended: 0.3 for exploratory, 0.6+ for high-confidence connections only. Does not affect entity expansion.",
         },
         context: {
-          type: 'string',
-          description: 'Context label (e.g., "coding-style", "architecture"). Boosts matching preferences.',
+          type: "string",
+          description:
+            'Context label (e.g., "coding-style", "architecture"). Boosts matching preferences.',
         },
         language: {
-          type: 'string',
-          description: 'Programming language hint (e.g., "python", "typescript"). Prioritizes language-specific memories.',
+          type: "string",
+          description:
+            'Programming language hint (e.g., "python", "typescript"). Prioritizes language-specific memories.',
         },
         active_path: {
-          type: 'string',
-          description: 'Current file path for language auto-detection (e.g., "src/auth.ts")',
+          type: "string",
+          description:
+            'Current file path for language auto-detection (e.g., "src/auth.ts")',
         },
         context_tags: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Priority tags to boost in results (e.g., ["coding-style", "preferences"])',
+          type: "array",
+          items: { type: "string" },
+          description:
+            'Priority tags to boost in results (e.g., ["coding-style", "preferences"])',
         },
         context_types: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Priority memory types to boost (e.g., ["Style", "Preference"])',
+          type: "array",
+          items: { type: "string" },
+          description:
+            'Priority memory types to boost (e.g., ["Style", "Preference"])',
         },
         priority_ids: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Specific memory IDs to ensure are included in results',
+          type: "array",
+          items: { type: "string" },
+          description: "Specific memory IDs to ensure are included in results",
         },
       },
     },
     outputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         count: {
-          type: 'integer',
-          description: 'Number of memories returned',
+          type: "integer",
+          description: "Number of memories returned",
         },
         results: {
-          type: 'array',
-          description: 'Array of matching memories with scores',
+          type: "array",
+          description: "Array of matching memories with scores",
           items: {
-            type: 'object',
+            type: "object",
             properties: {
-              memory_id: { type: 'string' },
-              content: { type: 'string' },
-              tags: { type: 'array', items: { type: 'string' } },
-              importance: { type: 'number' },
-              final_score: { type: 'number' },
-              match_type: { type: 'string' },
-              created_at: { type: 'string' },
+              memory_id: { type: "string" },
+              content: { type: "string" },
+              tags: { type: "array", items: { type: "string" } },
+              importance: { type: "number" },
+              final_score: { type: "number" },
+              match_type: { type: "string" },
+              created_at: { type: "string" },
             },
           },
         },
         dedup_removed: {
-          type: 'integer',
-          description: 'Number of duplicate results removed (when using multiple queries)',
+          type: "integer",
+          description:
+            "Number of duplicate results removed (when using multiple queries)",
         },
       },
-      required: ['count', 'results'],
+      required: ["count", "results"],
     },
   },
   {
-    name: 'associate_memories',
-    title: 'Associate Memories',
+    name: "associate_memories",
+    title: "Associate Memories",
     description: `Create a typed relationship between two memories. This builds a knowledge graph that improves recall by surfacing related context.
 
 **When to use:**
@@ -540,67 +579,69 @@ const tools: Tool[] = [
 - associate_memories({ memory1_id: "bug-fix-123", memory2_id: "feature-456", type: "RELATES_TO", strength: 0.9 })
 - associate_memories({ memory1_id: "new-decision", memory2_id: "old-decision", type: "EVOLVED_INTO", strength: 0.8 })`,
     annotations: {
-      title: 'Associate Memories',
+      title: "Associate Memories",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         memory1_id: {
-          type: 'string',
-          description: 'ID of the source memory (from store_memory response or recall results)',
+          type: "string",
+          description:
+            "ID of the source memory (from store_memory response or recall results)",
         },
         memory2_id: {
-          type: 'string',
-          description: 'ID of the target memory to link to',
+          type: "string",
+          description: "ID of the target memory to link to",
         },
         type: {
-          type: 'string',
+          type: "string",
           enum: [
-            'RELATES_TO',
-            'LEADS_TO',
-            'OCCURRED_BEFORE',
-            'PREFERS_OVER',
-            'EXEMPLIFIES',
-            'CONTRADICTS',
-            'REINFORCES',
-            'INVALIDATED_BY',
-            'EVOLVED_INTO',
-            'DERIVED_FROM',
-            'PART_OF',
+            "RELATES_TO",
+            "LEADS_TO",
+            "OCCURRED_BEFORE",
+            "PREFERS_OVER",
+            "EXEMPLIFIES",
+            "CONTRADICTS",
+            "REINFORCES",
+            "INVALIDATED_BY",
+            "EVOLVED_INTO",
+            "DERIVED_FROM",
+            "PART_OF",
           ],
-          description: 'Relationship type (see tool description for meanings)',
+          description: "Relationship type (see tool description for meanings)",
         },
         strength: {
-          type: 'number',
+          type: "number",
           minimum: 0,
           maximum: 1,
-          description: 'Relationship strength: 0.9+ direct causation, 0.7-0.9 strong relation, 0.5-0.7 moderate',
+          description:
+            "Relationship strength: 0.9+ direct causation, 0.7-0.9 strong relation, 0.5-0.7 moderate",
         },
       },
-      required: ['memory1_id', 'memory2_id', 'type', 'strength'],
+      required: ["memory1_id", "memory2_id", "type", "strength"],
     },
     outputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         success: {
-          type: 'boolean',
-          description: 'Whether the association was created',
+          type: "boolean",
+          description: "Whether the association was created",
         },
         message: {
-          type: 'string',
-          description: 'Confirmation message',
+          type: "string",
+          description: "Confirmation message",
         },
       },
-      required: ['success', 'message'],
+      required: ["success", "message"],
     },
   },
   {
-    name: 'update_memory',
-    title: 'Update Memory',
+    name: "update_memory",
+    title: "Update Memory",
     description: `Update an existing memory's content, tags, importance, or metadata. Use this to correct or enhance memories rather than storing duplicates.
 
 **When to use:**
@@ -614,81 +655,82 @@ const tools: Tool[] = [
 - update_memory({ memory_id: "abc123", tags: ["project-x", "critical", "auth"] })  // Add tags
 - update_memory({ memory_id: "abc123", content: "Updated: PostgreSQL chosen for ACID + team expertise" })`,
     annotations: {
-      title: 'Update Memory',
+      title: "Update Memory",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         memory_id: {
-          type: 'string',
-          description: 'ID of the memory to update (from store_memory or recall results)',
+          type: "string",
+          description:
+            "ID of the memory to update (from store_memory or recall results)",
         },
         content: {
-          type: 'string',
-          description: 'New content (replaces existing)',
+          type: "string",
+          description: "New content (replaces existing)",
         },
         tags: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'New tags (replaces existing)',
+          type: "array",
+          items: { type: "string" },
+          description: "New tags (replaces existing)",
         },
         importance: {
-          type: 'number',
+          type: "number",
           minimum: 0,
           maximum: 1,
-          description: 'New importance score',
+          description: "New importance score",
         },
         metadata: {
-          type: 'object',
-          description: 'New metadata (merged with existing)',
+          type: "object",
+          description: "New metadata (merged with existing)",
         },
         timestamp: {
-          type: 'string',
-          description: 'Override creation timestamp',
+          type: "string",
+          description: "Override creation timestamp",
         },
         updated_at: {
-          type: 'string',
-          description: 'Explicit update timestamp',
+          type: "string",
+          description: "Explicit update timestamp",
         },
         last_accessed: {
-          type: 'string',
-          description: 'Last access timestamp',
+          type: "string",
+          description: "Last access timestamp",
         },
         type: {
-          type: 'string',
-          description: 'Memory type classification',
+          type: "string",
+          description: "Memory type classification",
         },
         confidence: {
-          type: 'number',
+          type: "number",
           minimum: 0,
           maximum: 1,
-          description: 'Confidence score for the memory',
+          description: "Confidence score for the memory",
         },
       },
-      required: ['memory_id'],
+      required: ["memory_id"],
     },
     outputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         memory_id: {
-          type: 'string',
-          description: 'ID of the updated memory',
+          type: "string",
+          description: "ID of the updated memory",
         },
         message: {
-          type: 'string',
-          description: 'Confirmation message',
+          type: "string",
+          description: "Confirmation message",
         },
       },
-      required: ['memory_id', 'message'],
+      required: ["memory_id", "message"],
     },
   },
   {
-    name: 'delete_memory',
-    title: 'Delete Memory',
+    name: "delete_memory",
+    title: "Delete Memory",
     description: `Permanently delete a memory and its embedding. Use sparingly - consider updating instead.
 
 **When to use:**
@@ -700,40 +742,41 @@ const tools: Tool[] = [
 **Example:**
 - delete_memory({ memory_id: "abc123" })`,
     annotations: {
-      title: 'Delete Memory',
+      title: "Delete Memory",
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: true,
       openWorldHint: false,
     },
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         memory_id: {
-          type: 'string',
-          description: 'ID of the memory to delete (from store_memory or recall results)',
+          type: "string",
+          description:
+            "ID of the memory to delete (from store_memory or recall results)",
         },
       },
-      required: ['memory_id'],
+      required: ["memory_id"],
     },
     outputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         memory_id: {
-          type: 'string',
-          description: 'ID of the deleted memory',
+          type: "string",
+          description: "ID of the deleted memory",
         },
         message: {
-          type: 'string',
-          description: 'Confirmation message',
+          type: "string",
+          description: "Confirmation message",
         },
       },
-      required: ['memory_id', 'message'],
+      required: ["memory_id", "message"],
     },
   },
   {
-    name: 'check_database_health',
-    title: 'Check Database Health',
+    name: "check_database_health",
+    title: "Check Database Health",
     description: `Check the health status of the AutoMem service and its connected databases (FalkorDB graph + Qdrant vectors).
 
 **When to use:**
@@ -744,38 +787,38 @@ const tools: Tool[] = [
 **Example:**
 - check_database_health({})`,
     annotations: {
-      title: 'Check Database Health',
+      title: "Check Database Health",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {},
     },
     outputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         status: {
-          type: 'string',
-          enum: ['healthy', 'error'],
-          description: 'Overall health status',
+          type: "string",
+          enum: ["healthy", "error"],
+          description: "Overall health status",
         },
         backend: {
-          type: 'string',
-          description: 'Backend type (automem)',
+          type: "string",
+          description: "Backend type (automem)",
         },
         statistics: {
-          type: 'object',
-          description: 'Database statistics (memory counts, etc.)',
+          type: "object",
+          description: "Database statistics (memory counts, etc.)",
         },
         error: {
-          type: 'string',
-          description: 'Error message if status is error',
+          type: "string",
+          description: "Error message if status is error",
         },
       },
-      required: ['status', 'backend'],
+      required: ["status", "backend"],
     },
   },
 ];
@@ -789,22 +832,65 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case 'store_memory': {
+      case "store_memory": {
         const storeArgs = args as unknown as StoreMemoryArgs;
+
+        // Content size governance: warn if content exceeds recommended size
+        const SOFT_LIMIT = 500;
+        const HARD_LIMIT = 2000;
+        const contentLength = storeArgs.content?.length || 0;
+        let sizeWarning = "";
+
+        if (contentLength > HARD_LIMIT) {
+          sizeWarning = `\n⚠️ Content length (${contentLength} chars) exceeds hard limit (${HARD_LIMIT}). Consider splitting into multiple memories.`;
+        } else if (contentLength > SOFT_LIMIT) {
+          sizeWarning = `\n📝 Content length (${contentLength} chars) exceeds recommended size (${SOFT_LIMIT}). Backend may auto-summarize.`;
+        }
+
         const result = await client.storeMemory(storeArgs);
-        const output = { memory_id: result.memory_id, message: result.message };
+
+        // Build response text
+        let responseText = `Memory stored successfully!\n\nMemory ID: ${result.memory_id}`;
+        if (result.message) {
+          responseText += `\nMessage: ${result.message}`;
+        }
+
+        // Include summarization info if present
+        const summarized = (result as any).summarized;
+        const originalLength = (result as any).original_length;
+        const summarizedLength = (result as any).summarized_length;
+        if (summarized) {
+          responseText += `\n📝 Auto-summarized: ${originalLength} → ${summarizedLength} chars`;
+        } else if (sizeWarning) {
+          responseText += sizeWarning;
+        }
+
+        const output = {
+          memory_id: result.memory_id,
+          message: result.message,
+          ...(summarized && {
+            summarized,
+            original_length: originalLength,
+            summarized_length: summarizedLength,
+          }),
+          ...(contentLength > SOFT_LIMIT && {
+            content_length: contentLength,
+            size_warning: true,
+          }),
+        };
+
         return {
           content: [
             {
-              type: 'text',
-              text: `Memory stored successfully!\n\nMemory ID: ${result.memory_id}\nMessage: ${result.message}`,
+              type: "text",
+              text: responseText,
             },
           ],
           structuredContent: output,
         };
       }
 
-      case 'recall_memory': {
+      case "recall_memory": {
         const recallArgs = args as unknown as RecallMemoryArgs;
 
         let merged: any[] = [];
@@ -817,7 +903,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           try {
             const [primary, tagOnly] = await Promise.all([
               client.recallMemory(recallArgs),
-              client.searchByTag({ tags: recallArgs.tags, limit: recallArgs.limit || 5 }).catch(() => ({ results: [] })),
+              client
+                .searchByTag({
+                  tags: recallArgs.tags,
+                  limit: recallArgs.limit || 5,
+                })
+                .catch(() => ({ results: [] })),
             ]);
 
             merged = primary.results || [];
@@ -826,7 +917,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             expansion = primary.expansion;
 
             // Merge tag-only results
-            const byId = new Map<string, typeof merged[number]>();
+            const byId = new Map<string, (typeof merged)[number]>();
             for (const r of merged) byId.set(r.memory.memory_id, r);
 
             for (const t of tagOnly.results || []) {
@@ -840,8 +931,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             // Sort by final_score desc if present, otherwise by importance desc
             merged.sort((a, b) => {
-              const as = typeof a.final_score === 'number' ? a.final_score : (a.memory.importance ?? 0);
-              const bs = typeof b.final_score === 'number' ? b.final_score : (b.memory.importance ?? 0);
+              const as =
+                typeof a.final_score === "number"
+                  ? a.final_score
+                  : a.memory.importance ?? 0;
+              const bs =
+                typeof b.final_score === "number"
+                  ? b.final_score
+                  : b.memory.importance ?? 0;
               return bs - as;
             });
 
@@ -866,8 +963,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return {
             content: [
               {
-                type: 'text',
-                text: 'No memories found matching your query.',
+                type: "text",
+                text: "No memories found matching your query.",
               },
             ],
             structuredContent: emptyOutput,
@@ -877,22 +974,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const memoriesText = merged
           .map((item, index) => {
             const memory = item.memory;
-            const tags = memory.tags?.length ? ` [${memory.tags.join(', ')}]` : '';
-            const importance = typeof memory.importance === 'number' ? ` (importance: ${memory.importance})` : '';
-            const score = typeof item.final_score === 'number' ? ` score=${item.final_score.toFixed(3)}` : '';
-            const matchType = item.match_type ? ` [${item.match_type}]` : '';
-            const relationNote = Array.isArray((item as any).relations) && (item as any).relations.length
-              ? ` relations=${(item as any).relations.length}`
-              : '';
-            const dedupNote = Array.isArray(item.deduped_from) && item.deduped_from.length
-              ? ` (deduped x${item.deduped_from.length})`
-              : '';
+            const tags = memory.tags?.length
+              ? ` [${memory.tags.join(", ")}]`
+              : "";
+            const importance =
+              typeof memory.importance === "number"
+                ? ` (importance: ${memory.importance})`
+                : "";
+            const score =
+              typeof item.final_score === "number"
+                ? ` score=${item.final_score.toFixed(3)}`
+                : "";
+            const matchType = item.match_type ? ` [${item.match_type}]` : "";
+            const relationNote =
+              Array.isArray((item as any).relations) &&
+              (item as any).relations.length
+                ? ` relations=${(item as any).relations.length}`
+                : "";
+            const dedupNote =
+              Array.isArray(item.deduped_from) && item.deduped_from.length
+                ? ` (deduped x${item.deduped_from.length})`
+                : "";
             const entityNote = item.expanded_from_entity
               ? ` [via entity: ${item.expanded_from_entity}]`
-              : '';
-            return `${index + 1}. ${memory.content}${tags}${importance}${score}${matchType}${relationNote}${entityNote}${dedupNote}\n   ID: ${memory.memory_id}\n   Created: ${memory.created_at}`;
+              : "";
+            return `${index + 1}. ${
+              memory.content
+            }${tags}${importance}${score}${matchType}${relationNote}${entityNote}${dedupNote}\n   ID: ${
+              memory.memory_id
+            }\n   Created: ${memory.created_at}`;
           })
-          .join('\n\n');
+          .join("\n\n");
 
         // Build metadata notes
         const notes: string[] = [];
@@ -900,12 +1012,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           notes.push(`${dedupRemoved} duplicates removed`);
         }
         if (entityExpansion?.enabled && entityExpansion.expanded_count > 0) {
-          notes.push(`${entityExpansion.expanded_count} via entity expansion (${entityExpansion.entities_found?.join(', ') || 'entities found'})`);
+          notes.push(
+            `${entityExpansion.expanded_count} via entity expansion (${
+              entityExpansion.entities_found?.join(", ") || "entities found"
+            })`
+          );
         }
         if (expansion?.enabled && expansion.expanded_count > 0) {
           notes.push(`${expansion.expanded_count} via relation expansion`);
         }
-        const notesSuffix = notes.length > 0 ? ` (${notes.join('; ')})` : '';
+        const notesSuffix = notes.length > 0 ? ` (${notes.join("; ")})` : "";
 
         // Build structured output (must match outputSchema: results, count, dedup_removed)
         const recallOutput = {
@@ -925,7 +1041,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: `Found ${merged.length} memories${notesSuffix}:\n\n${memoriesText}`,
             },
           ],
@@ -933,14 +1049,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'associate_memories': {
+      case "associate_memories": {
         const associateArgs = args as unknown as AssociateMemoryArgs;
         const result = await client.associateMemories(associateArgs);
         const output = { success: true, message: result.message };
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: `Association created successfully!\n\nMessage: ${result.message}`,
             },
           ],
@@ -948,14 +1064,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'update_memory': {
+      case "update_memory": {
         const updateArgs = args as unknown as UpdateMemoryArgs;
         const result = await client.updateMemory(updateArgs);
-        const output = { memory_id: result.memory_id, message: `Memory ${result.memory_id} updated successfully!` };
+        const output = {
+          memory_id: result.memory_id,
+          message: `Memory ${result.memory_id} updated successfully!`,
+        };
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: `Memory ${result.memory_id} updated successfully!`,
             },
           ],
@@ -963,14 +1082,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'delete_memory': {
+      case "delete_memory": {
         const deleteArgs = args as unknown as DeleteMemoryArgs;
         const result = await client.deleteMemory(deleteArgs);
-        const output = { memory_id: result.memory_id, message: `Memory ${result.memory_id} deleted successfully!` };
+        const output = {
+          memory_id: result.memory_id,
+          message: `Memory ${result.memory_id} deleted successfully!`,
+        };
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: `Memory ${result.memory_id} deleted successfully!`,
             },
           ],
@@ -978,11 +1100,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'check_database_health': {
+      case "check_database_health": {
         const health = await client.checkHealth();
-        const statusEmoji = health.status === 'healthy' ? '✅' : '❌';
-        
-        let statsText = '';
+        const statusEmoji = health.status === "healthy" ? "✅" : "❌";
+
+        let statsText = "";
         if (health.statistics.falkordb) {
           statsText += `\nFalkorDB: ${health.statistics.falkordb}`;
         }
@@ -996,7 +1118,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           statsText += `\nTimestamp: ${health.statistics.timestamp}`;
         }
 
-        const errorText = health.error ? `\nError: ${health.error}` : '';
+        const errorText = health.error ? `\nError: ${health.error}` : "";
 
         const output = {
           status: health.status,
@@ -1008,7 +1130,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: `${statusEmoji} AutoMem Health Status\n\nStatus: ${health.status}\nBackend: ${health.backend}${statsText}${errorText}`,
             },
           ],
@@ -1020,11 +1142,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Unknown tool: ${name}`);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error occurred";
     return {
       content: [
         {
-          type: 'text',
+          type: "text",
           text: `Error: ${errorMessage}`,
         },
       ],
@@ -1037,12 +1160,12 @@ async function main() {
   installStdioErrorGuards();
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  if (process.env.AUTOMEM_LOG_LEVEL === 'debug') {
-    console.error('AutoMem MCP server running');
+  if (process.env.AUTOMEM_LOG_LEVEL === "debug") {
+    console.error("AutoMem MCP server running");
   }
 }
 
 main().catch((error) => {
-  console.error('Server error:', error);
+  console.error("Server error:", error);
   process.exit(1);
 });

@@ -94,12 +94,25 @@ mcp_memory_recall_memory({
 - Already well-documented information
 - Temporary workarounds (unless they become patterns)
 - Sensitive data (credentials, personal info)
+- Wall-of-text memories (split into atomic pieces)
+
+## CONTENT SIZE GUIDELINES
+
+- **Target**: 150-300 characters (one meaningful paragraph)
+- **Maximum**: 500 characters (auto-summarized if exceeded)
+- **Hard limit**: 2000 characters (rejected)
+- **Format**: "Brief title. Context and reasoning. Outcome or impact."
+
+If you need more detail:
+- Split into multiple atomic memories
+- Use metadata for structured data (files modified, error signatures, etc.)
+- Create associations between related smaller memories
 
 ## STORAGE FORMAT
 
 ```javascript
 mcp_memory_store_memory({
-  content: "[TYPE] Brief title. Context and reasoning. Outcome or impact.",
+  content: "Brief title. Context and reasoning. Outcome or impact.",  // Keep under 300 chars
   tags: [
     "[project-name]",      // Always include
     "[type]",              // decision, pattern, correction, preference, insight

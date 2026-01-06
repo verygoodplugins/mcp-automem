@@ -246,6 +246,17 @@ mcp_memory_recall_memory({
 })
 ```
 
+## Content Size Guidelines
+
+**Target**: 150-300 characters (one meaningful paragraph)
+**Maximum**: 500 characters (auto-summarized if exceeded)
+**Hard limit**: 2000 characters (rejected)
+
+If you need more detail:
+- Split into multiple atomic memories with associations
+- Use metadata for structured data (files, error signatures, etc.)
+- Create associations between related smaller memories
+
 ## Content Structure
 
 Format: `Brief title. Context and details. Impact/outcome.`
@@ -260,6 +271,7 @@ Format: `Brief title. Context and details. Impact/outcome.`
 - Missing context: "Changed config" (what config? why?)
 - Secrets: Never store API keys, passwords, tokens
 - Type prefixes in content: Don't use `[DECISION]` or `[BUG-FIX]` - use the `type` field instead
+- Wall-of-text memories: If you're writing a paragraph, break it up
 
 ## Tool Reference
 

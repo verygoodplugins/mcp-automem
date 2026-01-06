@@ -35,10 +35,17 @@ mcp_memory_store_memory({
 - **Habit** - Regular behaviors or workflows
 - **Context** - General information (default)
 
+**Content Size Guidelines:**
+- Target: 150-300 characters (one meaningful paragraph)
+- Maximum: 500 characters (auto-summarized if exceeded)
+- Hard limit: 2000 characters (rejected)
+- If more detail needed: split into multiple memories with associations
+
 Guidelines:
 - Weave recalled context naturally; avoid meta commentary.
 - Prefer high-signal memories (decisions, root causes, reusable patterns).
 - Never store secrets or credentials.
+- Avoid wall-of-text memories; keep them atomic and focused.
 
 Optional: Link related memories for richer context:
 

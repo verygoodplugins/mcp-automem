@@ -104,8 +104,9 @@ Claude summarizes if needed:
 
 1. **Let Claude decide** - The memory rules guide Claude on what's worth storing
 2. **Use project tags** - Always include project name in tags for filtering
-3. **Check periodically** - Ask "What do you remember about this project?"
-4. **Clean up** - Use `delete_memory` for outdated information
+3. **Keep memories concise** - Target 150-300 chars; max 500 chars (auto-summarized beyond that)
+4. **Check periodically** - Ask "What do you remember about this project?"
+5. **Clean up** - Use `delete_memory` for outdated information
 
 ## Troubleshooting
 
