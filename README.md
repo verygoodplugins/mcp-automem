@@ -64,7 +64,7 @@ _Git commits, builds, and deployments automatically stored to memory_
 
 ### OpenAI Codex with Memory Rules
 
-_OpenAI Codex uses config.toml to automatically recall and store memories_
+OpenAI Codex uses config.toml to automatically recall and store memories
 
 ### Your AI Learns Your Code Style
 

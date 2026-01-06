@@ -321,14 +321,14 @@ _Claude automatically using memory tools with custom instructions_
 
 _Without the prompt:_
 
-```
+```bash
 User: "Add auth to the API"
 Claude: [Generates generic JWT implementation]
 ```
 
 _With the prompt:_
 
-```
+```bash
 User: "Add auth to the API"
 Claude: [Recalls: "User prefers bcrypt + JWT", "Express middleware pattern"]
        [Generates implementation matching your established patterns]
@@ -390,8 +390,7 @@ npx @verygoodplugins/mcp-automem cursor --dir .cursor/rules
 For memory-first behavior across **ALL** Cursor projects, add this to `Cursor Settings > General > Rules for AI`:
 
 <details>
-
-<summary>**Click to expand: Global Memory-First Rules for Cursor**</summary>
+<summary>Click to expand: Global Memory-First Rules for Cursor</summary>
 
 ## Memory-First Development
 
@@ -582,7 +581,7 @@ This teaches Claude when to recall (session start, before decisions) and what to
 
 Ask Claude Code:
 
-```bash
+```
 Check the health of the AutoMem service
 ```
 
@@ -664,7 +663,7 @@ npx @verygoodplugins/mcp-automem codex
 
 This creates or updates `AGENTS.md` with an AutoMem section tailored to your project.
 
-`````bash
+````bash
 
 ### 4. Restart Codex
 
@@ -677,7 +676,7 @@ Ask Codex:
 
 Check the health of the AutoMem service
 
-````bash
+```
 
 You should see connection status for FalkorDB and Qdrant.
 
@@ -689,7 +688,7 @@ cd ~/Projects/my-app
 
 # Ask Codex to use memory
 codex "What were the key decisions made in this project last week?"
-`````
+````
 
 **In the IDE:**
 
