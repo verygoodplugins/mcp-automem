@@ -44,8 +44,9 @@ jobs:
 
       - run: npm ci
 
-      - name: Audit dependencies
-        run: npm audit --audit-level=high
+      - name: Audit dependencies (informational)
+        run: npm audit --audit-level=high || true
 
       - name: Check for known vulnerabilities
+        # Uses .nsprc for allowlisting known unfixed vulnerabilities
         run: npx better-npm-audit@3.11.0 audit --level high
