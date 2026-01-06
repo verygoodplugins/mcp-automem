@@ -48,4 +48,4 @@ jobs:
         run: npm audit --audit-level=high
 
       - name: Check for known vulnerabilities
-        run: npx better-npm-audit@3.2.2 audit --level high
+        run: npx better-npm-audit@3.11.0 audit --level high
