@@ -7,6 +7,7 @@ Simple integration guide for AutoMem with Claude Code.
 **Trust Claude + good instructions > automated hooks**
 
 Claude has direct MCP access and can judge what's worth storing better than automated capture hooks. This integration provides:
+
 1. **MCP permissions** - So Claude can use memory tools without asking
 2. **Memory rules** - Instructions in CLAUDE.md teaching Claude when to store/recall
 
@@ -53,6 +54,7 @@ To let Claude use memory tools without asking, add to `~/.claude/settings.json`:
 ```
 
 Or use our template:
+
 ```bash
 cp templates/claude-code/settings.json ~/.claude/settings.json
 ```
@@ -66,6 +68,7 @@ cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md
 ```
 
 This teaches Claude:
+
 - When to recall memories (session start, before decisions)
 - What to store (decisions, patterns, insights, bug fixes)
 - How to score importance (0.9+ critical, 0.7-0.8 important)
@@ -74,19 +77,25 @@ This teaches Claude:
 ## How It Works
 
 ### Session Start
+
 Claude automatically recalls:
+
 - Recent project context (last 7 days)
 - User preferences and workflows
 - Similar errors/solutions if debugging
 
 ### During Work
+
 Claude stores significant events:
+
 - Architecture decisions (importance: 0.9)
 - Bug fixes with root cause (importance: 0.8)
 - Patterns and insights (importance: 0.7)
 
 ### Session End
+
 Claude summarizes if needed:
+
 - Multiple files modified
 - New features implemented
 - Important decisions made
@@ -104,17 +113,20 @@ Claude summarizes if needed:
 
 1. **Let Claude decide** - The memory rules guide Claude on what's worth storing
 2. **Use project tags** - Always include project name in tags for filtering
-3. **Check periodically** - Ask "What do you remember about this project?"
-4. **Clean up** - Use `delete_memory` for outdated information
+3. **Keep memories concise** - Target 150-300 chars; max 500 chars (auto-summarized beyond that)
+4. **Check periodically** - Ask "What do you remember about this project?"
+5. **Clean up** - Use `delete_memory` for outdated information
 
 ## Troubleshooting
 
 ### Memories not storing
+
 - Check MCP server is configured in `~/.claude.json`
 - Verify AutoMem service is running: `curl $AUTOMEM_ENDPOINT/health`
 - Check permissions in `~/.claude/settings.json`
 
 ### Recall not finding results
+
 - Ensure memories are tagged with project name
 - Try broader queries or fewer tag filters
 - Check time range isn't too restrictive

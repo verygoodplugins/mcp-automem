@@ -1,0 +1,7 @@
+{
+  "1104219": {
+    "active": true,
+    "notes": "GHSA-8r9q-7v3j-jr4g: ReDoS in @modelcontextprotocol/sdk - no fix available yet from Anthropic. Remove this entry once patched. Tracking: https://github.com/modelcontextprotocol/typescript-sdk/issues",
+    "expiry": "2025-02-06"
+  }
+}
