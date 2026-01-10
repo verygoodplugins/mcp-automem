@@ -1,0 +1,177 @@
+name: Auto-Fix with Codex
+
+# Triggers:
+# 1. Automatically when CI fails (if enabled)
+# 2. Manually via workflow_dispatch
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Custom instructions (optional - uses default fix prompt if empty)'
+        required: false
+        type: string
+      branch:
+        description: 'Branch to fix (defaults to current)'
+        required: false
+        type: string
+
+jobs:
+  auto-fix:
+    # Only run on failure (for workflow_run) or always (for manual dispatch)
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    
+    steps:
+      - name: Determine branch
+        id: branch
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            BRANCH="${{ inputs.branch || github.ref_name }}"
+          else
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+          fi
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "🎯 Target branch: $BRANCH"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.branch.outputs.branch }}
+          fetch-depth: 0
+
+      - name: Setup Codex Auth
+        run: |
+          mkdir -p ~/.codex
+          echo '${{ secrets.CODEX_AUTH_JSON }}' > ~/.codex/auth.json
+          echo "✅ Codex auth configured"
+
+      - name: Gather failure context
+        id: context
+        if: github.event_name == 'workflow_run'
+        run: |
+          echo "📋 Fetching CI failure logs..."
+          gh run view ${{ github.event.workflow_run.id }} --log-failed > /tmp/ci-failures.log 2>&1 || true
+          
+          echo "📋 Fetching CodeRabbit comments..."
+          PR_NUMBER=$(gh pr list --head "${{ steps.branch.outputs.branch }}" --json number -q '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr view "$PR_NUMBER" --json comments -q '.comments[] | select(.author.login == "coderabbitai") | .body' > /tmp/coderabbit.txt 2>&1 || true
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          fi
+          
+          # Create context file for Codex
+          echo "# CI Failure Context" > /tmp/context.md
+          echo "" >> /tmp/context.md
+          if [ -s /tmp/ci-failures.log ]; then
+            echo "## Test Failures" >> /tmp/context.md
+            echo '```' >> /tmp/context.md
+            tail -200 /tmp/ci-failures.log >> /tmp/context.md
+            echo '```' >> /tmp/context.md
+          fi
+          if [ -s /tmp/coderabbit.txt ]; then
+            echo "" >> /tmp/context.md
+            echo "## CodeRabbit Comments" >> /tmp/context.md
+            cat /tmp/coderabbit.txt >> /tmp/context.md
+          fi
+          
+          echo "✅ Context gathered"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare prompt
+        id: prompt
+        run: |
+          if [ -n "${{ inputs.prompt }}" ]; then
+            # Manual dispatch with custom prompt
+            echo "${{ inputs.prompt }}" > /tmp/prompt.md
+          elif [ -f ".github/codex/prompts/fix-ci.md" ]; then
+            # Use repo's custom prompt
+            cat .github/codex/prompts/fix-ci.md > /tmp/prompt.md
+          else
+            # Default prompt
+            cat > /tmp/prompt.md << 'PROMPT'
+          Fix the CI failures in this repository.
+
+          Review the test output and any CodeRabbit comments, then make the minimal changes needed to:
+          1. Fix failing tests
+          2. Address linting errors
+          3. Fix type errors
+          4. Address CodeRabbit suggestions (if any)
+
+          Rules:
+          - Make surgical fixes only - do not refactor unrelated code
+          - Do not change the public API unless necessary for the fix
+          - Ensure all existing tests continue to pass
+          - Follow the existing code style and patterns
+          PROMPT
+          fi
+          
+          # Append context if available
+          if [ -f /tmp/context.md ]; then
+            echo "" >> /tmp/prompt.md
+            echo "---" >> /tmp/prompt.md
+            cat /tmp/context.md >> /tmp/prompt.md
+          fi
+          
+          echo "✅ Prompt prepared"
+          cat /tmp/prompt.md
+
+      - name: Run Codex
+        uses: openai/codex-action@v1
+        with:
+          prompt-file: /tmp/prompt.md
+          codex-args: '["--full-auto"]'
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ No changes made by Codex"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "✅ Codex made changes:"
+            git diff --stat
+          fi
+
+      - name: Commit and push
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "codex[bot]"
+          git config user.email "codex[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "fix: auto-fix CI failures
+
+          Applied by Codex in response to CI failure.
+          
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          [skip ci]"
+          git push
+          echo "✅ Changes pushed"
+
+      - name: Post summary
+        if: always()
+        run: |
+          if [ "${{ steps.changes.outputs.has_changes }}" == "true" ]; then
+            echo "## ✅ Codex Auto-Fix Complete" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Changes were pushed to \`${{ steps.branch.outputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The \`[skip ci]\` tag prevents immediate re-run. Remove it from the commit message to trigger CI." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ℹ️ No Changes Needed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Codex analyzed the failures but determined no code changes were necessary." >> $GITHUB_STEP_SUMMARY
+          fi
