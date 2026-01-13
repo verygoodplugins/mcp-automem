@@ -16,52 +16,65 @@
 #
 # npm Publishing:
 #   Uses Trusted Publishing (OIDC) - no secrets needed!
-#   Configure at: https://www.npmjs.com/package/@verygoodplugins/mcp-automem/access
+#   Configure at: https://www.npmjs.com/package/@verygoodplugins/mcp-{name}/access
 
 name: Release Please
 
 on:
-    push:
-        branches:
-            - main
+  push:
+    branches:
+      - main
 
 permissions:
-    contents: write
-    pull-requests: write
+  contents: write
+  pull-requests: write
 
 jobs:
-    release-please:
-        runs-on: ubuntu-latest
-        outputs:
-            release_created: ${{ steps.release.outputs.release_created }}
-            tag_name: ${{ steps.release.outputs.tag_name }}
-        steps:
-            - uses: googleapis/release-please-action@v4
-              id: release
-              with:
-                  config-file: release-please-config.json
-                  manifest-file: .release-please-manifest.json
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: node
 
-    # Publish to npm when a release is created
-    npm-publish:
-        needs: release-please
-        if: ${{ needs.release-please.outputs.release_created }}
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            id-token: write  # Required for npm Trusted Publishing (OIDC)
-        steps:
-            - uses: actions/checkout@v4
+  npm-publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
 
-            - uses: actions/setup-node@v4
-              with:
-                  node-version: "20"
-                  registry-url: "https://registry.npmjs.org"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
 
-            - run: npm ci
-            - run: npm run build
-            - run: npm test
-            
-            # Trusted Publishing: No NPM_TOKEN needed!
-            # Authentication happens via OIDC token exchange with npm
-            - run: npm publish --access public --provenance
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+      # Trusted Publishing: No NPM_TOKEN needed!
+      - run: npm publish --access public --provenance
+
+  announce:
+    needs: [release-please, npm-publish]
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Slack
+        if: ${{ vars.SLACK_WEBHOOK_URL }}
+        uses: slackapi/slack-github-action@v1
+        with:
+          webhook-url: ${{ vars.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "🚀 ${{ github.repository }} ${{ needs.release-please.outputs.tag_name }} released!\n\nhttps://github.com/${{ github.repository }}/releases/tag/${{ needs.release-please.outputs.tag_name }}"
+            }
