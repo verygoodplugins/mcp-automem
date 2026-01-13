@@ -11,7 +11,7 @@ npx @verygoodplugins/mcp-automem setup
 
 Your AI assistant now remembers everything. Forever. Across every conversation.
 
-Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex** - any MCP-compatible AI platform.
+Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex** - any MCP-compatible AI platform.
 
 ## The Problem We Solve
 
@@ -42,6 +42,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 | **Claude Desktop** | ✅ Full | 30 seconds |
 | **Cursor IDE**     | ✅ Full | 30 seconds |
 | **Claude Code**    | ✅ Full | 30 seconds |
+| **GitHub Copilot** | ✅ Full | 2 minutes  |
 | **OpenAI Codex**   | ✅ Full | 30 seconds |
 | **Any MCP client** | ✅ Full | 30 seconds |
 
