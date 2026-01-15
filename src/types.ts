@@ -153,8 +153,3 @@ export interface UpdateMemoryArgs {
 export interface DeleteMemoryArgs {
   memory_id: string;
 }
-
-export interface TagSearchArgs {
-  tags: string[];
-  limit?: number;
-}

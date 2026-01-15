@@ -1,6 +1,7 @@
-import type { AutoMemConfig, RecallResult, HealthStatus, StoreMemoryArgs, RecallMemoryArgs, AssociateMemoryArgs, UpdateMemoryArgs, DeleteMemoryArgs, TagSearchArgs } from './types.js';
+import type { AutoMemConfig, RecallResult, HealthStatus, StoreMemoryArgs, RecallMemoryArgs, AssociateMemoryArgs, UpdateMemoryArgs, DeleteMemoryArgs } from './types.js';
 export declare class AutoMemClient {
     private config;
+    private circuitBreaker;
     constructor(config: AutoMemConfig);
     private makeRequest;
     storeMemory(args: StoreMemoryArgs): Promise<{
@@ -21,6 +22,11 @@ export declare class AutoMemClient {
         memory_id: string;
         message: string;
     }>;
-    searchByTag(args: TagSearchArgs): Promise<RecallResult>;
+    getCircuitState(): {
+        state: string;
+        failureCount: number;
+        lastFailureTime: number;
+    };
+    resetCircuit(): void;
 }
 //# sourceMappingURL=automem-client.d.ts.map

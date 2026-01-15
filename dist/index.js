@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, GetPromptRequestSchema, ListToolsRequestSchema, ListPromptsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
 import { config } from "dotenv";
 import { runConfig, runSetup } from "./cli/setup.js";
 import { runClaudeCodeSetup } from "./cli/claude-code.js";
@@ -221,7 +221,7 @@ const clientConfig = {
     apiKey: AUTOMEM_API_KEY,
 };
 const client = new AutoMemClient(clientConfig);
-const server = new Server({ name: "mcp-automem", version: PACKAGE_VERSION }, { capabilities: { tools: {} } });
+const server = new Server({ name: "mcp-automem", version: PACKAGE_VERSION }, { capabilities: { tools: {}, prompts: {} } });
 const tools = [
     {
         name: "store_memory",
@@ -825,64 +825,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
             case "recall_memory": {
                 const recallArgs = args;
-                let merged = [];
-                let dedupRemoved = 0;
-                let entityExpansion = null;
-                let expansion = null;
-                // If tags are provided, fetch both endpoints in parallel for better performance
-                if (Array.isArray(recallArgs.tags) && recallArgs.tags.length > 0) {
-                    try {
-                        const [primary, tagOnly] = await Promise.all([
-                            client.recallMemory(recallArgs),
-                            client
-                                .searchByTag({
-                                tags: recallArgs.tags,
-                                limit: recallArgs.limit || 5,
-                            })
-                                .catch(() => ({ results: [] })),
-                        ]);
-                        merged = primary.results || [];
-                        dedupRemoved = primary.dedup_removed || 0;
-                        entityExpansion = primary.entity_expansion;
-                        expansion = primary.expansion;
-                        // Merge tag-only results
-                        const byId = new Map();
-                        for (const r of merged)
-                            byId.set(r.memory.memory_id, r);
-                        for (const t of tagOnly.results || []) {
-                            const id = t.memory.memory_id;
-                            if (!byId.has(id)) {
-                                byId.set(id, t);
-                            }
-                        }
-                        merged = Array.from(byId.values());
-                        // Sort by final_score desc if present, otherwise by importance desc
-                        merged.sort((a, b) => {
-                            const as = typeof a.final_score === "number"
-                                ? a.final_score
-                                : a.memory.importance ?? 0;
-                            const bs = typeof b.final_score === "number"
-                                ? b.final_score
-                                : b.memory.importance ?? 0;
-                            return bs - as;
-                        });
-                        // Enforce limit after merge
-                        if (recallArgs.limit && merged.length > recallArgs.limit) {
-                            merged = merged.slice(0, recallArgs.limit);
-                        }
-                    }
-                    catch (e) {
-                        // Non-fatal: if recall fails, return empty results
-                    }
-                }
-                else {
-                    // No tags provided, just do primary recall
-                    const primary = await client.recallMemory(recallArgs);
-                    merged = primary.results || [];
-                    dedupRemoved = primary.dedup_removed || 0;
-                    entityExpansion = primary.entity_expansion;
-                    expansion = primary.expansion;
-                }
+                const primary = await client.recallMemory(recallArgs);
+                const merged = primary.results || [];
+                const dedupRemoved = primary.dedup_removed || 0;
+                const entityExpansion = primary.entity_expansion;
+                const expansion = primary.expansion;
                 if (!merged || merged.length === 0) {
                     const emptyOutput = { results: [], count: 0 };
                     return {
@@ -1053,6 +1000,128 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ],
             isError: true,
         };
+    }
+});
+const prompts = [
+    {
+        name: "session-start",
+        description: "Recall relevant context at the start of a session",
+        arguments: [
+            {
+                name: "project",
+                description: "Project name or topic to focus recall on",
+                required: false,
+            },
+        ],
+    },
+    {
+        name: "store-decision",
+        description: "Store an important decision with proper tags and rationale",
+        arguments: [
+            {
+                name: "decision",
+                description: "The decision that was made",
+                required: true,
+            },
+            {
+                name: "rationale",
+                description: "Why this decision was made",
+                required: false,
+            },
+            {
+                name: "alternatives",
+                description: "Alternatives that were considered",
+                required: false,
+            },
+        ],
+    },
+    {
+        name: "find-related",
+        description: "Find memories related to a specific topic or concept",
+        arguments: [
+            {
+                name: "topic",
+                description: "Topic to search for",
+                required: true,
+            },
+            {
+                name: "time_range",
+                description: 'Time range to search (e.g., "last week", "today")',
+                required: false,
+            },
+        ],
+    },
+];
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts,
+}));
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const { name, arguments: promptArgs } = request.params;
+    switch (name) {
+        case "session-start": {
+            const project = promptArgs?.project || "";
+            const projectFilter = project ? ` related to "${project}"` : "";
+            return {
+                messages: [
+                    {
+                        role: "user",
+                        content: {
+                            type: "text",
+                            text: `Start of new session. Please recall relevant context${projectFilter} to help with this conversation.
+
+Use the recall_memory tool to:
+1. Search for recent decisions and patterns${projectFilter}
+2. Find any relevant bug fixes or issues${projectFilter}
+3. Retrieve user preferences and habits
+
+Example queries to try:
+- recall_memory({ query: "recent decisions", tags: ["decision"], time_query: "last week" })
+- recall_memory({ query: "patterns best practices", tags: ["pattern"] })
+- recall_memory({ tags: ["preference", "habit"], tag_mode: "any" })
+
+Summarize the key context you found that might be relevant to our conversation.`,
+                        },
+                    },
+                ],
+            };
+        }
+        case "store-decision": {
+            const decision = promptArgs?.decision || "[DECISION]";
+            const rationale = promptArgs?.rationale || "";
+            const alternatives = promptArgs?.alternatives || "";
+            let content = `Store this decision in memory:\n\nDecision: ${decision}`;
+            if (rationale)
+                content += `\nRationale: ${rationale}`;
+            if (alternatives)
+                content += `\nAlternatives considered: ${alternatives}`;
+            content += `\n\nUse the store_memory tool with:\n- content: A clear summary combining the decision, rationale, and alternatives\n- tags: [\"decision\", plus relevant domain tags like \"architecture\", \"api\", \"database\", etc.]\n- importance: 0.8-0.9\n- metadata: { rationale: \"...\", alternatives: [\"...\"] }`;
+            return {
+                messages: [
+                    {
+                        role: "user",
+                        content: { type: "text", text: content },
+                    },
+                ],
+            };
+        }
+        case "find-related": {
+            const topic = promptArgs?.topic || "";
+            const timeRange = promptArgs?.time_range || "";
+            const timeText = timeRange ? `, time_query: \"${timeRange}\"` : "";
+            return {
+                messages: [
+                    {
+                        role: "user",
+                        content: {
+                            type: "text",
+                            text: `Find memories related to: "${topic}".\n\nUse recall_memory({ query: \"${topic}\"${timeText}, limit: 10 }). Then summarize the most relevant results and note any useful tags or follow-up queries.`,
+                        },
+                    },
+                ],
+            };
+        }
+        default:
+            throw new Error(`Unknown prompt: ${name}`);
     }
 });
 async function main() {

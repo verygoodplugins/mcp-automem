@@ -9,7 +9,6 @@ import type {
   AssociateMemoryArgs,
   UpdateMemoryArgs,
   DeleteMemoryArgs,
-  TagSearchArgs,
 } from './types.js';
 
 /**
@@ -262,5 +261,4 @@ describe('Type Constraints', () => {
     });
   });
 });
-
 

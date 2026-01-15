@@ -1,4 +1,7 @@
 import fetch from 'node-fetch';
+import { Agent } from 'node:http';
+import { Agent as HttpsAgent } from 'node:https';
+import { CircuitBreaker } from './circuit-breaker.js';
 import type {
   AutoMemConfig,
   MemoryRecord,
@@ -9,14 +12,22 @@ import type {
   AssociateMemoryArgs,
   UpdateMemoryArgs,
   DeleteMemoryArgs,
-  TagSearchArgs,
 } from './types.js';
+
+const httpAgent = new Agent({ keepAlive: true, maxSockets: 50, keepAliveMsecs: 30000 });
+const httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 50, keepAliveMsecs: 30000 });
 
 export class AutoMemClient {
   private config: AutoMemConfig;
+  private circuitBreaker: CircuitBreaker;
 
   constructor(config: AutoMemConfig) {
     this.config = config;
+    this.circuitBreaker = new CircuitBreaker({
+      failureThreshold: 5,
+      resetTimeout: 30000,
+      successThreshold: 2,
+    });
   }
 
   private async makeRequest(
@@ -25,6 +36,16 @@ export class AutoMemClient {
     body?: any,
     retryCount = 0
   ): Promise<any> {
+    if (!this.circuitBreaker.canExecute()) {
+      const stats = this.circuitBreaker.getStats();
+      const secondsUntilRetry = Math.ceil((stats.lastFailureTime + 30000 - Date.now()) / 1000);
+      throw new Error(
+        `AutoMem service unavailable (circuit ${stats.state}). ` +
+          `Last failure: ${new Date(stats.lastFailureTime).toISOString()}. ` +
+          `Will retry after ${Math.max(secondsUntilRetry, 0)}s.`
+      );
+    }
+
     const url = `${this.config.endpoint.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
     
     const headers: Record<string, string> = {
@@ -39,6 +60,7 @@ export class AutoMemClient {
       method,
       headers,
       timeout: 25000, // 25s timeout - Claude Desktop has ~30s MCP timeout
+      agent: url.startsWith('https://') ? httpsAgent : httpAgent,
     };
 
     if (body && method !== 'GET') {
@@ -60,6 +82,7 @@ export class AutoMemClient {
         return this.makeRequest(method, path, body, retryCount + 1);
       }
 
+      this.circuitBreaker.recordFailure();
       console.error(`AutoMem API error (${method} ${url}):`, error);
       throw error;
     }
@@ -69,6 +92,7 @@ export class AutoMemClient {
       // Some error responses may not be JSON; treat parse errors as non-retryable
       data = await response.json();
     } catch (parseError) {
+      this.circuitBreaker.recordFailure();
       throw new Error(`Invalid JSON response (${response.status})`);
     }
 
@@ -83,11 +107,15 @@ export class AutoMemClient {
         return this.makeRequest(method, path, body, retryCount + 1);
       }
 
+      if (response.status >= 500) {
+        this.circuitBreaker.recordFailure();
+      }
       const error = new Error((data as any)?.message || (data as any)?.detail || `HTTP ${response.status}`);
       console.error(`AutoMem API error (${method} ${url}):`, error);
       throw error;
     }
 
+    this.circuitBreaker.recordSuccess();
     return data;
   }
 
@@ -312,38 +340,16 @@ export class AutoMemClient {
     };
   }
 
-  async searchByTag(args: TagSearchArgs): Promise<RecallResult> {
-    if (!args.tags || args.tags.length === 0) {
-      throw new Error('At least one tag is required');
-    }
-
-    const params = new URLSearchParams();
-    args.tags.forEach((tag) => params.append('tags', tag));
-    if (args.limit) {
-      params.set('limit', String(args.limit));
-    }
-
-    const response = await this.makeRequest('GET', `memory/by-tag?${params.toString()}`);
+  getCircuitState(): { state: string; failureCount: number; lastFailureTime: number } {
+    const stats = this.circuitBreaker.getStats();
     return {
-      results: (response.memories || []).map((memory: any) => ({
-        id: memory.id,
-        match_type: 'tag',
-        final_score: memory.importance ?? 0,
-        score_components: { importance: memory.importance ?? 0 },
-        memory: {
-          memory_id: memory.id,
-          content: memory.content || '',
-          tags: memory.tags || [],
-          importance: memory.importance ?? 0,
-          created_at: memory.timestamp || memory.created_at || '',
-          updated_at: memory.updated_at || memory.timestamp || '',
-          metadata: memory.metadata || {},
-          type: memory.type,
-          confidence: memory.confidence,
-        },
-      })),
-      count: response.count || (response.memories ? response.memories.length : 0),
-      tags: response.tags,
+      state: stats.state,
+      failureCount: stats.failureCount,
+      lastFailureTime: stats.lastFailureTime,
     };
+  }
+
+  resetCircuit(): void {
+    this.circuitBreaker.reset();
   }
 }
