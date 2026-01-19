@@ -52,29 +52,37 @@ STORAGE PATTERNS (opt-in, use when appropriate):
 User preferences (importance: 0.9):
 mcp**memory**store_memory({
 content: "User preference: [exact quote]",
+type: "Preference",  // ALWAYS provide type
+confidence: 0.95,
 tags: ["preference", "workflow"],
-type: "Preference"
+importance: 0.9
 })
 
 Architectural decisions (importance: 0.9):
 mcp**memory**store_memory({
 content: "Decided [choice] because [rationale]",
+type: "Decision",
+confidence: 0.95,
 tags: ["decision", "architecture", "project-name"],
-type: "Decision"
+importance: 0.9
 })
 
 Bug fixes (importance: 0.7):
 mcp**memory**store_memory({
 content: "Fixed [issue] in [project]: [solution] Root cause: [analysis]",
+type: "Insight",
+confidence: 0.95,
 tags: ["bugfix", "project-name", "solution"],
-type: "Insight"
+importance: 0.7
 })
 
 Feature implementations (importance: 0.8):
 mcp**memory**store_memory({
 content: "Implemented [feature] using [approach]",
+type: "Pattern",
+confidence: 0.95,
 tags: ["feature", "project-name", "pattern"],
-type: "Pattern"
+importance: 0.8
 })
 
 RECALL PATTERNS:
@@ -135,6 +143,26 @@ metadata: { deprecated: true }
 Delete duplicates:
 // First check: recall_memory({ query: "[keywords]", limit: 5 })
 // If found: delete_memory(memory_id)
+
+ASSOCIATION TRIGGERS:
+
+After storing, create associations for these memory types:
+| Memory Type | Trigger | Association Type |
+|-------------|---------|------------------|
+| User correction | Always search for what's being corrected | INVALIDATED_BY |
+| Bug fix | Link to original bug discovery | DERIVED_FROM |
+| Decision | Link to alternatives considered | PREFERS_OVER |
+| Evolution | When knowledge supersedes old | EVOLVED_INTO |
+
+Example (user correction):
+// After storing correction, find and link related memories
+const related = mcp**memory**recall_memory({ query: "[topic]", limit: 5 })
+mcp**memory**associate_memories({
+  memory1_id: related[0].id,    // Old memory
+  memory2_id: newMemoryId,      // New correction
+  type: "INVALIDATED_BY",
+  strength: 0.9
+})
 
 NEVER STORE:
 
