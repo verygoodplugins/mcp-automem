@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import fetch from 'node-fetch';
 import { AutoMemClient } from '../automem-client.js';
+import { readAutoMemApiKeyFromEnv } from '../env.js';
 import type { AssociateMemoryArgs, StoreMemoryArgs } from '../types.js';
 
 interface QueueOptions {
@@ -58,7 +59,7 @@ type AutoMemConfig = { endpoint: string; apiKey?: string };
 
 function resolveAutoMemConfig(): AutoMemConfig {
   const envEndpoint = process.env.AUTOMEM_ENDPOINT;
-  const envApiKey = process.env.AUTOMEM_API_KEY;
+  const envApiKey = readAutoMemApiKeyFromEnv();
 
   if (envEndpoint || envApiKey) {
     return {
@@ -77,10 +78,11 @@ function resolveAutoMemConfig(): AutoMemConfig {
     const servers = parsed?.mcpServers ?? {};
     for (const server of Object.values(servers)) {
       const env = server?.env ?? {};
-      if (env.AUTOMEM_ENDPOINT || env.AUTOMEM_API_KEY) {
+      const keyFromServerEnv = readAutoMemApiKeyFromEnv(env);
+      if (env.AUTOMEM_ENDPOINT || keyFromServerEnv) {
         return {
           endpoint: env.AUTOMEM_ENDPOINT ?? 'http://127.0.0.1:8001',
-          apiKey: env.AUTOMEM_API_KEY,
+          apiKey: keyFromServerEnv,
         };
       }
     }

@@ -54,7 +54,11 @@ export class AutoMemClient {
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return this.makeRequest(method, path, body, retryCount + 1);
             }
-            const error = new Error(data?.message || data?.detail || `HTTP ${response.status}`);
+            const baseMessage = data?.message || data?.detail || `HTTP ${response.status}`;
+            const hint = response.status === 401 || response.status === 403
+                ? ' (check AUTOMEM_API_KEY or AUTOMEM_API_TOKEN is set for the MCP server process)'
+                : '';
+            const error = new Error(`${baseMessage}${hint}`);
             console.error(`AutoMem API error (${method} ${url}):`, error);
             throw error;
         }

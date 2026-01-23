@@ -18,6 +18,7 @@ import { runMigrateCommand } from "./cli/migrate.js";
 import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
 import { AutoMemClient } from "./automem-client.js";
+import { readAutoMemApiKeyFromEnv } from "./env.js";
 import type {
   AutoMemConfig,
   StoreMemoryArgs,
@@ -222,7 +223,7 @@ if (command === "queue") {
 if (command === "recall") {
   const AUTOMEM_ENDPOINT =
     process.env.AUTOMEM_ENDPOINT || "http://127.0.0.1:8001";
-  const AUTOMEM_API_KEY = process.env.AUTOMEM_API_KEY;
+  const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
   if (!AUTOMEM_ENDPOINT) {
     console.error("❌ AUTOMEM_ENDPOINT not set");
@@ -262,7 +263,7 @@ if (command === "recall") {
 
 const AUTOMEM_ENDPOINT =
   process.env.AUTOMEM_ENDPOINT || "http://127.0.0.1:8001";
-const AUTOMEM_API_KEY = process.env.AUTOMEM_API_KEY;
+const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
 if (!process.env.AUTOMEM_ENDPOINT) {
   if (isInteractiveTerminal()) {
