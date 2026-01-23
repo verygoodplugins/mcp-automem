@@ -51,6 +51,33 @@ Guidelines:
 - Never store secrets or credentials.
 - Avoid wall-of-text memories; keep them atomic and focused.
 
+**When to Create Associations:**
+
+After storing, create associations for these scenarios:
+
+| Scenario | Action | Association Type |
+|----------|--------|------------------|
+| User corrections | Search for what's being corrected | `INVALIDATED_BY` |
+| Bug fixes | Link to original bug discovery | `DERIVED_FROM` |
+| Decisions | Link to alternatives considered | `PREFERS_OVER` |
+
+Example (user correction):
+
+```javascript
+// After storing correction, find and link related memories
+const related = mcp_memory_recall_memory({ query: "[topic]", limit: 5 });
+if (!related?.length) {
+  // Skip association when nothing relevant is returned
+  return;
+}
+mcp_memory_associate_memories({
+  memory1_id: related[0].id,    // Old memory
+  memory2_id: newMemoryId,      // New correction
+  type: "INVALIDATED_BY",
+  strength: 0.9,
+});
+```
+
 Optional: Link related memories for richer context:
 
 ```javascript

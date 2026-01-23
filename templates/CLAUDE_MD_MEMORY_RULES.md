@@ -12,16 +12,25 @@ cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md
 
 Add this to `~/.claude/CLAUDE.md`:
 
-```markdown
+````markdown
 <memory_rules>
 MEMORY MCP USAGE - AUTOMEM INTEGRATION
 
 SESSION INITIALIZATION:
-At session start, recall relevant context:
+Use **two-phase recall** at session start - preferences and task context need different strategies:
 
-- mcp**memory**recall_memory({ query: "project: [name]", limit: 10 })
-- mcp**memory**recall_memory({ tags: ["preference", "workflow"], limit: 10 })
-- For debugging: mcp**memory**recall_memory({ query: "[project] error", tags: ["solution"], time_query: "last 24 hours" })
+**Phase 1: Preferences (tag-only, NO time limit)**
+
+- mcp**memory**recall_memory({ tags: ["preference"], limit: 10 })
+- Key: No time_query - preferences don't expire. Tag-only queries return cleaner results.
+
+**Phase 2: Task context (semantic + project-specific)**
+
+- mcp**memory**recall_memory({ queries: ["<task topic>", "user corrections", "[project] patterns"], tags: ["[project]"], limit: 10, time_query: "last 30 days" })
+
+**For debugging:** mcp**memory**recall_memory({ query: "[error symptom]", tags: ["bugfix", "solution"], limit: 10 })
+
+**Key insight:** Don't mix tag-based preference recall with semantic task recall - combining them dilutes results.
 
 MCP TOOLS AVAILABLE:
 
@@ -52,53 +61,72 @@ STORAGE PATTERNS (opt-in, use when appropriate):
 User preferences (importance: 0.9):
 mcp**memory**store_memory({
 content: "User preference: [exact quote]",
+type: "Preference", // ALWAYS provide type
+confidence: 0.95,
 tags: ["preference", "workflow"],
-type: "Preference"
+importance: 0.9
 })
 
 Architectural decisions (importance: 0.9):
 mcp**memory**store_memory({
 content: "Decided [choice] because [rationale]",
+type: "Decision",
+confidence: 0.95,
 tags: ["decision", "architecture", "project-name"],
-type: "Decision"
+importance: 0.9
 })
 
 Bug fixes (importance: 0.7):
 mcp**memory**store_memory({
 content: "Fixed [issue] in [project]: [solution] Root cause: [analysis]",
+type: "Insight",
+confidence: 0.95,
 tags: ["bugfix", "project-name", "solution"],
-type: "Insight"
+importance: 0.7
 })
 
 Feature implementations (importance: 0.8):
 mcp**memory**store_memory({
 content: "Implemented [feature] using [approach]",
+type: "Pattern",
+confidence: 0.95,
 tags: ["feature", "project-name", "pattern"],
-type: "Pattern"
+importance: 0.8
 })
 
 RECALL PATTERNS:
 
-Hybrid search (semantic + keyword):
+**Preferences (tag-only, no time limit):**
 mcp**memory**recall_memory({
-query: "[search terms]",
-tags: ["relevant", "tags"],
-limit: 15,
+tags: ["preference"],
+limit: 10
+// NO time_query - preferences don't expire
+})
+
+**Task context (semantic + time-limited):**
+mcp**memory**recall_memory({
+queries: ["<topic 1>", "<topic 2>", "user corrections"],
+tags: ["<project>"],
+limit: 10,
+auto_decompose: true,
 time_query: "last 30 days"
 })
 
-Tag-based filtering:
+**Debugging (error-focused):**
+mcp**memory**recall_memory({
+query: "[error message or symptom]",
+tags: ["bugfix", "solution"],
+limit: 10
+})
+
+**Strict tag filtering:**
 mcp**memory**recall_memory({
 tags: ["pattern", "react", "hooks"],
-tag_mode: "all", // or "any" (default)
+tag_mode: "all", // requires ALL tags (default is "any")
 limit: 20
 })
 
-Time-constrained search:
-mcp**memory**recall_memory({
-query: "[topic]",
-time_query: "today" | "last week" | "last 7 days"
-})
+**Key insight:** Tag-based recall for stable knowledge (preferences, conventions). Semantic recall for dynamic context (current task, recent work). Don't mix them in one query.
 
 RELATIONSHIP TYPES:
 | Type | Use Case |
@@ -136,6 +164,38 @@ Delete duplicates:
 // First check: recall_memory({ query: "[keywords]", limit: 5 })
 // If found: delete_memory(memory_id)
 
+ASSOCIATION TRIGGERS:
+
+After storing, create associations for these memory types:
+
+| Memory Type     | Trigger                                  | Association Type |
+| --------------- | ---------------------------------------- | ---------------- |
+| User correction | Always search for what's being corrected | INVALIDATED_BY   |
+| Bug fix         | Link to original bug discovery           | DERIVED_FROM     |
+| Decision        | Link to alternatives considered          | PREFERS_OVER     |
+| Evolution       | When knowledge supersedes old            | EVOLVED_INTO     |
+
+Example (user correction):
+
+```javascript
+// After storing correction, find and link related memories
+const related =
+  mcp ** (memory ** recall_memory({ query: "[topic]", limit: 5 }));
+if (!related?.length) {
+  // Skip association if nothing relevant was recalled
+  return;
+}
+mcp **
+  (memory **
+    associate_memories({
+      memory1_id: related[0].id, // Old memory
+      memory2_id: newMemoryId, // New correction
+      type: "INVALIDATED_BY",
+      strength: 0.9,
+    }));
+```
+````
+
 NEVER STORE:
 
 - Temporary file contents or debug output
@@ -152,4 +212,7 @@ BEST PRACTICES:
 - Update rather than duplicate when knowledge evolves
 - Let low-importance memories (<0.3) decay naturally
   </memory_rules>
+
+```
+
 ```

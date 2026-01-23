@@ -30,6 +30,22 @@ import type {
 
 config();
 
+// Optional: allow upstream supervisors (AutoHub, etc.) to set a stable process title for safe cleanup.
+// This prevents "kill by package name" from taking down other running MCP clients (Codex/Cursor/etc.).
+try {
+  const tag = String(
+    process.env.AUTOMEM_PROCESS_TAG || process.env.MCP_PROCESS_TAG || ""
+  ).trim();
+  if (tag) {
+    process.title = tag.startsWith("mcp-automem") ? tag : `mcp-automem:${tag}`;
+    if (process.env.AUTOMEM_LOG_LEVEL === "debug" || isInteractiveTerminal()) {
+      console.error("[mcp-automem] process.title:", process.title);
+    }
+  }
+} catch {
+  // Best-effort only
+}
+
 function isInteractiveTerminal(): boolean {
   return Boolean(process.stdout.isTTY && process.stderr.isTTY);
 }
