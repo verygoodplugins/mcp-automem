@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
-import path from 'path';
 
 // Mock fs module
 vi.mock('fs');
@@ -12,7 +11,6 @@ const mockOs = vi.mocked(os);
 
 describe('claude-code CLI', () => {
   const mockHomeDir = '/mock/home';
-  const mockClaudeDir = `${mockHomeDir}/.claude`;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -250,5 +248,4 @@ describe('claude-code CLI', () => {
     });
   });
 });
-
 

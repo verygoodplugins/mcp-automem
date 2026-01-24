@@ -600,9 +600,9 @@ GitHub Copilot coding agent on GitHub.com supports MCP servers configured per re
 
 References:
 
-- https://docs.github.com/en/copilot/concepts/agents/coding-agent/access-management
-- https://docs.github.com/en/copilot/managing-copilot/managing-github-copilot-in-your-organization/adding-copilot-coding-agent-to-organization
-- https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp
+- [Copilot coding agent access management](https://docs.github.com/en/copilot/concepts/agents/coding-agent/access-management)
+- [Add Copilot coding agent to an organization](https://docs.github.com/en/copilot/managing-copilot/managing-github-copilot-in-your-organization/adding-copilot-coding-agent-to-organization)
+- [Extend Copilot coding agent with MCP](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp)
 
 ### 1. Create a Copilot environment secret (recommended)
 
@@ -638,7 +638,7 @@ In your GitHub repository: **Settings → Copilot → Coding agent → MCP confi
 
 ### Optional: organization/enterprise-level setup (custom agents)
 
-GitHub also supports organization/enterprise-level custom agents stored in a `.github-private` repository (with agent profiles in an `agents/` directory). Organization/enterprise owners can configure MCP servers in those agents via YAML frontmatter (`mcp-servers`), while repository-level agents (in `.github/agents/`) can only use MCP servers configured in the repository settings above.
+GitHub also supports organization/enterprise-level custom agents stored in a `.github-private` repository (with agent profiles in an `agents/` directory). Organization/enterprise owners can configure MCP servers in those agents via YAML front matter (`mcp-servers`), while repository-level agents (in the `.github/agents/` directory — note: `.github` is intentionally lowercase) can only use MCP servers configured in the repository settings above.
 
 ### Optional: connect via remote MCP (HTTP/SSE “bridge”)
 

@@ -25,7 +25,6 @@ import type {
   AssociateMemoryArgs,
   UpdateMemoryArgs,
   DeleteMemoryArgs,
-  TagSearchArgs,
 } from "./types.js";
 
 config();
@@ -964,7 +963,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             if (recallArgs.limit && merged.length > recallArgs.limit) {
               merged = merged.slice(0, recallArgs.limit);
             }
-          } catch (e) {
+          } catch {
             // Non-fatal: if recall fails, return empty results
           }
         } else {
