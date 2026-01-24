@@ -15,6 +15,7 @@ const SUPPORT_SCRIPTS = [
     'process-session-memory.py',
     'memory-filters.json',
 ];
+const LEGACY_OPTIONAL_SUPPORT_SCRIPTS = ['smart-notify.sh'];
 function log(message, quiet) {
     if (!quiet) {
         console.log(message);
@@ -152,6 +153,44 @@ function installSupportScripts(targetDir, options) {
         }
     }
 }
+function shouldInstallLegacySmartNotify(targetDir) {
+    const smartNotifyPath = path.join(targetDir, 'scripts', 'smart-notify.sh');
+    if (fs.existsSync(smartNotifyPath)) {
+        return true;
+    }
+    const settingsPath = path.join(targetDir, 'settings.json');
+    if (!fs.existsSync(settingsPath)) {
+        return false;
+    }
+    try {
+        const raw = fs.readFileSync(settingsPath, 'utf8');
+        return raw.includes('smart-notify.sh');
+    }
+    catch {
+        return false;
+    }
+}
+function installLegacyOptionalSupportScripts(targetDir, options) {
+    if (!shouldInstallLegacySmartNotify(targetDir)) {
+        return;
+    }
+    const scriptTemplateDir = path.join(TEMPLATE_ROOT, 'scripts');
+    const scriptTargetDir = path.join(targetDir, 'scripts');
+    for (const scriptName of LEGACY_OPTIONAL_SUPPORT_SCRIPTS) {
+        const templatePath = path.join(scriptTemplateDir, scriptName);
+        const targetPath = path.join(scriptTargetDir, scriptName);
+        if (!fs.existsSync(templatePath)) {
+            log(`Warning: Legacy script template not found at ${templatePath}`, options.quiet);
+            continue;
+        }
+        const content = fs.readFileSync(templatePath, 'utf8');
+        writeFileWithBackup(targetPath, content, options);
+        if (!options.dryRun && (scriptName.endsWith('.sh') || scriptName.endsWith('.py'))) {
+            fs.chmodSync(targetPath, 0o755);
+            log(`installed legacy script: ${scriptName}`, options.quiet);
+        }
+    }
+}
 function mergeSettingsFile(targetDir, options) {
     const templateSettingsPath = path.join(TEMPLATE_ROOT, 'settings.json');
     const templateSettings = JSON.parse(fs.readFileSync(templateSettingsPath, 'utf8'));
@@ -216,6 +255,7 @@ export async function applyClaudeCodeSetup(cliOptions) {
     // Install hook scripts and support scripts
     installHookScripts(targetDir, options);
     installSupportScripts(targetDir, options);
+    installLegacyOptionalSupportScripts(targetDir, options);
     // Merge MCP permissions and hooks into settings.json
     mergeSettingsFile(targetDir, options);
     log('', options.quiet);
