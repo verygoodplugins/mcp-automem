@@ -198,7 +198,15 @@ export async function runQueueCommand(args = []) {
     }
     if (!options.dryRun) {
         if (remaining.length === 0) {
-            fs.unlinkSync(queuePath);
+            try {
+                fs.unlinkSync(queuePath);
+            }
+            catch (error) {
+                if (error.code !== 'ENOENT') {
+                    throw error;
+                }
+                // File already deleted (race condition) - ignore
+            }
         }
         else {
             fs.writeFileSync(`${queuePath}`, `${remaining.join('\n')}\n`, 'utf8');
