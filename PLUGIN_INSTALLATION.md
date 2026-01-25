@@ -255,7 +255,11 @@ docker logs <container-id>
 
 # 4. Verify MCP tools are allowed
 # Should be automatic with plugin, but check:
-# ~/.claude/settings.json should include mcp__memory__* permissions
+# ~/.claude/settings.json should allow your AutoMem tool names.
+# Depending on how Claude Code namespaces plugin MCP servers, these may look like:
+# - mcp__memory__recall_memory (manual/CLI server named "memory")
+# - mcp__plugin_automem_memory__recall_memory (plugin-namespaced server)
+# Use the exact names shown in your tool list.
 ```
 
 ## Migration from NPX Setup
@@ -298,7 +302,7 @@ The plugin handles most configuration automatically, but review:
 diff ~/.claude/settings.json.pre-plugin ~/.claude/settings.json
 
 # Plugin should have merged permissions correctly
-# Verify mcp__memory__* permissions are present
+# Verify the AutoMem tool names are present (prefix may vary; use the tool list as source of truth)
 ```
 
 ### Step 5: Clean Up Old Settings

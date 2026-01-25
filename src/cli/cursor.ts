@@ -157,20 +157,79 @@ function getCursorMcpConfigPath(): string {
   return path.join(homeDir, '.cursor', 'mcp.json');
 }
 
-function checkCursorMcpConfigured(): { configured: boolean; configPath: string } {
-  const configPath = getCursorMcpConfigPath();
-  let configured = false;
-  
-  if (fs.existsSync(configPath)) {
-    try {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      configured = Boolean(config?.mcpServers?.automem || config?.mcpServers?.memory);
-    } catch {
-      configured = false;
+function sanitizeCursorServerName(name: string): string {
+  // Cursor tool names use underscore-delimited prefixes like `mcp_<server>_<tool>`.
+  // Normalize any non-identifier characters to underscores to match typical client behavior.
+  return name.replace(/[^A-Za-z0-9_]/g, '_');
+}
+
+function isCursorAutoMemServerConfig(serverConfig: any): boolean {
+  if (!serverConfig || typeof serverConfig !== 'object') {
+    return false;
+  }
+
+  const args = serverConfig.args;
+  if (Array.isArray(args)) {
+    for (const arg of args) {
+      if (typeof arg === 'string' && arg.includes('@verygoodplugins/mcp-automem')) {
+        return true;
+      }
+      if (typeof arg === 'string' && arg.includes('mcp-automem')) {
+        return true;
+      }
     }
   }
-  
-  return { configured, configPath };
+
+  const env = serverConfig.env;
+  if (env && typeof env === 'object') {
+    if ('AUTOMEM_ENDPOINT' in env || 'AUTOMEM_API_KEY' in env || 'AUTOMEM_API_TOKEN' in env) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function detectCursorAutoMemServerName(configPath: string): string | null {
+  if (!fs.existsSync(configPath)) {
+    return null;
+  }
+
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const servers = config?.mcpServers;
+    if (!servers || typeof servers !== 'object') {
+      return null;
+    }
+
+    // Prefer conventional names when multiple servers exist.
+    for (const preferred of ['memory', 'automem']) {
+      if (servers[preferred] && isCursorAutoMemServerConfig(servers[preferred])) {
+        return preferred;
+      }
+    }
+
+    for (const [name, serverConfig] of Object.entries(servers)) {
+      if (isCursorAutoMemServerConfig(serverConfig)) {
+        return name;
+      }
+    }
+
+    // Fall back to known keys even if we couldn't positively identify args/env.
+    if (servers.memory) return 'memory';
+    if (servers.automem) return 'automem';
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function checkCursorMcpConfigured(): { configured: boolean; configPath: string; serverName?: string } {
+  const configPath = getCursorMcpConfigPath();
+
+  const serverName = detectCursorAutoMemServerName(configPath) ?? undefined;
+  return { configured: Boolean(serverName), configPath, serverName };
 }
 
 export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<void> {
@@ -237,10 +296,15 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
     return;
   }
 
+  const mcpCheck = checkCursorMcpConfigured();
+  const cursorServerName = mcpCheck.serverName ?? 'memory';
+
   const vars: Record<string, string> = {
     PROJECT_NAME: projectName,
     CURRENT_MONTH: getCurrentMonth(),
     VERSION: PACKAGE_VERSION,
+    MCP_SERVER_NAME: cursorServerName,
+    MCP_TOOL_PREFIX: `mcp_${sanitizeCursorServerName(cursorServerName)}_`,
   };
 
   log(`\n🔧 Setting up Cursor AutoMem for: ${projectName}`, cliOptions.quiet);
@@ -259,9 +323,6 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
   
   writeFileWithBackup(targetPath, processedContent, cliOptions);
 
-  // Check Cursor MCP server configuration
-  const mcpCheck = checkCursorMcpConfigured();
-  
   log('\n📊 Configuration Status:', cliOptions.quiet);
   log(`  ✅ Cursor rule installed: ${targetPath}`, cliOptions.quiet);
   
@@ -280,7 +341,7 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
     log(`    }`, cliOptions.quiet);
     log(`  }`, cliOptions.quiet);
   } else {
-    log(`  ✅ MCP server configured in Cursor`, cliOptions.quiet);
+    log(`  ✅ MCP server configured in Cursor (${cursorServerName})`, cliOptions.quiet);
   }
 
   log('\n✨ Cursor AutoMem setup complete!\n', cliOptions.quiet);

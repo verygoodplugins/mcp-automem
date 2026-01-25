@@ -5,10 +5,13 @@
 
 Use the AutoMem MCP proactively to maintain persistent context for {{PROJECT_NAME}}.
 
+> Tool names are client-specific. In OpenAI Codex, they typically look like `mcp__<server>__<tool>`.
+> This template assumes your Codex MCP server is named `memory` (see `templates/codex/config.toml`), so the examples use `mcp__memory__*`.
+
 At the start of a task:
 
 ```javascript
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "<current task or question>",
   tags: ["{{PROJECT_NAME}}"],
   limit: 3,
@@ -18,7 +21,7 @@ mcp_memory_recall_memory({
 During the task, store important outcomes:
 
 ```javascript
-mcp_memory_store_memory({
+mcp__memory__store_memory({
   content: "Brief title. Context and details. Impact/outcome.",
   type: "Decision", // or "Pattern", "Insight", "Preference", "Style", "Habit", "Context"
   confidence: 0.95,
@@ -65,12 +68,12 @@ Example (user correction):
 
 ```javascript
 // After storing correction, find and link related memories
-const related = mcp_memory_recall_memory({ query: "[topic]", limit: 5 });
+const related = mcp__memory__recall_memory({ query: "[topic]", limit: 5 });
 if (!related?.length) {
   // Skip association when nothing relevant is returned
   return;
 }
-mcp_memory_associate_memories({
+mcp__memory__associate_memories({
   memory1_id: related[0].id,    // Old memory
   memory2_id: newMemoryId,      // New correction
   type: "INVALIDATED_BY",
@@ -81,7 +84,7 @@ mcp_memory_associate_memories({
 Optional: Link related memories for richer context:
 
 ```javascript
-mcp_memory_associate_memories({
+mcp__memory__associate_memories({
   memory1_id: "<id1>",
   memory2_id: "<id2>",
   type: "RELATES_TO",
@@ -99,7 +102,7 @@ Tagging:
 
 ```javascript
 // "What does Amanda's sister do?" → finds "Amanda's sister is Rachel" → finds Rachel's job
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "What does Amanda's sister do?",
   expand_entities: true,
 });
@@ -108,7 +111,7 @@ mcp_memory_recall_memory({
 **Graph expansion with filtering** (reduce noise):
 
 ```javascript
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "auth architecture",
   expand_relations: true, // Follow relationships from seed results
   expand_min_importance: 0.5, // Only include expanded memories with importance >= 0.5
@@ -119,7 +122,7 @@ mcp_memory_recall_memory({
 **Context-aware coding recall**:
 
 ```javascript
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "error handling patterns",
   language: "python",
   context_types: ["Style", "Pattern"],

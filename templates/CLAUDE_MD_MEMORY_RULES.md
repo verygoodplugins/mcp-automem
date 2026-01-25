@@ -16,19 +16,25 @@ Add this to `~/.claude/CLAUDE.md`:
 <memory_rules>
 MEMORY MCP USAGE - AUTOMEM INTEGRATION
 
+TOOL NAMING (IMPORTANT):
+- MCP servers expose tools like `recall_memory`, `store_memory`, etc.
+- Claude Code/Claude Desktop typically expose them as `mcp__<server>__<tool>`.
+- These examples assume your server name is `memory` (so `mcp__memory__*`).
+- If your tools are prefixed differently (common in plugin installs), use the exact names shown in your tool list.
+
 SESSION INITIALIZATION:
 Use **two-phase recall** at session start - preferences and task context need different strategies:
 
 **Phase 1: Preferences (tag-only, NO time limit)**
 
-- mcp**memory**recall_memory({ tags: ["preference"], limit: 10 })
+- mcp__memory__recall_memory({ tags: ["preference"], limit: 10 })
 - Key: No time_query - preferences don't expire. Tag-only queries return cleaner results.
 
 **Phase 2: Task context (semantic + project-specific)**
 
-- mcp**memory**recall_memory({ queries: ["<task topic>", "user corrections", "[project] patterns"], tags: ["[project]"], limit: 10, time_query: "last 30 days" })
+- mcp__memory__recall_memory({ queries: ["<task topic>", "user corrections", "[project] patterns"], tags: ["[project]"], limit: 10, time_query: "last 30 days" })
 
-**For debugging:** mcp**memory**recall_memory({ query: "[error symptom]", tags: ["bugfix", "solution"], limit: 10 })
+**For debugging:** mcp__memory__recall_memory({ query: "[error symptom]", tags: ["bugfix", "solution"], limit: 10 })
 
 **Key insight:** Don't mix tag-based preference recall with semantic task recall - combining them dilutes results.
 
@@ -59,7 +65,7 @@ CONTENT SIZE GUIDELINES:
 STORAGE PATTERNS (opt-in, use when appropriate):
 
 User preferences (importance: 0.9):
-mcp**memory**store_memory({
+mcp__memory__store_memory({
 content: "User preference: [exact quote]",
 type: "Preference", // ALWAYS provide type
 confidence: 0.95,
@@ -68,7 +74,7 @@ importance: 0.9
 })
 
 Architectural decisions (importance: 0.9):
-mcp**memory**store_memory({
+mcp__memory__store_memory({
 content: "Decided [choice] because [rationale]",
 type: "Decision",
 confidence: 0.95,
@@ -77,7 +83,7 @@ importance: 0.9
 })
 
 Bug fixes (importance: 0.7):
-mcp**memory**store_memory({
+mcp__memory__store_memory({
 content: "Fixed [issue] in [project]: [solution] Root cause: [analysis]",
 type: "Insight",
 confidence: 0.95,
@@ -86,7 +92,7 @@ importance: 0.7
 })
 
 Feature implementations (importance: 0.8):
-mcp**memory**store_memory({
+mcp__memory__store_memory({
 content: "Implemented [feature] using [approach]",
 type: "Pattern",
 confidence: 0.95,
@@ -97,14 +103,14 @@ importance: 0.8
 RECALL PATTERNS:
 
 **Preferences (tag-only, no time limit):**
-mcp**memory**recall_memory({
+mcp__memory__recall_memory({
 tags: ["preference"],
 limit: 10
 // NO time_query - preferences don't expire
 })
 
 **Task context (semantic + time-limited):**
-mcp**memory**recall_memory({
+mcp__memory__recall_memory({
 queries: ["<topic 1>", "<topic 2>", "user corrections"],
 tags: ["<project>"],
 limit: 10,
@@ -113,14 +119,14 @@ time_query: "last 30 days"
 })
 
 **Debugging (error-focused):**
-mcp**memory**recall_memory({
+mcp__memory__recall_memory({
 query: "[error message or symptom]",
 tags: ["bugfix", "solution"],
 limit: 10
 })
 
 **Strict tag filtering:**
-mcp**memory**recall_memory({
+mcp__memory__recall_memory({
 tags: ["pattern", "react", "hooks"],
 tag_mode: "all", // requires ALL tags (default is "any")
 limit: 20
@@ -146,23 +152,23 @@ RELATIONSHIP TYPES:
 LIFECYCLE MANAGEMENT:
 
 Update evolving knowledge:
-mcp**memory**update_memory({
+mcp__memory__update_memory({
 memory_id: "id",
 content: "Updated: [new insight]",
 importance: 0.9
 })
 
 Deprecate outdated info:
-mcp**memory**update_memory({
+mcp__memory__update_memory({
 memory_id: "old_id",
 importance: 0.1,
 metadata: { deprecated: true }
 })
-// Then: associate_memories(old_id, new_id, type="INVALIDATED_BY")
+// Then: mcp__memory__associate_memories({ memory1_id: old_id, memory2_id: new_id, type: "INVALIDATED_BY", strength: 0.9 })
 
 Delete duplicates:
-// First check: recall_memory({ query: "[keywords]", limit: 5 })
-// If found: delete_memory(memory_id)
+// First check: mcp__memory__recall_memory({ query: "[keywords]", limit: 5 })
+// If found: mcp__memory__delete_memory({ memory_id })
 
 ASSOCIATION TRIGGERS:
 
@@ -179,20 +185,17 @@ Example (user correction):
 
 ```javascript
 // After storing correction, find and link related memories
-const related =
-  mcp ** (memory ** recall_memory({ query: "[topic]", limit: 5 }));
+const related = mcp__memory__recall_memory({ query: "[topic]", limit: 5 });
 if (!related?.length) {
   // Skip association if nothing relevant was recalled
   return;
 }
-mcp **
-  (memory **
-    associate_memories({
-      memory1_id: related[0].id, // Old memory
-      memory2_id: newMemoryId, // New correction
-      type: "INVALIDATED_BY",
-      strength: 0.9,
-    }));
+mcp__memory__associate_memories({
+  memory1_id: related[0].id, // Old memory
+  memory2_id: newMemoryId, // New correction
+  type: "INVALIDATED_BY",
+  strength: 0.9,
+});
 ```
 ````
 
