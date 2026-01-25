@@ -38,6 +38,9 @@ Add to `~/.claude.json`:
 
 To let Claude use memory tools without asking, add to `~/.claude/settings.json`:
 
+> Note: The `mcp__memory__*` prefix assumes your MCP server is named `memory` (the key in `mcpServers`).
+> If you installed AutoMem via a Claude Code plugin, Claude may namespace the server name (e.g., `plugin_automem_memory`), which changes the tool names. Use the exact names shown in your tool list.
+
 ```json
 {
   "permissions": {

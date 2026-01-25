@@ -644,7 +644,7 @@ AUTOMEM_ENDPOINT = "http://127.0.0.1:8001"
 
 **Using local build (for development):**
 
-````toml
+```toml
 [mcp_servers.memory]
 command = "/opt/homebrew/bin/node"  # or "/usr/bin/node" on Linux
 args = ["/path/to/mcp-automem/dist/index.js"]
@@ -652,6 +652,7 @@ args = ["/path/to/mcp-automem/dist/index.js"]
 [mcp_servers.memory.env]
 AUTOMEM_ENDPOINT = "https://your-automem-instance.railway.app"
 AUTOMEM_API_KEY = "your-api-key"
+```
 
 ### 3.5. Add Memory Rules (Optional but recommended)
 
@@ -659,11 +660,9 @@ Install memory-first rules into your project so Codex proactively recalls and st
 
 ```bash
 npx @verygoodplugins/mcp-automem codex
-````
+```
 
 This creates or updates `AGENTS.md` with an AutoMem section tailored to your project.
-
-````bash
 
 ### 4. Restart Codex
 
@@ -672,10 +671,8 @@ Restart the Codex CLI or reload your IDE extension to load the MCP server.
 ### 5. Verify Installation
 
 Ask Codex:
-```bash
-
+```text
 Check the health of the AutoMem service
-
 ```
 
 You should see connection status for FalkorDB and Qdrant.
@@ -688,7 +685,7 @@ cd ~/Projects/my-app
 
 # Ask Codex to use memory
 codex "What were the key decisions made in this project last week?"
-````
+```
 
 **In the IDE:**
 
@@ -707,9 +704,9 @@ codex "What were the key decisions made in this project last week?"
 **Tag memories with project context:**
 
 ```javascript
-mcp_memory_store_memory({
+mcp__memory__store_memory({
   content: "Implemented OAuth flow using NextAuth.js in my-app",
-  tags: ["my-app", "codex", "auth", "nextauth", "2025-10"],
+  tags: ["my-app", "codex", "auth", "nextauth", "<YYYY-MM>"],
   importance: 0.8,
 });
 ```
@@ -717,10 +714,10 @@ mcp_memory_store_memory({
 **Store architectural decisions:**
 
 ```javascript
-mcp_memory_store_memory({
+mcp__memory__store_memory({
   content:
     "Decided to use server components for data fetching in Next.js 14. Reason: Better performance and SEO.",
-  tags: ["my-app", "codex", "architecture", "nextjs", "2025-10"],
+  tags: ["my-app", "codex", "architecture", "nextjs", "<YYYY-MM>"],
   importance: 0.9,
 });
 ```
@@ -728,7 +725,7 @@ mcp_memory_store_memory({
 **Recall context when switching projects:**
 
 ```javascript
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "setup instructions deployment process",
   tags: ["my-app", "codex"],
   limit: 5,

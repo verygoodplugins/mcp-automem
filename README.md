@@ -289,7 +289,7 @@ _Claude Mobile (iOS) connected to AutoMem via remote MCP_
 **Multi-hop Reasoning** - Answer complex questions like "What is Amanda's sister's career?"
 
 ```javascript
-recall_memory({
+mcp__memory__recall_memory({
   query: "What is Amanda's sister's career?",
   expand_entities: true, // Finds "Amanda's sister is Rachel" → memories about Rachel
 });
@@ -298,7 +298,7 @@ recall_memory({
 **Context-Aware Coding** - Recall prioritizes language and style preferences
 
 ```javascript
-recall_memory({
+mcp__memory__recall_memory({
   query: "error handling patterns",
   language: "typescript",
   context_types: ["Style", "Pattern"],

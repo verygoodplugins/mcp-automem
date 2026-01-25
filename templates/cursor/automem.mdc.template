@@ -13,7 +13,7 @@ Use memory tools proactively to maintain persistent context across sessions for 
 **AutoMem MCP Server**: You have access to the AutoMem memory system via MCP (Model Context Protocol). The memory server is already installed and active in your environment.
 
 **How it works**:
-- Tools are accessed via MCP with the `mcp_memory_*` prefix (e.g., `mcp_memory_store_memory`)
+- Tools are accessed via MCP with the `{{MCP_TOOL_PREFIX}}` prefix (e.g., `{{MCP_TOOL_PREFIX}}store_memory`)
 - Data is stored in **FalkorDB** (graph database for relationships) and **Qdrant** (vector database for semantic search)
 - Memories persist across all conversations and sessions
 
@@ -74,7 +74,7 @@ Store memories for important events:
 
 **Storage format:**
 ```javascript
-mcp_memory_store_memory({
+{{MCP_TOOL_PREFIX}}store_memory({
   content: "Brief title. Context and details. Impact/outcome.",
   type: "Insight",
   confidence: 0.95,
@@ -93,7 +93,7 @@ mcp_memory_store_memory({
 Summarize if multiple files modified, significant refactoring, new features, or important decisions:
 
 ```javascript
-mcp_memory_store_memory({
+{{MCP_TOOL_PREFIX}}store_memory({
   content: "Added authentication system with JWT. Supports login, logout, and token refresh. Impact: Users can now login securely.",
   type: "Context",
   tags: ["{{PROJECT_NAME}}", "auth", "{{CURRENT_MONTH}}"],
@@ -141,7 +141,7 @@ ALWAYS include these tags:
 Link related memories for richer context:
 
 ```javascript
-mcp_memory_associate_memories({
+{{MCP_TOOL_PREFIX}}associate_memories({
   memory1_id: "<first-memory-id>",
   memory2_id: "<second-memory-id>",
   type: "RELATES_TO",  // or LEADS_TO, EVOLVED_INTO, CONTRADICTS, etc.
@@ -156,37 +156,37 @@ Association types: `RELATES_TO`, `LEADS_TO`, `OCCURRED_BEFORE`, `PREFERS_OVER`, 
 **Start simple, expand as needed:**
 ```javascript
 // 1. Basic recall (start here)
-mcp_memory_recall_memory({
+{{MCP_TOOL_PREFIX}}recall_memory({
   query: "authentication patterns",
   tags: ["{{PROJECT_NAME}}"],
   limit: 5
 })
 
 // 2. Add time window if needed
-mcp_memory_recall_memory({
+{{MCP_TOOL_PREFIX}}recall_memory({
   query: "API changes",
   tags: ["{{PROJECT_NAME}}"],
   time_query: "last 30 days"
 })
 
 // 3. For error patterns, be specific
-mcp_memory_recall_memory({
+{{MCP_TOOL_PREFIX}}recall_memory({
   query: "TypeError authentication timeout login",
   tags: ["{{PROJECT_NAME}}", "bug-fix"],
   limit: 5
 })
 
 // 4. Use prefix matching for component namespaces
-mcp_memory_recall_memory({
+{{MCP_TOOL_PREFIX}}recall_memory({
   tags: ["{{PROJECT_NAME}}", "auth/*"],
   tag_match: "prefix"
 })
 
 // 5. Parallel recall for comprehensive context
 const [decisions, recent, patterns] = await Promise.all([
-  mcp_memory_recall_memory({ tags: ["{{PROJECT_NAME}}", "decision"], limit: 3 }),
-  mcp_memory_recall_memory({ tags: ["{{PROJECT_NAME}}"], time_query: "today", limit: 3 }),
-  mcp_memory_recall_memory({ tags: ["{{PROJECT_NAME}}", "pattern"], limit: 3 })
+  {{MCP_TOOL_PREFIX}}recall_memory({ tags: ["{{PROJECT_NAME}}", "decision"], limit: 3 }),
+  {{MCP_TOOL_PREFIX}}recall_memory({ tags: ["{{PROJECT_NAME}}"], time_query: "today", limit: 3 }),
+  {{MCP_TOOL_PREFIX}}recall_memory({ tags: ["{{PROJECT_NAME}}", "pattern"], limit: 3 })
 ]);
 ```
 
@@ -196,7 +196,7 @@ const [decisions, recent, patterns] = await Promise.all([
 ```javascript
 // For complex questions like "What project does Amanda's sister work on?"
 // The system finds "Amanda's sister is Rachel" then expands to memories about Rachel
-mcp_memory_recall_memory({
+{{MCP_TOOL_PREFIX}}recall_memory({
   query: "What project does Amanda's sister work on?",
   expand_entities: true,  // Enable entity-based expansion
   limit: 10
@@ -206,7 +206,7 @@ mcp_memory_recall_memory({
 **Graph-based expansion:**
 ```javascript
 // Follow relationships from initial results to find connected memories
-mcp_memory_recall_memory({
+{{MCP_TOOL_PREFIX}}recall_memory({
   query: "auth architecture",
   expand_relations: true,  // Follow RELATES_TO, LEADS_TO, etc.
   relation_limit: 5,       // Max relationships to follow per seed
@@ -218,7 +218,7 @@ mcp_memory_recall_memory({
 **Auto query decomposition:**
 ```javascript
 // Automatically breaks complex queries into sub-queries
-mcp_memory_recall_memory({
+{{MCP_TOOL_PREFIX}}recall_memory({
   query: "authentication patterns for React apps with OAuth",
   auto_decompose: true  // Extracts ["authentication", "React", "OAuth"] as separate searches
 })
@@ -227,7 +227,7 @@ mcp_memory_recall_memory({
 **Context-aware recall for coding tasks:**
 ```javascript
 // Boost language-specific and style memories when coding
-mcp_memory_recall_memory({
+{{MCP_TOOL_PREFIX}}recall_memory({
   query: "error handling patterns",
   language: "typescript",           // Inferred from file or specified
   active_path: "src/api/auth.ts",   // Current file for context
@@ -240,7 +240,7 @@ mcp_memory_recall_memory({
 **Priority injection:**
 ```javascript
 // Ensure specific memories are included in results
-mcp_memory_recall_memory({
+{{MCP_TOOL_PREFIX}}recall_memory({
   query: "recent architecture decisions",
   priority_ids: ["mem-abc123", "mem-def456"]  // Always include these
 })
@@ -277,7 +277,7 @@ Format: `Brief title. Context and details. Impact/outcome.`
 
 **Store memory:**
 ```javascript
-mcp_memory_store_memory({
+{{MCP_TOOL_PREFIX}}store_memory({
   content: string,              // Required: Memory content (no [TYPE] prefix needed)
   type?: string,                // Optional: "Decision", "Pattern", "Insight", "Preference", "Style", "Habit", "Context"
   confidence?: number,          // Optional: 0.0-1.0 (default: 0.9 if type provided, auto-computed otherwise)
@@ -293,7 +293,7 @@ mcp_memory_store_memory({
 
 **Recall memories:**
 ```javascript
-mcp_memory_recall_memory({
+{{MCP_TOOL_PREFIX}}recall_memory({
   // Basic search
   query?: string,              // Natural language search
   queries?: string[],          // Multiple queries (deduplicated server-side)
@@ -330,7 +330,7 @@ mcp_memory_recall_memory({
 
 **Update memory:**
 ```javascript
-mcp_memory_update_memory({
+{{MCP_TOOL_PREFIX}}update_memory({
   memory_id: string,
   content?: string,
   type?: string,
@@ -343,7 +343,7 @@ mcp_memory_update_memory({
 
 **Associate memories:**
 ```javascript
-mcp_memory_associate_memories({
+{{MCP_TOOL_PREFIX}}associate_memories({
   memory1_id: string,
   memory2_id: string,
   type: "RELATES_TO" | "LEADS_TO" | ...,
@@ -374,6 +374,7 @@ Memory enhances the experience but should never block progress.
 ---
 
 **Installed**: `npx @verygoodplugins/mcp-automem cursor`
+**Cursor MCP Server**: `{{MCP_SERVER_NAME}}` (tools prefixed with `{{MCP_TOOL_PREFIX}}`)
 **Project**: {{PROJECT_NAME}}
 **Current Month**: {{CURRENT_MONTH}}
 

@@ -2,20 +2,23 @@
 
 You have access to AutoMem - a persistent memory system with graph relationships and semantic search. Use it strategically to provide continuity across conversations.
 
+> Tool names are client-specific. In Claude Desktop, they typically look like `mcp__<server>__<tool>`.
+> Most examples assume your MCP server is named `memory` (the key in your `mcpServers` config), so they use `mcp__memory__*`.
+
 ## CONVERSATION START PROTOCOL
 
 Before responding to the first message, recall relevant context:
 
 ```javascript
 // Recent work (always do this)
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "recent work decisions patterns",
   time_query: "last 7 days",
   limit: 10,
 });
 
 // For project-specific questions, add project context
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "[topic from user message]",
   tags: ["[detected project name]"],
   context_types: ["Decision", "Pattern", "Preference"],
@@ -32,7 +35,7 @@ mcp_memory_recall_memory({
 When questions involve relationships between entities (people, projects, concepts):
 
 ```javascript
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "What does Sarah's team prefer for error handling?",
   expand_entities: true, // Finds "Sarah's team is Platform" → Platform preferences
 });
@@ -43,7 +46,7 @@ mcp_memory_recall_memory({
 When discussing code or technical decisions:
 
 ```javascript
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "error handling patterns",
   language: "typescript", // Prioritize language-specific memories
   context_types: ["Style", "Pattern", "Decision"],
@@ -56,7 +59,7 @@ mcp_memory_recall_memory({
 When exploring why something was decided:
 
 ```javascript
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "authentication architecture",
   expand_relations: true, // Follow LEADS_TO, DERIVED_FROM, etc.
   relation_limit: 5,
@@ -68,7 +71,7 @@ mcp_memory_recall_memory({
 For broad questions that might have multiple relevant angles:
 
 ```javascript
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "React OAuth authentication patterns",
   auto_decompose: true, // Splits into sub-queries automatically
 });
@@ -120,7 +123,7 @@ If you need more detail:
 ## STORAGE FORMAT
 
 ```javascript
-mcp_memory_store_memory({
+mcp__memory__store_memory({
   content: "Brief title. Context and reasoning. Outcome or impact.", // Keep under 300 chars
   tags: [
     "[project-name]", // Always include
@@ -141,7 +144,7 @@ mcp_memory_store_memory({
 When the user corrects my output (style, tone, format, approach):
 
 ```javascript
-mcp_memory_store_memory({
+mcp__memory__store_memory({
   content:
     "Style correction: [what was wrong] → [what user prefers]. Context: [when this applies]",
   tags: ["correction", "style", "[specific-aspect]", "[YYYY-MM]"],
@@ -153,7 +156,7 @@ mcp_memory_store_memory({
 Then associate with related memories:
 
 ```javascript
-mcp_memory_associate_memories({
+mcp__memory__associate_memories({
   memory1_id: "[new correction id]",
   memory2_id: "[related pattern or preference]",
   type: "REINFORCES", // or CONTRADICTS if it changes previous understanding
@@ -184,7 +187,7 @@ For substantial outputs (documents, code, analysis):
 1. **Check for style preferences:**
 
 ```javascript
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "[content type] style format preferences",
   context_types: ["Style", "Preference", "Correction"],
   limit: 5,
@@ -194,7 +197,7 @@ mcp_memory_recall_memory({
 2. **Check for relevant patterns:**
 
 ```javascript
-mcp_memory_recall_memory({
+mcp__memory__recall_memory({
   query: "[topic] patterns approaches",
   expand_relations: true,
 });
@@ -207,7 +210,7 @@ mcp_memory_recall_memory({
 If significant work was done:
 
 ```javascript
-mcp_memory_store_memory({
+mcp__memory__store_memory({
   content:
     "Session summary: [what was accomplished]. Key decisions: [list]. Files: [if applicable]",
   tags: ["[project]", "session", "[YYYY-MM]"],
