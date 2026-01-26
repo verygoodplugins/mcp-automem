@@ -119,6 +119,21 @@ One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month after trial.
 
 ### 2. Install MCP Client
 
+#### Claude Desktop - One-Click Install
+
+Download and double-click to install AutoMem in Claude Desktop:
+
+**[⬇️ Download AutoMem for Claude Desktop (.mcpb)](https://github.com/verygoodplugins/mcp-automem/releases/latest/download/automem.mcpb)**
+
+After installing:
+1. Claude Desktop will prompt you for your **AutoMem Endpoint** (`http://127.0.0.1:8001` for local)
+2. Optionally enter your **API Key** (required for Railway, skip for local)
+3. Click Enable
+
+That's it! Claude now has persistent memory.
+
+#### Other Platforms
+
 Connect your AI tools to the AutoMem service you just started.
 
 ```bash

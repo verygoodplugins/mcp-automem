@@ -64,3 +64,31 @@ jobs:
             # Trusted Publishing: No NPM_TOKEN needed!
             # Authentication happens via OIDC token exchange with npm
             - run: npm publish --access public --provenance
+
+    # Build and upload Claude Desktop Extension (.mcpb) to release
+    build-extension:
+        needs: release-please
+        if: ${{ needs.release-please.outputs.release_created }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+
+            - run: npm ci
+            - run: npm run build
+            
+            # Build the .mcpb Claude Desktop Extension
+            - name: Build Claude Desktop Extension
+              run: npx @anthropic-ai/mcpb pack
+            
+            # Upload .mcpb to the GitHub release
+            - name: Upload Extension to Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: ${{ needs.release-please.outputs.tag_name }}
+                  files: "*.mcpb"
