@@ -16,7 +16,7 @@
 #
 # npm Publishing:
 #   Uses Trusted Publishing (OIDC) - no secrets needed!
-#   Configure at: https://www.npmjs.com/package/@verygoodplugins/mcp-{name}/access
+#   Configure at: https://www.npmjs.com/package/@verygoodplugins/mcp-automem/access
 
 name: Release Please
 
@@ -76,5 +76,5 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             {
-              "text": "🚀 ${{ github.repository }} ${{ needs.release-please.outputs.tag_name }} released!\n\nhttps://github.com/${{ github.repository }}/releases/tag/${{ needs.release-please.outputs.tag_name }}"
+              "text": "🚀 @verygoodplugins/mcp-automem ${{ needs.release-please.outputs.tag_name }} released!\n\nhttps://github.com/verygoodplugins/mcp-automem/releases/tag/${{ needs.release-please.outputs.tag_name }}"
             }
