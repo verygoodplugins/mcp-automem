@@ -6,7 +6,7 @@
   "type": "module",
   "mcpName": "io.github.verygoodplugins/mcp-automem",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "bin": {
     "mcp-automem": "dist/index.js"
