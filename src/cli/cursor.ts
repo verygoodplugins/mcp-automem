@@ -190,7 +190,9 @@ function isCursorAutoMemServerConfig(serverConfig: any): boolean {
   return false;
 }
 
-function detectCursorAutoMemServerName(configPath: string): string | null {
+function detectCursorAutoMemServerName(
+  configPath: string
+): { name: string; verified: boolean } | null {
   if (!fs.existsSync(configPath)) {
     return null;
   }
@@ -205,19 +207,19 @@ function detectCursorAutoMemServerName(configPath: string): string | null {
     // Prefer conventional names when multiple servers exist.
     for (const preferred of ['memory', 'automem']) {
       if (servers[preferred] && isCursorAutoMemServerConfig(servers[preferred])) {
-        return preferred;
+        return { name: preferred, verified: true };
       }
     }
 
     for (const [name, serverConfig] of Object.entries(servers)) {
       if (isCursorAutoMemServerConfig(serverConfig)) {
-        return name;
+        return { name, verified: true };
       }
     }
 
     // Fall back to known keys even if we couldn't positively identify args/env.
-    if (servers.memory) return 'memory';
-    if (servers.automem) return 'automem';
+    if (servers.memory) return { name: 'memory', verified: false };
+    if (servers.automem) return { name: 'automem', verified: false };
 
     return null;
   } catch {
@@ -228,8 +230,12 @@ function detectCursorAutoMemServerName(configPath: string): string | null {
 function checkCursorMcpConfigured(): { configured: boolean; configPath: string; serverName?: string } {
   const configPath = getCursorMcpConfigPath();
 
-  const serverName = detectCursorAutoMemServerName(configPath) ?? undefined;
-  return { configured: Boolean(serverName), configPath, serverName };
+  const detection = detectCursorAutoMemServerName(configPath);
+  return {
+    configured: Boolean(detection?.verified),
+    configPath,
+    serverName: detection?.name,
+  };
 }
 
 export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<void> {
@@ -304,7 +310,7 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
     CURRENT_MONTH: getCurrentMonth(),
     VERSION: PACKAGE_VERSION,
     MCP_SERVER_NAME: cursorServerName,
-    MCP_TOOL_PREFIX: `mcp__${sanitizeCursorServerName(cursorServerName)}__`,
+    MCP_TOOL_PREFIX: `mcp_${sanitizeCursorServerName(cursorServerName)}_`,
   };
 
   log(`\n🔧 Setting up Cursor AutoMem for: ${projectName}`, cliOptions.quiet);
