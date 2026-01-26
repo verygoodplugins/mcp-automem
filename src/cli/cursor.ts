@@ -304,7 +304,7 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
     CURRENT_MONTH: getCurrentMonth(),
     VERSION: PACKAGE_VERSION,
     MCP_SERVER_NAME: cursorServerName,
-    MCP_TOOL_PREFIX: `mcp_${sanitizeCursorServerName(cursorServerName)}_`,
+    MCP_TOOL_PREFIX: `mcp__${sanitizeCursorServerName(cursorServerName)}__`,
   };
 
   log(`\n🔧 Setting up Cursor AutoMem for: ${projectName}`, cliOptions.quiet);
