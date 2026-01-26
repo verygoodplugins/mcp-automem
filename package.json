@@ -20,7 +20,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm run test"
+    "prepublishOnly": "npm run build && npm run test",
+    "build:extension": "npm run build && npx @anthropic-ai/mcpb pack"
   },
   "keywords": [
     "mcp",
@@ -62,6 +63,8 @@
     "templates",
     "plugins",
     ".claude-plugin",
+    "assets",
+    "manifest.json",
     "env.example",
     "README.md",
     "CHANGELOG.md",
