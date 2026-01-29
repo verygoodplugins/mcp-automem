@@ -46,7 +46,7 @@
           },
           {
             "type": "command",
-            "command": "npx -y @verygoodplugins/mcp-automem queue --file \"$HOME/.claude/scripts/memory-queue.jsonl\" --limit 5"
+            "command": "bash \"$HOME/.claude/scripts/process-queue.sh\""
           }
         ]
       }
