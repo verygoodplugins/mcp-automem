@@ -3,6 +3,9 @@
 # Capture Test Pattern Hook for AutoMem
 # Records test execution patterns, results, and learned testing approaches
 
+# Output Success on clean exit for consistent hook feedback
+trap 'echo "Success"' EXIT
+
 LOG_FILE="$HOME/.claude/logs/test-patterns.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
 
@@ -15,11 +18,15 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
-# Get test context from command output
-COMMAND="${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}"
-OUTPUT="${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}"
-EXIT_CODE="${CLAUDE_EXIT_CODE:-0}"
-PROJECT_NAME=$(basename "$(pwd)")
+# Read JSON input from stdin (Claude Code hook format per docs)
+INPUT_JSON=$(cat)
+
+# Parse JSON fields using jq
+COMMAND=$(echo "$INPUT_JSON" | jq -r '.tool_input.command // ""')
+OUTPUT=$(echo "$INPUT_JSON" | jq -r '.tool_response // ""')
+EXIT_CODE=$(echo "$INPUT_JSON" | jq -r '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end')
+CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // ""')
+PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 
 # Skip non-test commands
 if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(npm test|yarn test|pnpm test|vitest|jest|pytest|python .*test|go test|cargo test|phpunit)"; then
@@ -84,21 +91,60 @@ else
 fi
 
 # Queue memory for processing with safe JSON encoding and file locking
+if ! command -v jq >/dev/null 2>&1; then
+    log_message "jq not available; cannot encode test memory"
+    exit 1
+fi
+
+PROJECT_NAME="${PROJECT_NAME:-unknown}"
+TEST_FRAMEWORK="${TEST_FRAMEWORK:-unknown}"
+IMPORTANCE="${IMPORTANCE:-0.5}"
+TESTS_PASSED="${TESTS_PASSED:-0}"
+TESTS_FAILED="${TESTS_FAILED:-0}"
+EXIT_CODE="${EXIT_CODE:-0}"
+TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
+
+if ! ERROR_DETAILS_JSON=$(jq -c -n --arg error "$ERROR_DETAILS" '$error'); then
+    log_message "Failed to encode test error details"
+    exit 1
+fi
+
+if ! MEMORY_RECORD=$(jq -c -n \
+    --arg content "$CONTENT" \
+    --arg test_framework "$TEST_FRAMEWORK" \
+    --arg project "$PROJECT_NAME" \
+    --arg type "$MEMORY_TYPE" \
+    --arg command "$COMMAND" \
+    --arg timestamp "$TIMESTAMP" \
+    --argjson importance "$IMPORTANCE" \
+    --argjson tests_passed "$TESTS_PASSED" \
+    --argjson tests_failed "$TESTS_FAILED" \
+    --argjson exit_code "$EXIT_CODE" \
+    --argjson error_details "$ERROR_DETAILS_JSON" \
+    '{
+      content: $content,
+      tags: ["test", "framework:\($test_framework)", "project:\($project)"],
+      importance: $importance,
+      type: $type,
+      metadata: {
+        test_framework: $test_framework,
+        tests_passed: $tests_passed,
+        tests_failed: $tests_failed,
+        exit_code: $exit_code,
+        command: $command,
+        project: $project,
+        error_details: $error_details
+      },
+      timestamp: $timestamp
+    }'); then
+    log_message "Failed to build test memory record"
+    exit 1
+fi
+
 AUTOMEM_QUEUE="$MEMORY_QUEUE" \
-AUTOMEM_CONTENT="$CONTENT" \
-AUTOMEM_TEST_FRAMEWORK="$TEST_FRAMEWORK" \
-AUTOMEM_PROJECT="$PROJECT_NAME" \
-AUTOMEM_IMPORTANCE="$IMPORTANCE" \
-AUTOMEM_TYPE="$MEMORY_TYPE" \
-AUTOMEM_TESTS_PASSED="$TESTS_PASSED" \
-AUTOMEM_TESTS_FAILED="$TESTS_FAILED" \
-AUTOMEM_EXIT_CODE="$EXIT_CODE" \
-AUTOMEM_COMMAND="$COMMAND" \
-AUTOMEM_ERROR_DETAILS="$ERROR_DETAILS" \
+AUTOMEM_RECORD="$MEMORY_RECORD" \
 python3 - <<'PY'
-import json
 import os
-from datetime import datetime, timezone
 
 try:
     import fcntl  # type: ignore[attr-defined]
@@ -129,36 +175,14 @@ def unlock_file(handle):
         except OSError:
             pass
 
-def to_int(value, default=0):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-record = {
-    "content": os.environ.get("AUTOMEM_CONTENT", ""),
-    "tags": ["test", os.environ.get("AUTOMEM_TEST_FRAMEWORK", "unknown"), os.environ.get("AUTOMEM_PROJECT", "")],
-    "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.5")),
-    "type": os.environ.get("AUTOMEM_TYPE", "Context"),
-    "metadata": {
-        "test_framework": os.environ.get("AUTOMEM_TEST_FRAMEWORK", "unknown"),
-        "tests_passed": to_int(os.environ.get("AUTOMEM_TESTS_PASSED", "0")),
-        "tests_failed": to_int(os.environ.get("AUTOMEM_TESTS_FAILED", "0")),
-        "exit_code": to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0")),
-        "command": os.environ.get("AUTOMEM_COMMAND", ""),
-        "project": os.environ.get("AUTOMEM_PROJECT", ""),
-        "error_details": os.environ.get("AUTOMEM_ERROR_DETAILS", ""),
-    },
-    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-}
-
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
-if queue_path:
+record = os.environ.get("AUTOMEM_RECORD", "")
+if queue_path and record:
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)
         try:
-            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+            handle.write(record + "\n")
         finally:
             unlock_file(handle)
 PY

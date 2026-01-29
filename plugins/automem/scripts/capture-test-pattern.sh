@@ -3,6 +3,9 @@
 # Capture Test Pattern Hook for AutoMem
 # Records test execution patterns, results, and learned testing approaches
 
+# Output Success on clean exit for consistent hook feedback
+trap 'echo "Success"' EXIT
+
 LOG_FILE="$HOME/.claude/logs/test-patterns.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
 

@@ -4,6 +4,9 @@
 # Automatically captures significant session milestones to Personal AI Memory
 # This hook triggers on session completion and major operations
 
+# Output Success on clean exit for consistent hook feedback
+trap 'echo "Success"' EXIT
+
 # Configuration
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELATIVE_PROCESSOR="$(cd "$HOOK_DIR/../scripts" 2>/dev/null && pwd)/process-session-memory.py"

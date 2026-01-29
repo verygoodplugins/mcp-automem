@@ -2,6 +2,10 @@
 
 # Queue Cleanup Script for AutoMem
 # Deduplicates and archives processed memories
+
+# Output Success on clean exit for consistent hook feedback
+trap 'echo "Success"' EXIT
+
 if [ -z "${BASH_VERSION:-}" ]; then
     exec /bin/bash "$0" "$@"
 fi
