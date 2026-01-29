@@ -3,6 +3,9 @@
 # Capture Build Result Hook for AutoMem
 # Records build outcomes, errors, and optimization patterns
 
+# Output Success on clean exit for consistent hook feedback
+trap 'echo "Success"' EXIT
+
 LOG_FILE="$HOME/.claude/logs/build-results.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
 

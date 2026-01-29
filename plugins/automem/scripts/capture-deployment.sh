@@ -3,6 +3,9 @@
 # Capture Deployment Hook for AutoMem
 # Records deployment activities, environments, and outcomes
 
+# Output Success on clean exit for consistent hook feedback
+trap 'echo "Success"' EXIT
+
 LOG_FILE="$HOME/.claude/logs/deployments.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
 

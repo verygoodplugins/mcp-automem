@@ -3,6 +3,9 @@
 # 1. Sets up node/npx in PATH for later hooks (via CLAUDE_ENV_FILE)
 # 2. Outputs a prompt for Claude to recall relevant memories
 
+# Output Success on clean exit for consistent hook feedback
+trap 'echo "Success"' EXIT
+
 # Set up node PATH for later hooks (Stop, PostToolUse, etc.)
 if [ -n "$CLAUDE_ENV_FILE" ]; then
     # Try common node locations

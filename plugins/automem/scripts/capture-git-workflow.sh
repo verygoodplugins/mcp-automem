@@ -3,6 +3,9 @@
 # Capture Git Workflow Hook for AutoMem
 # Records git commits, GitHub issues, PRs, and code review activity
 
+# Output Success on clean exit for consistent hook feedback
+trap 'echo "Success"' EXIT
+
 LOG_FILE="$HOME/.claude/logs/git-workflow.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
 

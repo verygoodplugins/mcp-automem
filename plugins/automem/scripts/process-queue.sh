@@ -3,6 +3,9 @@
 # Process memory queue with proper environment
 # This wrapper ensures npx is available even in restricted hook environments
 
+# Output Success on clean exit for consistent hook feedback
+trap 'echo "Success"' EXIT
+
 # Source user's shell profile for PATH
 if [ -f "$HOME/.zshrc" ]; then
     source "$HOME/.zshrc" 2>/dev/null
