@@ -167,7 +167,7 @@ fi
 # Queue memory for processing
 TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
 
-MEMORY_RECORD=$(jq -n \
+MEMORY_RECORD=$(jq -cn \
     --arg content "$CONTENT" \
     --arg type "$WORKFLOW_TYPE" \
     --arg project "$PROJECT_NAME" \
