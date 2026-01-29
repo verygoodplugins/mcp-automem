@@ -18,6 +18,5 @@
     "persistence",
     "knowledge-graph"
   ],
-  "hooks": "./hooks/hooks.json",
   "mcpServers": "./.mcp.json"
 }
