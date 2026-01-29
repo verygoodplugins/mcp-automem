@@ -31,7 +31,12 @@ fi
 
 # Process queue
 if command -v npx &>/dev/null; then
-    npx -y @verygoodplugins/mcp-automem queue --file "$QUEUE_FILE" --limit 5
+    # First attempt
+    if ! npx -y @verygoodplugins/mcp-automem queue --file "$QUEUE_FILE" --limit 5 2>&1; then
+        # If failed, clear npx cache for this package and retry
+        rm -rf ~/.npm/_npx/*verygoodplugins* 2>/dev/null
+        npx -y @verygoodplugins/mcp-automem queue --file "$QUEUE_FILE" --limit 5 2>&1 || true
+    fi
 else
     echo "Warning: npx not found, queue will be processed next session" >&2
 fi
