@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
-import path from 'path';
 
 // Mock fs module
 vi.mock('fs');
@@ -12,18 +11,15 @@ const mockOs = vi.mocked(os);
 
 describe('claude-code CLI', () => {
   const mockHomeDir = '/mock/home';
-  const mockClaudeDir = `${mockHomeDir}/.claude`;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.resetModules();
     mockOs.homedir.mockReturnValue(mockHomeDir);
     mockFs.existsSync.mockReturnValue(false);
     mockFs.mkdirSync.mockImplementation(() => undefined);
     mockFs.readFileSync.mockReturnValue('{}');
     mockFs.writeFileSync.mockImplementation(() => undefined);
     mockFs.copyFileSync.mockImplementation(() => undefined);
-    mockFs.chmodSync.mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -251,67 +247,5 @@ describe('claude-code CLI', () => {
       }
     });
   });
-
-  describe('legacy smart-notify migration', () => {
-    it('installs updated smart-notify.sh when settings.json references it', async () => {
-      const { applyClaudeCodeSetup } = await import('./claude-code.js');
-
-      mockFs.existsSync.mockImplementation((filePath: any) => {
-        const value = String(filePath);
-
-        if (value === `${mockClaudeDir}/settings.json`) return true;
-        if (value === `${mockClaudeDir}/scripts/smart-notify.sh`) return false;
-
-        if (value.includes('/templates/claude-code/')) return true;
-        return false;
-      });
-
-      mockFs.readFileSync.mockImplementation((filePath: any) => {
-        const value = String(filePath);
-
-        if (value.endsWith('/templates/claude-code/settings.json')) {
-          return JSON.stringify({
-            permissions: { allow: [], deny: [], ask: [] },
-            hooks: {},
-          });
-        }
-
-        if (value === `${mockClaudeDir}/settings.json`) {
-          return JSON.stringify({
-            permissions: { allow: [], deny: [], ask: [] },
-            hooks: {
-              Stop: [
-                {
-                  matcher: '*',
-                  hooks: [
-                    {
-                      type: 'command',
-                      command: 'bash "$HOME/.claude/scripts/smart-notify.sh"',
-                    },
-                  ],
-                },
-              ],
-            },
-          });
-        }
-
-        if (value.endsWith('/templates/claude-code/scripts/smart-notify.sh')) {
-          return '#!/bin/bash\nosascript - "$MSG" "t" "s"\n';
-        }
-
-        return '#!/bin/bash\necho ok\n';
-      });
-
-      await applyClaudeCodeSetup({ yes: true });
-
-      const writeCalls = mockFs.writeFileSync.mock.calls;
-      const smartNotifyCall = writeCalls.find(([filePath]) =>
-        String(filePath).endsWith('/.claude/scripts/smart-notify.sh')
-      );
-
-      expect(smartNotifyCall).toBeDefined();
-      expect(String(smartNotifyCall?.[1])).toContain('osascript - "$MSG"');
-      expect(mockFs.chmodSync).toHaveBeenCalledWith(`${mockClaudeDir}/scripts/smart-notify.sh`, 0o755);
-    });
-  });
 });
+

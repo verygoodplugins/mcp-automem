@@ -69,7 +69,7 @@ function detectProjectName() {
     try {
         const remote = execSync('git remote get-url origin 2>/dev/null', { encoding: 'utf8' }).trim();
         if (remote) {
-            const match = remote.match(/\/([^\/]+?)(\.git)?$/);
+            const match = remote.match(/\/([^/]+?)(\.git)?$/);
             if (match) {
                 return match[1];
             }
