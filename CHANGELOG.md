@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.1](https://github.com/verygoodplugins/mcp-automem/compare/v0.10.0...v0.10.1) (2026-02-02)
+
+
+### Bug Fixes
+
+* **auth:** accept AUTOMEM_API_TOKEN alias ([#27](https://github.com/verygoodplugins/mcp-automem/issues/27)) ([3dfcd1f](https://github.com/verygoodplugins/mcp-automem/commit/3dfcd1f18346677d487575004ad5ec50007a40cf)), closes [#26](https://github.com/verygoodplugins/mcp-automem/issues/26)
+* **claude-code:** avoid osascript quoting errors ([#30](https://github.com/verygoodplugins/mcp-automem/issues/30)) ([474c47b](https://github.com/verygoodplugins/mcp-automem/commit/474c47b97cfe2ec76b5857ce775d350edc10a0af))
+* **queue:** handle ENOENT errors when deleting queue file ([#29](https://github.com/verygoodplugins/mcp-automem/issues/29)) ([a98f2e5](https://github.com/verygoodplugins/mcp-automem/commit/a98f2e55920181b2757edb7ed13f215846d68915))
+* remove duplicate hooks declaration causing load error ([#35](https://github.com/verygoodplugins/mcp-automem/issues/35)) ([65d6db5](https://github.com/verygoodplugins/mcp-automem/commit/65d6db54c7b450b33af02f6659c420cade1cd0c2))
+
 ## [0.10.0](https://github.com/verygoodplugins/mcp-automem/compare/v0.9.1...v0.10.0) (2026-01-06)
 
 
