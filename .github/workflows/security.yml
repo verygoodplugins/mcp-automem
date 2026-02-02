@@ -46,8 +46,8 @@ jobs:
 
       - name: Audit dependencies
         run: npm audit --audit-level=high
-        continue-on-error: true
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
 
       - name: Check for known vulnerabilities
         run: npx better-npm-audit audit --level high
-        continue-on-error: true
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
