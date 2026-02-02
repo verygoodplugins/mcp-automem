@@ -1,0 +1,87 @@
+{
+  "manifest_version": "0.3",
+  "name": "automem",
+  "display_name": "AutoMem - AI Memory",
+  "version": "0.10.0",
+  "description": "Give Claude persistent memory across conversations. Store decisions, patterns, and context that persist forever.",
+  "long_description": "AutoMem gives Claude a real memory system using graph + vector databases. Your AI assistant can now:\n- **Remember everything** - Decisions, preferences, and project context persist across all sessions\n- **Build knowledge graphs** - Connect related memories for richer context\n- **Search semantically** - Find relevant memories by meaning, not just keywords\n- **Learn your style** - Store corrections and preferences so Claude adapts to you\nRequires an AutoMem backend (self-hosted or Railway deployment).",
+  "author": {
+    "name": "Very Good Plugins",
+    "email": "info@verygoodplugins.com",
+    "url": "https://verygoodplugins.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/verygoodplugins/mcp-automem"
+  },
+  "homepage": "https://automem.ai",
+  "documentation": "https://github.com/verygoodplugins/mcp-automem/blob/main/INSTALLATION.md",
+  "support": "https://github.com/verygoodplugins/mcp-automem/issues",
+  "icon": "assets/icon.png",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "persistence",
+    "context",
+    "knowledge-graph",
+    "vector-search"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "AUTOMEM_ENDPOINT": "${user_config.automem_endpoint}",
+        "AUTOMEM_API_KEY": "${user_config.automem_api_key}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "store_memory",
+      "description": "Store a memory with content, tags, importance, and metadata"
+    },
+    {
+      "name": "recall_memory",
+      "description": "Search memories using hybrid vector + keyword + tag matching"
+    },
+    {
+      "name": "associate_memories",
+      "description": "Create typed relationships between memories (RELATES_TO, LEADS_TO, etc.)"
+    },
+    {
+      "name": "update_memory",
+      "description": "Update an existing memory's content, tags, or importance"
+    },
+    {
+      "name": "delete_memory",
+      "description": "Permanently delete a memory and its embedding"
+    },
+    {
+      "name": "check_database_health",
+      "description": "Check connection status of FalkorDB and Qdrant databases"
+    }
+  ],
+  "user_config": {
+    "automem_endpoint": {
+      "type": "string",
+      "title": "AutoMem Endpoint",
+      "description": "URL of your AutoMem service (e.g., http://127.0.0.1:8001 for local, or https://your-app.railway.app for cloud)",
+      "required": true,
+      "default": "http://127.0.0.1:8001"
+    },
+    "automem_api_key": {
+      "type": "string",
+      "title": "API Key",
+      "description": "Your AutoMem API key (required for Railway deployments, optional for local)",
+      "sensitive": true,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": ["darwin", "win32", "linux"]
+  }
+}
