@@ -1,7 +1,15 @@
-# AutoMem MCP: Give Your AI Perfect Memory 🧠
+# AutoMem MCP: Give Your AI Perfect Memory
 
-[![Version](https://img.shields.io/npm/v/@verygoodplugins/mcp-automem)](https://www.npmjs.com/package/@verygoodplugins/mcp-automem)
-[![License](https://img.shields.io/npm/l/@verygoodplugins/mcp-automem)](LICENSE)
+<p align="center">
+  <img src="assets/icon.svg" alt="AutoMem" width="80" height="80" />
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@verygoodplugins/mcp-automem"><img src="https://img.shields.io/npm/v/@verygoodplugins/mcp-automem" alt="Version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/@verygoodplugins/mcp-automem" alt="License" /></a>
+  <a href="https://automem.ai/discord"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://x.com/automem_ai"><img src="https://img.shields.io/badge/X-@automem__ai-000000?logo=x&logoColor=white" alt="X (Twitter)" /></a>
+</p>
 
 **One command. Infinite memory. Perfect recall across all your AI tools.**
 
