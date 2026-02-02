@@ -1,5 +1,7 @@
 # AutoMem Memory Rules for CLAUDE.md
 
+<!-- automem-template-version: 1.0.0 -->
+
 Add this section to your `~/.claude/CLAUDE.md` file. The SessionStart hook will prompt memory recall automatically.
 
 ## Quick Installation
@@ -214,8 +216,5 @@ BEST PRACTICES:
 - Create relationships between related memories for graph navigation
 - Update rather than duplicate when knowledge evolves
 - Let low-importance memories (<0.3) decay naturally
-  </memory_rules>
-
-```
-
-```
+</memory_rules>
+````

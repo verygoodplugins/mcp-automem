@@ -1,5 +1,7 @@
 # Memory-Enhanced Assistant
 
+<!-- automem-template-version: 1.0.0 -->
+
 You have access to AutoMem - a persistent memory system with graph relationships and semantic search. Use it strategically to provide continuity across conversations.
 
 > Tool names are client-specific. In Claude Desktop, they typically look like `mcp__<server>__<tool>`.
