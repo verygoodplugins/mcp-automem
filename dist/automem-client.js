@@ -42,7 +42,7 @@ export class AutoMemClient {
             // Some error responses may not be JSON; treat parse errors as non-retryable
             data = await response.json();
         }
-        catch (parseError) {
+        catch {
             throw new Error(`Invalid JSON response (${response.status})`);
         }
         if (!response.ok) {

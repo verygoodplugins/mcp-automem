@@ -69,7 +69,7 @@ function detectProjectName() {
     try {
         const remote = execSync('git remote get-url origin 2>/dev/null', { encoding: 'utf8' }).trim();
         if (remote) {
-            const match = remote.match(/\/([^\/]+?)(\.git)?$/);
+            const match = remote.match(/\/([^/]+?)(\.git)?$/);
             if (match) {
                 return match[1];
             }
@@ -169,19 +169,19 @@ function detectCursorAutoMemServerName(configPath) {
         // Prefer conventional names when multiple servers exist.
         for (const preferred of ['memory', 'automem']) {
             if (servers[preferred] && isCursorAutoMemServerConfig(servers[preferred])) {
-                return preferred;
+                return { name: preferred, verified: true };
             }
         }
         for (const [name, serverConfig] of Object.entries(servers)) {
             if (isCursorAutoMemServerConfig(serverConfig)) {
-                return name;
+                return { name, verified: true };
             }
         }
         // Fall back to known keys even if we couldn't positively identify args/env.
         if (servers.memory)
-            return 'memory';
+            return { name: 'memory', verified: false };
         if (servers.automem)
-            return 'automem';
+            return { name: 'automem', verified: false };
         return null;
     }
     catch {
@@ -190,8 +190,12 @@ function detectCursorAutoMemServerName(configPath) {
 }
 function checkCursorMcpConfigured() {
     const configPath = getCursorMcpConfigPath();
-    const serverName = detectCursorAutoMemServerName(configPath) ?? undefined;
-    return { configured: Boolean(serverName), configPath, serverName };
+    const detection = detectCursorAutoMemServerName(configPath);
+    return {
+        configured: Boolean(detection?.verified),
+        configPath,
+        serverName: detection?.name,
+    };
 }
 export async function applyCursorSetup(cliOptions) {
     const projectRoot = process.cwd();

@@ -15,18 +15,22 @@ function detectProjectName() {
             if (pkg.name)
                 return String(pkg.name).replace(/^@.*?\//, '');
         }
-        catch { }
+        catch {
+            // Ignore JSON parse errors; fall back to other name sources
+        }
     }
     // 2) git remote
     try {
         const remote = execSync('git remote get-url origin 2>/dev/null', { encoding: 'utf8' }).trim();
         if (remote) {
-            const match = remote.match(/\/([^\/]+?)(\.git)?$/);
+            const match = remote.match(/\/([^/]+?)(\.git)?$/);
             if (match)
                 return match[1];
         }
     }
-    catch { }
+    catch {
+        // Ignore missing/invalid git remotes; fall back to directory name
+    }
     // 3) directory
     return path.basename(process.cwd());
 }

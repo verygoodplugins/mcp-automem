@@ -886,7 +886,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             merged = merged.slice(0, recallArgs.limit);
                         }
                     }
-                    catch (e) {
+                    catch {
                         // Non-fatal: if recall fails, return empty results
                     }
                 }

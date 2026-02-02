@@ -98,7 +98,7 @@ function loadEnvValues(filePath: string): Record<string, string> {
 }
 
 function formatEnvValue(value: string): string {
-  const needsQuotes = /[^A-Za-z0-9_@\/:.,+-]/.test(value);
+  const needsQuotes = /[^A-Za-z0-9_@/:.,+-]/.test(value);
   if (!needsQuotes) {
     return value;
   }
