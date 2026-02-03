@@ -1244,8 +1244,8 @@ npm test
 
 ## Credits
 
-Built by [Jack Arturo](https://x.com/verygoodplugins) 🧡
+Built by [Jack Arturo](https://x.com/jjack_arturo) 🧡
 
 - Powered by [AutoMem](https://github.com/verygoodplugins/automem)
-- Built with [Model Context Protocol SDK](https://github.com/anthropics/model-context-protocol)
+- Built with [Model Context Protocol](https://modelcontextprotocol.io)
 - Part of the [Very Good Plugins](https://verygoodplugins.com) ecosystem
