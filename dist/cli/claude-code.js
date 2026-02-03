@@ -12,6 +12,7 @@ const HOOK_SCRIPTS = [
 ];
 const SUPPORT_SCRIPTS = [
     'queue-cleanup.sh',
+    'process-queue.sh',
     'process-session-memory.py',
     'memory-filters.json',
 ];
