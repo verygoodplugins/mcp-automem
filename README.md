@@ -132,7 +132,7 @@ One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month after trial.
 
 Download and double-click to install AutoMem in Claude Desktop:
 
-**[⬇️ Download AutoMem for Claude Desktop (.mcpb)](https://github.com/verygoodplugins/mcp-automem/releases/latest/download/automem.mcpb)**
+**[⬇️ Download AutoMem for Claude Desktop (.mcpb)](https://github.com/verygoodplugins/mcp-automem/releases/latest/download/mcp-automem.mcpb)**
 
 After installing:
 1. Claude Desktop will prompt you for your **AutoMem Endpoint** (`http://127.0.0.1:8001` for local)
@@ -430,10 +430,12 @@ This MCP package provides the bridge between your AI and that research-validated
 
 ## Community & Support
 
+- 💬 **[Discord](https://automem.ai/discord)** - Join the community, get help, share feedback
+- 🐦 **[X Community](https://x.com/i/communities/2013114118912225326)** - Discussion and updates
+- 📣 **[@automem_ai](https://x.com/automem_ai)** - Official announcements
 - 📦 **[NPM Package](https://www.npmjs.com/package/@verygoodplugins/mcp-automem)** - This MCP client
 - 🔬 **[AutoMem Service](https://github.com/verygoodplugins/automem)** - Backend repo with deployment guides
 - 🐛 **[GitHub Issues](https://github.com/verygoodplugins/mcp-automem/issues)** - Bug reports and feature requests
-- 🐦 **[@verygoodplugins](https://x.com/verygoodplugins)** - Updates and announcements
 
 ## Quick Links
 
