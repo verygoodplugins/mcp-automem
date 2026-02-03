@@ -2,7 +2,7 @@
 description: AutoMem persistent memory - recall context at start, store decisions during work, summarize at end
 alwaysApply: true
 ---
-<!-- automem-mdc-version: {{VERSION}} -->
+<!-- automem-template-version: 1.0.0 -->
 
 # AutoMem Memory Integration
 
@@ -123,11 +123,18 @@ Summarize if multiple files modified, significant refactoring, new features, or 
 
 ## Tagging Convention
 
-ALWAYS include these tags:
+**For project-specific memories** (code, architecture, decisions):
 1. `{{PROJECT_NAME}}` - Project identifier
 2. `cursor` - Platform tag
 3. `{{CURRENT_MONTH}}` - Current month (YYYY-MM format)
 4. Component tag - Specific area (e.g., "auth", "api", "frontend")
+
+**For personal/cross-project memories** (preferences, lifestyle, relationships):
+1. `personal` - Personal namespace (instead of project tag)
+2. `{{CURRENT_MONTH}}` - Current month
+3. Category tag - Domain (e.g., "health", "preferences", "workflow")
+
+**Why separate namespaces?** Project tags help filter technical memories, but personal memories should be discoverable across all projects. Using `personal` instead of a project tag ensures preferences and lifestyle context aren't drowned out by high-importance technical memories.
 
 ## Importance Scoring
 

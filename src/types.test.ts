@@ -1,7 +1,6 @@
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import type {
   AutoMemConfig,
-  MemoryRecord,
   RecallResult,
   HealthStatus,
   StoreMemoryArgs,
@@ -9,7 +8,6 @@ import type {
   AssociateMemoryArgs,
   UpdateMemoryArgs,
   DeleteMemoryArgs,
-  TagSearchArgs,
 } from './types.js';
 
 /**
@@ -262,5 +260,4 @@ describe('Type Constraints', () => {
     });
   });
 });
-
 

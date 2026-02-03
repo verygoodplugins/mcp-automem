@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      production-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@types/*"
+          - "typescript"
+          - "vitest"
+          - "eslint*"
+          - "prettier"
+      dev-dependencies:
+        patterns:
+          - "@types/*"
+          - "typescript"
+          - "vitest"
+          - "eslint*"
+          - "prettier"
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 10

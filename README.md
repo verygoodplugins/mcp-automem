@@ -1,7 +1,15 @@
-# AutoMem MCP: Give Your AI Perfect Memory 🧠
+# AutoMem MCP: Give Your AI Perfect Memory
 
-[![Version](https://img.shields.io/npm/v/@verygoodplugins/mcp-automem)](https://www.npmjs.com/package/@verygoodplugins/mcp-automem)
-[![License](https://img.shields.io/npm/l/@verygoodplugins/mcp-automem)](LICENSE)
+<p align="center">
+  <img src="assets/icon.svg" alt="AutoMem" width="80" height="80" />
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@verygoodplugins/mcp-automem"><img src="https://img.shields.io/npm/v/@verygoodplugins/mcp-automem" alt="Version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/@verygoodplugins/mcp-automem" alt="License" /></a>
+  <a href="https://automem.ai/discord"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://x.com/automem_ai"><img src="https://img.shields.io/badge/X-@automem__ai-000000?logo=x&logoColor=white" alt="X (Twitter)" /></a>
+</p>
 
 **One command. Infinite memory. Perfect recall across all your AI tools.**
 
@@ -11,7 +19,7 @@ npx @verygoodplugins/mcp-automem setup
 
 Your AI assistant now remembers everything. Forever. Across every conversation.
 
-Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex** - any MCP-compatible AI platform.
+Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex** - any MCP-compatible AI platform.
 
 ## The Problem We Solve
 
@@ -42,6 +50,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 | **Claude Desktop** | ✅ Full | 30 seconds |
 | **Cursor IDE**     | ✅ Full | 30 seconds |
 | **Claude Code**    | ✅ Full | 30 seconds |
+| **GitHub Copilot** | ✅ Full | 2 minutes  |
 | **OpenAI Codex**   | ✅ Full | 30 seconds |
 | **Any MCP client** | ✅ Full | 30 seconds |
 
@@ -123,7 +132,7 @@ One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month after trial.
 
 Download and double-click to install AutoMem in Claude Desktop:
 
-**[⬇️ Download AutoMem for Claude Desktop (.mcpb)](https://github.com/verygoodplugins/mcp-automem/releases/latest/download/automem.mcpb)**
+**[⬇️ Download AutoMem for Claude Desktop (.mcpb)](https://github.com/verygoodplugins/mcp-automem/releases/latest/download/mcp-automem.mcpb)**
 
 After installing:
 1. Claude Desktop will prompt you for your **AutoMem Endpoint** (`http://127.0.0.1:8001` for local)
@@ -421,10 +430,12 @@ This MCP package provides the bridge between your AI and that research-validated
 
 ## Community & Support
 
+- 💬 **[Discord](https://automem.ai/discord)** - Join the community, get help, share feedback
+- 🐦 **[X Community](https://x.com/i/communities/2013114118912225326)** - Discussion and updates
+- 📣 **[@automem_ai](https://x.com/automem_ai)** - Official announcements
 - 📦 **[NPM Package](https://www.npmjs.com/package/@verygoodplugins/mcp-automem)** - This MCP client
 - 🔬 **[AutoMem Service](https://github.com/verygoodplugins/automem)** - Backend repo with deployment guides
 - 🐛 **[GitHub Issues](https://github.com/verygoodplugins/mcp-automem/issues)** - Bug reports and feature requests
-- 🐦 **[@verygoodplugins](https://x.com/verygoodplugins)** - Updates and announcements
 
 ## Quick Links
 

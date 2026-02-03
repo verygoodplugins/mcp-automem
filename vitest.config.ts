@@ -4,14 +4,17 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+    // Default: exclude integration tests (they need real service)
+    // Run integration tests with: npm run test:integration
+    exclude: [
+      'node_modules/**',
+      'dist/**',
+      'tests/integration/automem-service.test.ts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts', 'src/**/*.d.ts'],
+      exclude: ['node_modules/', 'dist/', 'tests/', '*.config.*'],
     },
   },
 });
-
-

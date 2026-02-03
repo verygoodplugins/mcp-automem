@@ -121,7 +121,7 @@ function parseMigrateArgs(args: string[]): MigrateOptions | null {
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     switch (arg) {
-      case '--from':
+      case '--from': {
         if (i + 1 >= args.length) {
           console.error('Error: --from requires a value (manual|none)');
           process.exit(1);
@@ -135,7 +135,8 @@ function parseMigrateArgs(args: string[]): MigrateOptions | null {
         }
         i += 1;
         break;
-      case '--to':
+      }
+      case '--to': {
         if (i + 1 >= args.length) {
           console.error('Error: --to requires a value (cursor|claude-code)');
           process.exit(1);
@@ -149,6 +150,7 @@ function parseMigrateArgs(args: string[]): MigrateOptions | null {
         }
         i += 1;
         break;
+      }
       case '--dir':
         if (i + 1 >= args.length) {
           console.error('Error: --dir requires a path value');

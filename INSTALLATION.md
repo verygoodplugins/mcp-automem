@@ -589,6 +589,80 @@ See **[Claude Code Integration Guide](templates/CLAUDE_CODE_INTEGRATION.md)** fo
 
 ---
 
+## GitHub Copilot coding agent (GitHub.com)
+
+GitHub Copilot coding agent on GitHub.com supports MCP servers configured per repository.
+
+### Plans and availability
+
+- **Copilot Pro / Pro+**: Copilot coding agent is enabled by default.
+- **Copilot Business / Enterprise**: Copilot coding agent and third-party MCP servers are disabled by default and must be enabled by an admin (policies: **Copilot coding agent** and **MCP servers on GitHub.com**).
+
+References:
+
+- [Copilot coding agent access management](https://docs.github.com/en/copilot/concepts/agents/coding-agent/access-management)
+- [Add Copilot coding agent to an organization](https://docs.github.com/en/copilot/managing-copilot/managing-github-copilot-in-your-organization/adding-copilot-coding-agent-to-organization)
+- [Extend Copilot coding agent with MCP](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp)
+
+### 1. Create a Copilot environment secret (recommended)
+
+For API keys, use the repository's `copilot` environment secrets (instead of pasting secrets into JSON). GitHub Copilot MCP configuration supports passing secrets to a local MCP server via environment variables.
+
+Create an environment secret named `COPILOT_MCP_AUTOMEM_API_KEY` with your AutoMem API key.
+
+### 2. Add the MCP configuration to your repository
+
+In your GitHub repository: **Settings → Copilot → Coding agent → MCP configuration**, paste:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "type": "local",
+      "tools": ["*"],
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_ENDPOINT": "https://xxxx.up.railway.app",
+        "AUTOMEM_API_KEY": "COPILOT_MCP_AUTOMEM_API_KEY"
+      }
+    }
+  }
+}
+```
+
+**Notes:**
+
+- `AUTOMEM_ENDPOINT` must be reachable from GitHub's hosted environment (so `localhost` typically won't work).
+- GitHub Copilot coding agent supports MCP **tools** (not resources/prompts), and supports MCP server types `"local"`, `"http"`, and `"sse"`.
+
+### Optional: organization/enterprise-level setup (custom agents)
+
+GitHub also supports organization/enterprise-level custom agents stored in a `.github-private` repository (with agent profiles in an `agents/` directory). Organization/enterprise owners can configure MCP servers in those agents via YAML front matter (`mcp-servers`), while repository-level agents (in the `.github/agents/` directory — note: `.github` is intentionally lowercase) can only use MCP servers configured in the repository settings above.
+
+### Optional: connect via remote MCP (HTTP/SSE “bridge”)
+
+If you deploy the optional remote MCP sidecar (see “Remote MCP via HTTP” in the README), you can connect Copilot to it via `"http"` (Streamable HTTP) or `"sse"`.
+
+Example (Streamable HTTP):
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "type": "http",
+      "url": "https://<your-mcp-domain>/mcp",
+      "tools": ["*"],
+      "headers": {
+        "Authorization": "$COPILOT_MCP_AUTOMEM_AUTH_HEADER"
+      }
+    }
+  }
+}
+```
+
+Create a `COPILOT_MCP_AUTOMEM_AUTH_HEADER` environment secret with the full header value (for example: `Bearer <AUTOMEM_API_TOKEN>`).
+
 ## OpenAI Codex
 
 OpenAI Codex is an AI coding assistant with CLI, IDE, and cloud agent support. AutoMem enables Codex to remember project context, coding patterns, and past decisions.
@@ -1170,8 +1244,8 @@ npm test
 
 ## Credits
 
-Built by [Jack Arturo](https://x.com/verygoodplugins) 🧡
+Built by [Jack Arturo](https://x.com/jjack_arturo) 🧡
 
 - Powered by [AutoMem](https://github.com/verygoodplugins/automem)
-- Built with [Model Context Protocol SDK](https://github.com/anthropics/model-context-protocol)
+- Built with [Model Context Protocol](https://modelcontextprotocol.io)
 - Part of the [Very Good Plugins](https://verygoodplugins.com) ecosystem

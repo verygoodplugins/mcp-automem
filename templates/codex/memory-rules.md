@@ -1,5 +1,5 @@
 <!-- BEGIN AUTOMEM CODEX RULES -->
-<!-- automem-codex-version: 0.9.0 -->
+<!-- automem-template-version: 1.0.0 -->
 
 ## Memory-First Development (AutoMem Codex)
 

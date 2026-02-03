@@ -79,7 +79,7 @@ function loadEnvValues(filePath) {
     return result;
 }
 function formatEnvValue(value) {
-    const needsQuotes = /[^A-Za-z0-9_@\/:.,+-]/.test(value);
+    const needsQuotes = /[^A-Za-z0-9_@/:.,+-]/.test(value);
     if (!needsQuotes) {
         return value;
     }
