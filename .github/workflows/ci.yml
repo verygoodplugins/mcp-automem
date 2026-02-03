@@ -23,6 +23,7 @@ jobs:
             --exclude 'localhost'
             --exclude '127.0.0.1'
             --exclude 'x.com/i/communities'
+            --exclude 'github.com/.*/compare/.*\.\.\..*'
             README.md
             INSTALLATION.md
             CHANGELOG.md
