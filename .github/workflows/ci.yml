@@ -7,6 +7,28 @@ on:
     branches: [main]
 
 jobs:
+  links:
+    name: Check Links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check links in documentation
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --verbose
+            --no-progress
+            --accept 200,204,301,302,403
+            --exclude-mail
+            --exclude 'localhost'
+            --exclude '127.0.0.1'
+            --exclude 'x.com/i/communities'
+            README.md
+            INSTALLATION.md
+            CHANGELOG.md
+          fail: true
+
   test:
     runs-on: ubuntu-latest
     steps:
