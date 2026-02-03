@@ -32,13 +32,14 @@ if [ ! -s "$QUEUE_FILE" ]; then
     exit 0
 fi
 
-# Process queue
+# Process queue - run from temp dir to avoid local package.json interference
+TEMP_DIR="${TMPDIR:-/tmp}"
 if command -v npx &>/dev/null; then
-    # First attempt
-    if ! npx -y @verygoodplugins/mcp-automem queue --file "$QUEUE_FILE" --limit 5 2>&1; then
+    # Run from temp dir to ensure npx fetches from registry, not local project
+    if ! (cd "$TEMP_DIR" && npx -y @verygoodplugins/mcp-automem queue --file "$QUEUE_FILE" --limit 5) 2>&1; then
         # If failed, clear npx cache for this package and retry
         rm -rf ~/.npm/_npx/*verygoodplugins* 2>/dev/null
-        npx -y @verygoodplugins/mcp-automem queue --file "$QUEUE_FILE" --limit 5 2>&1 || true
+        (cd "$TEMP_DIR" && npx -y @verygoodplugins/mcp-automem queue --file "$QUEUE_FILE" --limit 5) 2>&1 || true
     fi
 else
     echo "Warning: npx not found, queue will be processed next session" >&2

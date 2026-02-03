@@ -8,7 +8,7 @@ trap 'echo "Success"' EXIT
 
 # Set up node PATH for later hooks (Stop, PostToolUse, etc.)
 if [ -n "$CLAUDE_ENV_FILE" ]; then
-    # Try common node locations
+    # Try common node locations - verify node/npx actually exists
     for NODE_PATH in \
         "$HOME/.nvm/versions/node/"*/bin \
         "$HOME/.volta/bin" \
@@ -16,7 +16,7 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
         "/usr/local/bin" \
         "/opt/homebrew/bin"
     do
-        if [ -d "$NODE_PATH" ] 2>/dev/null; then
+        if [ -x "$NODE_PATH/node" ] || [ -x "$NODE_PATH/npx" ]; then
             echo "export PATH=\"$NODE_PATH:\$PATH\"" >> "$CLAUDE_ENV_FILE"
             break
         fi

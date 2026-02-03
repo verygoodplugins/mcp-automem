@@ -45,18 +45,18 @@ TAGS='["git-workflow"]'
 if echo "$COMMAND" | grep -qi "git commit"; then
     WORKFLOW_TYPE="commit"
 
-    # Extract commit message from command (-m "message") or output
-    COMMIT_MSG=$(echo "$COMMAND" | grep -oP '(?<=-m ["\x27])[^"\x27]+' | head -1)
+    # Extract commit message from command (-m "message") or output (portable, no grep -P)
+    COMMIT_MSG=$(echo "$COMMAND" | sed -n 's/.*-m ["\x27]\([^"\x27]*\)["\x27].*/\1/p' | head -1)
     if [ -z "$COMMIT_MSG" ]; then
         # Try to get from output (first line often has commit info)
-        COMMIT_MSG=$(echo "$OUTPUT" | grep -oP '(?<=\] )[^\n]+' | head -1)
+        COMMIT_MSG=$(echo "$OUTPUT" | sed -n 's/.*\] \(.*\)/\1/p' | head -1)
     fi
 
     # Get branch from output or git
-    BRANCH=$(echo "$OUTPUT" | grep -oP '^\[\K[^\s\]]+' | head -1)
+    BRANCH=$(echo "$OUTPUT" | sed -n 's/^\[\([^ \]]*\).*/\1/p' | head -1)
 
     # Get files changed count
-    FILES_CHANGED=$(echo "$OUTPUT" | grep -oP '\d+(?= files? changed)' | head -1)
+    FILES_CHANGED=$(echo "$OUTPUT" | grep -oE '[0-9]+ files? changed' | grep -oE '^[0-9]+' | head -1)
 
     CONTENT="Committed to ${PROJECT_NAME}: ${COMMIT_MSG:-unknown}${BRANCH:+ on $BRANCH}${FILES_CHANGED:+ ($FILES_CHANGED files)}"
     IMPORTANCE=0.7
@@ -66,10 +66,10 @@ if echo "$COMMAND" | grep -qi "git commit"; then
 elif echo "$COMMAND" | grep -qi "gh issue create"; then
     WORKFLOW_TYPE="issue-create"
 
-    # Extract title from command or output
-    ISSUE_TITLE=$(echo "$COMMAND" | grep -oP '(?<=--title ["\x27])[^"\x27]+' | head -1)
-    ISSUE_URL=$(echo "$OUTPUT" | grep -oP 'https://github\.com/[^\s]+' | head -1)
-    ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oP '\d+$')
+    # Extract title from command or output (portable, no grep -P)
+    ISSUE_TITLE=$(echo "$COMMAND" | sed -n 's/.*--title ["\x27]\([^"\x27]*\)["\x27].*/\1/p' | head -1)
+    ISSUE_URL=$(echo "$OUTPUT" | grep -oE 'https://github\.com/[^[:space:]]+' | head -1)
+    ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
 
     CONTENT="Created issue #${ISSUE_NUM:-?} in ${PROJECT_NAME}: ${ISSUE_TITLE:-see URL}${ISSUE_URL:+ - $ISSUE_URL}"
     IMPORTANCE=0.7
@@ -79,7 +79,7 @@ elif echo "$COMMAND" | grep -qi "gh issue create"; then
 elif echo "$COMMAND" | grep -qi "gh issue close"; then
     WORKFLOW_TYPE="issue-close"
 
-    ISSUE_NUM=$(echo "$COMMAND" | grep -oP 'close \K\d+')
+    ISSUE_NUM=$(echo "$COMMAND" | sed -n 's/.*close \([0-9]*\).*/\1/p')
 
     CONTENT="Closed issue #${ISSUE_NUM:-?} in ${PROJECT_NAME}"
     IMPORTANCE=0.6
@@ -89,10 +89,10 @@ elif echo "$COMMAND" | grep -qi "gh issue close"; then
 elif echo "$COMMAND" | grep -qi "gh pr create"; then
     WORKFLOW_TYPE="pr-create"
 
-    # Extract title and body summary
-    PR_TITLE=$(echo "$COMMAND" | grep -oP '(?<=--title ["\x27])[^"\x27]+' | head -1)
-    PR_URL=$(echo "$OUTPUT" | grep -oP 'https://github\.com/[^\s]+pull/\d+' | head -1)
-    PR_NUM=$(echo "$PR_URL" | grep -oP '\d+$')
+    # Extract title and body summary (portable, no grep -P)
+    PR_TITLE=$(echo "$COMMAND" | sed -n 's/.*--title ["\x27]\([^"\x27]*\)["\x27].*/\1/p' | head -1)
+    PR_URL=$(echo "$OUTPUT" | grep -oE 'https://github\.com/[^[:space:]]+/pull/[0-9]+' | head -1)
+    PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
 
     CONTENT="Created PR #${PR_NUM:-?} in ${PROJECT_NAME}: ${PR_TITLE:-see URL}${PR_URL:+ - $PR_URL}"
     IMPORTANCE=0.8
@@ -102,9 +102,9 @@ elif echo "$COMMAND" | grep -qi "gh pr create"; then
 elif echo "$COMMAND" | grep -qi "gh pr merge"; then
     WORKFLOW_TYPE="pr-merge"
 
-    PR_NUM=$(echo "$COMMAND" | grep -oP 'merge \K\d+')
+    PR_NUM=$(echo "$COMMAND" | sed -n 's/.*merge \([0-9]*\).*/\1/p')
     if [ -z "$PR_NUM" ]; then
-        PR_NUM=$(echo "$OUTPUT" | grep -oP '#\K\d+' | head -1)
+        PR_NUM=$(echo "$OUTPUT" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
     fi
 
     CONTENT="Merged PR #${PR_NUM:-?} in ${PROJECT_NAME}"
@@ -117,7 +117,7 @@ elif echo "$COMMAND" | grep -qi "gh pr view"; then
 
     # Check if output contains review comments
     if echo "$OUTPUT" | grep -qi "review\|comment\|requested changes\|approved"; then
-        PR_NUM=$(echo "$COMMAND" | grep -oP 'view \K\d+')
+        PR_NUM=$(echo "$COMMAND" | sed -n 's/.*view \([0-9]*\).*/\1/p')
 
         # Extract review status
         REVIEW_STATUS=""
@@ -144,8 +144,8 @@ elif echo "$COMMAND" | grep -qi "gh pr view"; then
 elif echo "$COMMAND" | grep -qi "gh api.*pulls.*comments\|gh api.*pulls.*reviews"; then
     WORKFLOW_TYPE="pr-review-api"
 
-    # Extract PR number from API path
-    PR_NUM=$(echo "$COMMAND" | grep -oP 'pulls/\K\d+')
+    # Extract PR number from API path (portable, no grep -P)
+    PR_NUM=$(echo "$COMMAND" | sed -n 's/.*pulls\/\([0-9]*\).*/\1/p')
 
     # Check for meaningful review content
     if echo "$OUTPUT" | grep -qi "body\|comment\|state"; then

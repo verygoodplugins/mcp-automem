@@ -3,8 +3,9 @@
 # Capture Test Pattern Hook for AutoMem
 # Records test execution patterns, results, and learned testing approaches
 
-# Output Success on clean exit for consistent hook feedback
-trap 'echo "Success"' EXIT
+# Track success for conditional output
+SCRIPT_SUCCESS=false
+trap '[ "$SCRIPT_SUCCESS" = true ] && echo "Success"' EXIT
 
 LOG_FILE="$HOME/.claude/logs/test-patterns.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
@@ -195,4 +196,5 @@ else
     echo "✅ Test success pattern recorded"
 fi
 
+SCRIPT_SUCCESS=true
 exit 0

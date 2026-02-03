@@ -4,8 +4,18 @@
 # Automatically captures significant session milestones to Personal AI Memory
 # This hook triggers on session completion and major operations
 
-# Output Success on clean exit for consistent hook feedback
-trap 'echo "Success"' EXIT
+# Track success for conditional output
+SCRIPT_SUCCESS=false
+TEMP_FILE=""
+
+# Combined cleanup function
+final_cleanup() {
+    rm -f "$TEMP_FILE" 2>/dev/null
+    if [ "$SCRIPT_SUCCESS" = true ]; then
+        echo "Success"
+    fi
+}
+trap final_cleanup EXIT
 
 # Configuration
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -61,10 +71,6 @@ fi
 
 # Save session context to temporary file
 TEMP_FILE=$(mktemp "/tmp/claude_session.XXXXXX.json")
-cleanup() {
-    rm -f "$TEMP_FILE"
-}
-trap cleanup EXIT
 
 if ! command -v jq >/dev/null 2>&1; then
     log_message "jq not available; cannot encode session context"
@@ -147,4 +153,5 @@ if [ -n "$FILE_CHANGES" ] || [ -n "$RECENT_COMMITS" ]; then
     echo "🧠 Session milestone captured for analysis"
 fi
 
+SCRIPT_SUCCESS=true
 exit 0

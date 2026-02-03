@@ -3,8 +3,9 @@
 # Capture Deployment Hook for AutoMem
 # Records deployment activities, environments, and outcomes
 
-# Output Success on clean exit for consistent hook feedback
-trap 'echo "Success"' EXIT
+# Track success for conditional output
+SCRIPT_SUCCESS=false
+trap '[ "$SCRIPT_SUCCESS" = true ] && echo "Success"' EXIT
 
 LOG_FILE="$HOME/.claude/logs/deployments.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
@@ -232,4 +233,5 @@ else
     echo "✅ Deployment to $DEPLOY_ENV recorded"
 fi
 
+SCRIPT_SUCCESS=true
 exit 0
