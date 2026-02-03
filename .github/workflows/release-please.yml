@@ -38,12 +38,15 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
-        # Uses manifest mode - reads release-please-config.json for extra-files (server.json)
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
   npm-publish:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
+    environment: npm
     permissions:
       contents: read
       id-token: write
