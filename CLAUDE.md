@@ -27,6 +27,22 @@ npm test
 npm run prepublishOnly  # Runs build automatically
 ```
 
+## Commit Standards (Required)
+
+This repo uses **Conventional Commits** so Release Please can generate releases reliably.
+
+Accepted examples:
+```text
+fix: prevent stdout corruption in stdio mode
+feat: add cursor setup command
+chore: update dependencies
+docs: clarify Claude Desktop config
+```
+
+Notes:
+- PR titles must be Conventional Commit format because we squash-merge and the PR title becomes the merge commit message.
+- A git `commit-msg` hook (Husky + Commitlint) is included to catch mistakes locally, and CI enforces PR titles.
+
 ## Key Commands
 
 ### CLI Commands (via npx or global install)
