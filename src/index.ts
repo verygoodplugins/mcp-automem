@@ -28,7 +28,23 @@ import type {
   DeleteMemoryArgs,
 } from "./types.js";
 
-config();
+function isInteractiveTerminal(): boolean {
+  return Boolean(process.stdout.isTTY && process.stderr.isTTY);
+}
+
+const command = (process.argv[2] || "").toLowerCase();
+const isServerMode = command.length === 0;
+
+if (isServerMode) {
+  // Prevent dotenv (and other deps) from writing to stdout in stdio server mode.
+  process.env.DOTENV_CONFIG_QUIET ??= "true";
+  const logToStderr = (...args: unknown[]) => console.error(...args);
+  console.log = logToStderr;
+  console.info = logToStderr;
+  console.debug = logToStderr;
+}
+
+config({ quiet: isServerMode });
 
 // Optional: allow upstream supervisors (AutoHub, etc.) to set a stable process title for safe cleanup.
 // This prevents "kill by package name" from taking down other running MCP clients (Codex/Cursor/etc.).
@@ -44,10 +60,6 @@ try {
   }
 } catch {
   // Best-effort only
-}
-
-function isInteractiveTerminal(): boolean {
-  return Boolean(process.stdout.isTTY && process.stderr.isTTY);
 }
 
 function installStdioErrorGuards() {
@@ -76,8 +88,6 @@ function getPackageVersion(): string {
 }
 
 const PACKAGE_VERSION = getPackageVersion();
-
-const command = (process.argv[2] || "").toLowerCase();
 
 if (command === "help" || command === "--help" || command === "-h") {
   console.log(`
