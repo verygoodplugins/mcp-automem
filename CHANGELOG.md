@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.1](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.11.0...mcp-automem-v0.11.1) (2026-02-04)
+
+
+### Bug Fixes
+
+* prevent dotenv stdout noise in stdio mode ([#56](https://github.com/verygoodplugins/mcp-automem/issues/56)) ([e8b80ac](https://github.com/verygoodplugins/mcp-automem/commit/e8b80ac0176440d1ffb9ef83b73e4674ef90326a))
+
 ## [0.11.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.10.1...mcp-automem-v0.11.0) (2026-02-03)
 
 
