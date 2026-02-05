@@ -167,8 +167,14 @@ def to_int(value, default=0):
     except (TypeError, ValueError):
         return default
 
+def truncate(text, max_len):
+    """Truncate text to max_len chars to prevent 'too long' errors."""
+    if text and len(text) > max_len:
+        return text[:max_len] + "..."
+    return text
+
 record = {
-    "content": os.environ.get("AUTOMEM_CONTENT", ""),
+    "content": truncate(os.environ.get("AUTOMEM_CONTENT", ""), 1500),
     "tags": ["build", os.environ.get("AUTOMEM_BUILD_TOOL", "unknown"), os.environ.get("AUTOMEM_PROJECT", "")],
     "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.5")),
     "type": os.environ.get("AUTOMEM_TYPE", "Context"),
@@ -179,7 +185,7 @@ record = {
         "warnings": to_int(os.environ.get("AUTOMEM_WARNINGS", "0")),
         "errors": to_int(os.environ.get("AUTOMEM_ERRORS", "0")),
         "exit_code": to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0")),
-        "command": os.environ.get("AUTOMEM_COMMAND", ""),
+        "command": truncate(os.environ.get("AUTOMEM_COMMAND", ""), 500),
         "project": os.environ.get("AUTOMEM_PROJECT", ""),
     },
     "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

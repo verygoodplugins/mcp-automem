@@ -104,6 +104,11 @@ TESTS_FAILED="${TESTS_FAILED:-0}"
 EXIT_CODE="${EXIT_CODE:-0}"
 TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
 
+# Truncate to prevent "too long" errors
+CONTENT="${CONTENT:0:1500}"
+COMMAND="${COMMAND:0:500}"
+ERROR_DETAILS="${ERROR_DETAILS:0:500}"
+
 if ! ERROR_DETAILS_JSON=$(jq -c -n --arg error "$ERROR_DETAILS" '$error'); then
     log_message "Failed to encode test error details"
     exit 1

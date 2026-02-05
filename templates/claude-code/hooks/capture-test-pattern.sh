@@ -3,9 +3,8 @@
 # Capture Test Pattern Hook for AutoMem
 # Records test execution patterns, results, and learned testing approaches
 
-# Track success for conditional output
-SCRIPT_SUCCESS=false
-trap '[ "$SCRIPT_SUCCESS" = true ] && echo "Success"' EXIT
+# Output Success on clean exit for consistent hook feedback
+trap 'echo "Success"' EXIT
 
 LOG_FILE="$HOME/.claude/logs/test-patterns.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
@@ -105,6 +104,11 @@ TESTS_FAILED="${TESTS_FAILED:-0}"
 EXIT_CODE="${EXIT_CODE:-0}"
 TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
 
+# Truncate to prevent "too long" errors
+CONTENT="${CONTENT:0:1500}"
+COMMAND="${COMMAND:0:500}"
+ERROR_DETAILS="${ERROR_DETAILS:0:500}"
+
 if ! ERROR_DETAILS_JSON=$(jq -c -n --arg error "$ERROR_DETAILS" '$error'); then
     log_message "Failed to encode test error details"
     exit 1
@@ -196,5 +200,4 @@ else
     echo "✅ Test success pattern recorded"
 fi
 
-SCRIPT_SUCCESS=true
 exit 0

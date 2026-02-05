@@ -135,6 +135,11 @@ IMPORTANCE="${IMPORTANCE:-0.8}"
 EXIT_CODE="${EXIT_CODE:-0}"
 TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
 
+# Truncate to prevent "too long" errors
+CONTENT="${CONTENT:0:1500}"
+COMMAND="${COMMAND:0:500}"
+ERROR_DETAILS="${ERROR_DETAILS:0:500}"
+
 if ! MEMORY_RECORD=$(jq -c -n \
     --arg content "$CONTENT" \
     --arg platform "$DEPLOY_PLATFORM" \
