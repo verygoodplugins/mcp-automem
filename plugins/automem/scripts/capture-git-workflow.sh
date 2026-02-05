@@ -38,28 +38,27 @@ log_message "Git workflow command detected: $COMMAND"
 # Determine workflow type and extract details
 WORKFLOW_TYPE="unknown"
 CONTENT=""
-IMPORTANCE=0.7
+IMPORTANCE=0.5  # Default, will be calculated based on signals
 TAGS='["git-workflow"]'
 
 # Git commit
 if echo "$COMMAND" | grep -qi "git commit"; then
     WORKFLOW_TYPE="commit"
 
-    # Extract commit message from command (-m "message") or output
-    COMMIT_MSG=$(echo "$COMMAND" | grep -oP '(?<=-m ["\x27])[^"\x27]+' | head -1)
-    if [ -z "$COMMIT_MSG" ]; then
-        # Try to get from output (first line often has commit info)
-        COMMIT_MSG=$(echo "$OUTPUT" | grep -oP '(?<=\] )[^\n]+' | head -1)
+    # Get commit message from git log (works regardless of how commit was made)
+    # Change to CWD if provided, otherwise use current dir
+    if [ -n "$CWD" ] && [ -d "$CWD" ]; then
+        COMMIT_MSG=$(cd "$CWD" && git log -1 --pretty=%s 2>/dev/null)
+        BRANCH=$(cd "$CWD" && git branch --show-current 2>/dev/null)
+    else
+        COMMIT_MSG=$(git log -1 --pretty=%s 2>/dev/null)
+        BRANCH=$(git branch --show-current 2>/dev/null)
     fi
 
-    # Get branch from output or git
-    BRANCH=$(echo "$OUTPUT" | grep -oP '^\[\K[^\s\]]+' | head -1)
-
-    # Get files changed count
+    # Get files changed count from output
     FILES_CHANGED=$(echo "$OUTPUT" | grep -oP '\d+(?= files? changed)' | head -1)
 
     CONTENT="Committed to ${PROJECT_NAME}: ${COMMIT_MSG:-unknown}${BRANCH:+ on $BRANCH}${FILES_CHANGED:+ ($FILES_CHANGED files)}"
-    IMPORTANCE=0.7
     TAGS="[\"git-workflow\", \"commit\", \"repo:${PROJECT_NAME}\"]"
 
 # GitHub Issue creation
@@ -72,7 +71,6 @@ elif echo "$COMMAND" | grep -qi "gh issue create"; then
     ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oP '\d+$')
 
     CONTENT="Created issue #${ISSUE_NUM:-?} in ${PROJECT_NAME}: ${ISSUE_TITLE:-see URL}${ISSUE_URL:+ - $ISSUE_URL}"
-    IMPORTANCE=0.7
     TAGS="[\"git-workflow\", \"issue\", \"created\", \"repo:${PROJECT_NAME}\"]"
 
 # GitHub Issue close
@@ -82,20 +80,26 @@ elif echo "$COMMAND" | grep -qi "gh issue close"; then
     ISSUE_NUM=$(echo "$COMMAND" | grep -oP 'close \K\d+')
 
     CONTENT="Closed issue #${ISSUE_NUM:-?} in ${PROJECT_NAME}"
-    IMPORTANCE=0.6
     TAGS="[\"git-workflow\", \"issue\", \"closed\", \"repo:${PROJECT_NAME}\"]"
 
 # GitHub PR creation
 elif echo "$COMMAND" | grep -qi "gh pr create"; then
     WORKFLOW_TYPE="pr-create"
 
-    # Extract title and body summary
-    PR_TITLE=$(echo "$COMMAND" | grep -oP '(?<=--title ["\x27])[^"\x27]+' | head -1)
+    # Extract PR URL from output (gh pr create prints it)
     PR_URL=$(echo "$OUTPUT" | grep -oP 'https://github\.com/[^\s]+pull/\d+' | head -1)
     PR_NUM=$(echo "$PR_URL" | grep -oP '\d+$')
 
-    CONTENT="Created PR #${PR_NUM:-?} in ${PROJECT_NAME}: ${PR_TITLE:-see URL}${PR_URL:+ - $PR_URL}"
-    IMPORTANCE=0.8
+    # Try simple regex first (works for simple --title "text")
+    PR_TITLE=$(echo "$COMMAND" | grep -oP '(?<=--title ")[^"]+' | head -1)
+
+    # Fallback: fetch from gh only if regex failed and we have PR number
+    if [ -z "$PR_TITLE" ] && [ -n "$PR_NUM" ]; then
+        PR_REPO=$(echo "$PR_URL" | grep -oP 'github\.com/\K[^/]+/[^/]+')
+        PR_TITLE=$(timeout 2s gh pr view "$PR_NUM" --repo "$PR_REPO" --json title -q '.title' 2>/dev/null)
+    fi
+
+    CONTENT="Created PR #${PR_NUM:-?} in ${PROJECT_NAME}: ${PR_TITLE:-$PR_URL}"
     TAGS="[\"git-workflow\", \"pr\", \"created\", \"repo:${PROJECT_NAME}\"]"
 
 # GitHub PR merge
@@ -108,8 +112,7 @@ elif echo "$COMMAND" | grep -qi "gh pr merge"; then
     fi
 
     CONTENT="Merged PR #${PR_NUM:-?} in ${PROJECT_NAME}"
-    IMPORTANCE=0.8
-    TAGS="[\"git-workflow\", \"pr\", \"merged\", \"repo:${PROJECT_NAME}\"]"
+        TAGS="[\"git-workflow\", \"pr\", \"merged\", \"repo:${PROJECT_NAME}\"]"
 
 # GitHub PR view (might contain review comments)
 elif echo "$COMMAND" | grep -qi "gh pr view"; then
@@ -129,8 +132,7 @@ elif echo "$COMMAND" | grep -qi "gh pr view"; then
 
         if [ -n "$REVIEW_STATUS" ]; then
             CONTENT="PR #${PR_NUM:-?} review in ${PROJECT_NAME}: ${REVIEW_STATUS}"
-            IMPORTANCE=0.7
-            TAGS="[\"git-workflow\", \"pr\", \"review\", \"repo:${PROJECT_NAME}\"]"
+                        TAGS="[\"git-workflow\", \"pr\", \"review\", \"repo:${PROJECT_NAME}\"]"
         else
             # No significant review info, skip
             exit 0
@@ -150,8 +152,7 @@ elif echo "$COMMAND" | grep -qi "gh api.*pulls.*comments\|gh api.*pulls.*reviews
     # Check for meaningful review content
     if echo "$OUTPUT" | grep -qi "body\|comment\|state"; then
         CONTENT="Fetched PR #${PR_NUM:-?} review data in ${PROJECT_NAME}"
-        IMPORTANCE=0.6
-        TAGS="[\"git-workflow\", \"pr\", \"review\", \"api\", \"repo:${PROJECT_NAME}\"]"
+                TAGS="[\"git-workflow\", \"pr\", \"review\", \"api\", \"repo:${PROJECT_NAME}\"]"
     else
         exit 0
     fi
@@ -179,6 +180,36 @@ MAX_CMD_LEN=500
 if [ ${#COMMAND} -gt $MAX_CMD_LEN ]; then
     COMMAND="${COMMAND:0:$MAX_CMD_LEN}..."
 fi
+
+# Calculate importance based on signals (matches pattern from other hooks)
+# Default is 0.5, boost based on workflow type and context
+case "$WORKFLOW_TYPE" in
+    pr-merge)
+        IMPORTANCE=0.7  # Merges are significant
+        ;;
+    pr-create)
+        IMPORTANCE=0.6  # PR creation is notable
+        ;;
+    commit)
+        IMPORTANCE=0.5  # Standard commits
+        # Boost for main/master branch
+        if [[ "$BRANCH" =~ ^(main|master)$ ]]; then
+            IMPORTANCE=0.7
+        fi
+        ;;
+    issue-create)
+        IMPORTANCE=0.5
+        ;;
+    issue-close)
+        IMPORTANCE=0.5
+        ;;
+    pr-view|pr-review*)
+        IMPORTANCE=0.5
+        ;;
+    *)
+        IMPORTANCE=0.5
+        ;;
+esac
 
 # Queue memory for processing
 TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
