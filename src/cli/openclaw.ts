@@ -24,7 +24,7 @@ function log(message: string, quiet?: boolean) {
 
 /**
  * Strip JSON5-style comments without corrupting URLs or strings containing `//`.
- * Handles single-line (`//`), block (`/* ... *​/`), and trailing commas.
+ * Handles single-line, block, and trailing commas.
  */
 function stripJsonComments(raw: string): string {
   // Walk through the string character by character to respect quoted strings
