@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "automem",
   "display_name": "AutoMem - AI Memory",
-  "version": "0.10.0",
+  "version": "0.11.1",
   "description": "Give Claude persistent memory across conversations. Store decisions, patterns, and context that persist forever.",
   "long_description": "AutoMem gives Claude a real memory system using graph + vector databases. Your AI assistant can now:\n- **Remember everything** - Decisions, preferences, and project context persist across all sessions\n- **Build knowledge graphs** - Connect related memories for richer context\n- **Search semantically** - Find relevant memories by meaning, not just keywords\n- **Learn your style** - Store corrections and preferences so Claude adapts to you\nRequires an AutoMem backend (self-hosted or Railway deployment).",
   "author": {
