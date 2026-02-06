@@ -12,10 +12,12 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
     # For nvm: prefer default alias, then current, then latest installed
     NVM_DEFAULT=""
     if [ -d "$HOME/.nvm/versions/node" ]; then
-        # Try default alias symlink first
-        if [ -L "$HOME/.nvm/alias/default" ]; then
-            NVM_DEFAULT=$(readlink "$HOME/.nvm/alias/default" 2>/dev/null)
-            [ -n "$NVM_DEFAULT" ] && NVM_DEFAULT="$HOME/.nvm/versions/node/$NVM_DEFAULT/bin"
+        # Try default alias file first (nvm stores aliases as plain text files)
+        if [ -f "$HOME/.nvm/alias/default" ]; then
+            NVM_ALIAS=$(cat "$HOME/.nvm/alias/default" 2>/dev/null | tr -d '[:space:]')
+            if [ -n "$NVM_ALIAS" ]; then
+                NVM_DEFAULT=$(ls -d "$HOME/.nvm/versions/node/v${NVM_ALIAS}"*/bin 2>/dev/null | sort -t'v' -k2 -V -r | head -1)
+            fi
         fi
         # Fall back to latest installed version (reverse sort = highest version first)
         if [ -z "$NVM_DEFAULT" ] || [ ! -d "$NVM_DEFAULT" ]; then

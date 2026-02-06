@@ -184,4 +184,8 @@ with queue_file.open("r+", encoding="utf-8") as handle:
 log_message("Queue cleanup complete")
 PY
 
-SCRIPT_SUCCESS=true
+if [ $? -eq 0 ]; then
+    SCRIPT_SUCCESS=true
+else
+    log_message "Python queue cleanup failed (exit $?)"
+fi

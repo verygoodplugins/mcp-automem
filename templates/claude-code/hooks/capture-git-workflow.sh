@@ -135,7 +135,7 @@ elif echo "$COMMAND" | grep -qi "gh pr view"; then
     WORKFLOW_TYPE="pr-view"
 
     # Check if output contains review comments
-    if echo "$OUTPUT" | grep -qi "review\|comment\|requested changes\|approved"; then
+    if echo "$OUTPUT" | grep -qiE "review|comment|requested changes|approved"; then
         PR_NUM=$(echo "$COMMAND" | perl -nle 'print $1 if /view (\d+)/')
 
         # Extract review status
@@ -159,7 +159,7 @@ elif echo "$COMMAND" | grep -qi "gh pr view"; then
     fi
 
 # GitHub API calls for PR comments/reviews
-elif echo "$COMMAND" | grep -qi "gh api.*pulls.*comments\|gh api.*pulls.*reviews"; then
+elif echo "$COMMAND" | grep -qiE "gh api.*pulls.*comments|gh api.*pulls.*reviews"; then
     WORKFLOW_TYPE="pr-review-api"
 
     # Extract PR number from API path - portable
@@ -337,6 +337,11 @@ if queue_path and record:
         finally:
             unlock_file(handle)
 PY
+
+if [ $? -ne 0 ]; then
+    log_message "Failed to write memory record to queue"
+    exit 1
+fi
 
 log_message "Queued $WORKFLOW_TYPE memory: $CONTENT"
 

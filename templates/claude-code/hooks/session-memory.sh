@@ -70,7 +70,7 @@ if [ -n "$GIT_BRANCH" ]; then
 fi
 
 # Save session context to temporary file
-TEMP_FILE=$(mktemp "/tmp/claude_session.XXXXXX.json")
+TEMP_FILE=$(mktemp "/tmp/claude_session.XXXXXX")
 
 if ! command -v jq >/dev/null 2>&1; then
     log_message "jq not available; cannot encode session context"
