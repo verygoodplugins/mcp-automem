@@ -3,8 +3,9 @@
 # Capture Git Workflow Hook for AutoMem
 # Records git commits, GitHub issues, PRs, and code review activity
 
-# Output Success on clean exit for consistent hook feedback
-trap 'echo "Success"' EXIT
+# Conditional success output (only on clean exit)
+SCRIPT_SUCCESS=false
+trap '[ "$SCRIPT_SUCCESS" = true ] && echo "Success"' EXIT
 
 LOG_FILE="$HOME/.claude/logs/git-workflow.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
@@ -23,6 +24,10 @@ if ! command -v jq >/dev/null 2>&1; then
     echo "Warning: jq not installed - git workflow capture disabled" >&2
     exit 0
 fi
+if ! command -v perl >/dev/null 2>&1; then
+    echo "Warning: perl not installed - git workflow capture disabled" >&2
+    exit 0
+fi
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Warning: python3 not installed - git workflow capture disabled" >&2
     exit 0
@@ -34,7 +39,6 @@ INPUT_JSON=$(cat)
 # Parse JSON fields using jq
 COMMAND=$(echo "$INPUT_JSON" | jq -r '.tool_input.command // ""')
 OUTPUT=$(echo "$INPUT_JSON" | jq -r '.tool_response // ""')
-EXIT_CODE=$(echo "$INPUT_JSON" | jq -r '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end')
 CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // ""')
 PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 
@@ -49,7 +53,8 @@ log_message "Git workflow command detected: $COMMAND"
 WORKFLOW_TYPE="unknown"
 CONTENT=""
 IMPORTANCE=0.5  # Default, will be calculated based on signals
-TAGS='["git-workflow"]'
+# TAGS will be built by jq to handle special chars in PROJECT_NAME
+EXTRA_TAGS=""  # Additional tags like "commit", "pr", "issue"
 
 # Git commit
 if echo "$COMMAND" | grep -qi "git commit"; then
@@ -69,7 +74,7 @@ if echo "$COMMAND" | grep -qi "git commit"; then
     FILES_CHANGED=$(echo "$OUTPUT" | perl -nle 'print $1 if /(\d+) files? changed/' | head -1)
 
     CONTENT="Committed to ${PROJECT_NAME}: ${COMMIT_MSG:-unknown}${BRANCH:+ on $BRANCH}${FILES_CHANGED:+ ($FILES_CHANGED files)}"
-    TAGS="[\"git-workflow\", \"commit\", \"repo:${PROJECT_NAME}\"]"
+    EXTRA_TAGS="commit"
 
 # GitHub Issue creation
 elif echo "$COMMAND" | grep -qi "gh issue create"; then
@@ -81,7 +86,7 @@ elif echo "$COMMAND" | grep -qi "gh issue create"; then
     ISSUE_NUM=$(echo "$ISSUE_URL" | perl -nle 'print $1 if /(\d+)$/')
 
     CONTENT="Created issue #${ISSUE_NUM:-?} in ${PROJECT_NAME}: ${ISSUE_TITLE:-see URL}${ISSUE_URL:+ - $ISSUE_URL}"
-    TAGS="[\"git-workflow\", \"issue\", \"created\", \"repo:${PROJECT_NAME}\"]"
+    EXTRA_TAGS="issue,created"
 
 # GitHub Issue close
 elif echo "$COMMAND" | grep -qi "gh issue close"; then
@@ -90,7 +95,7 @@ elif echo "$COMMAND" | grep -qi "gh issue close"; then
     ISSUE_NUM=$(echo "$COMMAND" | perl -nle 'print $1 if /close (\d+)/')
 
     CONTENT="Closed issue #${ISSUE_NUM:-?} in ${PROJECT_NAME}"
-    TAGS="[\"git-workflow\", \"issue\", \"closed\", \"repo:${PROJECT_NAME}\"]"
+    EXTRA_TAGS="issue,closed"
 
 # GitHub PR creation
 elif echo "$COMMAND" | grep -qi "gh pr create"; then
@@ -104,13 +109,14 @@ elif echo "$COMMAND" | grep -qi "gh pr create"; then
     PR_TITLE=$(echo "$COMMAND" | perl -nle 'print $1 if /--title "([^"]+)/' | head -1)
 
     # Fallback: fetch from gh only if regex failed and we have PR number
+    # Note: no timeout as it's not portable; gh is usually fast
     if [ -z "$PR_TITLE" ] && [ -n "$PR_NUM" ]; then
         PR_REPO=$(echo "$PR_URL" | perl -nle 'print $1 if m{github\.com/([^/]+/[^/]+)}')
-        PR_TITLE=$(timeout 2s gh pr view "$PR_NUM" --repo "$PR_REPO" --json title -q '.title' 2>/dev/null)
+        PR_TITLE=$(gh pr view "$PR_NUM" --repo "$PR_REPO" --json title -q '.title' 2>/dev/null)
     fi
 
     CONTENT="Created PR #${PR_NUM:-?} in ${PROJECT_NAME}: ${PR_TITLE:-$PR_URL}"
-    TAGS="[\"git-workflow\", \"pr\", \"created\", \"repo:${PROJECT_NAME}\"]"
+    EXTRA_TAGS="pr,created"
 
 # GitHub PR merge
 elif echo "$COMMAND" | grep -qi "gh pr merge"; then
@@ -122,7 +128,7 @@ elif echo "$COMMAND" | grep -qi "gh pr merge"; then
     fi
 
     CONTENT="Merged PR #${PR_NUM:-?} in ${PROJECT_NAME}"
-        TAGS="[\"git-workflow\", \"pr\", \"merged\", \"repo:${PROJECT_NAME}\"]"
+    EXTRA_TAGS="pr,merged"
 
 # GitHub PR view (might contain review comments)
 elif echo "$COMMAND" | grep -qi "gh pr view"; then
@@ -142,7 +148,7 @@ elif echo "$COMMAND" | grep -qi "gh pr view"; then
 
         if [ -n "$REVIEW_STATUS" ]; then
             CONTENT="PR #${PR_NUM:-?} review in ${PROJECT_NAME}: ${REVIEW_STATUS}"
-                        TAGS="[\"git-workflow\", \"pr\", \"review\", \"repo:${PROJECT_NAME}\"]"
+            EXTRA_TAGS="pr,review"
         else
             # No significant review info, skip
             exit 0
@@ -162,7 +168,7 @@ elif echo "$COMMAND" | grep -qi "gh api.*pulls.*comments\|gh api.*pulls.*reviews
     # Check for meaningful review content
     if echo "$OUTPUT" | grep -qi "body\|comment\|state"; then
         CONTENT="Fetched PR #${PR_NUM:-?} review data in ${PROJECT_NAME}"
-                TAGS="[\"git-workflow\", \"pr\", \"review\", \"api\", \"repo:${PROJECT_NAME}\"]"
+        EXTRA_TAGS="pr,review,api"
     else
         exit 0
     fi
@@ -224,17 +230,18 @@ esac
 # Queue memory for processing
 TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
 
+# Build tags safely using jq (handles special chars in PROJECT_NAME)
 MEMORY_RECORD=$(jq -cn \
     --arg content "$CONTENT" \
     --arg type "$WORKFLOW_TYPE" \
     --arg project "$PROJECT_NAME" \
     --arg command "$COMMAND" \
     --arg timestamp "$TIMESTAMP" \
+    --arg extra_tags "$EXTRA_TAGS" \
     --argjson importance "$IMPORTANCE" \
-    --argjson tags "$TAGS" \
     '{
       content: $content,
-      tags: $tags,
+      tags: (["git-workflow"] + ($extra_tags | split(",")) + ["repo:" + $project]),
       importance: $importance,
       type: "Context",
       metadata: {
@@ -303,4 +310,5 @@ case "$WORKFLOW_TYPE" in
     pr-review*)  echo "🧠 PR review captured" ;;
 esac
 
+SCRIPT_SUCCESS=true
 exit 0

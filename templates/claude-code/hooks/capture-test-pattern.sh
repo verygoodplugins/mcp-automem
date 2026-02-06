@@ -3,8 +3,9 @@
 # Capture Test Pattern Hook for AutoMem
 # Records test execution patterns, results, and learned testing approaches
 
-# Output Success on clean exit for consistent hook feedback
-trap 'echo "Success"' EXIT
+# Conditional success output (only on clean exit)
+SCRIPT_SUCCESS=false
+trap '[ "$SCRIPT_SUCCESS" = true ] && echo "Success"' EXIT
 
 LOG_FILE="$HOME/.claude/logs/test-patterns.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
@@ -34,7 +35,8 @@ INPUT_JSON=$(cat)
 # Parse JSON fields using jq
 COMMAND=$(echo "$INPUT_JSON" | jq -r '.tool_input.command // ""')
 OUTPUT=$(echo "$INPUT_JSON" | jq -r '.tool_response // ""')
-EXIT_CODE=$(echo "$INPUT_JSON" | jq -r '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end')
+# Ensure EXIT_CODE is numeric (default 0 if missing or non-numeric)
+EXIT_CODE=$(echo "$INPUT_JSON" | jq '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end | tonumber' 2>/dev/null || echo 0)
 CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // ""')
 PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 
@@ -210,4 +212,5 @@ else
     echo "✅ Test success pattern recorded"
 fi
 
+SCRIPT_SUCCESS=true
 exit 0
