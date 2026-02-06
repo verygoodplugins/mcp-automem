@@ -1,0 +1,14 @@
+{
+  "servers": [
+    {
+      "id": "automem",
+      "name": "AutoMem - Persistent Memory Service",
+      "type": "http",
+      "url": "https://your-sse-sidecar.railway.app/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_AUTOMEM_API_TOKEN"
+      },
+      "description": "AutoMem via SSE sidecar on Railway"
+    }
+  ]
+}
