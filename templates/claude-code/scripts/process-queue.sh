@@ -1,6 +1,9 @@
 #!/bin/bash
 # Process memory queue - plain npx
-trap 'echo "Success"' EXIT
+
+# Conditional success output (only on clean exit)
+SCRIPT_SUCCESS=false
+trap '[ "$SCRIPT_SUCCESS" = true ] && echo "Success"' EXIT
 
 QUEUE_FILE="${HOME}/.claude/scripts/memory-queue.jsonl"
 
@@ -17,3 +20,5 @@ fi
 
 # Process queue
 npx -y @verygoodplugins/mcp-automem queue --file "$QUEUE_FILE" --limit 5
+
+SCRIPT_SUCCESS=true

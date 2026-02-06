@@ -9,8 +9,22 @@ trap 'echo "Success"' EXIT
 # Set up node PATH for later hooks (Stop, PostToolUse, etc.)
 if [ -n "$CLAUDE_ENV_FILE" ]; then
     # Try common node locations - verify node/npx actually exists
+    # For nvm: prefer default alias, then current, then latest installed
+    NVM_DEFAULT=""
+    if [ -d "$HOME/.nvm/versions/node" ]; then
+        # Try default alias symlink first
+        if [ -L "$HOME/.nvm/alias/default" ]; then
+            NVM_DEFAULT=$(readlink "$HOME/.nvm/alias/default" 2>/dev/null)
+            [ -n "$NVM_DEFAULT" ] && NVM_DEFAULT="$HOME/.nvm/versions/node/$NVM_DEFAULT/bin"
+        fi
+        # Fall back to latest installed version (reverse sort = highest version first)
+        if [ -z "$NVM_DEFAULT" ] || [ ! -d "$NVM_DEFAULT" ]; then
+            NVM_DEFAULT=$(ls -d "$HOME/.nvm/versions/node/"*/bin 2>/dev/null | sort -t'v' -k2 -V -r | head -1)
+        fi
+    fi
+
     for NODE_PATH in \
-        "$HOME/.nvm/versions/node/"*/bin \
+        ${NVM_DEFAULT:+"$NVM_DEFAULT"} \
         "$HOME/.volta/bin" \
         "$HOME/.fnm/aliases/default/bin" \
         "/usr/local/bin" \

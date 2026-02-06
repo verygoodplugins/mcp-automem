@@ -103,11 +103,6 @@ else
 fi
 
 # Queue memory for processing with safe JSON encoding and file locking
-if ! command -v jq >/dev/null 2>&1; then
-    log_message "jq not available; cannot encode test memory"
-    exit 1
-fi
-
 PROJECT_NAME="${PROJECT_NAME:-unknown}"
 TEST_FRAMEWORK="${TEST_FRAMEWORK:-unknown}"
 IMPORTANCE="${IMPORTANCE:-0.5}"
