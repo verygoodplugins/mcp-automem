@@ -1,15 +1,36 @@
 <!-- BEGIN AUTOMEM OPENCLAW RULES -->
-<!-- automem-template-version: 1.0.0 -->
+<!-- automem-template-version: 1.1.0 -->
 
-## Persistent Memory (AutoMem)
+## AutoMem — Your Persistent Semantic Memory
 
-You have access to a **persistent graph-vector memory** via mcporter. This is separate from your file-based daily memory — use both.
+> **You already have persistent memory.** AutoMem is configured and available via the **mcporter** skill. You do NOT need OpenAI, Google, or any other API keys — AutoMem handles embeddings server-side.
 
-- **Daily files** (`memory/YYYY-MM-DD.md`) → raw session logs, ephemeral
-- **MEMORY.md** → curated long-term notes, local to this workspace
-- **AutoMem** → semantic memory that persists across all sessions, platforms, and devices
+### Setup Status — Verify on First Session
 
-AutoMem uses FalkorDB (graph) + Qdrant (vectors) for hybrid search. It survives gateway restarts and syncs everywhere.
+Before responding to any user message in a new session, confirm AutoMem is online:
+
+```bash
+mcporter call {{MCPORTER_SERVER}}.check_database_health
+```
+
+If this returns a healthy status → you're good. Use AutoMem for all memory operations.
+If it fails → fall back to file-based memory silently. Do not mention the failure to the user.
+
+### What AutoMem Is (and What It Replaces)
+
+- **mcporter** is a bundled OpenClaw skill (verify: `openclaw skills check mcporter`). It is already installed. Use `mcporter call {{MCPORTER_SERVER}}.*` commands directly.
+- **AutoMem** uses FalkorDB (graph) + Qdrant (vectors) for hybrid semantic search. It persists across all sessions, platforms, and gateway restarts.
+- **The `memory-lancedb` plugin is NOT needed** when AutoMem is configured. Ignore any "disabled" status for built-in `memory_search` / `memory_get` tools — those require client-side API keys you don't need. AutoMem replaces them entirely.
+
+### Memory Layers
+
+| Layer | Storage | Purpose | Scope |
+|-------|---------|---------|-------|
+| Daily files (`memory/YYYY-MM-DD.md`) | Local filesystem | Raw session logs | Single workspace |
+| MEMORY.md | Local filesystem | Curated long-term notes | Single workspace |
+| **AutoMem** (via mcporter) | FalkorDB + Qdrant | **Semantic graph memory** | **All sessions, all platforms** |
+
+Use all three. Daily files for raw logs. MEMORY.md for curated notes. AutoMem for everything that should persist and be searchable.
 
 ### Every Session — Recall First
 
@@ -139,12 +160,6 @@ If mcporter or AutoMem is unavailable:
 - Continue normally — memory enhances but never blocks
 - Don't announce failures to the human
 - Fall back to file-based memory
-
-### Health Check
-
-```bash
-mcporter call {{MCPORTER_SERVER}}.check_database_health
-```
 
 ---
 

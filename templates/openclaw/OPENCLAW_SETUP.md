@@ -75,11 +75,24 @@ OpenClaw includes **mcporter** as a core skill — a CLI-based MCP client that c
 
 OpenClaw has three memory layers after integration:
 
-| Layer | Storage | Purpose | Scope |
-|-------|---------|---------|-------|
-| Daily files (`memory/YYYY-MM-DD.md`) | Local filesystem | Raw session logs | Single workspace |
-| MEMORY.md | Local filesystem | Curated long-term notes | Single workspace |
-| AutoMem | FalkorDB + Qdrant | Semantic graph memory | All sessions, all platforms |
+| Layer                                | Storage           | Purpose                 | Scope                       |
+| ------------------------------------ | ----------------- | ----------------------- | --------------------------- |
+| Daily files (`memory/YYYY-MM-DD.md`) | Local filesystem  | Raw session logs        | Single workspace            |
+| MEMORY.md                            | Local filesystem  | Curated long-term notes | Single workspace            |
+| AutoMem                              | FalkorDB + Qdrant | Semantic graph memory   | All sessions, all platforms |
+
+## Relationship with Built-in Memory Plugins
+
+OpenClaw ships with a `memory-lancedb` plugin that provides `memory_search` and `memory_get` tools. These require OpenAI or Google API keys for embeddings.
+
+**When AutoMem is configured, you do NOT need `memory-lancedb`:**
+
+- AutoMem handles embeddings **server-side** — no OpenAI/Google API keys required on the client
+- AutoMem provides the same functionality (and more) via mcporter: `recall_memory`, `store_memory`, `associate_memories`
+- The bot may report `memory_search`/`memory_get` as "disabled" — this is expected and harmless
+- The AGENTS.md rules explicitly tell the bot to use AutoMem instead
+
+If you see messages like "memory tools are disabled" or "need API keys for memory," that refers to the built-in plugin, not AutoMem. AutoMem works independently.
 
 ## Prerequisites
 
@@ -129,7 +142,7 @@ After deployment:
 
 mcporter reads config from `~/.mcporter/mcporter.json` (user-level) or `./config/mcporter.json` (project-level).
 
-### For local AutoMem (stdio via npx):
+### For local AutoMem (stdio via npx)
 
 ```bash
 mcporter config add automem \
@@ -139,7 +152,7 @@ mcporter config add automem \
   --description "AutoMem memory service"
 ```
 
-### For Railway AutoMem (remote HTTP):
+### For Railway AutoMem (remote HTTP)
 
 ```bash
 mcporter config add automem \
@@ -280,6 +293,25 @@ For debug output, add `--log-level debug` to see transport-level details.
 2. Restart the OpenClaw gateway after making changes
 3. Check that mcporter can reach AutoMem: `mcporter call automem.check_database_health`
 4. Look at agent logs for mcporter call output
+
+### Bot Says "Memory Tools Disabled" or "Need API Keys"
+
+This refers to OpenClaw's built-in `memory-lancedb` plugin, **not** AutoMem. AutoMem handles embeddings server-side — no client API keys needed.
+
+**Fix:**
+1. Verify `AGENTS.md` contains the AutoMem rules block (look for `<!-- BEGIN AUTOMEM OPENCLAW RULES -->`)
+2. The rules explicitly tell the bot that `memory-lancedb` is NOT needed
+3. Restart the gateway after updating AGENTS.md
+4. On next session, the bot should run `mcporter call automem.check_database_health` and confirm memory is working
+
+### Bot Says "AutoMem (mcporter) Isn't Installed"
+
+mcporter is a bundled OpenClaw skill — it's already available. The bot may not realize it has access.
+
+**Fix:**
+1. Re-run `npx @verygoodplugins/mcp-automem openclaw` to get the latest template (v1.1.0+)
+2. The updated rules explicitly state mcporter is a skill and how to use it
+3. Restart gateway and send a test message
 
 ### Memories Not Persisting
 

@@ -177,11 +177,12 @@ function resolveTildePath(input: string): string {
 
 /**
  * Try to read workspace path from OpenClaw config file.
- * Config lives at ~/.openclaw/config.json5 or ~/.openclaw/config.json
+ * Config lives at ~/.openclaw/openclaw.json, ~/.openclaw/config.json5, etc.
  */
 function readWorkspaceFromConfig(): string | null {
   const homeDir = os.homedir();
   const configPaths = [
+    path.join(homeDir, '.openclaw', 'openclaw.json'),
     path.join(homeDir, '.openclaw', 'config.json5'),
     path.join(homeDir, '.openclaw', 'config.json'),
     path.join(homeDir, '.clawdbot', 'config.json5'),
@@ -373,18 +374,54 @@ export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Prom
   const finalContent = upsertRulesWithMarkers(existingContent, processed);
   writeFileWithBackup(agentsPath, finalContent, cliOptions);
 
-  // 2. Update TOOLS.md with reference commands
+  // 2. Ensure memory/ directory exists (bot and OpenClaw both need it)
+  const memoryDir = path.join(workspaceDir, 'memory');
+  if (!fs.existsSync(memoryDir)) {
+    if (cliOptions.dryRun) {
+      log(`[DRY RUN] Would create: ${memoryDir}/`, cliOptions.quiet);
+    } else {
+      fs.mkdirSync(memoryDir, { recursive: true });
+      // Add a .gitkeep so the directory is tracked
+      const gitkeepPath = path.join(memoryDir, '.gitkeep');
+      if (!fs.existsSync(gitkeepPath)) {
+        fs.writeFileSync(gitkeepPath, '', 'utf8');
+      }
+      log(`✅ Created: memory/`, cliOptions.quiet);
+    }
+  } else {
+    log(`✓ Exists: memory/`, cliOptions.quiet);
+  }
+
+  // 3. Update TOOLS.md with reference commands
   updateToolsFile(workspaceDir, serverName, cliOptions);
 
-  // 3. Check mcporter configuration
+  // 4. Check mcporter configuration
   const mcpCheck = checkMcporterConfig(serverName);
 
   log('\n📊 Configuration Status:', cliOptions.quiet);
   log(`  ✅ Behavioral rules installed in AGENTS.md`, cliOptions.quiet);
   log(`  ✅ Tool reference updated in TOOLS.md`, cliOptions.quiet);
+  log(`  ✅ memory/ directory ready`, cliOptions.quiet);
 
   if (mcpCheck.configured) {
     log(`  ✅ mcporter has AutoMem configured`, cliOptions.quiet);
+
+    // Run a non-blocking health check to verify connectivity
+    if (!cliOptions.dryRun) {
+      try {
+        const healthOutput = execSync(
+          `mcporter call ${serverName}.check_database_health 2>&1`,
+          { encoding: 'utf8', timeout: 10000 }
+        ).trim();
+        if (healthOutput.toLowerCase().includes('healthy') || healthOutput.includes('"ok"') || healthOutput.includes('"status"')) {
+          log(`  ✅ AutoMem service is reachable and healthy`, cliOptions.quiet);
+        } else {
+          log(`  ⚠️  AutoMem responded but status unclear — check manually`, cliOptions.quiet);
+        }
+      } catch {
+        log(`  ⚠️  Could not reach AutoMem — verify service is running`, cliOptions.quiet);
+      }
+    }
   } else {
     log(`\n  ⚠️  AutoMem not found in mcporter config`, cliOptions.quiet);
     log(`\n  Add it with:`, cliOptions.quiet);
@@ -410,11 +447,16 @@ export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Prom
     log('  1. Configure mcporter (see above)', cliOptions.quiet);
     log('  2. Verify: mcporter list automem', cliOptions.quiet);
     log('  3. Restart OpenClaw gateway', cliOptions.quiet);
-    log('  4. Ask your agent a question — it should recall memories automatically', cliOptions.quiet);
+    log('  4. Send a message — the bot will run a health check and confirm memory is working', cliOptions.quiet);
   } else {
     log('  1. Restart OpenClaw gateway to pick up new rules', cliOptions.quiet);
-    log('  2. Ask your agent a question — it should recall memories automatically', cliOptions.quiet);
+    log('  2. Send a message — the bot will run a health check and confirm memory is working', cliOptions.quiet);
   }
+
+  log('\n💡 What the bot should do on first session:', cliOptions.quiet);
+  log(`  • Run: mcporter call ${serverName}.check_database_health`, cliOptions.quiet);
+  log('  • Report memory is online', cliOptions.quiet);
+  log('  • NOT mention disabled API keys or missing tools', cliOptions.quiet);
 
   log(`\n💡 Tip: Run with --dry-run to preview changes without modifying files`, cliOptions.quiet);
 }
