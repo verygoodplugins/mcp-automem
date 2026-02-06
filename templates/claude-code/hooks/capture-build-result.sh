@@ -3,6 +3,10 @@
 # Capture Build Result Hook for AutoMem
 # Records build outcomes, errors, and optimization patterns
 
+# Conditional success output (only on clean exit)
+SCRIPT_SUCCESS=false
+trap '[ "$SCRIPT_SUCCESS" = true ] && echo "Success"' EXIT
+
 LOG_FILE="$HOME/.claude/logs/build-results.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
 
@@ -15,11 +19,26 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
-# Get build context
-COMMAND="${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}"
-OUTPUT="${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}"
-EXIT_CODE="${CLAUDE_EXIT_CODE:-0}"
-PROJECT_NAME=$(basename "$(pwd)")
+# Check required dependencies
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Warning: jq not installed - build capture disabled" >&2
+    exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Warning: python3 not installed - build capture disabled" >&2
+    exit 0
+fi
+
+# Read JSON input from stdin (Claude Code hook format per docs)
+INPUT_JSON=$(cat)
+
+# Parse JSON fields using jq
+COMMAND=$(echo "$INPUT_JSON" | jq -r '.tool_input.command // ""')
+OUTPUT=$(echo "$INPUT_JSON" | jq -r '.tool_response // ""')
+# Ensure EXIT_CODE is numeric (default 0 if missing or non-numeric)
+EXIT_CODE=$(echo "$INPUT_JSON" | jq '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end | tonumber' 2>/dev/null || echo 0)
+CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // ""')
+PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 BUILD_TOOL="unknown"
 
 # Skip non-build commands
@@ -104,6 +123,19 @@ else
     CONTENT="Build failed in $PROJECT_NAME using $BUILD_TOOL: $ERRORS errors. ${ERROR_DETAILS:0:200}"
 fi
 
+# Check for sensitive content (passwords, API keys, etc.) via memory-filters.json
+FILTERS_FILE="${MEMORY_FILTERS:-$HOME/.claude/scripts/memory-filters.json}"
+if [ -f "$FILTERS_FILE" ]; then
+    while IFS= read -r pattern; do
+        [ -z "$pattern" ] && continue
+        if echo "$CONTENT" | grep -qiE "$pattern" 2>/dev/null; then
+            log_message "Skipping - matches sensitive pattern"
+            SCRIPT_SUCCESS=true
+            exit 0
+        fi
+    done < <(jq -r '.sensitive_patterns[]?' "$FILTERS_FILE" 2>/dev/null)
+fi
+
 # Queue memory for processing with safe JSON encoding and file locking
 AUTOMEM_QUEUE="$MEMORY_QUEUE" \
 AUTOMEM_CONTENT="$CONTENT" \
@@ -118,6 +150,7 @@ AUTOMEM_ERRORS="$ERRORS" \
 AUTOMEM_EXIT_CODE="$EXIT_CODE" \
 AUTOMEM_COMMAND="$COMMAND" \
 python3 - <<'PY'
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
@@ -160,8 +193,32 @@ def to_int(value, default=0):
     except (TypeError, ValueError):
         return default
 
+def truncate(text, max_len):
+    """Truncate text to max_len chars to prevent 'too long' errors."""
+    if text and len(text) > max_len:
+        return text[:max_len] + "..."
+    return text
+
+def content_hash(text):
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+def is_duplicate(queue_path, new_content, lookback=20):
+    """Idempotency guard: skip if identical content already queued."""
+    new_hash = content_hash(new_content)
+    try:
+        with open(queue_path, "r", encoding="utf-8") as f:
+            for line in f.readlines()[-lookback:]:
+                try:
+                    if content_hash(json.loads(line.strip()).get("content", "")) == new_hash:
+                        return True
+                except (json.JSONDecodeError, KeyError):
+                    continue
+    except FileNotFoundError:
+        pass
+    return False
+
 record = {
-    "content": os.environ.get("AUTOMEM_CONTENT", ""),
+    "content": truncate(os.environ.get("AUTOMEM_CONTENT", ""), 1500),
     "tags": ["build", os.environ.get("AUTOMEM_BUILD_TOOL", "unknown"), os.environ.get("AUTOMEM_PROJECT", "")],
     "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.5")),
     "type": os.environ.get("AUTOMEM_TYPE", "Context"),
@@ -172,7 +229,7 @@ record = {
         "warnings": to_int(os.environ.get("AUTOMEM_WARNINGS", "0")),
         "errors": to_int(os.environ.get("AUTOMEM_ERRORS", "0")),
         "exit_code": to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0")),
-        "command": os.environ.get("AUTOMEM_COMMAND", ""),
+        "command": truncate(os.environ.get("AUTOMEM_COMMAND", ""), 500),
         "project": os.environ.get("AUTOMEM_PROJECT", ""),
     },
     "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -180,6 +237,8 @@ record = {
 
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
 if queue_path:
+    if is_duplicate(queue_path, record["content"]):
+        raise SystemExit(0)  # Silently skip duplicate
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)
@@ -199,4 +258,5 @@ else
     echo "✅ Successful build metrics stored"
 fi
 
+SCRIPT_SUCCESS=true
 exit 0

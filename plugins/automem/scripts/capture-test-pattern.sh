@@ -3,6 +3,10 @@
 # Capture Test Pattern Hook for AutoMem
 # Records test execution patterns, results, and learned testing approaches
 
+# Conditional success output (only on clean exit)
+SCRIPT_SUCCESS=false
+trap '[ "$SCRIPT_SUCCESS" = true ] && echo "Success"' EXIT
+
 LOG_FILE="$HOME/.claude/logs/test-patterns.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
 
@@ -15,11 +19,26 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
-# Get test context from command output
-COMMAND="${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}"
-OUTPUT="${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}"
-EXIT_CODE="${CLAUDE_EXIT_CODE:-0}"
-PROJECT_NAME=$(basename "$(pwd)")
+# Check required dependencies
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Warning: jq not installed - test capture disabled" >&2
+    exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Warning: python3 not installed - test capture disabled" >&2
+    exit 0
+fi
+
+# Read JSON input from stdin (Claude Code hook format per docs)
+INPUT_JSON=$(cat)
+
+# Parse JSON fields using jq
+COMMAND=$(echo "$INPUT_JSON" | jq -r '.tool_input.command // ""')
+OUTPUT=$(echo "$INPUT_JSON" | jq -r '.tool_response // ""')
+# Ensure EXIT_CODE is numeric (default 0 if missing or non-numeric)
+EXIT_CODE=$(echo "$INPUT_JSON" | jq '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end | tonumber' 2>/dev/null || echo 0)
+CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // ""')
+PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 
 # Skip non-test commands
 if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(npm test|yarn test|pnpm test|vitest|jest|pytest|python .*test|go test|cargo test|phpunit)"; then
@@ -83,12 +102,20 @@ else
     CONTENT="Test failures in $PROJECT_NAME: $TESTS_FAILED failed, $TESTS_PASSED passed using $TEST_FRAMEWORK. Errors: ${ERROR_DETAILS:0:200}"
 fi
 
-# Queue memory for processing with safe JSON encoding and file locking
-if ! command -v jq >/dev/null 2>&1; then
-    log_message "jq not available; cannot encode test memory"
-    exit 1
+# Check for sensitive content (passwords, API keys, etc.) via memory-filters.json
+FILTERS_FILE="${MEMORY_FILTERS:-$HOME/.claude/scripts/memory-filters.json}"
+if [ -f "$FILTERS_FILE" ]; then
+    while IFS= read -r pattern; do
+        [ -z "$pattern" ] && continue
+        if echo "$CONTENT" | grep -qiE "$pattern" 2>/dev/null; then
+            log_message "Skipping - matches sensitive pattern"
+            SCRIPT_SUCCESS=true
+            exit 0
+        fi
+    done < <(jq -r '.sensitive_patterns[]?' "$FILTERS_FILE" 2>/dev/null)
 fi
 
+# Queue memory for processing with safe JSON encoding and file locking
 PROJECT_NAME="${PROJECT_NAME:-unknown}"
 TEST_FRAMEWORK="${TEST_FRAMEWORK:-unknown}"
 IMPORTANCE="${IMPORTANCE:-0.5}"
@@ -96,6 +123,11 @@ TESTS_PASSED="${TESTS_PASSED:-0}"
 TESTS_FAILED="${TESTS_FAILED:-0}"
 EXIT_CODE="${EXIT_CODE:-0}"
 TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
+
+# Truncate to prevent "too long" errors
+CONTENT="${CONTENT:0:1500}"
+COMMAND="${COMMAND:0:500}"
+ERROR_DETAILS="${ERROR_DETAILS:0:500}"
 
 if ! ERROR_DETAILS_JSON=$(jq -c -n --arg error "$ERROR_DETAILS" '$error'); then
     log_message "Failed to encode test error details"
@@ -137,6 +169,8 @@ fi
 AUTOMEM_QUEUE="$MEMORY_QUEUE" \
 AUTOMEM_RECORD="$MEMORY_RECORD" \
 python3 - <<'PY'
+import hashlib
+import json
 import os
 
 try:
@@ -168,9 +202,33 @@ def unlock_file(handle):
         except OSError:
             pass
 
+def content_hash(text):
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+def is_duplicate(queue_path, record_str, lookback=20):
+    """Idempotency guard: skip if identical content already queued."""
+    try:
+        new_content = json.loads(record_str).get("content", "")
+    except (json.JSONDecodeError, AttributeError):
+        return False
+    new_hash = content_hash(new_content)
+    try:
+        with open(queue_path, "r", encoding="utf-8") as f:
+            for line in f.readlines()[-lookback:]:
+                try:
+                    if content_hash(json.loads(line.strip()).get("content", "")) == new_hash:
+                        return True
+                except (json.JSONDecodeError, KeyError):
+                    continue
+    except FileNotFoundError:
+        pass
+    return False
+
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
 record = os.environ.get("AUTOMEM_RECORD", "")
 if queue_path and record:
+    if is_duplicate(queue_path, record):
+        raise SystemExit(0)  # Silently skip duplicate
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)
@@ -188,4 +246,5 @@ else
     echo "✅ Test success pattern recorded"
 fi
 
+SCRIPT_SUCCESS=true
 exit 0

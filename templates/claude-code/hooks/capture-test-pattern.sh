@@ -3,6 +3,10 @@
 # Capture Test Pattern Hook for AutoMem
 # Records test execution patterns, results, and learned testing approaches
 
+# Conditional success output (only on clean exit)
+SCRIPT_SUCCESS=false
+trap '[ "$SCRIPT_SUCCESS" = true ] && echo "Success"' EXIT
+
 LOG_FILE="$HOME/.claude/logs/test-patterns.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
 
@@ -15,11 +19,26 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
-# Get test context from command output
-COMMAND="${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}"
-OUTPUT="${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}"
-EXIT_CODE="${CLAUDE_EXIT_CODE:-0}"
-PROJECT_NAME=$(basename "$(pwd)")
+# Check required dependencies
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Warning: jq not installed - test capture disabled" >&2
+    exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Warning: python3 not installed - test capture disabled" >&2
+    exit 0
+fi
+
+# Read JSON input from stdin (Claude Code hook format per docs)
+INPUT_JSON=$(cat)
+
+# Parse JSON fields using jq
+COMMAND=$(echo "$INPUT_JSON" | jq -r '.tool_input.command // ""')
+OUTPUT=$(echo "$INPUT_JSON" | jq -r '.tool_response // ""')
+# Ensure EXIT_CODE is numeric (default 0 if missing or non-numeric)
+EXIT_CODE=$(echo "$INPUT_JSON" | jq '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end | tonumber' 2>/dev/null || echo 0)
+CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // ""')
+PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 
 # Skip non-test commands
 if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(npm test|yarn test|pnpm test|vitest|jest|pytest|python .*test|go test|cargo test|phpunit)"; then
@@ -83,22 +102,76 @@ else
     CONTENT="Test failures in $PROJECT_NAME: $TESTS_FAILED failed, $TESTS_PASSED passed using $TEST_FRAMEWORK. Errors: ${ERROR_DETAILS:0:200}"
 fi
 
+# Check for sensitive content (passwords, API keys, etc.) via memory-filters.json
+FILTERS_FILE="${MEMORY_FILTERS:-$HOME/.claude/scripts/memory-filters.json}"
+if [ -f "$FILTERS_FILE" ]; then
+    while IFS= read -r pattern; do
+        [ -z "$pattern" ] && continue
+        if echo "$CONTENT" | grep -qiE "$pattern" 2>/dev/null; then
+            log_message "Skipping - matches sensitive pattern"
+            SCRIPT_SUCCESS=true
+            exit 0
+        fi
+    done < <(jq -r '.sensitive_patterns[]?' "$FILTERS_FILE" 2>/dev/null)
+fi
+
 # Queue memory for processing with safe JSON encoding and file locking
+PROJECT_NAME="${PROJECT_NAME:-unknown}"
+TEST_FRAMEWORK="${TEST_FRAMEWORK:-unknown}"
+IMPORTANCE="${IMPORTANCE:-0.5}"
+TESTS_PASSED="${TESTS_PASSED:-0}"
+TESTS_FAILED="${TESTS_FAILED:-0}"
+EXIT_CODE="${EXIT_CODE:-0}"
+TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
+
+# Truncate to prevent "too long" errors
+CONTENT="${CONTENT:0:1500}"
+COMMAND="${COMMAND:0:500}"
+ERROR_DETAILS="${ERROR_DETAILS:0:500}"
+
+if ! ERROR_DETAILS_JSON=$(jq -c -n --arg error "$ERROR_DETAILS" '$error'); then
+    log_message "Failed to encode test error details"
+    exit 1
+fi
+
+if ! MEMORY_RECORD=$(jq -c -n \
+    --arg content "$CONTENT" \
+    --arg test_framework "$TEST_FRAMEWORK" \
+    --arg project "$PROJECT_NAME" \
+    --arg type "$MEMORY_TYPE" \
+    --arg command "$COMMAND" \
+    --arg timestamp "$TIMESTAMP" \
+    --argjson importance "$IMPORTANCE" \
+    --argjson tests_passed "$TESTS_PASSED" \
+    --argjson tests_failed "$TESTS_FAILED" \
+    --argjson exit_code "$EXIT_CODE" \
+    --argjson error_details "$ERROR_DETAILS_JSON" \
+    '{
+      content: $content,
+      tags: ["test", "framework:\($test_framework)", "project:\($project)"],
+      importance: $importance,
+      type: $type,
+      metadata: {
+        test_framework: $test_framework,
+        tests_passed: $tests_passed,
+        tests_failed: $tests_failed,
+        exit_code: $exit_code,
+        command: $command,
+        project: $project,
+        error_details: $error_details
+      },
+      timestamp: $timestamp
+    }'); then
+    log_message "Failed to build test memory record"
+    exit 1
+fi
+
 AUTOMEM_QUEUE="$MEMORY_QUEUE" \
-AUTOMEM_CONTENT="$CONTENT" \
-AUTOMEM_TEST_FRAMEWORK="$TEST_FRAMEWORK" \
-AUTOMEM_PROJECT="$PROJECT_NAME" \
-AUTOMEM_IMPORTANCE="$IMPORTANCE" \
-AUTOMEM_TYPE="$MEMORY_TYPE" \
-AUTOMEM_TESTS_PASSED="$TESTS_PASSED" \
-AUTOMEM_TESTS_FAILED="$TESTS_FAILED" \
-AUTOMEM_EXIT_CODE="$EXIT_CODE" \
-AUTOMEM_COMMAND="$COMMAND" \
-AUTOMEM_ERROR_DETAILS="$ERROR_DETAILS" \
+AUTOMEM_RECORD="$MEMORY_RECORD" \
 python3 - <<'PY'
+import hashlib
 import json
 import os
-from datetime import datetime, timezone
 
 try:
     import fcntl  # type: ignore[attr-defined]
@@ -129,36 +202,38 @@ def unlock_file(handle):
         except OSError:
             pass
 
-def to_int(value, default=0):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+def content_hash(text):
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
 
-record = {
-    "content": os.environ.get("AUTOMEM_CONTENT", ""),
-    "tags": ["test", os.environ.get("AUTOMEM_TEST_FRAMEWORK", "unknown"), os.environ.get("AUTOMEM_PROJECT", "")],
-    "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.5")),
-    "type": os.environ.get("AUTOMEM_TYPE", "Context"),
-    "metadata": {
-        "test_framework": os.environ.get("AUTOMEM_TEST_FRAMEWORK", "unknown"),
-        "tests_passed": to_int(os.environ.get("AUTOMEM_TESTS_PASSED", "0")),
-        "tests_failed": to_int(os.environ.get("AUTOMEM_TESTS_FAILED", "0")),
-        "exit_code": to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0")),
-        "command": os.environ.get("AUTOMEM_COMMAND", ""),
-        "project": os.environ.get("AUTOMEM_PROJECT", ""),
-        "error_details": os.environ.get("AUTOMEM_ERROR_DETAILS", ""),
-    },
-    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-}
+def is_duplicate(queue_path, record_str, lookback=20):
+    """Idempotency guard: skip if identical content already queued."""
+    try:
+        new_content = json.loads(record_str).get("content", "")
+    except (json.JSONDecodeError, AttributeError):
+        return False
+    new_hash = content_hash(new_content)
+    try:
+        with open(queue_path, "r", encoding="utf-8") as f:
+            for line in f.readlines()[-lookback:]:
+                try:
+                    if content_hash(json.loads(line.strip()).get("content", "")) == new_hash:
+                        return True
+                except (json.JSONDecodeError, KeyError):
+                    continue
+    except FileNotFoundError:
+        pass
+    return False
 
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
-if queue_path:
+record = os.environ.get("AUTOMEM_RECORD", "")
+if queue_path and record:
+    if is_duplicate(queue_path, record):
+        raise SystemExit(0)  # Silently skip duplicate
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)
         try:
-            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+            handle.write(record + "\n")
         finally:
             unlock_file(handle)
 PY
@@ -171,4 +246,5 @@ else
     echo "✅ Test success pattern recorded"
 fi
 
+SCRIPT_SUCCESS=true
 exit 0
