@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.11.1...mcp-automem-v0.12.0) (2026-02-06)
+
+
+### Features
+
+* **openclaw:** replace mcporter with native curl-based skill ([83d8e36](https://github.com/verygoodplugins/mcp-automem/commit/83d8e36ca2b7bc67d1e246cdb8d6a346047f617a))
+
+
+### Bug Fixes
+
+* sync all version files and add to release-please ([#63](https://github.com/verygoodplugins/mcp-automem/issues/63)) ([a967ca9](https://github.com/verygoodplugins/mcp-automem/commit/a967ca981c59ae1e60acda51aec6fd1761f399dd))
+
 ## [0.11.1](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.11.0...mcp-automem-v0.11.1) (2026-02-04)
 
 
