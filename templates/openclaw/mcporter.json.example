@@ -1,14 +1,12 @@
 {
-  "servers": [
-    {
-      "id": "automem",
-      "name": "AutoMem - Persistent Memory Service",
-      "type": "stdio",
-      "command": "npx @verygoodplugins/mcp-automem",
+  "mcpServers": {
+    "automem": {
+      "command": "npx",
+      "args": ["@verygoodplugins/mcp-automem"],
+      "description": "AutoMem memory service (local)",
       "env": {
         "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"
-      },
-      "description": "Local AutoMem development instance"
+      }
     }
-  ]
+  }
 }

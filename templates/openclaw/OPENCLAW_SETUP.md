@@ -8,10 +8,55 @@ Connect AutoMem (graph-vector memory) to **OpenClaw**, the personal AI assistant
 - Persistent memory survives gateway restarts
 - Works across all OpenClaw channels (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, etc.)
 - Memory syncs across devices when using Railway backend
+- Complements OpenClaw's file-based daily memory with semantic search
+
+## Quick Start
+
+```bash
+# 1. Install behavioral rules into your OpenClaw workspace
+npx @verygoodplugins/mcp-automem openclaw
+
+# 2. Configure mcporter to reach AutoMem
+mcporter config add automem \
+  --command "npx" --arg "@verygoodplugins/mcp-automem" \
+  --env "AUTOMEM_ENDPOINT=http://127.0.0.1:8001" \
+  --scope home
+
+# 3. Verify
+mcporter list automem
+
+# 4. Restart OpenClaw gateway
+```
+
+That's it. Your agent will now recall and store memories automatically.
+
+## What the CLI Does
+
+`npx @verygoodplugins/mcp-automem openclaw` performs these steps:
+
+1. **Detects your OpenClaw workspace** (checks `~/.openclaw/workspace`, `~/clawd`, config files, or `--workspace` flag)
+2. **Injects behavioral rules into `AGENTS.md`** — a marker-wrapped block that instructs the agent to proactively recall memories at session start and store important discoveries during conversation
+3. **Updates `TOOLS.md`** with mcporter command reference for AutoMem tools
+4. **Checks mcporter config** and prints setup instructions if AutoMem isn't configured yet
+
+### CLI Options
+
+```bash
+npx @verygoodplugins/mcp-automem openclaw [options]
+
+Options:
+  --workspace <path>    OpenClaw workspace directory (auto-detected)
+  --server <name>       mcporter server name (default: automem)
+  --name <name>         Project name for memory tags (auto-detected)
+  --dry-run             Show what would be changed without modifying files
+  --quiet               Suppress output
+```
+
+### Re-running / Updating
+
+The CLI is idempotent. Running it again will update the marker-wrapped block in `AGENTS.md` to the latest version without duplicating content. Backups are created before any modification.
 
 ## Architecture Overview
-
-**OpenClaw + mcporter + AutoMem flow:**
 
 ```
 OpenClaw Agent
@@ -24,7 +69,17 @@ AutoMem Backend Service
     (FalkorDB + Qdrant)
 ```
 
-OpenClaw includes **mcporter** as a core skill—a CLI-based MCP client that calls external tools. AutoMem is an MCP-compatible server, so integration is configuration-only.
+OpenClaw includes **mcporter** as a core skill — a CLI-based MCP client that calls external tools. AutoMem is an MCP-compatible server, so integration is configuration-only.
+
+### Memory Layers
+
+OpenClaw has three memory layers after integration:
+
+| Layer | Storage | Purpose | Scope |
+|-------|---------|---------|-------|
+| Daily files (`memory/YYYY-MM-DD.md`) | Local filesystem | Raw session logs | Single workspace |
+| MEMORY.md | Local filesystem | Curated long-term notes | Single workspace |
+| AutoMem | FalkorDB + Qdrant | Semantic graph memory | All sessions, all platforms |
 
 ## Prerequisites
 
@@ -52,8 +107,6 @@ OpenClaw includes **mcporter** as a core skill—a CLI-based MCP client that cal
 
 ### Option A: Local Development (Fast, for Testing)
 
-Best for getting started quickly or offline development.
-
 ```bash
 git clone https://github.com/verygoodplugins/automem.git
 cd automem
@@ -62,11 +115,7 @@ make dev
 
 Service runs at `http://localhost:8001` with no auth required.
 
-**For local OpenClaw dev on same machine**, skip to Step 2.
-
 ### Option B: Railway Cloud (Recommended for Production)
-
-One-click deploy with persistent storage, team access, and always-on availability.
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/automem-ai-memory-service?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
@@ -76,72 +125,34 @@ After deployment:
 2. If you set `AUTOMEM_API_TOKEN` in Railway, save it
 3. Continue to Step 2
 
-**Cost estimate**: ~$0.50-1/month for light usage, or $5 free credits to start.
-
 ## Step 2: Configure mcporter
 
-mcporter reads config from:
+mcporter reads config from `~/.mcporter/mcporter.json` (user-level) or `./config/mcporter.json` (project-level).
 
-- **Project-level** (default): `./config/mcporter.json`
-- **User-level**: `~/.mcporter/config.json` (use `--config` to override)
-- **Windows**: `%USERPROFILE%\.mcporter\config.json`
-
-### Step 2a: Initialize mcporter (if not already done)
+### For local AutoMem (stdio via npx):
 
 ```bash
-mcporter config list
-# If config doesn't exist, create it:
-mkdir -p ~/.mcporter
-touch ~/.mcporter/config.json
+mcporter config add automem \
+  --command "npx" --arg "@verygoodplugins/mcp-automem" \
+  --env "AUTOMEM_ENDPOINT=http://127.0.0.1:8001" \
+  --scope home \
+  --description "AutoMem memory service"
 ```
 
-### Step 2b: Add AutoMem Server to mcporter
+### For Railway AutoMem (remote HTTP):
 
-Edit `~/.mcporter/config.json`:
-
-**For local AutoMem (stdio via npx):**
-
-```json
-{
-  "servers": [
-    {
-      "id": "automem",
-      "name": "AutoMem",
-      "type": "stdio",
-      "command": "npx @verygoodplugins/mcp-automem",
-      "env": {
-        "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"
-      }
-    }
-  ]
-}
+```bash
+mcporter config add automem \
+  https://your-sse-sidecar.railway.app/mcp \
+  --transport http \
+  --header "Authorization=Bearer YOUR_AUTOMEM_API_TOKEN" \
+  --scope home \
+  --description "AutoMem remote (Railway)"
 ```
 
-**For Railway AutoMem (remote MCP via SSE sidecar):**
+Replace `your-sse-sidecar.railway.app` with your MCP sidecar Railway URL (not the raw AutoMem backend URL).
 
-```json
-{
-  "servers": [
-    {
-      "id": "automem",
-      "name": "AutoMem",
-      "type": "http",
-      "url": "https://your-sse-sidecar.railway.app/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_AUTOMEM_API_TOKEN"
-      }
-    }
-  ]
-}
-```
-
-Replace:
-
-- `your-sse-sidecar.railway.app` with your SSE sidecar Railway URL
-  (not the raw AutoMem backend URL)
-- `YOUR_AUTOMEM_API_TOKEN` with your token (if you set one in Railway)
-
-### Step 2c: Verify mcporter Can Reach AutoMem
+### Verify
 
 ```bash
 mcporter list automem
@@ -150,24 +161,48 @@ mcporter list automem
 Expected output:
 
 ```
-✓ automem (stdio)
-  - store_memory
-  - recall_memory
-  - associate_memories
-  - update_memory
-  - delete_memory
-  - check_database_health
+automem - AutoMem memory service
+
+  function store_memory(content: string, tags?: string[], ...): object;
+  function recall_memory(query?: string, ...): object;
+  function associate_memories(memory1_id: string, ...): object;
+  function update_memory(memory_id: string, ...): object;
+  function delete_memory(memory_id: string): object;
+  function check_database_health(): object;
+
+  6 tools · STDIO npx @verygoodplugins/mcp-automem
 ```
 
-If you see an error, check:
+Use `mcporter list automem --schema` for full parameter documentation.
 
-1. AutoMem service is running (`http://localhost:8001/health` or Railway URL)
-2. Network connectivity (firewall, VPN, etc.)
-3. API token is correct (if using Railway with auth)
+## Step 3: Install AutoMem Rules
 
-## Step 3: Use AutoMem in OpenClaw Agent
+```bash
+npx @verygoodplugins/mcp-automem openclaw
+```
 
-Once configured, your OpenClaw agent can call AutoMem tools via mcporter.
+Or with explicit workspace:
+
+```bash
+npx @verygoodplugins/mcp-automem openclaw --workspace ~/clawd
+```
+
+This injects behavioral rules into your agent's `AGENTS.md` that instruct it to:
+
+- **Recall** relevant memories at the start of every session
+- **Store** decisions, preferences, patterns, and insights during conversation
+- **Associate** related memories to build a knowledge graph
+- **Consolidate** daily file-based memory into AutoMem during heartbeats
+
+## Step 4: Use AutoMem in Agent Sessions
+
+Once configured, your agent will automatically use memory. You can also call tools directly:
+
+### Health Check
+
+```bash
+mcporter call automem.check_database_health
+```
 
 ### Store a Memory
 
@@ -200,64 +235,6 @@ mcporter call automem.update_memory \
 
 See [AutoMem Tools Reference](https://github.com/verygoodplugins/automem#tools) for complete parameter docs.
 
-## Step 4: Integrate Memory into Agent Runs
-
-### Option A: Automatic Recall via Agent Config
-
-Enable AutoMem memory recall in your OpenClaw agent config (`~/.openclaw/openclaw.json`):
-
-```json5
-{
-  agents: {
-    list: [
-      {
-        name: 'default',
-        systemPrompt: `
-You are a helpful assistant with persistent memory.
-
-At the START of each conversation:
-1. Use mcporter to recall memories related to the current topic
-2. Consider how past decisions and patterns apply
-
-Before creating important content:
-- Check memories for style preferences and past corrections
-- Review relevant patterns from previous interactions
-
-When you learn something important:
-- Store it as a memory for future conversations
-- Use tags to organize memories by topic
-        `,
-        skills: {
-          allowBundled: ['mcporter'],
-          entries: {
-            mcporter: { enabled: true },
-          },
-        },
-      },
-    ],
-  },
-}
-```
-
-### Option B: Manual Memory Calls
-
-In agent scripts or hooks, directly call mcporter:
-
-```bash
-# Recall memories about a topic
-mcporter call automem.recall_memory \
-  query="user's coding preferences" \
-  limit:5 \
-  --output json
-
-# Store a memory
-mcporter call automem.store_memory \
-  content="User prefers functional programming style" \
-  importance:0.8 \
-  tags='["coding-style","preferences"]' \
-  --output json
-```
-
 ## Troubleshooting
 
 ### "mcporter: command not found"
@@ -279,7 +256,6 @@ npm install -g mcporter
 
 ```bash
 mcporter config list
-cat ~/.mcporter/config.json
 ```
 
 **Network issues:**
@@ -290,13 +266,20 @@ cat ~/.mcporter/config.json
 
 ### "No tools found for automem"
 
-Verify the server is responding to MCP calls:
+Verify the server is responding:
 
 ```bash
-mcporter inspect automem
+mcporter list automem --schema
 ```
 
-Should show tool schemas. If empty, AutoMem service isn't responding correctly.
+For debug output, add `--log-level debug` to see transport-level details.
+
+### Agent Not Using Memory
+
+1. Verify `AGENTS.md` contains the `<!-- BEGIN AUTOMEM OPENCLAW RULES -->` block
+2. Restart the OpenClaw gateway after making changes
+3. Check that mcporter can reach AutoMem: `mcporter call automem.check_database_health`
+4. Look at agent logs for mcporter call output
 
 ### Memories Not Persisting
 
