@@ -881,11 +881,13 @@ npm run build
 ### Quick Setup
 
 1. **Install OpenClaw** (`2026.x` or later):
+
    ```bash
    curl -fsSL https://openclaw.ai/install.sh | bash
    ```
 
 2. **Start AutoMem service** (local or Railway):
+
    ```bash
    # Local:
    git clone https://github.com/verygoodplugins/automem.git
@@ -896,6 +898,7 @@ npm run build
    ```
 
 3. **Install the AutoMem skill**:
+
    ```bash
    npx @verygoodplugins/mcp-automem openclaw --workspace ~/clawd
    ```

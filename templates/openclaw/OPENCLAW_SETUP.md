@@ -103,8 +103,7 @@ In `~/.openclaw/openclaw.json`:
       "automem": {
         "enabled": true,
         "env": {
-          "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001",
-          "AUTOMEM_API_KEY": ""
+          "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"
         }
       }
     }

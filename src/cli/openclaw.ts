@@ -22,6 +22,61 @@ function log(message: string, quiet?: boolean) {
   if (!quiet) console.log(message);
 }
 
+/**
+ * Strip JSON5-style comments without corrupting URLs or strings containing `//`.
+ * Handles single-line (`//`), block (`/* ... *​/`), and trailing commas.
+ */
+function stripJsonComments(raw: string): string {
+  // Walk through the string character by character to respect quoted strings
+  let result = '';
+  let inString = false;
+  let i = 0;
+  while (i < raw.length) {
+    const ch = raw[i];
+    const next = raw[i + 1];
+
+    if (inString) {
+      result += ch;
+      if (ch === '\\') {
+        // Skip escaped character
+        result += next || '';
+        i += 2;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      i++;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      result += ch;
+      i++;
+      continue;
+    }
+
+    // Single-line comment
+    if (ch === '/' && next === '/') {
+      while (i < raw.length && raw[i] !== '\n') i++;
+      continue;
+    }
+
+    // Block comment
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < raw.length && !(raw[i] === '*' && raw[i + 1] === '/')) i++;
+      i += 2; // skip closing */
+      continue;
+    }
+
+    result += ch;
+    i++;
+  }
+
+  // Strip trailing commas before } or ]
+  return result.replace(/,\s*([}\]])/g, '$1');
+}
+
 function detectProjectName(): string {
   // 1) package.json name
   if (fs.existsSync('package.json')) {
@@ -90,10 +145,9 @@ function writeFileWithBackup(targetPath: string, content: string, options: OpenC
  *
  * Priority:
  * 1. Explicit --workspace flag
- * 2. OPENCLAW_WORKSPACE env var
+ * 2. OPENCLAW_WORKSPACE or CLAWDBOT_WORKSPACE env var
  * 3. OpenClaw config file (agents.defaults.workspace or first agent workspace)
- * 4. Legacy CLAWDBOT_WORKSPACE env var
- * 5. Common default paths: ~/.openclaw/workspace, ~/clawd
+ * 4. Common default paths: ~/.openclaw/workspace, ~/clawd
  */
 function resolveWorkspaceDir(explicit?: string): string | null {
   // 1. Explicit flag
@@ -153,10 +207,7 @@ function readWorkspaceFromConfig(): string | null {
     if (!fs.existsSync(configPath)) continue;
     try {
       const raw = fs.readFileSync(configPath, 'utf8');
-      const stripped = raw
-        .replace(/\/\/[^\n]*/g, '')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/,\s*([}\]])/g, '$1');
+      const stripped = stripJsonComments(raw);
       const config = JSON.parse(stripped);
 
       const defaultWorkspace = config?.agents?.defaults?.workspace;
@@ -196,10 +247,7 @@ function readOpenClawConfig(): { config: any; configPath: string } | null {
 
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
-    const stripped = raw
-      .replace(/\/\/[^\n]*/g, '')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/,\s*([}\]])/g, '$1');
+    const stripped = stripJsonComments(raw);
     return { config: JSON.parse(stripped), configPath };
   } catch {
     return { config: {}, configPath };
@@ -274,19 +322,18 @@ function configureEnvVars(options: OpenClawSetupOptions): void {
   if (!config.skills) config.skills = {};
   if (!config.skills.entries) config.skills.entries = {};
 
+  const existingEnv = config.skills.entries?.automem?.env || {};
+
+  // CLI flags override existing config; existing config fills in gaps
   config.skills.entries.automem = {
     ...config.skills.entries.automem,
     enabled: true,
     env: {
+      ...existingEnv,
       AUTOMEM_ENDPOINT: endpoint,
       ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}),
-      ...config.skills.entries?.automem?.env,
     },
   };
-
-  // Ensure endpoint is always set even if existing config had different keys
-  config.skills.entries.automem.env.AUTOMEM_ENDPOINT =
-    config.skills.entries.automem.env.AUTOMEM_ENDPOINT || endpoint;
 
   if (options.dryRun) {
     log(`[DRY RUN] Would update: ${configPath}`, options.quiet);
