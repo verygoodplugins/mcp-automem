@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 
 interface OpenClawSetupOptions {
   workspace?: string;
-  mcporterServer?: string;
   projectName?: string;
   dryRun?: boolean;
   quiet?: boolean;
@@ -47,17 +46,11 @@ function detectProjectName(): string {
   return path.basename(process.cwd());
 }
 
-function getCurrentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function replaceTemplateVars(content: string, vars: Record<string, string>): string {
-  let result = content;
-  for (const [k, v] of Object.entries(vars)) {
-    result = result.replace(new RegExp(`{{${k}}}`, 'g'), v);
+function resolveTildePath(input: string): string {
+  if (input.startsWith('~/') || input === '~') {
+    return path.join(os.homedir(), input.slice(2));
   }
-  return result;
+  return path.resolve(input);
 }
 
 function backupPath(filePath: string): string {
@@ -81,7 +74,7 @@ function writeFileWithBackup(targetPath: string, content: string, options: OpenC
   if (existed) {
     const current = fs.readFileSync(targetPath, 'utf8');
     if (current === content) {
-      log(`✓ Unchanged: ${path.basename(targetPath)}`, options.quiet);
+      log(`✓ Unchanged: ${targetPath}`, options.quiet);
       return;
     }
     const backup = backupPath(targetPath);
@@ -89,29 +82,7 @@ function writeFileWithBackup(targetPath: string, content: string, options: OpenC
     log(`📦 Backup created: ${backup}`, options.quiet);
   }
   fs.writeFileSync(targetPath, content, 'utf8');
-  log(`✅ ${existed ? 'Updated' : 'Created'}: ${path.basename(targetPath)}`, options.quiet);
-}
-
-function upsertRulesWithMarkers(
-  existing: string | null,
-  block: string
-): string {
-  const start = '<!-- BEGIN AUTOMEM OPENCLAW RULES -->';
-  const end = '<!-- END AUTOMEM OPENCLAW RULES -->';
-  if (!existing) {
-    return `${block}\n`;
-  }
-  const startIdx = existing.indexOf(start);
-  const endIdx = existing.indexOf(end);
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    // Replace existing block (include the end marker length)
-    const before = existing.slice(0, startIdx);
-    const after = existing.slice(endIdx + end.length);
-    return `${before}${block}${after}`;
-  }
-  // Append with spacing
-  const sep = existing.endsWith('\n') ? '\n' : '\n\n';
-  return `${existing}${sep}${block}\n`;
+  log(`✅ ${existed ? 'Updated' : 'Created'}: ${targetPath}`, options.quiet);
 }
 
 /**
@@ -128,7 +99,6 @@ function resolveWorkspaceDir(explicit?: string): string | null {
   // 1. Explicit flag
   if (explicit) {
     const resolved = resolveTildePath(explicit);
-    if (fs.existsSync(resolved)) return resolved;
     return resolved; // trust the user even if it doesn't exist yet
   }
 
@@ -153,14 +123,12 @@ function resolveWorkspaceDir(explicit?: string): string | null {
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
-      // Verify it looks like a workspace (has AGENTS.md or SOUL.md)
       const hasAgents = fs.existsSync(path.join(candidate, 'AGENTS.md'));
       const hasSoul = fs.existsSync(path.join(candidate, 'SOUL.md'));
       if (hasAgents || hasSoul) return candidate;
     }
   }
 
-  // Last resort: return first candidate that exists as a directory
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
   }
@@ -168,16 +136,8 @@ function resolveWorkspaceDir(explicit?: string): string | null {
   return null;
 }
 
-function resolveTildePath(input: string): string {
-  if (input.startsWith('~/') || input === '~') {
-    return path.join(os.homedir(), input.slice(2));
-  }
-  return path.resolve(input);
-}
-
 /**
  * Try to read workspace path from OpenClaw config file.
- * Config lives at ~/.openclaw/openclaw.json, ~/.openclaw/config.json5, etc.
  */
 function readWorkspaceFromConfig(): string | null {
   const homeDir = os.homedir();
@@ -193,21 +153,18 @@ function readWorkspaceFromConfig(): string | null {
     if (!fs.existsSync(configPath)) continue;
     try {
       const raw = fs.readFileSync(configPath, 'utf8');
-      // Strip JSON5 comments for basic parsing
       const stripped = raw
         .replace(/\/\/[^\n]*/g, '')
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/,\s*([}\]])/g, '$1');
       const config = JSON.parse(stripped);
 
-      // agents.defaults.workspace
       const defaultWorkspace = config?.agents?.defaults?.workspace;
       if (defaultWorkspace && typeof defaultWorkspace === 'string') {
         const resolved = resolveTildePath(defaultWorkspace);
         if (fs.existsSync(resolved)) return resolved;
       }
 
-      // First agent's workspace
       const agents = config?.agents?.list;
       if (Array.isArray(agents)) {
         for (const agent of agents) {
@@ -226,119 +183,153 @@ function readWorkspaceFromConfig(): string | null {
 }
 
 /**
- * Check if mcporter has AutoMem configured.
+ * Read and return the OpenClaw config (openclaw.json).
+ * Returns null if file doesn't exist or can't be parsed.
  */
-function checkMcporterConfig(serverName: string): {
-  configured: boolean;
-  configPath: string | null;
-} {
+function readOpenClawConfig(): { config: any; configPath: string } | null {
   const homeDir = os.homedir();
-  const mcporterPaths = [
-    path.join(homeDir, '.mcporter', 'mcporter.json'),
-    path.join(process.cwd(), 'config', 'mcporter.json'),
-  ];
+  const configPath = path.join(homeDir, '.openclaw', 'openclaw.json');
 
-  for (const configPath of mcporterPaths) {
-    if (!fs.existsSync(configPath)) continue;
-    try {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      const servers = config?.mcpServers;
-      if (servers && typeof servers === 'object') {
-        // Check for exact server name or common automem names
-        const names = [serverName, 'automem', 'automem-stdio', 'automem-remote'];
-        for (const name of names) {
-          if (servers[name]) {
-            return { configured: true, configPath };
-          }
-        }
-      }
-    } catch {
-      // continue
-    }
+  if (!fs.existsSync(configPath)) {
+    return { config: {}, configPath };
   }
 
-  return { configured: false, configPath: mcporterPaths[0] };
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const stripped = raw
+      .replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/,\s*([}\]])/g, '$1');
+    return { config: JSON.parse(stripped), configPath };
+  } catch {
+    return { config: {}, configPath };
+  }
 }
 
 /**
- * Update TOOLS.md with AutoMem reference section.
+ * Remove old AGENTS.md AutoMem block if present from previous installs.
  */
-function updateToolsFile(
-  workspaceDir: string,
-  serverName: string,
-  options: OpenClawSetupOptions
-): void {
-  const toolsPath = path.join(workspaceDir, 'TOOLS.md');
-  const startMarker = '<!-- BEGIN AUTOMEM TOOLS -->';
-  const endMarker = '<!-- END AUTOMEM TOOLS -->';
+function cleanOldAgentsBlock(workspaceDir: string, options: OpenClawSetupOptions): boolean {
+  const agentsPath = path.join(workspaceDir, 'AGENTS.md');
+  if (!fs.existsSync(agentsPath)) return false;
 
-  const toolsBlock = `${startMarker}
-### AutoMem (Persistent Graph Memory)
+  const content = fs.readFileSync(agentsPath, 'utf8');
+  const startMarker = '<!-- BEGIN AUTOMEM OPENCLAW RULES -->';
+  const endMarker = '<!-- END AUTOMEM OPENCLAW RULES -->';
 
-AutoMem gives you semantic memory that persists across all sessions and platforms. Use it via mcporter.
+  const startIdx = content.indexOf(startMarker);
+  const endIdx = content.indexOf(endMarker);
 
-**Recall context:**
-\`\`\`bash
-mcporter call ${serverName}.recall_memory query="<topic>" limit:5
-\`\`\`
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return false;
 
-**Store a memory:**
-\`\`\`bash
-mcporter call ${serverName}.store_memory \\
-  content="<what you learned>" importance:0.7 \\
-  tags='["openclaw","<topic>"]'
-\`\`\`
+  if (options.dryRun) {
+    log(`[DRY RUN] Would remove old AutoMem block from AGENTS.md`, options.quiet);
+    return true;
+  }
 
-**Health check:**
-\`\`\`bash
-mcporter call ${serverName}.check_database_health
-\`\`\`
+  const backup = backupPath(agentsPath);
+  fs.copyFileSync(agentsPath, backup);
+  log(`📦 Backup created: ${backup}`, options.quiet);
 
-AutoMem is separate from file-based daily memory — use both. Files for raw daily logs, AutoMem for durable semantic recall across all conversations.
-${endMarker}`;
+  const before = content.slice(0, startIdx).trimEnd();
+  const after = content.slice(endIdx + endMarker.length).trimStart();
+  const cleaned = before + (after ? '\n\n' + after : '') + '\n';
 
-  if (!fs.existsSync(toolsPath)) {
-    // Create TOOLS.md with the block
-    const content = `# TOOLS.md - Local Notes\n\nSkills define *how* tools work. This file is for *your* specifics.\n\n${toolsBlock}\n`;
-    writeFileWithBackup(toolsPath, content, options);
+  fs.writeFileSync(agentsPath, cleaned, 'utf8');
+  log(`🧹 Removed old AutoMem block from AGENTS.md`, options.quiet);
+  return true;
+}
+
+/**
+ * Install the AutoMem skill to ~/.openclaw/skills/automem/SKILL.md
+ */
+function installSkill(options: OpenClawSetupOptions): void {
+  const homeDir = os.homedir();
+  const skillDir = path.join(homeDir, '.openclaw', 'skills', 'automem');
+  const skillTarget = path.join(skillDir, 'SKILL.md');
+  const skillSource = path.join(TEMPLATE_ROOT, 'skill', 'SKILL.md');
+
+  if (!fs.existsSync(skillSource)) {
+    console.error(`❌ Skill template not found: ${skillSource}`);
+    process.exit(1);
+  }
+
+  const content = fs.readFileSync(skillSource, 'utf8');
+  writeFileWithBackup(skillTarget, content, options);
+}
+
+/**
+ * Configure env vars in openclaw.json under skills.entries.automem.env
+ */
+function configureEnvVars(options: OpenClawSetupOptions): void {
+  const result = readOpenClawConfig();
+  if (!result) return;
+
+  const { config, configPath } = result;
+
+  const endpoint = options.endpoint || process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
+  const apiKey = options.apiKey || process.env.AUTOMEM_API_KEY || '';
+
+  // Deep-merge skills.entries.automem
+  if (!config.skills) config.skills = {};
+  if (!config.skills.entries) config.skills.entries = {};
+
+  config.skills.entries.automem = {
+    ...config.skills.entries.automem,
+    enabled: true,
+    env: {
+      AUTOMEM_ENDPOINT: endpoint,
+      ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}),
+      ...config.skills.entries?.automem?.env,
+    },
+  };
+
+  // Ensure endpoint is always set even if existing config had different keys
+  config.skills.entries.automem.env.AUTOMEM_ENDPOINT =
+    config.skills.entries.automem.env.AUTOMEM_ENDPOINT || endpoint;
+
+  if (options.dryRun) {
+    log(`[DRY RUN] Would update: ${configPath}`, options.quiet);
+    log(`[DRY RUN] skills.entries.automem = ${JSON.stringify(config.skills.entries.automem, null, 2)}`, options.quiet);
     return;
   }
 
-  const existing = fs.readFileSync(toolsPath, 'utf8');
-  const startIdx = existing.indexOf(startMarker);
-  const endIdx = existing.indexOf(endMarker);
+  const dir = path.dirname(configPath);
+  fs.mkdirSync(dir, { recursive: true });
 
-  let updated: string;
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    // Replace existing block
-    const before = existing.slice(0, startIdx);
-    const after = existing.slice(endIdx + endMarker.length);
-    updated = `${before}${toolsBlock}${after}`;
-  } else {
-    // Check for unmarked AutoMem section and replace it
-    const autoMemIdx = existing.indexOf('### AutoMem');
-    if (autoMemIdx !== -1) {
-      // Find the next section header or end of file
-      const nextSectionMatch = existing.slice(autoMemIdx + 1).match(/\n(?:#{1,3} |---)/);
-      const sectionEnd = nextSectionMatch
-        ? autoMemIdx + 1 + (nextSectionMatch.index ?? existing.length)
-        : existing.length;
-      const before = existing.slice(0, autoMemIdx);
-      const after = existing.slice(sectionEnd);
-      updated = `${before}${toolsBlock}${after}`;
-    } else {
-      // Append before the final line if it's just "Add whatever helps..."
-      const sep = existing.endsWith('\n') ? '\n' : '\n\n';
-      updated = `${existing}${sep}${toolsBlock}\n`;
-    }
+  if (fs.existsSync(configPath)) {
+    const backup = backupPath(configPath);
+    fs.copyFileSync(configPath, backup);
+    log(`📦 Backup created: ${backup}`, options.quiet);
   }
 
-  writeFileWithBackup(toolsPath, updated, options);
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  log(`✅ Updated: ${configPath}`, options.quiet);
+}
+
+/**
+ * Ensure memory/ directory exists in workspace.
+ */
+function ensureMemoryDir(workspaceDir: string, options: OpenClawSetupOptions): void {
+  const memoryDir = path.join(workspaceDir, 'memory');
+  if (!fs.existsSync(memoryDir)) {
+    if (options.dryRun) {
+      log(`[DRY RUN] Would create: ${memoryDir}/`, options.quiet);
+    } else {
+      fs.mkdirSync(memoryDir, { recursive: true });
+      const gitkeepPath = path.join(memoryDir, '.gitkeep');
+      if (!fs.existsSync(gitkeepPath)) {
+        fs.writeFileSync(gitkeepPath, '', 'utf8');
+      }
+      log(`✅ Created: memory/`, options.quiet);
+    }
+  } else {
+    log(`✓ Exists: memory/`, options.quiet);
+  }
 }
 
 export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Promise<void> {
   const projectName = cliOptions.projectName ?? detectProjectName();
-  const serverName = cliOptions.mcporterServer ?? 'automem';
 
   // Resolve workspace
   const workspaceDir = resolveWorkspaceDir(cliOptions.workspace);
@@ -347,116 +338,49 @@ export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Prom
     console.error(`\n❌ Could not find OpenClaw workspace directory.`);
     console.error(`\n   Checked:`);
     console.error(`   • OPENCLAW_WORKSPACE environment variable`);
-    console.error(`   • OpenClaw config (~/.openclaw/config.json5)`);
+    console.error(`   • OpenClaw config (~/.openclaw/openclaw.json)`);
     console.error(`   • ~/.openclaw/workspace`);
     console.error(`   • ~/clawd`);
     console.error(`\n   Use --workspace <path> to specify manually.`);
     process.exit(1);
   }
 
-  const agentsPath = path.join(workspaceDir, 'AGENTS.md');
-
-  const vars: Record<string, string> = {
-    PROJECT_NAME: projectName,
-    CURRENT_MONTH: getCurrentMonth(),
-    MCPORTER_SERVER: serverName,
-  };
-
   log(`\n🔧 Setting up OpenClaw AutoMem for: ${projectName}`, cliOptions.quiet);
   log(`📁 Workspace: ${workspaceDir}`, cliOptions.quiet);
-  log(`🔗 mcporter server: ${serverName}\n`, cliOptions.quiet);
+  log(`📦 Architecture: native skill (curl → AutoMem HTTP API)\n`, cliOptions.quiet);
 
-  // 1. Install behavioral rules into AGENTS.md
-  const templateContent = fs.readFileSync(path.join(TEMPLATE_ROOT, 'memory-rules.md'), 'utf8');
-  const processed = replaceTemplateVars(templateContent, vars);
+  // 1. Install skill to ~/.openclaw/skills/automem/SKILL.md
+  installSkill(cliOptions);
 
-  const existingContent = fs.existsSync(agentsPath) ? fs.readFileSync(agentsPath, 'utf8') : null;
-  const finalContent = upsertRulesWithMarkers(existingContent, processed);
-  writeFileWithBackup(agentsPath, finalContent, cliOptions);
+  // 2. Configure env vars in openclaw.json
+  configureEnvVars(cliOptions);
 
-  // 2. Ensure memory/ directory exists (bot and OpenClaw both need it)
-  const memoryDir = path.join(workspaceDir, 'memory');
-  if (!fs.existsSync(memoryDir)) {
-    if (cliOptions.dryRun) {
-      log(`[DRY RUN] Would create: ${memoryDir}/`, cliOptions.quiet);
-    } else {
-      fs.mkdirSync(memoryDir, { recursive: true });
-      // Add a .gitkeep so the directory is tracked
-      const gitkeepPath = path.join(memoryDir, '.gitkeep');
-      if (!fs.existsSync(gitkeepPath)) {
-        fs.writeFileSync(gitkeepPath, '', 'utf8');
-      }
-      log(`✅ Created: memory/`, cliOptions.quiet);
-    }
-  } else {
-    log(`✓ Exists: memory/`, cliOptions.quiet);
-  }
+  // 3. Ensure memory/ directory exists
+  ensureMemoryDir(workspaceDir, cliOptions);
 
-  // 3. Update TOOLS.md with reference commands
-  updateToolsFile(workspaceDir, serverName, cliOptions);
+  // 4. Clean up old AGENTS.md block from previous installs
+  cleanOldAgentsBlock(workspaceDir, cliOptions);
 
-  // 4. Check mcporter configuration
-  const mcpCheck = checkMcporterConfig(serverName);
+  // Summary
+  const endpoint = cliOptions.endpoint || process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
 
   log('\n📊 Configuration Status:', cliOptions.quiet);
-  log(`  ✅ Behavioral rules installed in AGENTS.md`, cliOptions.quiet);
-  log(`  ✅ Tool reference updated in TOOLS.md`, cliOptions.quiet);
+  log(`  ✅ Skill installed: ~/.openclaw/skills/automem/SKILL.md`, cliOptions.quiet);
+  log(`  ✅ Env vars configured in ~/.openclaw/openclaw.json`, cliOptions.quiet);
   log(`  ✅ memory/ directory ready`, cliOptions.quiet);
-
-  if (mcpCheck.configured) {
-    log(`  ✅ mcporter has AutoMem configured`, cliOptions.quiet);
-
-    // Run a non-blocking health check to verify connectivity
-    if (!cliOptions.dryRun) {
-      try {
-        const healthOutput = execSync(
-          `mcporter call ${serverName}.check_database_health 2>&1`,
-          { encoding: 'utf8', timeout: 10000 }
-        ).trim();
-        if (healthOutput.toLowerCase().includes('healthy') || healthOutput.includes('"ok"') || healthOutput.includes('"status"')) {
-          log(`  ✅ AutoMem service is reachable and healthy`, cliOptions.quiet);
-        } else {
-          log(`  ⚠️  AutoMem responded but status unclear — check manually`, cliOptions.quiet);
-        }
-      } catch {
-        log(`  ⚠️  Could not reach AutoMem — verify service is running`, cliOptions.quiet);
-      }
-    }
-  } else {
-    log(`\n  ⚠️  AutoMem not found in mcporter config`, cliOptions.quiet);
-    log(`\n  Add it with:`, cliOptions.quiet);
-    log(``, cliOptions.quiet);
-    log(`  # Local AutoMem (stdio):`, cliOptions.quiet);
-    log(`  mcporter config add ${serverName} \\`, cliOptions.quiet);
-    log(`    --command "npx" --arg "@verygoodplugins/mcp-automem" \\`, cliOptions.quiet);
-    log(`    --env "AUTOMEM_ENDPOINT=http://127.0.0.1:8001" \\`, cliOptions.quiet);
-    log(`    --scope home`, cliOptions.quiet);
-    log(``, cliOptions.quiet);
-    log(`  # Or Railway (remote HTTP):`, cliOptions.quiet);
-    log(`  mcporter config add ${serverName} \\`, cliOptions.quiet);
-    log(`    https://your-sse-sidecar.railway.app/mcp \\`, cliOptions.quiet);
-    log(`    --transport http \\`, cliOptions.quiet);
-    log(`    --header "Authorization=Bearer YOUR_TOKEN" \\`, cliOptions.quiet);
-    log(`    --scope home`, cliOptions.quiet);
-  }
+  log(`  🔗 Endpoint: ${endpoint}`, cliOptions.quiet);
 
   log('\n✨ OpenClaw AutoMem setup complete!\n', cliOptions.quiet);
   log('Next steps:', cliOptions.quiet);
+  log('  1. Ensure AutoMem service is running at the configured endpoint', cliOptions.quiet);
+  log('  2. Restart OpenClaw gateway to pick up the new skill', cliOptions.quiet);
+  log('  3. Send a message — the bot will recall and store memories via curl', cliOptions.quiet);
 
-  if (!mcpCheck.configured) {
-    log('  1. Configure mcporter (see above)', cliOptions.quiet);
-    log('  2. Verify: mcporter list automem', cliOptions.quiet);
-    log('  3. Restart OpenClaw gateway', cliOptions.quiet);
-    log('  4. Send a message — the bot will run a health check and confirm memory is working', cliOptions.quiet);
-  } else {
-    log('  1. Restart OpenClaw gateway to pick up new rules', cliOptions.quiet);
-    log('  2. Send a message — the bot will run a health check and confirm memory is working', cliOptions.quiet);
-  }
-
-  log('\n💡 What the bot should do on first session:', cliOptions.quiet);
-  log(`  • Run: mcporter call ${serverName}.check_database_health`, cliOptions.quiet);
-  log('  • Report memory is online', cliOptions.quiet);
+  log('\n💡 What the bot should do:', cliOptions.quiet);
+  log(`  • Recall memories via: curl $AUTOMEM_ENDPOINT/recall?query=...`, cliOptions.quiet);
+  log(`  • Store memories via: curl -X POST $AUTOMEM_ENDPOINT/memory`, cliOptions.quiet);
   log('  • NOT mention disabled API keys or missing tools', cliOptions.quiet);
+  log('  • Only check /health if curl calls are failing', cliOptions.quiet);
 
   log(`\n💡 Tip: Run with --dry-run to preview changes without modifying files`, cliOptions.quiet);
 }
@@ -472,13 +396,6 @@ function parseArgs(args: string[]): OpenClawSetupOptions {
           process.exit(1);
         }
         options.workspace = args[++i];
-        break;
-      case '--server':
-        if (i + 1 >= args.length) {
-          console.error('Error: --server requires a name');
-          process.exit(1);
-        }
-        options.mcporterServer = args[++i];
         break;
       case '--name':
         if (i + 1 >= args.length) {

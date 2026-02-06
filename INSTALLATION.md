@@ -876,60 +876,35 @@ npm run build
 
 ## OpenClaw
 
-**[OpenClaw](https://openclaw.ai)** is a personal AI assistant that runs locally and supports 11+ messaging platforms (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, Matrix, Zalo, etc.). AutoMem integrates via **mcporter**, a built-in MCP CLI tool that's a core skill in OpenClaw.
+**[OpenClaw](https://openclaw.ai)** is a personal AI assistant that runs locally and supports 11+ messaging platforms (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, Matrix, Zalo, etc.). AutoMem integrates as a native **skill** — the bot calls the AutoMem HTTP API directly via `curl`.
 
 ### Quick Setup
 
 1. **Install OpenClaw** (`2026.x` or later):
    ```bash
-   # Recommended:
    curl -fsSL https://openclaw.ai/install.sh | bash
-   # Or via npm:
-   npm install -g openclaw@latest
    ```
 
 2. **Start AutoMem service** (local or Railway):
    ```bash
-   # Local: Clone automem repo
+   # Local:
    git clone https://github.com/verygoodplugins/automem.git
-   cd automem
-   make dev
+   cd automem && make dev
 
    # Or deploy on Railway (one-click):
    # https://railway.com/deploy/automem-ai-memory-service
    ```
 
-3. **Configure mcporter** at `~/.mcporter/config.json`:
-   ```json
-   {
-     "servers": [
-       {
-         "id": "automem",
-         "name": "AutoMem",
-         "type": "stdio",
-         "command": "npx @verygoodplugins/mcp-automem",
-         "env": {
-           "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"
-         }
-       }
-     ]
-   }
+3. **Install the AutoMem skill**:
+   ```bash
+   npx @verygoodplugins/mcp-automem openclaw --workspace ~/clawd
    ```
 
-4. **Verify connection**:
-   ```bash
-   mcporter list automem
-   ```
-
-5. **Use in your agent** by calling mcporter tools from your OpenClaw agent config or scripts:
-   ```bash
-   mcporter call automem.recall_memory query="topic" limit:5
-   mcporter call automem.store_memory content="..." importance:0.8
-   ```
+4. **Restart OpenClaw gateway** — the bot will now recall and store memories automatically.
 
 ### Full Setup Guide
 
-For detailed setup with Railway, authentication, agent integration, and troubleshooting:
+For detailed setup with Railway, authentication, and troubleshooting:
 
 **[AutoMem + OpenClaw Integration Guide](./templates/openclaw/OPENCLAW_SETUP.md)**
 
@@ -937,8 +912,8 @@ For detailed setup with Railway, authentication, agent integration, and troubles
 
 - **Multi-platform memory**: Your agent remembers decisions across WhatsApp, Telegram, Slack, Discord, and 7+ other channels
 - **Persistent context**: Memory survives gateway restarts
-- **CLI-native**: mcporter makes memory calls simple and scriptable
-- **No code changes needed**: Works with existing OpenClaw agents via config and system prompts
+- **Simple architecture**: Bot calls AutoMem HTTP API directly via `curl` — no extra binaries or protocols
+- **No code changes needed**: Works with existing OpenClaw agents via a skill file and env vars
 
 ---
 
