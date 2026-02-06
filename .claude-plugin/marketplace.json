@@ -14,7 +14,7 @@
       "name": "automem",
       "source": "./plugins/automem",
       "description": "Persistent memory for Claude Code - store decisions, patterns, and context across sessions",
-      "version": "1.0.0",
+      "version": "0.11.1",
       "author": {
         "name": "Very Good Plugins"
       }

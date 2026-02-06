@@ -2,7 +2,29 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "extra-files": ["server.json"]
+      "extra-files": [
+        "server.json",
+        {
+          "type": "json",
+          "path": "server.json",
+          "jsonpath": "$.packages[0].version"
+        },
+        {
+          "type": "json",
+          "path": "manifest.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "plugins/automem/.claude-plugin/plugin.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": ".claude-plugin/marketplace.json",
+          "jsonpath": "$.plugins[0].version"
+        }
+      ]
     }
   }
 }
