@@ -4,11 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [0.12.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.11.1...mcp-automem-v0.12.0) (2026-02-06)
 
+### OpenClaw Integration (New)
 
-### Features
+AutoMem now integrates with [OpenClaw](https://openclaw.ai) as a native **skill**. Your OpenClaw agent gets persistent semantic memory across all messaging platforms (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, etc.).
 
-* **openclaw:** replace mcporter with native curl-based skill ([83d8e36](https://github.com/verygoodplugins/mcp-automem/commit/83d8e36ca2b7bc67d1e246cdb8d6a346047f617a))
+**Quick setup:**
 
+```bash
+npx @verygoodplugins/mcp-automem openclaw --workspace ~/clawd
+```
+
+The skill teaches the bot to call AutoMem's HTTP API directly via `curl` — no mcporter, no MCP protocol overhead, no PATH issues. Includes behavioral rules for when to recall/store memories, importance levels, tagging conventions, and graceful error handling.
+
+**What's included:**
+
+- Native OpenClaw skill (`~/.openclaw/skills/automem/SKILL.md`) with full API reference
+- CLI installer that configures env vars in `openclaw.json` and cleans up old installs
+- String-aware JSON comment stripping for config parsing (won't corrupt URLs)
+- Setup guide and troubleshooting docs
+
+See [OpenClaw Setup Guide](./templates/openclaw/OPENCLAW_SETUP.md) for details.
 
 ### Bug Fixes
 
