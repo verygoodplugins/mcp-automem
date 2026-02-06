@@ -14,6 +14,7 @@ import { runConfig, runSetup } from "./cli/setup.js";
 import { runClaudeCodeSetup } from "./cli/claude-code.js";
 import { runCursorSetup } from "./cli/cursor.js";
 import { runCodexSetup } from "./cli/codex.js";
+import { runOpenClawSetup } from "./cli/openclaw.js";
 import { runMigrateCommand } from "./cli/migrate.js";
 import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
@@ -104,6 +105,8 @@ COMMANDS:
   config             Show configuration snippets
   claude-code        Set up AutoMem for Claude Code
   cursor             Set up AutoMem for Cursor
+  codex              Set up AutoMem for Codex
+  openclaw           Set up AutoMem for OpenClaw
   migrate            Migrate existing projects to AutoMem
   uninstall          Remove AutoMem configuration
   queue              Manage memory queue
@@ -186,6 +189,17 @@ CODEX SETUP:
     --dry-run             Show what would be changed
     --quiet               Suppress output
 
+OPENCLAW SETUP:
+  npx @verygoodplugins/mcp-automem openclaw [options]
+
+  Options:
+    --workspace <path>    OpenClaw workspace directory (auto-detected)
+    --endpoint <url>      AutoMem endpoint (default: http://127.0.0.1:8001)
+    --api-key <key>       AutoMem API key (optional)
+    --name <name>         Project name (auto-detected if not provided)
+    --dry-run             Show what would be changed
+    --quiet               Suppress output
+
 For more information, visit:
 https://github.com/verygoodplugins/mcp-automem
 `);
@@ -214,6 +228,11 @@ if (command === "cursor") {
 
 if (command === "codex") {
   await runCodexSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === "openclaw") {
+  await runOpenClawSetup(process.argv.slice(3));
   process.exit(0);
 }
 
