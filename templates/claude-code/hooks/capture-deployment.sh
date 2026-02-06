@@ -18,6 +18,16 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
+# Check required dependencies
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Warning: jq not installed - deployment capture disabled" >&2
+    exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Warning: python3 not installed - deployment capture disabled" >&2
+    exit 0
+fi
+
 # Read JSON input from stdin (Claude Code hook format per docs)
 INPUT_JSON=$(cat)
 
@@ -123,11 +133,6 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
 fi
 
 # Queue memory for processing with safe JSON encoding and file locking
-if ! command -v jq >/dev/null 2>&1; then
-    log_message "jq not available; cannot encode deployment memory"
-    exit 1
-fi
-
 DEPLOY_PLATFORM="${DEPLOY_PLATFORM:-unknown}"
 DEPLOY_ENV="${DEPLOY_ENV:-production}"
 PROJECT_NAME="${PROJECT_NAME:-unknown}"

@@ -18,6 +18,16 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
+# Check required dependencies
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Warning: jq not installed - test capture disabled" >&2
+    exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Warning: python3 not installed - test capture disabled" >&2
+    exit 0
+fi
+
 # Read JSON input from stdin (Claude Code hook format per docs)
 INPUT_JSON=$(cat)
 
