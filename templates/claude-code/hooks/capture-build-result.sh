@@ -123,6 +123,19 @@ else
     CONTENT="Build failed in $PROJECT_NAME using $BUILD_TOOL: $ERRORS errors. ${ERROR_DETAILS:0:200}"
 fi
 
+# Check for sensitive content (passwords, API keys, etc.) via memory-filters.json
+FILTERS_FILE="${MEMORY_FILTERS:-$HOME/.claude/scripts/memory-filters.json}"
+if [ -f "$FILTERS_FILE" ]; then
+    while IFS= read -r pattern; do
+        [ -z "$pattern" ] && continue
+        if echo "$CONTENT" | grep -qiE "$pattern" 2>/dev/null; then
+            log_message "Skipping - matches sensitive pattern"
+            SCRIPT_SUCCESS=true
+            exit 0
+        fi
+    done < <(jq -r '.sensitive_patterns[]?' "$FILTERS_FILE" 2>/dev/null)
+fi
+
 # Queue memory for processing with safe JSON encoding and file locking
 AUTOMEM_QUEUE="$MEMORY_QUEUE" \
 AUTOMEM_CONTENT="$CONTENT" \
@@ -137,6 +150,7 @@ AUTOMEM_ERRORS="$ERRORS" \
 AUTOMEM_EXIT_CODE="$EXIT_CODE" \
 AUTOMEM_COMMAND="$COMMAND" \
 python3 - <<'PY'
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
@@ -185,6 +199,24 @@ def truncate(text, max_len):
         return text[:max_len] + "..."
     return text
 
+def content_hash(text):
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+def is_duplicate(queue_path, new_content, lookback=20):
+    """Idempotency guard: skip if identical content already queued."""
+    new_hash = content_hash(new_content)
+    try:
+        with open(queue_path, "r", encoding="utf-8") as f:
+            for line in f.readlines()[-lookback:]:
+                try:
+                    if content_hash(json.loads(line.strip()).get("content", "")) == new_hash:
+                        return True
+                except (json.JSONDecodeError, KeyError):
+                    continue
+    except FileNotFoundError:
+        pass
+    return False
+
 record = {
     "content": truncate(os.environ.get("AUTOMEM_CONTENT", ""), 1500),
     "tags": ["build", os.environ.get("AUTOMEM_BUILD_TOOL", "unknown"), os.environ.get("AUTOMEM_PROJECT", "")],
@@ -205,6 +237,8 @@ record = {
 
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
 if queue_path:
+    if is_duplicate(queue_path, record["content"]):
+        raise SystemExit(0)  # Silently skip duplicate
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)

@@ -102,6 +102,19 @@ else
     CONTENT="Test failures in $PROJECT_NAME: $TESTS_FAILED failed, $TESTS_PASSED passed using $TEST_FRAMEWORK. Errors: ${ERROR_DETAILS:0:200}"
 fi
 
+# Check for sensitive content (passwords, API keys, etc.) via memory-filters.json
+FILTERS_FILE="${MEMORY_FILTERS:-$HOME/.claude/scripts/memory-filters.json}"
+if [ -f "$FILTERS_FILE" ]; then
+    while IFS= read -r pattern; do
+        [ -z "$pattern" ] && continue
+        if echo "$CONTENT" | grep -qiE "$pattern" 2>/dev/null; then
+            log_message "Skipping - matches sensitive pattern"
+            SCRIPT_SUCCESS=true
+            exit 0
+        fi
+    done < <(jq -r '.sensitive_patterns[]?' "$FILTERS_FILE" 2>/dev/null)
+fi
+
 # Queue memory for processing with safe JSON encoding and file locking
 PROJECT_NAME="${PROJECT_NAME:-unknown}"
 TEST_FRAMEWORK="${TEST_FRAMEWORK:-unknown}"
@@ -156,6 +169,8 @@ fi
 AUTOMEM_QUEUE="$MEMORY_QUEUE" \
 AUTOMEM_RECORD="$MEMORY_RECORD" \
 python3 - <<'PY'
+import hashlib
+import json
 import os
 
 try:
@@ -187,9 +202,33 @@ def unlock_file(handle):
         except OSError:
             pass
 
+def content_hash(text):
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+def is_duplicate(queue_path, record_str, lookback=20):
+    """Idempotency guard: skip if identical content already queued."""
+    try:
+        new_content = json.loads(record_str).get("content", "")
+    except (json.JSONDecodeError, AttributeError):
+        return False
+    new_hash = content_hash(new_content)
+    try:
+        with open(queue_path, "r", encoding="utf-8") as f:
+            for line in f.readlines()[-lookback:]:
+                try:
+                    if content_hash(json.loads(line.strip()).get("content", "")) == new_hash:
+                        return True
+                except (json.JSONDecodeError, KeyError):
+                    continue
+    except FileNotFoundError:
+        pass
+    return False
+
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
 record = os.environ.get("AUTOMEM_RECORD", "")
 if queue_path and record:
+    if is_duplicate(queue_path, record):
+        raise SystemExit(0)  # Silently skip duplicate
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)
