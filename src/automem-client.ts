@@ -223,7 +223,7 @@ export class AutoMemClient {
     }
 
     // Pagination and output control
-    if (args.per_query_limit) {
+    if (args.per_query_limit !== undefined && args.per_query_limit > 0) {
       params.set('per_query_limit', String(args.per_query_limit));
     }
 

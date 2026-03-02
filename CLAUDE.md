@@ -135,12 +135,13 @@ templates/
 
 The server exposes these tools to AI assistants:
 
-1. **store_memory** - Store memory with content, tags, importance, metadata, embedding
+1. **store_memory** - Store memory with content, tags, importance, metadata, type, confidence, timestamps, embedding
 2. **recall_memory** - Hybrid search (vector + keyword + tags + recency)
    - Supports `query`, `embedding`, `limit`, `time_query`, `tags`, `tag_mode`, `tag_match`
+   - Pagination/output: `per_query_limit`, `sort`, `format`, `offset`
    - When `tags` provided: merges results from `/recall` and `/memory/by-tag` for better coverage
-3. **associate_memories** - Create relationships (11 types: RELATES_TO, LEADS_TO, etc.)
-4. **update_memory** - Update existing memory fields
+3. **associate_memories** - Create relationships (16 types: RELATES_TO, LEADS_TO, etc.)
+4. **update_memory** - Update existing memory fields (supports MEMORY_TYPES enum for `type`)
 5. **delete_memory** - Delete memory and embedding
 6. **check_database_health** - Check FalkorDB/Qdrant connection status
 
@@ -276,10 +277,12 @@ npx @verygoodplugins/mcp-automem queue --file /tmp/test-queue.jsonl
 
 ## Relationship Types (Memory Graph)
 
-When using `associate_memories` tool:
+When using `associate_memories` tool (16 types, synced with `automem/config.py`):
 - **RELATES_TO**: General connection
 - **LEADS_TO**: Causal (bug→solution)
 - **OCCURRED_BEFORE**: Temporal sequence
+- **SIMILAR_TO**: Content or semantic similarity
+- **PRECEDED_BY**: Reverse temporal ordering
 - **PREFERS_OVER**: User/team preferences
 - **EXEMPLIFIES**: Pattern examples
 - **CONTRADICTS**: Conflicting approaches
@@ -288,6 +291,9 @@ When using `associate_memories` tool:
 - **EVOLVED_INTO**: Knowledge evolution
 - **DERIVED_FROM**: Source relationships
 - **PART_OF**: Hierarchical structure
+- **EXPLAINS**: Provides explanation or context
+- **SHARES_THEME**: Common topic or theme
+- **PARALLEL_CONTEXT**: Concurrent but separate contexts
 
 ## References
 
