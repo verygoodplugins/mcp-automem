@@ -47,7 +47,7 @@ jobs:
           AFFECTED=$(echo "$MAP" | jq -r --arg repo "$REPO_KEY" --argjson changed "$CHANGED" '
             def matches_pattern($file; $pattern):
               if ($pattern | endswith("/**")) then
-                ($file | startswith($pattern[0:-3]))
+                ($file | startswith($pattern[0:-2]))
               else
                 $file == $pattern
               end;
