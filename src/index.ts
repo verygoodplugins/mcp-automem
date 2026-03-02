@@ -20,6 +20,7 @@ import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
 import { AutoMemClient } from "./automem-client.js";
 import { readAutoMemApiKeyFromEnv } from "./env.js";
+import { RELATION_TYPES, MEMORY_TYPES } from "./types.js";
 import type {
   AutoMemConfig,
   StoreMemoryArgs,
@@ -381,6 +382,39 @@ const tools: Tool[] = [
           type: "string",
           description: "Optional ISO timestamp (defaults to now)",
         },
+        type: {
+          type: "string",
+          enum: [...MEMORY_TYPES],
+          description: "Memory type for classification",
+        },
+        confidence: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description:
+            "Classification confidence (0-1, default 0.9 when type provided)",
+        },
+        id: {
+          type: "string",
+          description: "Custom memory ID (auto-generated if omitted)",
+        },
+        t_valid: {
+          type: "string",
+          description:
+            "ISO 8601 timestamp when the memory becomes valid",
+        },
+        t_invalid: {
+          type: "string",
+          description: "ISO 8601 timestamp when the memory expires",
+        },
+        updated_at: {
+          type: "string",
+          description: "ISO 8601 last-updated timestamp",
+        },
+        last_accessed: {
+          type: "string",
+          description: "ISO 8601 last-accessed timestamp",
+        },
       },
       required: ["content"],
     },
@@ -565,6 +599,37 @@ const tools: Tool[] = [
           items: { type: "string" },
           description: "Specific memory IDs to ensure are included in results",
         },
+        per_query_limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 50,
+          description:
+            "Per-query result limit when using queries[] (default: 5)",
+        },
+        sort: {
+          type: "string",
+          enum: [
+            "score",
+            "time_desc",
+            "time_asc",
+            "updated_desc",
+            "updated_asc",
+          ],
+          description:
+            "Result ordering (use time_* for chronological recaps)",
+        },
+        format: {
+          type: "string",
+          enum: ["text", "items", "detailed", "json"],
+          default: "text",
+          description:
+            'Output format: text (default), items (per-memory), detailed (with metadata), json (raw)',
+        },
+        offset: {
+          type: "integer",
+          minimum: 0,
+          description: "Result offset for pagination",
+        },
       },
     },
     outputSchema: {
@@ -613,15 +678,20 @@ const tools: Tool[] = [
 **Relationship types:**
 - RELATES_TO: General relationship (default)
 - LEADS_TO: Causal relationship (A caused B)
-- DERIVED_FROM: Implementation of a decision/pattern
+- OCCURRED_BEFORE: Temporal ordering
+- SIMILAR_TO: Content or semantic similarity
+- PRECEDED_BY: Reverse temporal ordering
+- PREFERS_OVER: Chosen alternative
 - EXEMPLIFIES: Concrete example of a pattern
-- EVOLVED_INTO: Updated version of a concept
-- INVALIDATED_BY: Superseded by another memory
 - CONTRADICTS: Conflicts with another memory
 - REINFORCES: Strengthens another memory's validity
+- INVALIDATED_BY: Superseded by another memory
+- EVOLVED_INTO: Updated version of a concept
+- DERIVED_FROM: Implementation of a decision/pattern
 - PART_OF: Component of a larger effort
-- PREFERS_OVER: Chosen alternative
-- OCCURRED_BEFORE: Temporal ordering
+- EXPLAINS: Provides explanation or context
+- SHARES_THEME: Common topic or theme
+- PARALLEL_CONTEXT: Concurrent but separate contexts
 
 **Examples:**
 - associate_memories({ memory1_id: "bug-fix-123", memory2_id: "feature-456", type: "RELATES_TO", strength: 0.9 })
@@ -647,20 +717,8 @@ const tools: Tool[] = [
         },
         type: {
           type: "string",
-          enum: [
-            "RELATES_TO",
-            "LEADS_TO",
-            "OCCURRED_BEFORE",
-            "PREFERS_OVER",
-            "EXEMPLIFIES",
-            "CONTRADICTS",
-            "REINFORCES",
-            "INVALIDATED_BY",
-            "EVOLVED_INTO",
-            "DERIVED_FROM",
-            "PART_OF",
-          ],
-          description: "Relationship type (see tool description for meanings)",
+          enum: [...RELATION_TYPES],
+          description: "Relationship type between the two memories",
         },
         strength: {
           type: "number",
@@ -750,6 +808,7 @@ const tools: Tool[] = [
         },
         type: {
           type: "string",
+          enum: [...MEMORY_TYPES],
           description: "Memory type classification",
         },
         confidence: {
