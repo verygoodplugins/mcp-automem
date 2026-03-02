@@ -21,6 +21,10 @@ jobs:
 
           if [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
             BASE_SHA=$(git rev-list --max-parents=0 "$HEAD_SHA")
+            if [ "$BASE_SHA" = "$HEAD_SHA" ]; then
+              # Initial commit — diff against empty tree
+              BASE_SHA=$(git hash-object -t tree /dev/null)
+            fi
           fi
 
           FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | jq -R -s -c 'split("\n") | map(select(. != ""))')
@@ -31,7 +35,7 @@ jobs:
         env:
           CHANGED_FILES: ${{ steps.changed.outputs.files }}
         run: |
-          if ! MAP=$(curl -sf "https://raw.githubusercontent.com/verygoodplugins/automem-website/main/scripts/file-doc-map.json"); then
+          if ! MAP=$(curl -sf --connect-timeout 10 --max-time 30 --retry 2 --retry-connrefused "https://raw.githubusercontent.com/verygoodplugins/automem-website/main/scripts/file-doc-map.json"); then
             echo "Failed to fetch file-doc-map.json, skipping"
             echo "affected=none" >> $GITHUB_OUTPUT
             exit 0
