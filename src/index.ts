@@ -1054,17 +1054,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             merged = Array.from(byId.values());
 
-            // Sort by final_score desc if present, otherwise by importance desc
+            // Apply requested sort (default: score desc)
+            const sortKey = recallArgs.sort || "score";
             merged.sort((a, b) => {
-              const as =
-                typeof a.final_score === "number"
-                  ? a.final_score
-                  : a.memory.importance ?? 0;
-              const bs =
-                typeof b.final_score === "number"
-                  ? b.final_score
-                  : b.memory.importance ?? 0;
-              return bs - as;
+              switch (sortKey) {
+                case "time_asc":
+                  return (
+                    new Date(a.memory.created_at || 0).getTime() -
+                    new Date(b.memory.created_at || 0).getTime()
+                  );
+                case "time_desc":
+                  return (
+                    new Date(b.memory.created_at || 0).getTime() -
+                    new Date(a.memory.created_at || 0).getTime()
+                  );
+                case "updated_asc":
+                  return (
+                    new Date(a.memory.updated_at || a.memory.created_at || 0).getTime() -
+                    new Date(b.memory.updated_at || b.memory.created_at || 0).getTime()
+                  );
+                case "updated_desc":
+                  return (
+                    new Date(b.memory.updated_at || b.memory.created_at || 0).getTime() -
+                    new Date(a.memory.updated_at || a.memory.created_at || 0).getTime()
+                  );
+                case "score":
+                default: {
+                  const as =
+                    typeof a.final_score === "number"
+                      ? a.final_score
+                      : a.memory.importance ?? 0;
+                  const bs =
+                    typeof b.final_score === "number"
+                      ? b.final_score
+                      : b.memory.importance ?? 0;
+                  return bs - as;
+                }
+              }
             });
 
             // Enforce limit after merge
@@ -1148,24 +1174,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const notesSuffix = notes.length > 0 ? ` (${notes.join("; ")})` : "";
 
-        // Build structured output (must match outputSchema: results, count, dedup_removed)
+        // Build structured output — richer shape for detailed/json formats
+        const format = recallArgs.format || "text";
+        const isRichFormat = format === "detailed" || format === "json";
+
         const recallOutput = {
-          results: merged.map((item) => ({
-            memory_id: item.memory.memory_id,
-            content: item.memory.content,
-            tags: item.memory.tags,
-            importance: item.memory.importance,
-            created_at: item.memory.created_at,
-            final_score: item.final_score,
-            match_type: item.match_type,
-          })),
+          results: merged.map((item) => {
+            const base = {
+              memory_id: item.memory.memory_id,
+              content: item.memory.content,
+              tags: item.memory.tags,
+              importance: item.memory.importance,
+              created_at: item.memory.created_at,
+              final_score: item.final_score,
+              match_type: item.match_type,
+            };
+            if (!isRichFormat) return base;
+            // Include full per-memory fields for detailed/json
+            return {
+              ...base,
+              updated_at: item.memory.updated_at,
+              last_accessed: item.memory.last_accessed,
+              metadata: item.memory.metadata,
+              type: item.memory.type,
+              confidence: item.memory.confidence,
+              match_score: item.match_score,
+              relation_score: item.relation_score,
+              score_components: item.score_components,
+              source: item.source,
+              relations: item.relations,
+              related_to: item.related_to,
+              deduped_from: item.deduped_from,
+              expanded_from_entity: item.expanded_from_entity,
+            };
+          }),
           count: merged.length,
           dedup_removed: dedupRemoved,
         };
 
         // Format-aware output
-        const format = recallArgs.format || "text";
-
         if (format === "json") {
           return {
             content: [

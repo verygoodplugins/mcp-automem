@@ -42,7 +42,7 @@ export interface StoredMemory {
   created_at: string;
   updated_at: string;
   metadata?: Record<string, any>;
-  type?: string;
+  type?: MemoryType;
   confidence?: number;
 }
 
