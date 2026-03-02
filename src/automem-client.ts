@@ -118,7 +118,10 @@ export class AutoMemClient {
 
     const response = await this.makeRequest('POST', 'memory', body);
     return {
-      memory_id: response.memory_id || response.id,
+      memory_id:
+        response.memory_id ??
+        response.id ??
+        response.response?.memory_id,
       message: response.message || 'Memory stored successfully',
     };
   }

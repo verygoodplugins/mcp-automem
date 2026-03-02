@@ -20,7 +20,7 @@ export interface AutoMemConfig {
 
 export interface MemoryRecord {
   content: string;
-  type?: string;
+  type?: MemoryType;
   confidence?: number;
   id?: string;
   tags?: string[];
@@ -103,7 +103,7 @@ export interface HealthStatus {
 
 export interface StoreMemoryArgs {
   content: string;
-  type?: string;
+  type?: MemoryType;
   confidence?: number;
   id?: string;
   tags?: string[];
@@ -167,7 +167,7 @@ export interface UpdateMemoryArgs {
   timestamp?: string;
   updated_at?: string;
   last_accessed?: string;
-  type?: string;
+  type?: MemoryType;
   confidence?: number;
 }
 

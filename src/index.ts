@@ -1163,6 +1163,64 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           dedup_removed: dedupRemoved,
         };
 
+        // Format-aware output
+        const format = recallArgs.format || "text";
+
+        if (format === "json") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(recallOutput, null, 2),
+              },
+            ],
+            structuredContent: recallOutput,
+          };
+        }
+
+        if (format === "items") {
+          return {
+            content: merged.map((item) => ({
+              type: "text" as const,
+              text: `[${item.memory.memory_id}] ${item.memory.content}`,
+            })),
+            structuredContent: recallOutput,
+          };
+        }
+
+        if (format === "detailed") {
+          const detailedText = merged
+            .map((item) => {
+              const m = item.memory;
+              const lines = [m.content, `  ID: ${m.memory_id}`];
+              if (m.type) lines.push(`  Type: ${m.type}`);
+              lines.push(`  Created: ${m.created_at}`);
+              if (m.last_accessed) lines.push(`  Accessed: ${m.last_accessed}`);
+              if (typeof m.importance === "number")
+                lines.push(`  Importance: ${m.importance.toFixed(3)}`);
+              if (typeof m.confidence === "number")
+                lines.push(`  Confidence: ${m.confidence.toFixed(3)}`);
+              if (m.tags?.length)
+                lines.push(`  Tags: ${m.tags.join(", ")}`);
+              if (typeof item.final_score === "number")
+                lines.push(`  Score: ${item.final_score.toFixed(3)}`);
+              if (item.match_type)
+                lines.push(`  Match: ${item.match_type}`);
+              return lines.join("\n");
+            })
+            .join("\n\n");
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Found ${merged.length} memories${notesSuffix}:\n\n${detailedText}`,
+              },
+            ],
+            structuredContent: recallOutput,
+          };
+        }
+
+        // Default: "text" format
         return {
           content: [
             {
