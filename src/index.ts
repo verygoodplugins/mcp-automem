@@ -20,6 +20,7 @@ import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
 import { AutoMemClient } from "./automem-client.js";
 import { readAutoMemApiKeyFromEnv } from "./env.js";
+import { RELATION_TYPES, MEMORY_TYPES } from "./types.js";
 import type {
   AutoMemConfig,
   StoreMemoryArgs,
@@ -381,6 +382,39 @@ const tools: Tool[] = [
           type: "string",
           description: "Optional ISO timestamp (defaults to now)",
         },
+        type: {
+          type: "string",
+          enum: [...MEMORY_TYPES],
+          description: "Memory type for classification",
+        },
+        confidence: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description:
+            "Classification confidence (0-1, default 0.9 when type provided)",
+        },
+        id: {
+          type: "string",
+          description: "Custom memory ID (auto-generated if omitted)",
+        },
+        t_valid: {
+          type: "string",
+          description:
+            "ISO 8601 timestamp when the memory becomes valid",
+        },
+        t_invalid: {
+          type: "string",
+          description: "ISO 8601 timestamp when the memory expires",
+        },
+        updated_at: {
+          type: "string",
+          description: "ISO 8601 last-updated timestamp",
+        },
+        last_accessed: {
+          type: "string",
+          description: "ISO 8601 last-accessed timestamp",
+        },
       },
       required: ["content"],
     },
@@ -565,6 +599,37 @@ const tools: Tool[] = [
           items: { type: "string" },
           description: "Specific memory IDs to ensure are included in results",
         },
+        per_query_limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 50,
+          description:
+            "Per-query result limit when using queries[] (default: 5)",
+        },
+        sort: {
+          type: "string",
+          enum: [
+            "score",
+            "time_desc",
+            "time_asc",
+            "updated_desc",
+            "updated_asc",
+          ],
+          description:
+            "Result ordering (use time_* for chronological recaps)",
+        },
+        format: {
+          type: "string",
+          enum: ["text", "items", "detailed", "json"],
+          default: "text",
+          description:
+            'Output format: text (default), items (per-memory), detailed (with metadata), json (raw)',
+        },
+        offset: {
+          type: "integer",
+          minimum: 0,
+          description: "Result offset for pagination",
+        },
       },
     },
     outputSchema: {
@@ -613,15 +678,20 @@ const tools: Tool[] = [
 **Relationship types:**
 - RELATES_TO: General relationship (default)
 - LEADS_TO: Causal relationship (A caused B)
-- DERIVED_FROM: Implementation of a decision/pattern
+- OCCURRED_BEFORE: Temporal ordering
+- SIMILAR_TO: Content or semantic similarity
+- PRECEDED_BY: Reverse temporal ordering
+- PREFERS_OVER: Chosen alternative
 - EXEMPLIFIES: Concrete example of a pattern
-- EVOLVED_INTO: Updated version of a concept
-- INVALIDATED_BY: Superseded by another memory
 - CONTRADICTS: Conflicts with another memory
 - REINFORCES: Strengthens another memory's validity
+- INVALIDATED_BY: Superseded by another memory
+- EVOLVED_INTO: Updated version of a concept
+- DERIVED_FROM: Implementation of a decision/pattern
 - PART_OF: Component of a larger effort
-- PREFERS_OVER: Chosen alternative
-- OCCURRED_BEFORE: Temporal ordering
+- EXPLAINS: Provides explanation or context
+- SHARES_THEME: Common topic or theme
+- PARALLEL_CONTEXT: Concurrent but separate contexts
 
 **Examples:**
 - associate_memories({ memory1_id: "bug-fix-123", memory2_id: "feature-456", type: "RELATES_TO", strength: 0.9 })
@@ -647,20 +717,8 @@ const tools: Tool[] = [
         },
         type: {
           type: "string",
-          enum: [
-            "RELATES_TO",
-            "LEADS_TO",
-            "OCCURRED_BEFORE",
-            "PREFERS_OVER",
-            "EXEMPLIFIES",
-            "CONTRADICTS",
-            "REINFORCES",
-            "INVALIDATED_BY",
-            "EVOLVED_INTO",
-            "DERIVED_FROM",
-            "PART_OF",
-          ],
-          description: "Relationship type (see tool description for meanings)",
+          enum: [...RELATION_TYPES],
+          description: "Relationship type between the two memories",
         },
         strength: {
           type: "number",
@@ -750,6 +808,7 @@ const tools: Tool[] = [
         },
         type: {
           type: "string",
+          enum: [...MEMORY_TYPES],
           description: "Memory type classification",
         },
         confidence: {
@@ -995,17 +1054,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             merged = Array.from(byId.values());
 
-            // Sort by final_score desc if present, otherwise by importance desc
+            // Apply requested sort (default: score desc)
+            const sortKey = recallArgs.sort || "score";
             merged.sort((a, b) => {
-              const as =
-                typeof a.final_score === "number"
-                  ? a.final_score
-                  : a.memory.importance ?? 0;
-              const bs =
-                typeof b.final_score === "number"
-                  ? b.final_score
-                  : b.memory.importance ?? 0;
-              return bs - as;
+              switch (sortKey) {
+                case "time_asc":
+                  return (
+                    new Date(a.memory.created_at || 0).getTime() -
+                    new Date(b.memory.created_at || 0).getTime()
+                  );
+                case "time_desc":
+                  return (
+                    new Date(b.memory.created_at || 0).getTime() -
+                    new Date(a.memory.created_at || 0).getTime()
+                  );
+                case "updated_asc":
+                  return (
+                    new Date(a.memory.updated_at || a.memory.created_at || 0).getTime() -
+                    new Date(b.memory.updated_at || b.memory.created_at || 0).getTime()
+                  );
+                case "updated_desc":
+                  return (
+                    new Date(b.memory.updated_at || b.memory.created_at || 0).getTime() -
+                    new Date(a.memory.updated_at || a.memory.created_at || 0).getTime()
+                  );
+                case "score":
+                default: {
+                  const as =
+                    typeof a.final_score === "number"
+                      ? a.final_score
+                      : a.memory.importance ?? 0;
+                  const bs =
+                    typeof b.final_score === "number"
+                      ? b.final_score
+                      : b.memory.importance ?? 0;
+                  return bs - as;
+                }
+              }
             });
 
             // Enforce limit after merge
@@ -1089,21 +1174,100 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const notesSuffix = notes.length > 0 ? ` (${notes.join("; ")})` : "";
 
-        // Build structured output (must match outputSchema: results, count, dedup_removed)
+        // Build structured output — richer shape for detailed/json formats
+        const format = recallArgs.format || "text";
+        const isRichFormat = format === "detailed" || format === "json";
+
         const recallOutput = {
-          results: merged.map((item) => ({
-            memory_id: item.memory.memory_id,
-            content: item.memory.content,
-            tags: item.memory.tags,
-            importance: item.memory.importance,
-            created_at: item.memory.created_at,
-            final_score: item.final_score,
-            match_type: item.match_type,
-          })),
+          results: merged.map((item) => {
+            const base = {
+              memory_id: item.memory.memory_id,
+              content: item.memory.content,
+              tags: item.memory.tags,
+              importance: item.memory.importance,
+              created_at: item.memory.created_at,
+              final_score: item.final_score,
+              match_type: item.match_type,
+            };
+            if (!isRichFormat) return base;
+            // Include full per-memory fields for detailed/json
+            return {
+              ...base,
+              updated_at: item.memory.updated_at,
+              last_accessed: item.memory.last_accessed,
+              metadata: item.memory.metadata,
+              type: item.memory.type,
+              confidence: item.memory.confidence,
+              match_score: item.match_score,
+              relation_score: item.relation_score,
+              score_components: item.score_components,
+              source: item.source,
+              relations: item.relations,
+              related_to: item.related_to,
+              deduped_from: item.deduped_from,
+              expanded_from_entity: item.expanded_from_entity,
+            };
+          }),
           count: merged.length,
           dedup_removed: dedupRemoved,
         };
 
+        // Format-aware output
+        if (format === "json") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(recallOutput, null, 2),
+              },
+            ],
+            structuredContent: recallOutput,
+          };
+        }
+
+        if (format === "items") {
+          return {
+            content: merged.map((item) => ({
+              type: "text" as const,
+              text: `[${item.memory.memory_id}] ${item.memory.content}`,
+            })),
+            structuredContent: recallOutput,
+          };
+        }
+
+        if (format === "detailed") {
+          const detailedText = merged
+            .map((item) => {
+              const m = item.memory;
+              const lines = [m.content, `  ID: ${m.memory_id}`];
+              if (m.type) lines.push(`  Type: ${m.type}`);
+              lines.push(`  Created: ${m.created_at}`);
+              if (m.last_accessed) lines.push(`  Accessed: ${m.last_accessed}`);
+              if (typeof m.importance === "number")
+                lines.push(`  Importance: ${m.importance.toFixed(3)}`);
+              if (typeof m.confidence === "number")
+                lines.push(`  Confidence: ${m.confidence.toFixed(3)}`);
+              if (m.tags?.length)
+                lines.push(`  Tags: ${m.tags.join(", ")}`);
+              if (typeof item.final_score === "number")
+                lines.push(`  Score: ${item.final_score.toFixed(3)}`);
+              if (item.match_type)
+                lines.push(`  Match: ${item.match_type}`);
+              return lines.join("\n");
+            })
+            .join("\n\n");
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Found ${merged.length} memories${notesSuffix}:\n\n${detailedText}`,
+              },
+            ],
+            structuredContent: recallOutput,
+          };
+        }
+
+        // Default: "text" format
         return {
           content: [
             {

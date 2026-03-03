@@ -1,3 +1,18 @@
+// Relationship types — must stay in sync with automem/config.py RELATIONSHIP_TYPES
+export const RELATION_TYPES = [
+  'RELATES_TO', 'LEADS_TO', 'OCCURRED_BEFORE', 'SIMILAR_TO', 'PRECEDED_BY',
+  'PREFERS_OVER', 'EXEMPLIFIES', 'CONTRADICTS', 'REINFORCES', 'INVALIDATED_BY',
+  'EVOLVED_INTO', 'DERIVED_FROM', 'PART_OF', 'EXPLAINS', 'SHARES_THEME',
+  'PARALLEL_CONTEXT',
+] as const;
+
+export const MEMORY_TYPES = [
+  'Decision', 'Pattern', 'Preference', 'Style', 'Habit', 'Insight', 'Context',
+] as const;
+
+export type RelationType = (typeof RELATION_TYPES)[number];
+export type MemoryType = (typeof MEMORY_TYPES)[number];
+
 export interface AutoMemConfig {
   endpoint: string;
   apiKey?: string;
@@ -5,11 +20,16 @@ export interface AutoMemConfig {
 
 export interface MemoryRecord {
   content: string;
+  type?: MemoryType;
+  confidence?: number;
+  id?: string;
   tags?: string[];
   importance?: number;
   embedding?: number[];
   metadata?: Record<string, any>;
   timestamp?: string;
+  t_valid?: string;
+  t_invalid?: string;
   updated_at?: string;
   last_accessed?: string;
 }
@@ -22,7 +42,7 @@ export interface StoredMemory {
   created_at: string;
   updated_at: string;
   metadata?: Record<string, any>;
-  type?: string;
+  type?: MemoryType;
   confidence?: number;
 }
 
@@ -83,11 +103,18 @@ export interface HealthStatus {
 
 export interface StoreMemoryArgs {
   content: string;
+  type?: MemoryType;
+  confidence?: number;
+  id?: string;
   tags?: string[];
   importance?: number;
   embedding?: number[];
   metadata?: Record<string, any>;
   timestamp?: string;
+  t_valid?: string;
+  t_invalid?: string;
+  updated_at?: string;
+  last_accessed?: string;
 }
 
 export interface RecallMemoryArgs {
@@ -117,23 +144,17 @@ export interface RecallMemoryArgs {
   context_tags?: string[];
   context_types?: string[];
   priority_ids?: string[];
+  // Pagination and output control
+  per_query_limit?: number;
+  sort?: 'score' | 'time_desc' | 'time_asc' | 'updated_desc' | 'updated_asc';
+  format?: 'text' | 'items' | 'detailed' | 'json';
+  offset?: number;
 }
 
 export interface AssociateMemoryArgs {
   memory1_id: string;
   memory2_id: string;
-  type: 
-    | 'RELATES_TO'
-    | 'LEADS_TO'
-    | 'OCCURRED_BEFORE'
-    | 'PREFERS_OVER'
-    | 'EXEMPLIFIES'
-    | 'CONTRADICTS'
-    | 'REINFORCES'
-    | 'INVALIDATED_BY'
-    | 'EVOLVED_INTO'
-    | 'DERIVED_FROM'
-    | 'PART_OF';
+  type: RelationType;
   strength: number;
 }
 
@@ -146,7 +167,7 @@ export interface UpdateMemoryArgs {
   timestamp?: string;
   updated_at?: string;
   last_accessed?: string;
-  type?: string;
+  type?: MemoryType;
   confidence?: number;
 }
 

@@ -102,16 +102,26 @@ export class AutoMemClient {
   async storeMemory(args: StoreMemoryArgs): Promise<{ memory_id: string; message: string }> {
     const body: MemoryRecord = {
       content: args.content,
+      ...(args.type && { type: args.type }),
+      ...(args.confidence !== undefined && { confidence: args.confidence }),
+      ...(args.id && { id: args.id }),
       tags: args.tags || [],
       importance: args.importance,
       embedding: args.embedding,
       metadata: args.metadata,
       timestamp: args.timestamp,
+      ...(args.t_valid && { t_valid: args.t_valid }),
+      ...(args.t_invalid && { t_invalid: args.t_invalid }),
+      ...(args.updated_at && { updated_at: args.updated_at }),
+      ...(args.last_accessed && { last_accessed: args.last_accessed }),
     };
 
     const response = await this.makeRequest('POST', 'memory', body);
     return {
-      memory_id: response.memory_id || response.id,
+      memory_id:
+        response.memory_id ??
+        response.id ??
+        response.response?.memory_id,
       message: response.message || 'Memory stored successfully',
     };
   }
@@ -213,6 +223,23 @@ export class AutoMemClient {
 
     if (Array.isArray(args.priority_ids) && args.priority_ids.length > 0) {
       args.priority_ids.forEach((id) => params.append('priority_ids', id));
+    }
+
+    // Pagination and output control
+    if (args.per_query_limit !== undefined && args.per_query_limit > 0) {
+      params.set('per_query_limit', String(args.per_query_limit));
+    }
+
+    if (args.sort) {
+      params.set('sort', args.sort);
+    }
+
+    if (args.format) {
+      params.set('format', args.format);
+    }
+
+    if (args.offset !== undefined && args.offset > 0) {
+      params.set('offset', String(args.offset));
     }
 
     const queryString = params.toString();
