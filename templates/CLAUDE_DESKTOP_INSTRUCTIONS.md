@@ -181,6 +181,10 @@ Use associations to build a knowledge graph:
 | `EXEMPLIFIES`  | Concrete example of abstract pattern     |
 | `PART_OF`      | Component of larger effort               |
 | `PREFERS_OVER` | Explicit preference A over B             |
+| `INVALIDATED_BY` | New memory supersedes older information |
+| `OCCURRED_BEFORE` | Temporal ordering between events      |
+
+System/internal relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, and `DISCOVERED` may appear in recall results, but they are not valid `associate_memories` inputs.
 
 ## BEFORE CREATING CONTENT
 

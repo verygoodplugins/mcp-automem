@@ -504,6 +504,8 @@ mcp_memory_associate_memories({
 
 **Association types:** `RELATES_TO`, `LEADS_TO`, `EVOLVED_INTO`, `DERIVED_FROM`, `EXEMPLIFIES`, `CONTRADICTS`, `REINFORCES`, `INVALIDATED_BY`, `OCCURRED_BEFORE`, `PART_OF`, `PREFERS_OVER`
 
+Internal/system relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, and `DISCOVERED` may appear in recall results, but they are not valid `associate_memories` inputs.
+
 ### Proactive Patterns
 
 - **Error Learning**: When debugging, always check for similar past issues first
@@ -1090,6 +1092,8 @@ Create relationships between memories to build a knowledge graph.
 - `PART_OF` - Component of a larger effort
 - `PREFERS_OVER` - Chosen alternative
 - `OCCURRED_BEFORE` - Temporal ordering
+
+Internal/system relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, and `DISCOVERED` may appear in backend reads, but they are not valid values for `associate_memories`.
 
 **Example:**
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, expectTypeOf } from 'vitest';
+import { AUTHORABLE_RELATION_TYPES, RELATION_TYPES } from './types.js';
 import type {
   AutoMemConfig,
   RecallResult,
@@ -15,7 +16,50 @@ import type {
  * These tests verify that our types are correctly defined and constrained.
  */
 
+const EXPECTED_AUTHORABLE_RELATION_TYPES = [
+  'RELATES_TO',
+  'LEADS_TO',
+  'OCCURRED_BEFORE',
+  'PREFERS_OVER',
+  'EXEMPLIFIES',
+  'CONTRADICTS',
+  'REINFORCES',
+  'INVALIDATED_BY',
+  'EVOLVED_INTO',
+  'DERIVED_FROM',
+  'PART_OF',
+] as const;
+
+const INTERNAL_RELATION_TYPES = [
+  'SIMILAR_TO',
+  'PRECEDED_BY',
+  'EXPLAINS',
+  'SHARES_THEME',
+  'PARALLEL_CONTEXT',
+  'DISCOVERED',
+] as const;
+
 describe('Type Definitions', () => {
+  describe('Relation constants', () => {
+    it('should expose exactly the 11 public authorable relationship types', () => {
+      expect([...AUTHORABLE_RELATION_TYPES]).toEqual(
+        [...EXPECTED_AUTHORABLE_RELATION_TYPES]
+      );
+    });
+
+    it('should keep RELATION_TYPES as a compatibility alias', () => {
+      expect([...RELATION_TYPES]).toEqual([...AUTHORABLE_RELATION_TYPES]);
+    });
+
+    it('should exclude internal/system relationship types from authoring', () => {
+      const authorableTypes = AUTHORABLE_RELATION_TYPES as readonly string[];
+
+      for (const type of INTERNAL_RELATION_TYPES) {
+        expect(authorableTypes).not.toContain(type);
+      }
+    });
+  });
+
   describe('AutoMemConfig', () => {
     it('should require endpoint', () => {
       const config: AutoMemConfig = { endpoint: 'http://localhost:8001' };
@@ -133,19 +177,7 @@ describe('Type Definitions', () => {
     });
 
     it('should accept all 11 relationship types', () => {
-      const types: AssociateMemoryArgs['type'][] = [
-        'RELATES_TO',
-        'LEADS_TO',
-        'OCCURRED_BEFORE',
-        'PREFERS_OVER',
-        'EXEMPLIFIES',
-        'CONTRADICTS',
-        'REINFORCES',
-        'INVALIDATED_BY',
-        'EVOLVED_INTO',
-        'DERIVED_FROM',
-        'PART_OF',
-      ];
+      const types: AssociateMemoryArgs['type'][] = [...AUTHORABLE_RELATION_TYPES];
       
       for (const type of types) {
         const args: AssociateMemoryArgs = {
@@ -260,4 +292,3 @@ describe('Type Constraints', () => {
     });
   });
 });
-

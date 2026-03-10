@@ -20,7 +20,7 @@ import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
 import { AutoMemClient } from "./automem-client.js";
 import { readAutoMemApiKeyFromEnv } from "./env.js";
-import { RELATION_TYPES, MEMORY_TYPES } from "./types.js";
+import { AUTHORABLE_RELATION_TYPES, MEMORY_TYPES } from "./types.js";
 import type {
   AutoMemConfig,
   StoreMemoryArgs,
@@ -675,12 +675,10 @@ const tools: Tool[] = [
 - When a new decision updates or invalidates a previous one
 - To connect patterns with their concrete examples
 
-**Relationship types:**
+**Authorable relationship types:**
 - RELATES_TO: General relationship (default)
 - LEADS_TO: Causal relationship (A caused B)
 - OCCURRED_BEFORE: Temporal ordering
-- SIMILAR_TO: Content or semantic similarity
-- PRECEDED_BY: Reverse temporal ordering
 - PREFERS_OVER: Chosen alternative
 - EXEMPLIFIES: Concrete example of a pattern
 - CONTRADICTS: Conflicts with another memory
@@ -689,9 +687,9 @@ const tools: Tool[] = [
 - EVOLVED_INTO: Updated version of a concept
 - DERIVED_FROM: Implementation of a decision/pattern
 - PART_OF: Component of a larger effort
-- EXPLAINS: Provides explanation or context
-- SHARES_THEME: Common topic or theme
-- PARALLEL_CONTEXT: Concurrent but separate contexts
+
+**Read-only/internal relations:**
+- System/internal relations such as SIMILAR_TO, PRECEDED_BY, EXPLAINS, SHARES_THEME, PARALLEL_CONTEXT, and DISCOVERED may appear in recall results, but they are not valid inputs for associate_memories.
 
 **Examples:**
 - associate_memories({ memory1_id: "bug-fix-123", memory2_id: "feature-456", type: "RELATES_TO", strength: 0.9 })
@@ -717,7 +715,7 @@ const tools: Tool[] = [
         },
         type: {
           type: "string",
-          enum: [...RELATION_TYPES],
+          enum: [...AUTHORABLE_RELATION_TYPES],
           description: "Relationship type between the two memories",
         },
         strength: {

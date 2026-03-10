@@ -107,7 +107,7 @@ Claude summarizes if needed:
 
 - `store_memory` - Save memories with tags, importance, metadata
 - `recall_memory` - Hybrid search with graph expansion and context hints
-- `associate_memories` - Create relationships (11 types)
+- `associate_memories` - Create relationships (11 public authorable types)
 - `update_memory` - Modify existing memories
 - `delete_memory` - Remove memories
 - `check_database_health` - Monitor service status

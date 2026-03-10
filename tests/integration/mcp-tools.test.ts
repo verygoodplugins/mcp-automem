@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { AUTHORABLE_RELATION_TYPES } from '../../src/types.js';
 
 /**
  * Integration tests for MCP tool schemas and response formats.
@@ -6,6 +7,15 @@ import { describe, it, expect } from 'vitest';
  */
 
 // Tool definitions from the MCP server
+const INTERNAL_RELATION_TYPES = [
+  'SIMILAR_TO',
+  'PRECEDED_BY',
+  'EXPLAINS',
+  'SHARES_THEME',
+  'PARALLEL_CONTEXT',
+  'DISCOVERED',
+];
+
 const TOOL_DEFINITIONS = {
   store_memory: {
     name: 'store_memory',
@@ -49,11 +59,7 @@ const TOOL_DEFINITIONS = {
         memory2_id: { type: 'string' },
         type: {
           type: 'string',
-          enum: [
-            'RELATES_TO', 'LEADS_TO', 'OCCURRED_BEFORE', 'PREFERS_OVER',
-            'EXEMPLIFIES', 'CONTRADICTS', 'REINFORCES', 'INVALIDATED_BY',
-            'EVOLVED_INTO', 'DERIVED_FROM', 'PART_OF',
-          ],
+          enum: [...AUTHORABLE_RELATION_TYPES],
         },
         strength: { type: 'number', minimum: 0, maximum: 1 },
       },
@@ -170,17 +176,15 @@ describe('MCP Tool Schemas', () => {
 
     it('should include all documented relationship types', () => {
       const types = schema.properties.type.enum;
-      expect(types).toContain('RELATES_TO');
-      expect(types).toContain('LEADS_TO');
-      expect(types).toContain('OCCURRED_BEFORE');
-      expect(types).toContain('PREFERS_OVER');
-      expect(types).toContain('EXEMPLIFIES');
-      expect(types).toContain('CONTRADICTS');
-      expect(types).toContain('REINFORCES');
-      expect(types).toContain('INVALIDATED_BY');
-      expect(types).toContain('EVOLVED_INTO');
-      expect(types).toContain('DERIVED_FROM');
-      expect(types).toContain('PART_OF');
+      expect(types).toEqual([...AUTHORABLE_RELATION_TYPES]);
+    });
+
+    it('should exclude internal system relationship types', () => {
+      const types = schema.properties.type.enum as string[];
+
+      for (const type of INTERNAL_RELATION_TYPES) {
+        expect(types).not.toContain(type);
+      }
     });
 
     it('should constrain strength between 0 and 1', () => {
@@ -257,22 +261,16 @@ describe('MCP Protocol Compliance', () => {
 });
 
 describe('Relationship Types', () => {
-  const RELATIONSHIP_TYPES = [
-    'RELATES_TO',
-    'LEADS_TO',
-    'OCCURRED_BEFORE',
-    'PREFERS_OVER',
-    'EXEMPLIFIES',
-    'CONTRADICTS',
-    'REINFORCES',
-    'INVALIDATED_BY',
-    'EVOLVED_INTO',
-    'DERIVED_FROM',
-    'PART_OF',
-  ];
+  const RELATIONSHIP_TYPES = [...AUTHORABLE_RELATION_TYPES];
 
   it('should have 11 relationship types', () => {
     expect(RELATIONSHIP_TYPES).toHaveLength(11);
+  });
+
+  it('should not include internal system relationship types', () => {
+    for (const type of INTERNAL_RELATION_TYPES) {
+      expect(RELATIONSHIP_TYPES).not.toContain(type);
+    }
   });
 
   it('should use SCREAMING_SNAKE_CASE', () => {
@@ -296,5 +294,4 @@ describe('Relationship Types', () => {
     });
   });
 });
-
 

@@ -1,16 +1,32 @@
-// Relationship types — must stay in sync with automem/config.py RELATIONSHIP_TYPES
-export const RELATION_TYPES = [
-  'RELATES_TO', 'LEADS_TO', 'OCCURRED_BEFORE', 'SIMILAR_TO', 'PRECEDED_BY',
-  'PREFERS_OVER', 'EXEMPLIFIES', 'CONTRADICTS', 'REINFORCES', 'INVALIDATED_BY',
-  'EVOLVED_INTO', 'DERIVED_FROM', 'PART_OF', 'EXPLAINS', 'SHARES_THEME',
-  'PARALLEL_CONTEXT',
+// Public authorable relationship types for associate_memories.
+// Internal/system relations may still appear in recall results returned by AutoMem.
+export const AUTHORABLE_RELATION_TYPES = [
+  'RELATES_TO',
+  'LEADS_TO',
+  'OCCURRED_BEFORE',
+  'PREFERS_OVER',
+  'EXEMPLIFIES',
+  'CONTRADICTS',
+  'REINFORCES',
+  'INVALIDATED_BY',
+  'EVOLVED_INTO',
+  'DERIVED_FROM',
+  'PART_OF',
 ] as const;
+
+/**
+ * @deprecated Use AUTHORABLE_RELATION_TYPES.
+ * Kept as a compatibility alias for public authorable relation types.
+ */
+export const RELATION_TYPES = AUTHORABLE_RELATION_TYPES;
 
 export const MEMORY_TYPES = [
   'Decision', 'Pattern', 'Preference', 'Style', 'Habit', 'Insight', 'Context',
 ] as const;
 
-export type RelationType = (typeof RELATION_TYPES)[number];
+export type AuthorableRelationType = (typeof AUTHORABLE_RELATION_TYPES)[number];
+/** @deprecated Use AuthorableRelationType. */
+export type RelationType = AuthorableRelationType;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
 
 export interface AutoMemConfig {
@@ -154,7 +170,7 @@ export interface RecallMemoryArgs {
 export interface AssociateMemoryArgs {
   memory1_id: string;
   memory2_id: string;
-  type: RelationType;
+  type: AuthorableRelationType;
   strength: number;
 }
 

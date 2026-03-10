@@ -70,6 +70,8 @@ curl -s -X POST "$AUTOMEM_ENDPOINT/associate" \
 
 Types: `RELATES_TO`, `LEADS_TO`, `EVOLVED_INTO`, `DERIVED_FROM`, `INVALIDATED_BY`, `CONTRADICTS`, `REINFORCES`, `PREFERS_OVER`, `PART_OF`, `EXEMPLIFIES`, `OCCURRED_BEFORE`
 
+System/internal relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, and `DISCOVERED` may appear in recall results, but they are not valid `associate_memories` inputs.
+
 ### Update a Memory
 
 ```bash
