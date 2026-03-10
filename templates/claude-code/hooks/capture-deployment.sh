@@ -3,6 +3,10 @@
 # Capture Deployment Hook for AutoMem
 # Records deployment activities, environments, and outcomes
 
+# Conditional success output (only on clean exit)
+SCRIPT_SUCCESS=false
+trap '[ "$SCRIPT_SUCCESS" = true ] && echo "Success"' EXIT
+
 LOG_FILE="$HOME/.claude/logs/deployments.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
 
@@ -15,11 +19,26 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
-# Get deployment context
-COMMAND="${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}"
-OUTPUT="${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}"
-EXIT_CODE="${CLAUDE_EXIT_CODE:-0}"
-PROJECT_NAME=$(basename "$(pwd)")
+# Check required dependencies
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Warning: jq not installed - deployment capture disabled" >&2
+    exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Warning: python3 not installed - deployment capture disabled" >&2
+    exit 0
+fi
+
+# Read JSON input from stdin (Claude Code hook format per docs)
+INPUT_JSON=$(cat)
+
+# Parse JSON fields using jq
+COMMAND=$(echo "$INPUT_JSON" | jq -r '.tool_input.command // ""')
+OUTPUT=$(echo "$INPUT_JSON" | jq -r '.tool_response // ""')
+# Ensure EXIT_CODE is numeric (default 0 if missing or non-numeric)
+EXIT_CODE=$(echo "$INPUT_JSON" | jq '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end | tonumber' 2>/dev/null || echo 0)
+CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // ""')
+PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 
 # Skip non-deploy commands
 if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(deploy|railway|vercel|netlify|heroku|kubectl|k8s|kubernetes|docker|gcloud|aws|cloudfront|firebase|gh pages)"; then
@@ -115,26 +134,79 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
     GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "")
 fi
 
+# Check for sensitive content (passwords, API keys, etc.) via memory-filters.json
+FILTERS_FILE="${MEMORY_FILTERS:-$HOME/.claude/scripts/memory-filters.json}"
+if [ -f "$FILTERS_FILE" ]; then
+    while IFS= read -r pattern; do
+        [ -z "$pattern" ] && continue
+        if echo "$CONTENT" | grep -qiE "$pattern" 2>/dev/null; then
+            log_message "Skipping - matches sensitive pattern"
+            SCRIPT_SUCCESS=true
+            exit 0
+        fi
+    done < <(jq -r '.sensitive_patterns[]?' "$FILTERS_FILE" 2>/dev/null)
+fi
+
 # Queue memory for processing with safe JSON encoding and file locking
+DEPLOY_PLATFORM="${DEPLOY_PLATFORM:-unknown}"
+DEPLOY_ENV="${DEPLOY_ENV:-production}"
+PROJECT_NAME="${PROJECT_NAME:-unknown}"
+IMPORTANCE="${IMPORTANCE:-0.8}"
+EXIT_CODE="${EXIT_CODE:-0}"
+TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
+
+# Truncate to prevent "too long" errors
+CONTENT="${CONTENT:0:1500}"
+COMMAND="${COMMAND:0:500}"
+ERROR_DETAILS="${ERROR_DETAILS:0:500}"
+
+if ! MEMORY_RECORD=$(jq -c -n \
+    --arg content "$CONTENT" \
+    --arg platform "$DEPLOY_PLATFORM" \
+    --arg env "$DEPLOY_ENV" \
+    --arg project "$PROJECT_NAME" \
+    --arg type "$MEMORY_TYPE" \
+    --arg url "$DEPLOY_URL" \
+    --arg version "$VERSION" \
+    --arg build_id "$BUILD_ID" \
+    --arg deploy_time "$DEPLOY_TIME" \
+    --arg git_commit "$GIT_COMMIT" \
+    --arg command "$COMMAND" \
+    --arg error_details "$ERROR_DETAILS" \
+    --arg timestamp "$TIMESTAMP" \
+    --argjson importance "$IMPORTANCE" \
+    --argjson exit_code "$EXIT_CODE" \
+    'def optional($value): if $value == "" then null else $value end;
+    {
+      content: $content,
+      tags: ["deployment", "platform:\($platform)", "env:\($env)", "project:\($project)"],
+      importance: $importance,
+      type: $type,
+      metadata: {
+        platform: $platform,
+        environment: $env,
+        url: optional($url),
+        version: optional($version),
+        build_id: optional($build_id),
+        deploy_time: optional($deploy_time),
+        git_commit: optional($git_commit),
+        exit_code: $exit_code,
+        command: $command,
+        project: $project,
+        error_details: optional($error_details)
+      },
+      timestamp: $timestamp
+    }'); then
+    log_message "Failed to build deployment memory record"
+    exit 1
+fi
+
 AUTOMEM_QUEUE="$MEMORY_QUEUE" \
-AUTOMEM_CONTENT="$CONTENT" \
-AUTOMEM_DEPLOY_PLATFORM="$DEPLOY_PLATFORM" \
-AUTOMEM_DEPLOY_ENV="$DEPLOY_ENV" \
-AUTOMEM_PROJECT="$PROJECT_NAME" \
-AUTOMEM_IMPORTANCE="$IMPORTANCE" \
-AUTOMEM_TYPE="$MEMORY_TYPE" \
-AUTOMEM_DEPLOY_URL="$DEPLOY_URL" \
-AUTOMEM_VERSION="$VERSION" \
-AUTOMEM_BUILD_ID="$BUILD_ID" \
-AUTOMEM_DEPLOY_TIME="$DEPLOY_TIME" \
-AUTOMEM_GIT_COMMIT="$GIT_COMMIT" \
-AUTOMEM_EXIT_CODE="$EXIT_CODE" \
-AUTOMEM_COMMAND="$COMMAND" \
-AUTOMEM_ERROR_DETAILS="$ERROR_DETAILS" \
+AUTOMEM_RECORD="$MEMORY_RECORD" \
 python3 - <<'PY'
+import hashlib
 import json
 import os
-from datetime import datetime, timezone
 
 try:
     import fcntl  # type: ignore[attr-defined]
@@ -165,48 +237,38 @@ def unlock_file(handle):
         except OSError:
             pass
 
-def optional_text(value):
-    return value if value else None
+def content_hash(text):
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
 
-def to_int(value, default=0):
+def is_duplicate(queue_path, record_str, lookback=20):
+    """Idempotency guard: skip if identical content already queued."""
     try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-record = {
-    "content": os.environ.get("AUTOMEM_CONTENT", ""),
-    "tags": [
-        "deployment",
-        os.environ.get("AUTOMEM_DEPLOY_PLATFORM", "unknown"),
-        os.environ.get("AUTOMEM_DEPLOY_ENV", "production"),
-        os.environ.get("AUTOMEM_PROJECT", ""),
-    ],
-    "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.8")),
-    "type": os.environ.get("AUTOMEM_TYPE", "Context"),
-    "metadata": {
-        "platform": os.environ.get("AUTOMEM_DEPLOY_PLATFORM", "unknown"),
-        "environment": os.environ.get("AUTOMEM_DEPLOY_ENV", "production"),
-        "url": optional_text(os.environ.get("AUTOMEM_DEPLOY_URL", "")),
-        "version": optional_text(os.environ.get("AUTOMEM_VERSION", "")),
-        "build_id": optional_text(os.environ.get("AUTOMEM_BUILD_ID", "")),
-        "deploy_time": optional_text(os.environ.get("AUTOMEM_DEPLOY_TIME", "")),
-        "git_commit": optional_text(os.environ.get("AUTOMEM_GIT_COMMIT", "")),
-        "exit_code": to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0")),
-        "command": os.environ.get("AUTOMEM_COMMAND", ""),
-        "project": os.environ.get("AUTOMEM_PROJECT", ""),
-        "error_details": os.environ.get("AUTOMEM_ERROR_DETAILS", ""),
-    },
-    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-}
+        new_content = json.loads(record_str).get("content", "")
+    except (json.JSONDecodeError, AttributeError):
+        return False
+    new_hash = content_hash(new_content)
+    try:
+        with open(queue_path, "r", encoding="utf-8") as f:
+            for line in f.readlines()[-lookback:]:
+                try:
+                    if content_hash(json.loads(line.strip()).get("content", "")) == new_hash:
+                        return True
+                except (json.JSONDecodeError, KeyError):
+                    continue
+    except FileNotFoundError:
+        pass
+    return False
 
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
-if queue_path:
+record = os.environ.get("AUTOMEM_RECORD", "")
+if queue_path and record:
+    if is_duplicate(queue_path, record):
+        raise SystemExit(0)  # Silently skip duplicate
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)
         try:
-            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+            handle.write(record + "\n")
         finally:
             unlock_file(handle)
 PY
@@ -221,4 +283,5 @@ else
     echo "✅ Deployment to $DEPLOY_ENV recorded"
 fi
 
+SCRIPT_SUCCESS=true
 exit 0

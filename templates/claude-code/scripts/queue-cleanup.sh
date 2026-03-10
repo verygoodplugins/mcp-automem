@@ -2,6 +2,19 @@
 
 # Queue Cleanup Script for AutoMem
 # Deduplicates and archives processed memories
+
+# Track success for conditional output
+SCRIPT_SUCCESS=false
+
+# Combined cleanup function
+final_cleanup() {
+    rm -f "$VALIDATION_FILE" 2>/dev/null
+    if [ "$SCRIPT_SUCCESS" = true ]; then
+        echo "Success"
+    fi
+}
+trap final_cleanup EXIT
+
 if [ -z "${BASH_VERSION:-}" ]; then
     exec /bin/bash "$0" "$@"
 fi
@@ -10,6 +23,7 @@ set -o pipefail
 
 QUEUE_FILE="$HOME/.claude/scripts/memory-queue.jsonl"
 LOG_FILE="$HOME/.claude/logs/queue-cleanup.log"
+VALIDATION_FILE=""
 
 log_message() {
     mkdir -p "$(dirname "$LOG_FILE")"
@@ -18,6 +32,7 @@ log_message() {
 
 if [ ! -s "$QUEUE_FILE" ]; then
     log_message "Queue file empty or doesn't exist, nothing to clean"
+    SCRIPT_SUCCESS=true
     exit 0
 fi
 
@@ -27,10 +42,6 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 VALIDATION_FILE=$(mktemp "/tmp/automem-queue-check.XXXXXX")
-cleanup_validation() {
-    rm -f "$VALIDATION_FILE"
-}
-trap cleanup_validation EXIT
 
 jq -c . "$QUEUE_FILE" | jq -s 'length' > "$VALIDATION_FILE"
 pipe_status=(${PIPESTATUS[@]})
@@ -172,3 +183,9 @@ with queue_file.open("r+", encoding="utf-8") as handle:
 
 log_message("Queue cleanup complete")
 PY
+
+if [ $? -eq 0 ]; then
+    SCRIPT_SUCCESS=true
+else
+    log_message "Python queue cleanup failed (exit $?)"
+fi
