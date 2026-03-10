@@ -2,6 +2,25 @@ import { describe, it, expect } from 'vitest';
 import { AUTHORABLE_RELATION_TYPES } from '../../src/types.js';
 
 /**
+ * Hardcoded expected enum for regression testing.
+ * This is intentionally independent of AUTHORABLE_RELATION_TYPES so
+ * the test catches accidental changes to the public tool schema.
+ */
+const EXPECTED_RELATION_ENUM = [
+  'RELATES_TO',
+  'LEADS_TO',
+  'OCCURRED_BEFORE',
+  'PREFERS_OVER',
+  'EXEMPLIFIES',
+  'CONTRADICTS',
+  'REINFORCES',
+  'INVALIDATED_BY',
+  'EVOLVED_INTO',
+  'DERIVED_FROM',
+  'PART_OF',
+];
+
+/**
  * Integration tests for MCP tool schemas and response formats.
  * These tests verify the tool definitions match expected MCP protocol requirements.
  */
@@ -59,7 +78,7 @@ const TOOL_DEFINITIONS = {
         memory2_id: { type: 'string' },
         type: {
           type: 'string',
-          enum: [...AUTHORABLE_RELATION_TYPES],
+          enum: [...EXPECTED_RELATION_ENUM],
         },
         strength: { type: 'number', minimum: 0, maximum: 1 },
       },
@@ -176,7 +195,7 @@ describe('MCP Tool Schemas', () => {
 
     it('should include all documented relationship types', () => {
       const types = schema.properties.type.enum;
-      expect(types).toEqual([...AUTHORABLE_RELATION_TYPES]);
+      expect(types).toEqual(EXPECTED_RELATION_ENUM);
     });
 
     it('should exclude internal system relationship types', () => {

@@ -201,18 +201,19 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
       });
       createdMemoryIds.push(mem2.memory_id);
 
-      // Test one relationship type (RELATES_TO is most common)
-      const result = await client.associateMemories({
-        memory1_id: mem1.memory_id,
-        memory2_id: mem2.memory_id,
-        type: 'RELATES_TO',
-        strength: 0.7,
-      });
-
-      expect(result.success).toBe(true);
-
-      // Verify all types are valid (schema test)
+      // Verify count and exercise every authorable type against the backend
       expect(relationshipTypes).toHaveLength(11);
+
+      for (const type of relationshipTypes) {
+        const result = await client.associateMemories({
+          memory1_id: mem1.memory_id,
+          memory2_id: mem2.memory_id,
+          type,
+          strength: 0.7,
+        });
+
+        expect(result.success).toBe(true);
+      }
     });
   });
 
