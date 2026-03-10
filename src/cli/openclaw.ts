@@ -4,6 +4,7 @@ import path from 'path';
 import { execFileSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { readAutoMemApiKeyFromEnv } from '../env.js';
+import { DEFAULT_AUTOMEM_ENDPOINT } from './templates.js';
 
 export type OpenClawSetupMode = 'plugin' | 'mcp' | 'skill';
 export type OpenClawSetupScope = 'workspace' | 'shared';
@@ -30,7 +31,6 @@ const TEMPLATE_ROOT = path.resolve(
   fileURLToPath(new URL('../../templates/openclaw', import.meta.url))
 );
 const PACKAGE_ROOT = path.resolve(fileURLToPath(new URL('../../package.json', import.meta.url)));
-import { DEFAULT_AUTOMEM_ENDPOINT } from './templates.js';
 const DEFAULT_PLUGIN_SOURCE = '@verygoodplugins/mcp-automem';
 const OPENCLAW_PLUGIN_ID = 'automem';
 const SENSITIVE_KEY_PATTERN = /(api[-_]?key|token|secret|authorization)/i;
