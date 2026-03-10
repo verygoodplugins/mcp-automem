@@ -1,38 +1,42 @@
 /**
- * CLI smoke tests - verify commands work without side effects.
- * These tests run CLI commands with --dry-run or capture output
- * to verify they produce expected results.
+ * CLI smoke tests - verify commands work without side effects unless the test
+ * explicitly targets generated files in a temp workspace/home.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
-import { execSync } from 'child_process';
-import path from 'path';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
+import path from 'path';
 
-// Path to the compiled CLI
 const CLI_PATH = path.resolve(__dirname, '../../dist/index.js');
 
-// Helper to run CLI commands and capture output
-function runCli(args: string[], options: { timeout?: number; cwd?: string } = {}): {
+function runCli(
+  args: string[],
+  options: { timeout?: number; cwd?: string; env?: NodeJS.ProcessEnv } = {}
+): {
   stdout: string;
   stderr: string;
   exitCode: number;
 } {
   try {
-    const stdout = execSync(`node ${CLI_PATH} ${args.join(' ')}`, {
+    const stdout = execFileSync(process.execPath, [CLI_PATH, ...args], {
       encoding: 'utf8',
       timeout: options.timeout || 10000,
       cwd: options.cwd || process.cwd(),
       env: {
         ...process.env,
-        // Ensure no real connections are made
         AUTOMEM_ENDPOINT: 'http://localhost:9999',
+        ...options.env,
       },
     });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (error: unknown) {
-    const execError = error as { stdout?: string; stderr?: string; status?: number };
+    const execError = error as {
+      stdout?: string;
+      stderr?: string;
+      status?: number;
+    };
     return {
       stdout: execError.stdout || '',
       stderr: execError.stderr || '',
@@ -41,8 +45,10 @@ function runCli(args: string[], options: { timeout?: number; cwd?: string } = {}
   }
 }
 
-// Helper to run CLI and expect it to succeed
-function runCliExpectSuccess(args: string[], options?: { timeout?: number; cwd?: string }): string {
+function runCliExpectSuccess(
+  args: string[],
+  options?: { timeout?: number; cwd?: string; env?: NodeJS.ProcessEnv }
+): string {
   const result = runCli(args, options);
   if (result.exitCode !== 0) {
     console.error('CLI stderr:', result.stderr);
@@ -54,20 +60,16 @@ describe('CLI Smoke Tests', () => {
   let tempDir: string;
 
   beforeAll(() => {
-    // Ensure CLI is built
     if (!fs.existsSync(CLI_PATH)) {
       throw new Error(`CLI not built. Run 'npm run build' first. Expected: ${CLI_PATH}`);
     }
 
-    // Create temp directory for tests
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-cli-test-'));
   });
 
   describe('config command', () => {
     it('should output config with MCP server snippet', () => {
       const output = runCliExpectSuccess(['config']);
-
-      // Should contain MCP server config
       expect(output).toMatch(/mcpServers/i);
       expect(output).toMatch(/memory/i);
       expect(output).toMatch(/npx/i);
@@ -75,16 +77,12 @@ describe('CLI Smoke Tests', () => {
 
     it('should include Claude Desktop snippet', () => {
       const output = runCliExpectSuccess(['config']);
-
-      // Should contain Claude Desktop config
       expect(output).toMatch(/Claude Desktop/i);
       expect(output).toMatch(/AUTOMEM_ENDPOINT/i);
     });
 
     it('should include Claude Code setup', () => {
       const output = runCliExpectSuccess(['config']);
-
-      // Should contain Claude Code commands
       expect(output).toMatch(/claude mcp add/i);
     });
   });
@@ -93,8 +91,6 @@ describe('CLI Smoke Tests', () => {
     it('should run with --dry-run without creating files', () => {
       const testProjectDir = path.join(tempDir, 'cursor-test');
       fs.mkdirSync(testProjectDir, { recursive: true });
-
-      // Create a minimal package.json
       fs.writeFileSync(
         path.join(testProjectDir, 'package.json'),
         JSON.stringify({ name: 'test-project', version: '1.0.0' })
@@ -104,11 +100,7 @@ describe('CLI Smoke Tests', () => {
         cwd: testProjectDir,
       });
 
-      // Should succeed or show dry-run output
-      const output = result.stdout + result.stderr;
-
-      // In dry-run mode, should show output but NOT create actual files
-      expect(output.length).toBeGreaterThan(0);
+      expect((result.stdout + result.stderr).length).toBeGreaterThan(0);
     });
 
     it('should detect project name from package.json', () => {
@@ -124,27 +116,20 @@ describe('CLI Smoke Tests', () => {
         cwd: testProjectDir,
       });
 
-      const output = result.stdout + result.stderr;
-      // Should mention the project name (without scope)
-      expect(output.toLowerCase()).toMatch(/project|my-cool-project|cursor/i);
+      expect((result.stdout + result.stderr).toLowerCase()).toMatch(/project|my-cool-project|cursor/i);
     });
   });
 
   describe('setup command', () => {
     it('should show config with --yes flag (non-interactive)', () => {
       const result = runCli(['setup', '--yes', '--endpoint', 'http://test:8001']);
-
-      const output = result.stdout + result.stderr;
-      // Should output configuration info
-      expect(output.length).toBeGreaterThan(0);
+      expect((result.stdout + result.stderr).length).toBeGreaterThan(0);
     });
   });
 
   describe('queue command', () => {
     it('should handle missing queue file gracefully', () => {
       const result = runCli(['queue', '--file', '/nonexistent/path/queue.jsonl']);
-
-      // Should not crash - either succeed with "no items" or fail gracefully
       expect(result.exitCode).toBeDefined();
     });
 
@@ -153,9 +138,151 @@ describe('CLI Smoke Tests', () => {
       fs.writeFileSync(emptyQueueFile, '');
 
       const result = runCli(['queue', '--file', emptyQueueFile]);
-
-      // Should handle empty file gracefully
       expect(result.exitCode).toBeDefined();
+    });
+  });
+
+  describe('openclaw command', () => {
+    it('should support plugin dry-run with redacted output', () => {
+      const workspaceDir = path.join(tempDir, 'openclaw-plugin');
+      fs.mkdirSync(workspaceDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(workspaceDir, 'package.json'),
+        JSON.stringify({ name: 'plugin-test', version: '1.0.0' })
+      );
+
+      const output = runCliExpectSuccess(
+        [
+          'openclaw',
+          '--mode',
+          'plugin',
+          '--workspace',
+          workspaceDir,
+          '--api-key',
+          'super-secret-key',
+          '--dry-run',
+        ],
+        { cwd: workspaceDir }
+      );
+
+      expect(output).toMatch(/openclaw plugins install/i);
+      expect(output).toMatch(/plugins\.entries\.automem/i);
+      expect(output).not.toContain('super-secret-key');
+      expect(output).toContain('<redacted>');
+    });
+
+    it('should support mcp dry-run with mcporter config preview', () => {
+      const workspaceDir = path.join(tempDir, 'openclaw-mcp-dry-run');
+      fs.mkdirSync(workspaceDir, { recursive: true });
+
+      const output = runCliExpectSuccess(
+        [
+          'openclaw',
+          '--mode',
+          'mcp',
+          '--workspace',
+          workspaceDir,
+          '--api-key',
+          'super-secret-key',
+          '--dry-run',
+        ],
+        { cwd: workspaceDir }
+      );
+
+      expect(output).toMatch(/mcporter\.json/i);
+      expect(output).toMatch(/AutoMem memory service/i);
+      expect(output).not.toContain('super-secret-key');
+      expect(output).toContain('<redacted>');
+    });
+
+    it('should support legacy skill dry-run', () => {
+      const workspaceDir = path.join(tempDir, 'openclaw-skill-dry-run');
+      fs.mkdirSync(workspaceDir, { recursive: true });
+
+      const output = runCliExpectSuccess(
+        [
+          'openclaw',
+          '--mode',
+          'skill',
+          '--workspace',
+          workspaceDir,
+          '--dry-run',
+        ],
+        { cwd: workspaceDir }
+      );
+
+      expect(output).toMatch(/legacy curl-based skill/i);
+      expect(output).toMatch(/skills\.entries\.automem/i);
+    });
+
+    it('should write workspace mcp config without secrets', () => {
+      const workspaceDir = path.join(tempDir, 'openclaw-mcp-write');
+      const homeDir = path.join(tempDir, 'home-mcp-write');
+      fs.mkdirSync(workspaceDir, { recursive: true });
+      fs.mkdirSync(homeDir, { recursive: true });
+
+      const result = runCli(
+        [
+          'openclaw',
+          '--mode',
+          'mcp',
+          '--workspace',
+          workspaceDir,
+          '--api-key',
+          'super-secret-key',
+        ],
+        {
+          cwd: workspaceDir,
+          env: {
+            HOME: homeDir,
+          },
+        }
+      );
+
+      expect(result.exitCode).toBe(0);
+
+      const mcporterPath = path.join(workspaceDir, 'config', 'mcporter.json');
+      const mcporterConfig = fs.readFileSync(mcporterPath, 'utf8');
+      expect(mcporterConfig).toContain('"automem"');
+      expect(mcporterConfig).not.toContain('super-secret-key');
+      expect(mcporterConfig).not.toMatch(/AUTOMEM_API_KEY|AUTOMEM_API_TOKEN/);
+
+      const openClawConfig = fs.readFileSync(
+        path.join(homeDir, '.openclaw', 'openclaw.json'),
+        'utf8'
+      );
+      expect(openClawConfig).toContain('"apiKey": "super-secret-key"');
+    });
+
+    it('should report archive steps for old skill overrides in plugin dry-run', () => {
+      const homeDir = path.join(tempDir, 'home-plugin-migration');
+      const workspaceDir = path.join(tempDir, 'openclaw-plugin-migration');
+      const sharedSkillDir = path.join(homeDir, '.openclaw', 'skills', 'automem');
+      const workspaceSkillDir = path.join(workspaceDir, 'skills', 'automem');
+      fs.mkdirSync(sharedSkillDir, { recursive: true });
+      fs.mkdirSync(workspaceSkillDir, { recursive: true });
+      fs.writeFileSync(path.join(sharedSkillDir, 'SKILL.md'), '# old shared skill');
+      fs.writeFileSync(path.join(workspaceSkillDir, 'SKILL.md'), '# old workspace skill');
+
+      const output = runCliExpectSuccess(
+        [
+          'openclaw',
+          '--mode',
+          'plugin',
+          '--workspace',
+          workspaceDir,
+          '--dry-run',
+        ],
+        {
+          cwd: workspaceDir,
+          env: {
+            HOME: homeDir,
+          },
+        }
+      );
+
+      expect(output).toMatch(/Would archive .*\.openclaw\/skills\/automem/i);
+      expect(output).toMatch(/Would archive .*\/skills\/automem/i);
     });
   });
 });
@@ -176,6 +303,13 @@ describe('Template Generation', () => {
     expect(fs.existsSync(templatePath)).toBe(true);
   });
 
+  it('should have OpenClaw plugin and skill templates', () => {
+    expect(fs.existsSync(path.resolve(__dirname, '../../openclaw.plugin.json'))).toBe(true);
+    expect(fs.existsSync(path.resolve(__dirname, '../../skills/automem/SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-mcp/SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-legacy/SKILL.md'))).toBe(true);
+  });
+
   it('templates should have version markers', () => {
     const cursorTemplate = fs.readFileSync(
       path.resolve(__dirname, '../../templates/cursor/automem.mdc.template'),
@@ -188,5 +322,11 @@ describe('Template Generation', () => {
       'utf8'
     );
     expect(codexTemplate).toMatch(/automem-template-version:\s*[\d.]+/);
+
+    const openClawPluginSkill = fs.readFileSync(
+      path.resolve(__dirname, '../../skills/automem/SKILL.md'),
+      'utf8'
+    );
+    expect(openClawPluginSkill).toMatch(/automem-template-version:\s*[\d.]+/);
   });
 });
