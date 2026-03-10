@@ -1,16 +1,39 @@
-// Relationship types — must stay in sync with automem/config.py RELATIONSHIP_TYPES
-export const RELATION_TYPES = [
-  'RELATES_TO', 'LEADS_TO', 'OCCURRED_BEFORE', 'SIMILAR_TO', 'PRECEDED_BY',
-  'PREFERS_OVER', 'EXEMPLIFIES', 'CONTRADICTS', 'REINFORCES', 'INVALIDATED_BY',
-  'EVOLVED_INTO', 'DERIVED_FROM', 'PART_OF', 'EXPLAINS', 'SHARES_THEME',
-  'PARALLEL_CONTEXT',
-] as const;
+// Public authorable relationship types for associate_memories.
+// Internal/system relations may still appear in recall results returned by AutoMem.
+
+/**
+ * Authorable relation type metadata. Single source of truth for both
+ * the enum values and human-readable descriptions used in tool schemas.
+ */
+export const RELATION_TYPE_METADATA = {
+  RELATES_TO: 'General relationship (default)',
+  LEADS_TO: 'Causal relationship (A caused B)',
+  OCCURRED_BEFORE: 'Temporal ordering',
+  PREFERS_OVER: 'Chosen alternative',
+  EXEMPLIFIES: 'Concrete example of a pattern',
+  CONTRADICTS: 'Conflicts with another memory',
+  REINFORCES: 'Strengthens another memory\'s validity',
+  INVALIDATED_BY: 'Superseded by another memory',
+  EVOLVED_INTO: 'Updated version of a concept',
+  DERIVED_FROM: 'Implementation of a decision/pattern',
+  PART_OF: 'Component of a larger effort',
+} as const;
+
+export const AUTHORABLE_RELATION_TYPES = Object.keys(RELATION_TYPE_METADATA) as ReadonlyArray<keyof typeof RELATION_TYPE_METADATA>;
+
+/**
+ * @deprecated Use AUTHORABLE_RELATION_TYPES.
+ * Kept as a compatibility alias for public authorable relation types.
+ */
+export const RELATION_TYPES = AUTHORABLE_RELATION_TYPES;
 
 export const MEMORY_TYPES = [
   'Decision', 'Pattern', 'Preference', 'Style', 'Habit', 'Insight', 'Context',
 ] as const;
 
-export type RelationType = (typeof RELATION_TYPES)[number];
+export type AuthorableRelationType = (typeof AUTHORABLE_RELATION_TYPES)[number];
+/** @deprecated Use AuthorableRelationType. */
+export type RelationType = AuthorableRelationType;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
 
 export interface AutoMemConfig {
@@ -154,7 +177,7 @@ export interface RecallMemoryArgs {
 export interface AssociateMemoryArgs {
   memory1_id: string;
   memory2_id: string;
-  type: RelationType;
+  type: AuthorableRelationType;
   strength: number;
 }
 

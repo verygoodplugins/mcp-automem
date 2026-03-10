@@ -164,6 +164,11 @@ mcp__memory__associate_memories({
 - `REINFORCES` - Supporting evidence
 - `INVALIDATED_BY` - Obsoleted solutions
 - `RELATES_TO` - General connections
+- `OCCURRED_BEFORE` - Temporal ordering
+- `PREFERS_OVER` - Chosen alternative
+- `PART_OF` - Component of a larger effort
+
+System/internal relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, and `DISCOVERED` may appear in recall results, but they are not valid `associate_memories` inputs.
 
 ## Phase 3: SESSION END (Summarize)
 

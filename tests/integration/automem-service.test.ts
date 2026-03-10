@@ -8,6 +8,7 @@
 
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { AutoMemClient } from '../../src/automem-client.js';
+import { AUTHORABLE_RELATION_TYPES } from '../../src/types.js';
 
 const AUTOMEM_ENDPOINT = process.env.AUTOMEM_TEST_ENDPOINT || 'http://localhost:8001';
 const TEST_TAG = `test-${Date.now()}`;
@@ -183,19 +184,7 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
     });
 
     it('should support all relationship types', async () => {
-      const relationshipTypes = [
-        'RELATES_TO',
-        'LEADS_TO',
-        'OCCURRED_BEFORE',
-        'PREFERS_OVER',
-        'EXEMPLIFIES',
-        'CONTRADICTS',
-        'REINFORCES',
-        'INVALIDATED_BY',
-        'EVOLVED_INTO',
-        'DERIVED_FROM',
-        'PART_OF',
-      ];
+      const relationshipTypes = [...AUTHORABLE_RELATION_TYPES];
 
       // Store two memories
       const mem1 = await client.storeMemory({
@@ -212,18 +201,19 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
       });
       createdMemoryIds.push(mem2.memory_id);
 
-      // Test one relationship type (RELATES_TO is most common)
-      const result = await client.associateMemories({
-        memory1_id: mem1.memory_id,
-        memory2_id: mem2.memory_id,
-        type: 'RELATES_TO',
-        strength: 0.7,
-      });
-
-      expect(result.success).toBe(true);
-
-      // Verify all types are valid (schema test)
+      // Verify count and exercise every authorable type against the backend
       expect(relationshipTypes).toHaveLength(11);
+
+      for (const type of relationshipTypes) {
+        const result = await client.associateMemories({
+          memory1_id: mem1.memory_id,
+          memory2_id: mem2.memory_id,
+          type,
+          strength: 0.7,
+        });
+
+        expect(result.success).toBe(true);
+      }
     });
   });
 

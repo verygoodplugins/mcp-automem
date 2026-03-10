@@ -69,7 +69,7 @@
     },
     {
       "name": "associate_memories",
-      "description": "Create typed relationships between memories"
+      "description": "Create typed public relationships between memories (11 authorable types)"
     },
     {
       "name": "update_memory",

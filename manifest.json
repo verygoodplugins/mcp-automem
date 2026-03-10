@@ -51,7 +51,7 @@
     },
     {
       "name": "associate_memories",
-      "description": "Create typed relationships between memories (RELATES_TO, LEADS_TO, etc.)"
+      "description": "Create typed public relationships between memories (11 authorable types; internal/system relations are read-only)"
     },
     {
       "name": "update_memory",

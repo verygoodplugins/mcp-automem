@@ -39,7 +39,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 
 ### 🏆 Graph-Vector Architecture
 
-- **11 relationship types** between memories (not just similarity)
+- **11 public authorable relationship types** between memories (recall results may also include read-only system/internal relations that are not valid `associate_memories` inputs)
 - **Research-validated** approach (HippoRAG 2: 7% better associative memory)
 - **Sub-second retrieval** even with millions of memories
 
@@ -303,7 +303,7 @@ _Claude Mobile (iOS) connected to AutoMem via remote MCP_
   - **Graph expansion**: entity expansion (multi-hop reasoning), relation following
   - **Expansion filtering**: `expand_min_importance` and `expand_min_strength` to reduce noise in expanded results
   - **Context hints**: language, active file, priority types/tags
-- **`associate_memories`** - Create relationships (11 types: RELATES_TO, LEADS_TO, etc.)
+- **`associate_memories`** - Create relationships (11 public authorable types; recall results may also include read-only system relations)
 - **`update_memory`** - Modify existing memories
 - **`delete_memory`** - Remove memories
 - **`check_database_health`** - Monitor service status

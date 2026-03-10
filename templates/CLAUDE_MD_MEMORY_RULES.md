@@ -44,7 +44,7 @@ MCP TOOLS AVAILABLE:
 
 - store_memory: Save with content, tags, importance (0.0-1.0), type, metadata
 - recall_memory: Hybrid search (semantic + keyword + tags + time filters)
-- associate_memories: Create relationships (11 types including LEADS_TO, REINFORCES, CONTRADICTS)
+- associate_memories: Create relationships (11 public authorable types including LEADS_TO, REINFORCES, CONTRADICTS)
 - update_memory: Modify existing memories without duplication
 - delete_memory: Remove memories by ID
 - check_database_health: Monitor AutoMem service status
@@ -150,6 +150,8 @@ RELATIONSHIP TYPES:
 | EXEMPLIFIES | Pattern examples |
 | OCCURRED_BEFORE | Temporal sequence |
 | PART_OF | Hierarchical structure |
+
+System/internal relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, and `DISCOVERED` may appear in recall results, but do not use them with `associate_memories`.
 
 LIFECYCLE MANAGEMENT:
 

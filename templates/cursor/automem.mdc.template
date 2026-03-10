@@ -158,6 +158,8 @@ Link related memories for richer context:
 
 Association types: `RELATES_TO`, `LEADS_TO`, `OCCURRED_BEFORE`, `PREFERS_OVER`, `EXEMPLIFIES`, `CONTRADICTS`, `REINFORCES`, `INVALIDATED_BY`, `EVOLVED_INTO`, `DERIVED_FROM`, `PART_OF`
 
+System/internal relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, and `DISCOVERED` may appear in recall results, but they are not valid `associate_memories` inputs.
+
 ## Recall Strategies
 
 **Start simple, expand as needed:**
@@ -353,7 +355,7 @@ Format: `Brief title. Context and details. Impact/outcome.`
 {{MCP_TOOL_PREFIX}}associate_memories({
   memory1_id: string,
   memory2_id: string,
-  type: "RELATES_TO" | "LEADS_TO" | ...,
+  type: "RELATES_TO" | "LEADS_TO" | "OCCURRED_BEFORE" | "PREFERS_OVER" | "EXEMPLIFIES" | "CONTRADICTS" | "REINFORCES" | "INVALIDATED_BY" | "EVOLVED_INTO" | "DERIVED_FROM" | "PART_OF",
   strength: number  // 0.0-1.0
 })
 ```
