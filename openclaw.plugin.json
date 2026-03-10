@@ -1,0 +1,69 @@
+{
+  "id": "automem",
+  "name": "AutoMem",
+  "description": "Persistent graph-vector memory backed by an AutoMem service.",
+  "kind": "memory",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["endpoint"],
+    "properties": {
+      "endpoint": {
+        "type": "string",
+        "minLength": 1
+      },
+      "apiKey": {
+        "type": "string"
+      },
+      "autoRecall": {
+        "type": "boolean",
+        "default": true
+      },
+      "autoRecallLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10,
+        "default": 3
+      },
+      "exposure": {
+        "type": "string",
+        "enum": ["dm-only", "all", "off"],
+        "default": "dm-only"
+      },
+      "defaultTags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "endpoint": {
+      "label": "Endpoint",
+      "help": "Base URL for the AutoMem service.",
+      "placeholder": "http://127.0.0.1:8001"
+    },
+    "apiKey": {
+      "label": "API Key",
+      "help": "Optional bearer token for authenticated AutoMem deployments.",
+      "sensitive": true
+    },
+    "autoRecall": {
+      "label": "Auto Recall",
+      "help": "Recall relevant memories before a new agent turn."
+    },
+    "autoRecallLimit": {
+      "label": "Auto Recall Limit"
+    },
+    "exposure": {
+      "label": "Exposure",
+      "help": "Limit auto-recall to DMs/private contexts by default."
+    },
+    "defaultTags": {
+      "label": "Default Tags",
+      "help": "Project tags to apply when the request does not supply tags."
+    }
+  }
+}

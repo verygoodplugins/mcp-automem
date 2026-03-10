@@ -1,137 +1,150 @@
 # AutoMem + OpenClaw Integration Guide
 
-Connect AutoMem (graph-vector memory) to **OpenClaw**, the personal AI assistant with multi-platform messaging.
+Connect AutoMem (graph-vector memory) to **OpenClaw** with one of three supported modes:
 
-**Why add AutoMem to OpenClaw?**
+1. `plugin` - recommended default for new installs
+2. `mcp` - transparent `mcporter` setup using typed AutoMem tools
+3. `skill` - legacy curl fallback
 
-- Your agent remembers decisions, patterns, and context across conversations
-- Persistent memory survives gateway restarts
-- Works across all OpenClaw channels (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, etc.)
-- Memory syncs across devices when using Railway backend
-- Complements OpenClaw's file-based daily memory with semantic search
+## Recommended mode order
 
-## Architecture
+### `plugin` (recommended)
 
+- Native OpenClaw plugin with typed tools
+- Uses the existing AutoMem HTTP client directly
+- Ships its own `automem` skill and `before_agent_start` auto-recall hook
+- Default auto-recall exposure is `dm-only`
+
+```bash
+npx @verygoodplugins/mcp-automem openclaw --mode plugin
 ```
-Bot → bash curl → AutoMem HTTP API (FalkorDB + Qdrant)
+
+### `mcp`
+
+- Workspace/shared `automem` skill plus `mcporter` stdio server entry
+- Uses the same typed AutoMem tool names as plugin mode
+- Keeps secrets out of `mcporter.json`
+
+```bash
+npx @verygoodplugins/mcp-automem openclaw --mode mcp --workspace ~/clawd
 ```
 
-The bot calls AutoMem's HTTP API directly via `curl` — simple, reliable, no extra dependencies.
+### `skill`
 
-### Memory Layers
+- Legacy curl-only behavior for users who explicitly want the old setup
+- Still installs workspace-local by default
+
+```bash
+npx @verygoodplugins/mcp-automem openclaw --mode skill --workspace ~/clawd
+```
+
+## Architecture by mode
+
+### Plugin
+
+```text
+OpenClaw plugin -> AutoMem HTTP API
+```
+
+### MCP
+
+```text
+OpenClaw skill -> mcporter -> mcp-automem stdio server -> AutoMem HTTP API
+```
+
+### Legacy skill
+
+```text
+OpenClaw skill -> curl -> AutoMem HTTP API
+```
+
+## Memory layers
 
 | Layer | Storage | Purpose | Scope |
 | ----- | ------- | ------- | ----- |
 | Daily files (`memory/YYYY-MM-DD.md`) | Local filesystem | Raw session logs | Single workspace |
-| MEMORY.md | Local filesystem | Curated long-term notes | Single workspace |
-| AutoMem (skill) | FalkorDB + Qdrant | Semantic graph memory | All sessions, all platforms |
+| `MEMORY.md` / workspace notes | Local filesystem | Curated local notes | Single workspace |
+| `memory-core` | OpenClaw file memory tools | Fast file-backed retrieval | Single workspace |
+| AutoMem | FalkorDB + Qdrant | Semantic graph memory | Cross-session / cross-platform |
 
-## Quick Start
+`memory-core` is complementary. AutoMem does not replace it.
 
-```bash
-# 1. Install the AutoMem skill + configure env vars
-npx @verygoodplugins/mcp-automem openclaw --workspace ~/clawd
+## What the CLI does
 
-# 2. Restart OpenClaw gateway
-```
-
-That's it. The bot will now recall and store memories via `curl` calls to the AutoMem API.
-
-## What the CLI Does
-
-`npx @verygoodplugins/mcp-automem openclaw` performs these steps:
-
-1. **Installs the AutoMem skill** to `~/.openclaw/skills/automem/SKILL.md` (user-level, shared across all workspaces)
-2. **Configures env vars** in `~/.openclaw/openclaw.json` under `skills.entries.automem.env`
-3. **Creates `memory/` directory** in the workspace (for daily file-based memory)
-4. **Cleans up old AGENTS.md blocks** if present from previous installs
-
-### CLI Options
+`npx @verygoodplugins/mcp-automem openclaw` now supports these options:
 
 ```bash
 npx @verygoodplugins/mcp-automem openclaw [options]
 
 Options:
-  --workspace <path>    OpenClaw workspace directory (auto-detected)
-  --endpoint <url>      AutoMem endpoint (default: http://127.0.0.1:8001)
-  --api-key <key>       AutoMem API key (optional, for authenticated instances)
-  --name <name>         Project name for memory tags (auto-detected)
-  --dry-run             Show what would be changed without modifying files
-  --quiet               Suppress output
+  --mode <plugin|mcp|skill>   Integration mode (default: plugin)
+  --scope <workspace|shared>  Install scope for mcp/skill modes (default: workspace)
+  --workspace <path>          OpenClaw workspace directory (auto-detected)
+  --endpoint <url>            AutoMem endpoint (default: http://127.0.0.1:8001)
+  --api-key <key>             AutoMem API key (optional)
+  --plugin-source <spec>      npm spec or local path for plugin installs
+  --name <name>               Project name used to seed default memory tags
+  --dry-run                   Preview changes without writing files
+  --quiet                     Suppress non-error output
 ```
 
-### Re-running / Updating
+### In `plugin` mode
 
-The CLI is idempotent. Running it again updates the skill file and config. Backups are created before any modification.
+- Installs the package as an OpenClaw plugin
+- Configures `plugins.entries.automem`
+- Archives old `automem` skill overrides that would shadow the plugin-shipped skill
+- Preserves old AGENTS cleanup only as a migration step
 
-## Prerequisites
+### In `mcp` mode
 
-1. **OpenClaw** installed (`2026.x` or later)
+- Installs the behavior-only `automem` skill into `<workspace>/skills/automem/` by default
+- Creates `<workspace>/config/mcporter.json` by default
+- Stores endpoint/api key in `skills.entries.automem.env/apiKey`
+- Does not write secrets into `mcporter.json`
 
-   ```bash
-   curl -fsSL https://openclaw.ai/install.sh | bash
-   ```
+### In `skill` mode
 
-2. **AutoMem service running**
-   - **Local development**: `make dev` in automem repo (runs on `http://localhost:8001`)
-   - **Railway cloud**: One-click deploy
-   - **Self-hosted**: Docker or any container platform
+- Installs the legacy curl skill into `<workspace>/skills/automem/` by default
+- Uses the same `skills.entries.automem.env/apiKey` convention
 
-## What Gets Installed
+## Quick verification
 
-### Skill File
+After setup:
 
+```bash
+openclaw skills info automem
+openclaw plugins list
+mcporter list
 ```
-~/.openclaw/skills/automem/
-└── SKILL.md
-```
 
-The skill teaches the bot to call AutoMem's HTTP API directly with `curl`. It includes:
-- API reference (store, recall, associate, update, delete, health)
-- Auth header handling (`$AUTOMEM_API_KEY` when set)
-- Behavioral rules (when to recall, when to store, importance levels, tagging)
-- Error handling (graceful fallback to file-based memory)
+What to expect:
 
-### Config Addition
-
-In `~/.openclaw/openclaw.json`:
-
-```json
-{
-  "skills": {
-    "entries": {
-      "automem": {
-        "enabled": true,
-        "env": {
-          "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"
-        }
-      }
-    }
-  }
-}
-```
+- `plugin` mode: `openclaw plugins list` shows `automem`
+- `mcp` mode: `mcporter list` shows `automem`
+- `skill` mode: `openclaw skills info automem` shows the installed skill
 
 ## Troubleshooting
 
-### Agent Not Using Memory
+### AutoMem plugin not taking effect
 
-1. Check that the skill is loaded: `openclaw skills check automem`
-2. Restart the OpenClaw gateway after running the installer
-3. Verify AutoMem is running: `curl http://127.0.0.1:8001/health`
+1. Run `openclaw plugins list`
+2. Restart the OpenClaw gateway
+3. Check `~/.openclaw/openclaw.json` for `plugins.entries.automem`
 
-### Bot Says "Memory Tools Disabled" or "Need API Keys"
+### MCP mode tools are missing
 
-This refers to OpenClaw's built-in `memory-lancedb` plugin, **not** AutoMem. AutoMem handles embeddings server-side — no client API keys required. The skill explicitly tells the bot to ignore this.
+1. Run `mcporter list`
+2. Verify `<workspace>/config/mcporter.json` contains the `automem` server
+3. Confirm `skills.entries.automem.env.AUTOMEM_ENDPOINT` is set in `~/.openclaw/openclaw.json`
 
-### curl Calls Failing
+### Legacy skill cannot reach AutoMem
 
-1. Verify endpoint: `curl $AUTOMEM_ENDPOINT/health`
-2. Check API key if using authenticated instance
-3. Check firewall/VPN for Railway endpoints
+1. Verify endpoint: `curl "$AUTOMEM_ENDPOINT/health"`
+2. Check the API key if your AutoMem service is authenticated
+3. Prefer `plugin` or `mcp` mode unless you explicitly need curl behavior
 
 ## Support
 
-- **OpenClaw Docs**: <https://docs.openclaw.ai>
-- **AutoMem Repo**: <https://github.com/verygoodplugins/automem>
-- **OpenClaw Discord**: <https://discord.gg/clawd>
-- **AutoMem Discord**: <https://automem.ai/discord>
+- OpenClaw Docs: <https://docs.openclaw.ai>
+- AutoMem Repo: <https://github.com/verygoodplugins/mcp-automem>
+- AutoMem Service: <https://github.com/verygoodplugins/automem>

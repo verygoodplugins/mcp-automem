@@ -878,7 +878,13 @@ npm run build
 
 ## OpenClaw
 
-**[OpenClaw](https://openclaw.ai)** is a personal AI assistant that runs locally and supports 11+ messaging platforms (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, Matrix, Zalo, etc.). AutoMem integrates as a native **skill** — the bot calls the AutoMem HTTP API directly via `curl`.
+**[OpenClaw](https://openclaw.ai)** is a personal AI assistant that runs locally and supports 11+ messaging platforms (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, Matrix, Zalo, etc.).
+
+AutoMem now supports three OpenClaw integration modes, in this recommended order:
+
+1. `plugin` - native OpenClaw plugin with typed AutoMem tools and DM-only auto-recall by default
+2. `mcp` - workspace/shared `mcporter` setup with the same typed AutoMem tools
+3. `skill` - legacy curl fallback
 
 ### Quick Setup
 
@@ -894,31 +900,38 @@ npm run build
    # Local:
    git clone https://github.com/verygoodplugins/automem.git
    cd automem && make dev
-
-   # Or deploy on Railway (one-click):
-   # https://railway.com/deploy/automem-ai-memory-service
    ```
 
-3. **Install the AutoMem skill**:
+3. **Run the recommended setup**:
 
    ```bash
-   npx @verygoodplugins/mcp-automem openclaw --workspace ~/clawd
+   npx @verygoodplugins/mcp-automem openclaw --mode plugin
    ```
 
-4. **Restart OpenClaw gateway** — the bot will now recall and store memories automatically.
+4. **Restart OpenClaw gateway** and start a new session.
 
-### Full Setup Guide
+### Alternate modes
 
-For detailed setup with Railway, authentication, and troubleshooting:
+```bash
+# Transparent typed-MCP path
+npx @verygoodplugins/mcp-automem openclaw --mode mcp --workspace ~/clawd
 
-**[AutoMem + OpenClaw Integration Guide](./templates/openclaw/OPENCLAW_SETUP.md)**
+# Legacy curl fallback
+npx @verygoodplugins/mcp-automem openclaw --mode skill --workspace ~/clawd
+```
 
 ### Why OpenClaw + AutoMem?
 
-- **Multi-platform memory**: Your agent remembers decisions across WhatsApp, Telegram, Slack, Discord, and 7+ other channels
-- **Persistent context**: Memory survives gateway restarts
-- **Simple architecture**: Bot calls AutoMem HTTP API directly via `curl` — no extra binaries or protocols
-- **No code changes needed**: Works with existing OpenClaw agents via a skill file and env vars
+- **Multi-platform memory**: Your agent remembers decisions across WhatsApp, Telegram, Slack, Discord, and other OpenClaw channels
+- **Native plugin option**: New installs can use OpenClaw's plugin system instead of only curl-based skills
+- **Transparent MCP option**: `mcp` mode writes a normal `mcporter.json` and keeps secrets out of it
+- **Complementary memory layers**: `memory-core` remains useful for local file memory; AutoMem is the semantic graph layer
+
+### Full Setup Guide
+
+For mode-by-mode setup, migration notes, and troubleshooting:
+
+**[AutoMem + OpenClaw Integration Guide](./templates/openclaw/OPENCLAW_SETUP.md)**
 
 ---
 

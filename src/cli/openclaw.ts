@@ -1,8 +1,13 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { readAutoMemApiKeyFromEnv } from '../env.js';
+import { DEFAULT_AUTOMEM_ENDPOINT } from './templates.js';
+
+export type OpenClawSetupMode = 'plugin' | 'mcp' | 'skill';
+export type OpenClawSetupScope = 'workspace' | 'shared';
 
 interface OpenClawSetupOptions {
   workspace?: string;
@@ -12,14 +17,37 @@ interface OpenClawSetupOptions {
   skipPrompts?: boolean;
   endpoint?: string;
   apiKey?: string;
+  mode: OpenClawSetupMode;
+  scope: OpenClawSetupScope;
+  pluginSource?: string;
+  timeoutMs?: number;
 }
+
+type JsonPrimitive = string | number | boolean | null;
+type JsonArray = JsonValue[];
+type JsonObject = { [key: string]: JsonValue | undefined };
+type JsonValue = JsonPrimitive | JsonObject | JsonArray;
 
 const TEMPLATE_ROOT = path.resolve(
   fileURLToPath(new URL('../../templates/openclaw', import.meta.url))
 );
+const PACKAGE_ROOT = path.resolve(fileURLToPath(new URL('../../package.json', import.meta.url)));
+const DEFAULT_PLUGIN_SOURCE = '@verygoodplugins/mcp-automem';
+const OPENCLAW_PLUGIN_ID = 'automem';
+const SENSITIVE_KEY_PATTERN = /(api[-_]?key|token|secret|authorization)/i;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
 
 function log(message: string, quiet?: boolean) {
-  if (!quiet) console.log(message);
+  if (!quiet) {
+    console.log(message);
+  }
+}
+
+function fail(message: string): never {
+  throw new Error(message);
 }
 
 /**
@@ -27,10 +55,10 @@ function log(message: string, quiet?: boolean) {
  * Handles single-line, block, and trailing commas.
  */
 function stripJsonComments(raw: string): string {
-  // Walk through the string character by character to respect quoted strings
   let result = '';
   let inString = false;
   let i = 0;
+
   while (i < raw.length) {
     const ch = raw[i];
     const next = raw[i + 1];
@@ -38,106 +66,229 @@ function stripJsonComments(raw: string): string {
     if (inString) {
       result += ch;
       if (ch === '\\') {
-        // Skip escaped character
         result += next || '';
         i += 2;
         continue;
       }
-      if (ch === '"') inString = false;
-      i++;
+      if (ch === '"') {
+        inString = false;
+      }
+      i += 1;
       continue;
     }
 
     if (ch === '"') {
       inString = true;
       result += ch;
-      i++;
+      i += 1;
       continue;
     }
 
-    // Single-line comment
     if (ch === '/' && next === '/') {
-      while (i < raw.length && raw[i] !== '\n') i++;
+      while (i < raw.length && raw[i] !== '\n') {
+        i += 1;
+      }
       continue;
     }
 
-    // Block comment
     if (ch === '/' && next === '*') {
       i += 2;
-      while (i < raw.length && !(raw[i] === '*' && raw[i + 1] === '/')) i++;
-      i += 2; // skip closing */
+      while (i < raw.length && !(raw[i] === '*' && raw[i + 1] === '/')) {
+        i += 1;
+      }
+      i += 2;
       continue;
     }
 
     result += ch;
-    i++;
+    i += 1;
   }
 
-  // Strip trailing commas before } or ]
   return result.replace(/,\s*([}\]])/g, '$1');
 }
 
+function readJsonFile(filePath: string): JsonObject {
+  if (!fs.existsSync(filePath)) {
+    return {};
+  }
+
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const stripped = stripJsonComments(raw);
+    const parsed = JSON.parse(stripped) as unknown;
+    return isRecord(parsed) ? (parsed as JsonObject) : {};
+  } catch (error) {
+    console.warn(`Warning: Failed to parse ${filePath}, using defaults.`, (error as Error).message);
+    return {};
+  }
+}
+
+function writeJsonFileWithBackup(targetPath: string, data: JsonObject, options: OpenClawSetupOptions) {
+  const serialized = `${JSON.stringify(data, null, 2)}\n`;
+
+  if (options.dryRun) {
+    log(`[DRY RUN] Would write ${targetPath}`, options.quiet);
+    log(`[DRY RUN] Redacted preview:\n${JSON.stringify(redactConfigForOutput(data), null, 2)}`, options.quiet);
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+
+  if (fs.existsSync(targetPath)) {
+    const current = fs.readFileSync(targetPath, 'utf8');
+    if (current === serialized) {
+      log(`Unchanged: ${targetPath}`, options.quiet);
+      return;
+    }
+    const backup = backupPath(targetPath);
+    fs.copyFileSync(targetPath, backup);
+    log(`Backup created: ${backup}`, options.quiet);
+  }
+
+  fs.writeFileSync(targetPath, serialized, 'utf8');
+  log(`Updated: ${targetPath}`, options.quiet);
+}
+
+function writeFileWithBackup(targetPath: string, content: string, options: OpenClawSetupOptions) {
+  if (options.dryRun) {
+    log(`[DRY RUN] Would write ${targetPath}`, options.quiet);
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+
+  if (fs.existsSync(targetPath)) {
+    const current = fs.readFileSync(targetPath, 'utf8');
+    if (current === content) {
+      log(`Unchanged: ${targetPath}`, options.quiet);
+      return;
+    }
+    const backup = backupPath(targetPath);
+    fs.copyFileSync(targetPath, backup);
+    log(`Backup created: ${backup}`, options.quiet);
+  }
+
+  fs.writeFileSync(targetPath, content, 'utf8');
+  log(`Updated: ${targetPath}`, options.quiet);
+}
+
 function detectProjectName(): string {
-  // 1) package.json name
   if (fs.existsSync('package.json')) {
     try {
-      const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-      if (pkg.name) return String(pkg.name).replace(/^@.*?\//, '');
+      const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { name?: string };
+      if (pkg.name) {
+        return String(pkg.name).replace(/^@.*?\//, '');
+      }
     } catch {
-      // fall through
+      // Fall through to git/directory detection.
     }
   }
-  // 2) git remote
+
   try {
-    const remote = execSync('git remote get-url origin 2>/dev/null', { encoding: 'utf8' }).trim();
-    if (remote) {
-      const match = remote.match(/\/([^/]+?)(\.git)?$/);
-      if (match) return match[1];
+    const remote = execSync('git remote get-url origin', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+    const match = remote.match(/\/([^/]+?)(\.git)?$/);
+    if (match?.[1]) {
+      return match[1];
     }
   } catch {
-    // fall through
+    // Fall through to directory detection.
   }
-  // 3) directory name
+
   return path.basename(process.cwd());
 }
 
+function readCurrentPackageName(): string {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(PACKAGE_ROOT, 'utf8')) as { name?: string };
+    return pkg.name?.trim() || DEFAULT_PLUGIN_SOURCE;
+  } catch {
+    return DEFAULT_PLUGIN_SOURCE;
+  }
+}
+
 function resolveTildePath(input: string): string {
-  if (input.startsWith('~/') || input === '~') {
+  if (input === '~') {
+    return os.homedir();
+  }
+  if (input.startsWith('~/')) {
     return path.join(os.homedir(), input.slice(2));
   }
   return path.resolve(input);
 }
 
+function looksLikePath(input: string): boolean {
+  return input.startsWith('.') || input.startsWith('/') || input.startsWith('~');
+}
+
+function resolvePluginSource(input?: string): string {
+  const candidate = input?.trim() || readCurrentPackageName() || DEFAULT_PLUGIN_SOURCE;
+  return looksLikePath(candidate) ? resolveTildePath(candidate) : candidate;
+}
+
 function backupPath(filePath: string): string {
   let candidate = `${filePath}.bak`;
-  let i = 1;
+  let index = 1;
   while (fs.existsSync(candidate)) {
-    candidate = `${filePath}.bak.${i++}`;
+    candidate = `${filePath}.bak.${index}`;
+    index += 1;
   }
   return candidate;
 }
 
-function writeFileWithBackup(targetPath: string, content: string, options: OpenClawSetupOptions) {
-  if (options.dryRun) {
-    log(`[DRY RUN] Would write: ${targetPath}`, options.quiet);
-    return;
+function archivePath(targetPath: string): string {
+  let candidate = `${targetPath}.archived-for-plugin`;
+  let index = 1;
+  while (fs.existsSync(candidate)) {
+    candidate = `${targetPath}.archived-for-plugin.${index}`;
+    index += 1;
   }
-  const dir = path.dirname(targetPath);
-  fs.mkdirSync(dir, { recursive: true });
+  return candidate;
+}
 
-  const existed = fs.existsSync(targetPath);
-  if (existed) {
-    const current = fs.readFileSync(targetPath, 'utf8');
-    if (current === content) {
-      log(`✓ Unchanged: ${targetPath}`, options.quiet);
-      return;
-    }
-    const backup = backupPath(targetPath);
-    fs.copyFileSync(targetPath, backup);
-    log(`📦 Backup created: ${backup}`, options.quiet);
+function sanitizeTag(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+export function buildDefaultTags(projectName?: string): string[] {
+  const tags = ['platform/openclaw'];
+  const normalizedProjectName = String(projectName || '').replace(/^@.*?\//, '');
+  const sanitized = sanitizeTag(normalizedProjectName);
+  if (sanitized) {
+    tags.push(`project/${sanitized}`);
   }
-  fs.writeFileSync(targetPath, content, 'utf8');
-  log(`✅ ${existed ? 'Updated' : 'Created'}: ${targetPath}`, options.quiet);
+  return tags;
+}
+
+export function redactSensitiveValue(value: unknown): unknown {
+  if (value === undefined || value === null || value === '') {
+    return value;
+  }
+  return '<redacted>';
+}
+
+export function redactConfigForOutput(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactConfigForOutput(entry));
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      result[key] = redactSensitiveValue(entry);
+      continue;
+    }
+    result[key] = redactConfigForOutput(entry);
+  }
+  return result;
 }
 
 /**
@@ -150,24 +301,23 @@ function writeFileWithBackup(targetPath: string, content: string, options: OpenC
  * 4. Common default paths: ~/.openclaw/workspace, ~/clawd
  */
 function resolveWorkspaceDir(explicit?: string): string | null {
-  // 1. Explicit flag
   if (explicit) {
-    const resolved = resolveTildePath(explicit);
-    return resolved; // trust the user even if it doesn't exist yet
+    return resolveTildePath(explicit);
   }
 
-  // 2. Environment variable
   const envWorkspace = process.env.OPENCLAW_WORKSPACE || process.env.CLAWDBOT_WORKSPACE;
   if (envWorkspace) {
     const resolved = resolveTildePath(envWorkspace);
-    if (fs.existsSync(resolved)) return resolved;
+    if (fs.existsSync(resolved)) {
+      return resolved;
+    }
   }
 
-  // 3. OpenClaw config file
   const configWorkspace = readWorkspaceFromConfig();
-  if (configWorkspace) return configWorkspace;
+  if (configWorkspace) {
+    return configWorkspace;
+  }
 
-  // 4. Common default paths
   const homeDir = os.homedir();
   const candidates = [
     path.join(homeDir, '.openclaw', 'workspace'),
@@ -179,20 +329,21 @@ function resolveWorkspaceDir(explicit?: string): string | null {
     if (fs.existsSync(candidate)) {
       const hasAgents = fs.existsSync(path.join(candidate, 'AGENTS.md'));
       const hasSoul = fs.existsSync(path.join(candidate, 'SOUL.md'));
-      if (hasAgents || hasSoul) return candidate;
+      if (hasAgents || hasSoul) {
+        return candidate;
+      }
     }
   }
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
   }
 
   return null;
 }
 
-/**
- * Try to read workspace path from OpenClaw config file.
- */
 function readWorkspaceFromConfig(): string | null {
   const homeDir = os.homedir();
   const configPaths = [
@@ -204,54 +355,39 @@ function readWorkspaceFromConfig(): string | null {
   ];
 
   for (const configPath of configPaths) {
-    if (!fs.existsSync(configPath)) continue;
-    try {
-      const raw = fs.readFileSync(configPath, 'utf8');
-      const stripped = stripJsonComments(raw);
-      const config = JSON.parse(stripped);
-
-      const defaultWorkspace = config?.agents?.defaults?.workspace;
-      if (defaultWorkspace && typeof defaultWorkspace === 'string') {
-        const resolved = resolveTildePath(defaultWorkspace);
-        if (fs.existsSync(resolved)) return resolved;
+    const config = readJsonFile(configPath);
+    const agents = isRecord(config.agents) ? config.agents : undefined;
+    const defaults = isRecord(agents?.defaults) ? agents.defaults : undefined;
+    const defaultWorkspace = typeof defaults?.workspace === 'string' ? defaults.workspace : undefined;
+    if (defaultWorkspace) {
+      const resolved = resolveTildePath(defaultWorkspace);
+      if (fs.existsSync(resolved)) {
+        return resolved;
       }
+    }
 
-      const agents = config?.agents?.list;
-      if (Array.isArray(agents)) {
-        for (const agent of agents) {
-          if (agent?.workspace && typeof agent.workspace === 'string') {
-            const resolved = resolveTildePath(agent.workspace);
-            if (fs.existsSync(resolved)) return resolved;
-          }
-        }
+    const agentList = Array.isArray(agents?.list) ? agents.list : [];
+    for (const agent of agentList) {
+      if (!isRecord(agent) || typeof agent.workspace !== 'string') {
+        continue;
       }
-    } catch {
-      // JSON5 parsing failed, continue
+      const resolved = resolveTildePath(agent.workspace);
+      if (fs.existsSync(resolved)) {
+        return resolved;
+      }
     }
   }
 
   return null;
 }
 
-/**
- * Read and return the OpenClaw config (openclaw.json).
- * Returns null if file doesn't exist or can't be parsed.
- */
-function readOpenClawConfig(): { config: any; configPath: string } | null {
-  const homeDir = os.homedir();
-  const configPath = path.join(homeDir, '.openclaw', 'openclaw.json');
+function readOpenClawConfig(): { config: JsonObject; configPath: string } {
+  const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+  return { config: readJsonFile(configPath), configPath };
+}
 
-  if (!fs.existsSync(configPath)) {
-    return { config: {}, configPath };
-  }
-
-  try {
-    const raw = fs.readFileSync(configPath, 'utf8');
-    const stripped = stripJsonComments(raw);
-    return { config: JSON.parse(stripped), configPath };
-  } catch {
-    return { config: {}, configPath };
-  }
+function readMcporterConfig(configPath: string): JsonObject {
+  return readJsonFile(configPath);
 }
 
 /**
@@ -259,211 +395,543 @@ function readOpenClawConfig(): { config: any; configPath: string } | null {
  */
 function cleanOldAgentsBlock(workspaceDir: string, options: OpenClawSetupOptions): boolean {
   const agentsPath = path.join(workspaceDir, 'AGENTS.md');
-  if (!fs.existsSync(agentsPath)) return false;
+  if (!fs.existsSync(agentsPath)) {
+    return false;
+  }
 
   const content = fs.readFileSync(agentsPath, 'utf8');
   const startMarker = '<!-- BEGIN AUTOMEM OPENCLAW RULES -->';
   const endMarker = '<!-- END AUTOMEM OPENCLAW RULES -->';
+  const startIndex = content.indexOf(startMarker);
+  const endIndex = content.indexOf(endMarker);
 
-  const startIdx = content.indexOf(startMarker);
-  const endIdx = content.indexOf(endMarker);
-
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return false;
+  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
+    return false;
+  }
 
   if (options.dryRun) {
-    log(`[DRY RUN] Would remove old AutoMem block from AGENTS.md`, options.quiet);
+    log('[DRY RUN] Would remove old AutoMem block from AGENTS.md', options.quiet);
     return true;
   }
 
   const backup = backupPath(agentsPath);
   fs.copyFileSync(agentsPath, backup);
-  log(`📦 Backup created: ${backup}`, options.quiet);
+  log(`Backup created: ${backup}`, options.quiet);
 
-  const before = content.slice(0, startIdx).trimEnd();
-  const after = content.slice(endIdx + endMarker.length).trimStart();
-  const cleaned = before + (after ? '\n\n' + after : '') + '\n';
+  const before = content.slice(0, startIndex).trimEnd();
+  const after = content.slice(endIndex + endMarker.length).trimStart();
+  const cleaned = `${before}${after ? `\n\n${after}` : ''}\n`;
 
   fs.writeFileSync(agentsPath, cleaned, 'utf8');
-  log(`🧹 Removed old AutoMem block from AGENTS.md`, options.quiet);
+  log('Removed old AutoMem block from AGENTS.md', options.quiet);
   return true;
 }
 
-/**
- * Install the AutoMem skill to ~/.openclaw/skills/automem/SKILL.md
- */
-function installSkill(options: OpenClawSetupOptions): void {
-  const homeDir = os.homedir();
-  const skillDir = path.join(homeDir, '.openclaw', 'skills', 'automem');
-  const skillTarget = path.join(skillDir, 'SKILL.md');
-  const skillSource = path.join(TEMPLATE_ROOT, 'skill', 'SKILL.md');
-
-  if (!fs.existsSync(skillSource)) {
-    console.error(`❌ Skill template not found: ${skillSource}`);
-    process.exit(1);
-  }
-
-  const content = fs.readFileSync(skillSource, 'utf8');
-  writeFileWithBackup(skillTarget, content, options);
-}
-
-/**
- * Configure env vars in openclaw.json under skills.entries.automem.env
- */
-function configureEnvVars(options: OpenClawSetupOptions): void {
-  const result = readOpenClawConfig();
-  if (!result) return;
-
-  const { config, configPath } = result;
-
-  const endpoint = options.endpoint || process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
-  const apiKey = options.apiKey || process.env.AUTOMEM_API_KEY || '';
-
-  // Deep-merge skills.entries.automem
-  if (!config.skills) config.skills = {};
-  if (!config.skills.entries) config.skills.entries = {};
-
-  const existingEnv = config.skills.entries?.automem?.env || {};
-
-  // CLI flags override existing config; existing config fills in gaps
-  config.skills.entries.automem = {
-    ...config.skills.entries.automem,
-    enabled: true,
-    env: {
-      ...existingEnv,
-      AUTOMEM_ENDPOINT: endpoint,
-      ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}),
-    },
-  };
-
-  if (options.dryRun) {
-    log(`[DRY RUN] Would update: ${configPath}`, options.quiet);
-    log(`[DRY RUN] skills.entries.automem = ${JSON.stringify(config.skills.entries.automem, null, 2)}`, options.quiet);
+function ensureMemoryDir(workspaceDir: string | null, options: OpenClawSetupOptions): void {
+  if (!workspaceDir) {
     return;
   }
 
-  const dir = path.dirname(configPath);
-  fs.mkdirSync(dir, { recursive: true });
-
-  if (fs.existsSync(configPath)) {
-    const backup = backupPath(configPath);
-    fs.copyFileSync(configPath, backup);
-    log(`📦 Backup created: ${backup}`, options.quiet);
+  const memoryDir = path.join(workspaceDir, 'memory');
+  if (fs.existsSync(memoryDir)) {
+    log(`Exists: ${memoryDir}`, options.quiet);
+    return;
   }
 
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
-  log(`✅ Updated: ${configPath}`, options.quiet);
+  if (options.dryRun) {
+    log(`[DRY RUN] Would create ${memoryDir}/`, options.quiet);
+    return;
+  }
+
+  fs.mkdirSync(memoryDir, { recursive: true });
+  const gitkeepPath = path.join(memoryDir, '.gitkeep');
+  if (!fs.existsSync(gitkeepPath)) {
+    fs.writeFileSync(gitkeepPath, '', 'utf8');
+  }
+  log(`Created: ${memoryDir}/`, options.quiet);
 }
 
-/**
- * Ensure memory/ directory exists in workspace.
- */
-function ensureMemoryDir(workspaceDir: string, options: OpenClawSetupOptions): void {
-  const memoryDir = path.join(workspaceDir, 'memory');
-  if (!fs.existsSync(memoryDir)) {
-    if (options.dryRun) {
-      log(`[DRY RUN] Would create: ${memoryDir}/`, options.quiet);
-    } else {
-      fs.mkdirSync(memoryDir, { recursive: true });
-      const gitkeepPath = path.join(memoryDir, '.gitkeep');
-      if (!fs.existsSync(gitkeepPath)) {
-        fs.writeFileSync(gitkeepPath, '', 'utf8');
-      }
-      log(`✅ Created: memory/`, options.quiet);
-    }
-  } else {
-    log(`✓ Exists: memory/`, options.quiet);
+function renderConfigEntryForOutput(label: string, entry: unknown, options: OpenClawSetupOptions) {
+  log(`${label}: ${JSON.stringify(redactConfigForOutput(entry), null, 2)}`, options.quiet);
+}
+
+export function buildPluginConfigEntry(params: {
+  existing?: Record<string, unknown>;
+  endpoint: string;
+  apiKey?: string;
+  defaultTags: string[];
+}): Record<string, unknown> {
+  const existing = isRecord(params.existing) ? params.existing : {};
+  const existingConfig = isRecord(existing.config) ? existing.config : {};
+  const existingApiKey =
+    typeof existingConfig.apiKey === 'string' && existingConfig.apiKey.trim()
+      ? existingConfig.apiKey.trim()
+      : undefined;
+
+  return {
+    ...existing,
+    enabled: true,
+    config: {
+      ...existingConfig,
+      endpoint: params.endpoint,
+      ...(params.apiKey || existingApiKey ? { apiKey: params.apiKey || existingApiKey } : {}),
+      autoRecall:
+        typeof existingConfig.autoRecall === 'boolean' ? existingConfig.autoRecall : true,
+      autoRecallLimit:
+        typeof existingConfig.autoRecallLimit === 'number' && Number.isFinite(existingConfig.autoRecallLimit)
+          ? existingConfig.autoRecallLimit
+          : 3,
+      exposure:
+        typeof existingConfig.exposure === 'string' && existingConfig.exposure.trim()
+          ? existingConfig.exposure
+          : 'dm-only',
+      ...(params.defaultTags.length > 0 ? { defaultTags: params.defaultTags } : {}),
+    },
+  };
+}
+
+export function buildSkillConfigEntry(params: {
+  existing?: Record<string, unknown>;
+  endpoint: string;
+  apiKey?: string;
+  defaultTags: string[];
+}): Record<string, unknown> {
+  const existing = isRecord(params.existing) ? params.existing : {};
+  const existingEnv = isRecord(existing.env) ? existing.env : {};
+  const existingApiKey =
+    typeof existing.apiKey === 'string' && existing.apiKey.trim() ? existing.apiKey.trim() : undefined;
+
+  return {
+    ...existing,
+    enabled: true,
+    ...(params.apiKey || existingApiKey ? { apiKey: params.apiKey || existingApiKey } : {}),
+    env: {
+      ...existingEnv,
+      AUTOMEM_ENDPOINT: params.endpoint,
+      ...(params.defaultTags.length > 0
+        ? { AUTOMEM_DEFAULT_TAGS: params.defaultTags.join(',') }
+        : {}),
+    },
+  };
+}
+
+export function buildMcporterConfig(params: {
+  existing?: Record<string, unknown>;
+  serverPackage?: string;
+}): Record<string, unknown> {
+  const existing = isRecord(params.existing) ? params.existing : {};
+  const existingServers = isRecord(existing.mcpServers) ? existing.mcpServers : {};
+  const serverPackage = params.serverPackage || readCurrentPackageName();
+
+  return {
+    ...existing,
+    mcpServers: {
+      ...existingServers,
+      automem: {
+        description: 'AutoMem memory service',
+        command: 'npx',
+        args: ['-y', serverPackage],
+      },
+    },
+    imports: Array.isArray(existing.imports) ? existing.imports : [],
+  };
+}
+
+function normalizeSkillEntryForPlugin(existing?: Record<string, unknown>): Record<string, unknown> {
+  const next = isRecord(existing) ? { ...existing } : {};
+  delete next.apiKey;
+  delete next.env;
+  return {
+    ...next,
+    enabled: true,
+  };
+}
+
+function disablePluginEntry(existing?: Record<string, unknown>): Record<string, unknown> {
+  const next = isRecord(existing) ? { ...existing } : {};
+  next.enabled = false;
+  return next;
+}
+
+function installSkillTemplate(params: {
+  templateName: string;
+  scope: OpenClawSetupScope;
+  workspaceDir: string | null;
+  options: OpenClawSetupOptions;
+}) {
+  const sourcePath = path.join(TEMPLATE_ROOT, params.templateName, 'SKILL.md');
+  if (!fs.existsSync(sourcePath)) {
+    fail(`Skill template not found: ${sourcePath}`);
   }
+
+  const targetPath =
+    params.scope === 'workspace'
+      ? path.join(params.workspaceDir || '', 'skills', OPENCLAW_PLUGIN_ID, 'SKILL.md')
+      : path.join(os.homedir(), '.openclaw', 'skills', OPENCLAW_PLUGIN_ID, 'SKILL.md');
+
+  if (params.scope === 'workspace' && !params.workspaceDir) {
+    fail('Could not determine an OpenClaw workspace. Use --workspace <path> or --scope shared.');
+  }
+
+  const content = fs.readFileSync(sourcePath, 'utf8');
+  writeFileWithBackup(targetPath, content, params.options);
+}
+
+function archiveSkillOverride(targetPath: string, options: OpenClawSetupOptions): string | null {
+  if (!fs.existsSync(targetPath)) {
+    return null;
+  }
+
+  const archived = archivePath(targetPath);
+  if (options.dryRun) {
+    log(`[DRY RUN] Would archive ${targetPath} -> ${archived}`, options.quiet);
+    return archived;
+  }
+
+  fs.renameSync(targetPath, archived);
+  log(`Archived ${targetPath} -> ${archived}`, options.quiet);
+  return archived;
+}
+
+function archiveLegacySkillOverrides(workspaceDir: string | null, options: OpenClawSetupOptions): string[] {
+  const archived: string[] = [];
+  const sharedSkillDir = path.join(os.homedir(), '.openclaw', 'skills', OPENCLAW_PLUGIN_ID);
+  const workspaceSkillDir = workspaceDir
+    ? path.join(workspaceDir, 'skills', OPENCLAW_PLUGIN_ID)
+    : null;
+
+  const sharedArchived = archiveSkillOverride(sharedSkillDir, options);
+  if (sharedArchived) {
+    archived.push(sharedArchived);
+  }
+
+  if (workspaceSkillDir) {
+    const workspaceArchived = archiveSkillOverride(workspaceSkillDir, options);
+    if (workspaceArchived) {
+      archived.push(workspaceArchived);
+    }
+  }
+
+  return archived;
+}
+
+function installOpenClawPlugin(pluginSource: string, options: OpenClawSetupOptions) {
+  if (options.dryRun) {
+    log(`[DRY RUN] Would run: openclaw plugins install ${pluginSource}`, options.quiet);
+    return;
+  }
+
+  const timeout = options.timeoutMs ?? 120_000;
+  try {
+    execFileSync('openclaw', ['plugins', 'install', pluginSource], {
+      stdio: options.quiet ? 'ignore' : 'inherit',
+      env: process.env,
+      timeout,
+    });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
+    if (err.killed || err.signal || err.code === 'ETIMEDOUT') {
+      fail(`OpenClaw plugin install timed out after ${timeout} ms.`);
+    }
+    if (err.code === 'ENOENT') {
+      fail('OpenClaw CLI not found on PATH. Install OpenClaw before using --mode plugin.');
+    }
+    fail(`Failed to install OpenClaw plugin from ${pluginSource}. ${err.message}`);
+  }
+}
+
+function resolveMcporterConfigPath(scope: OpenClawSetupScope, workspaceDir: string | null): string {
+  if (scope === 'shared') {
+    return path.join(os.homedir(), '.mcporter', 'mcporter.json');
+  }
+  if (!workspaceDir) {
+    fail('Could not determine an OpenClaw workspace. Use --workspace <path> or --scope shared.');
+  }
+  return path.join(workspaceDir, 'config', 'mcporter.json');
+}
+
+function updateOpenClawConfig(config: JsonObject, configPath: string, options: OpenClawSetupOptions) {
+  writeJsonFileWithBackup(configPath, config, options);
+}
+
+function applyPluginMode(params: {
+  config: JsonObject;
+  configPath: string;
+  workspaceDir: string | null;
+  options: OpenClawSetupOptions;
+  endpoint: string;
+  apiKey?: string;
+  defaultTags: string[];
+}) {
+  installOpenClawPlugin(resolvePluginSource(params.options.pluginSource), params.options);
+  archiveLegacySkillOverrides(params.workspaceDir, params.options);
+
+  const plugins = isRecord(params.config.plugins) ? { ...params.config.plugins } : {};
+  const pluginEntries = isRecord(plugins.entries) ? { ...plugins.entries } : {};
+  const existingPluginEntry = isRecord(pluginEntries[OPENCLAW_PLUGIN_ID])
+    ? (pluginEntries[OPENCLAW_PLUGIN_ID] as Record<string, unknown>)
+    : undefined;
+  pluginEntries[OPENCLAW_PLUGIN_ID] = buildPluginConfigEntry({
+    existing: existingPluginEntry,
+    endpoint: params.endpoint,
+    apiKey: params.apiKey,
+    defaultTags: params.defaultTags,
+  }) as JsonValue;
+  plugins.entries = pluginEntries as JsonValue;
+  params.config.plugins = plugins as JsonValue;
+
+  const skills = isRecord(params.config.skills) ? { ...params.config.skills } : {};
+  const skillEntries = isRecord(skills.entries) ? { ...skills.entries } : {};
+  const existingSkillEntry = isRecord(skillEntries[OPENCLAW_PLUGIN_ID])
+    ? (skillEntries[OPENCLAW_PLUGIN_ID] as Record<string, unknown>)
+    : undefined;
+  skillEntries[OPENCLAW_PLUGIN_ID] = normalizeSkillEntryForPlugin(existingSkillEntry) as JsonValue;
+  skills.entries = skillEntries as JsonValue;
+  params.config.skills = skills as JsonValue;
+
+  if (params.options.dryRun) {
+    renderConfigEntryForOutput(
+      '[DRY RUN] plugins.entries.automem',
+      pluginEntries[OPENCLAW_PLUGIN_ID],
+      params.options
+    );
+  }
+
+  updateOpenClawConfig(params.config, params.configPath, params.options);
+}
+
+function applySkillMode(params: {
+  config: JsonObject;
+  configPath: string;
+  workspaceDir: string | null;
+  options: OpenClawSetupOptions;
+  endpoint: string;
+  apiKey?: string;
+  defaultTags: string[];
+  templateName: 'skill-mcp' | 'skill-legacy';
+}) {
+  installSkillTemplate({
+    templateName: params.templateName,
+    scope: params.options.scope,
+    workspaceDir: params.workspaceDir,
+    options: params.options,
+  });
+
+  const skills = isRecord(params.config.skills) ? { ...params.config.skills } : {};
+  const skillEntries = isRecord(skills.entries) ? { ...skills.entries } : {};
+  const existingSkillEntry = isRecord(skillEntries[OPENCLAW_PLUGIN_ID])
+    ? (skillEntries[OPENCLAW_PLUGIN_ID] as Record<string, unknown>)
+    : undefined;
+  skillEntries[OPENCLAW_PLUGIN_ID] = buildSkillConfigEntry({
+    existing: existingSkillEntry,
+    endpoint: params.endpoint,
+    apiKey: params.apiKey,
+    defaultTags: params.defaultTags,
+  }) as JsonValue;
+  skills.entries = skillEntries as JsonValue;
+  params.config.skills = skills as JsonValue;
+
+  const plugins = isRecord(params.config.plugins) ? { ...params.config.plugins } : {};
+  const pluginEntries = isRecord(plugins.entries) ? { ...plugins.entries } : {};
+  const existingPluginEntry = isRecord(pluginEntries[OPENCLAW_PLUGIN_ID])
+    ? (pluginEntries[OPENCLAW_PLUGIN_ID] as Record<string, unknown>)
+    : undefined;
+  if (existingPluginEntry) {
+    pluginEntries[OPENCLAW_PLUGIN_ID] = disablePluginEntry(existingPluginEntry) as JsonValue;
+    plugins.entries = pluginEntries as JsonValue;
+    params.config.plugins = plugins as JsonValue;
+  }
+
+  if (params.options.dryRun) {
+    renderConfigEntryForOutput(
+      '[DRY RUN] skills.entries.automem',
+      skillEntries[OPENCLAW_PLUGIN_ID],
+      params.options
+    );
+  }
+
+  updateOpenClawConfig(params.config, params.configPath, params.options);
+}
+
+function applyMcpMode(params: {
+  config: JsonObject;
+  configPath: string;
+  workspaceDir: string | null;
+  options: OpenClawSetupOptions;
+  endpoint: string;
+  apiKey?: string;
+  defaultTags: string[];
+}) {
+  applySkillMode({
+    ...params,
+    templateName: 'skill-mcp',
+  });
+
+  const mcporterPath = resolveMcporterConfigPath(params.options.scope, params.workspaceDir);
+  const currentMcporterConfig = readMcporterConfig(mcporterPath);
+  const nextMcporterConfig = buildMcporterConfig({ existing: currentMcporterConfig });
+
+  if (params.options.dryRun) {
+    renderConfigEntryForOutput('[DRY RUN] mcporter.json', nextMcporterConfig, params.options);
+  }
+
+  writeJsonFileWithBackup(mcporterPath, nextMcporterConfig as JsonObject, params.options);
+}
+
+function resolveModeSummary(mode: OpenClawSetupMode): string {
+  switch (mode) {
+    case 'plugin':
+      return 'native OpenClaw plugin with typed tools and auto-recall hook';
+    case 'mcp':
+      return 'workspace skill plus mcporter stdio server';
+    case 'skill':
+      return 'legacy curl-based skill';
+  }
+}
+
+function resolveEndpoint(options: OpenClawSetupOptions): string {
+  return options.endpoint?.trim() || process.env.AUTOMEM_ENDPOINT || DEFAULT_AUTOMEM_ENDPOINT;
+}
+
+function resolveApiKey(options: OpenClawSetupOptions): string | undefined {
+  return options.apiKey?.trim() || readAutoMemApiKeyFromEnv();
 }
 
 export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Promise<void> {
   const projectName = cliOptions.projectName ?? detectProjectName();
-
-  // Resolve workspace
+  const endpoint = resolveEndpoint(cliOptions);
+  const apiKey = resolveApiKey(cliOptions);
+  const defaultTags = buildDefaultTags(projectName);
   const workspaceDir = resolveWorkspaceDir(cliOptions.workspace);
+  const requiresWorkspace = cliOptions.mode !== 'plugin' || cliOptions.scope === 'workspace';
 
-  if (!workspaceDir) {
-    console.error(`\n❌ Could not find OpenClaw workspace directory.`);
-    console.error(`\n   Checked:`);
-    console.error(`   • OPENCLAW_WORKSPACE environment variable`);
-    console.error(`   • OpenClaw config (~/.openclaw/openclaw.json)`);
-    console.error(`   • ~/.openclaw/workspace`);
-    console.error(`   • ~/clawd`);
-    console.error(`\n   Use --workspace <path> to specify manually.`);
-    process.exit(1);
+  if (requiresWorkspace && !workspaceDir) {
+    fail(
+      'Could not find an OpenClaw workspace. Use --workspace <path>, set OPENCLAW_WORKSPACE, or choose --scope shared.'
+    );
   }
 
-  log(`\n🔧 Setting up OpenClaw AutoMem for: ${projectName}`, cliOptions.quiet);
-  log(`📁 Workspace: ${workspaceDir}`, cliOptions.quiet);
-  log(`📦 Architecture: native skill (curl → AutoMem HTTP API)\n`, cliOptions.quiet);
+  const { config, configPath } = readOpenClawConfig();
 
-  // 1. Install skill to ~/.openclaw/skills/automem/SKILL.md
-  installSkill(cliOptions);
+  log(`Setting up OpenClaw AutoMem for ${projectName}`, cliOptions.quiet);
+  log(`Mode: ${cliOptions.mode} (${resolveModeSummary(cliOptions.mode)})`, cliOptions.quiet);
+  log(`Workspace: ${workspaceDir || '(not required for this run)'}`, cliOptions.quiet);
+  if (cliOptions.mode !== 'plugin') {
+    log(`Scope: ${cliOptions.scope}`, cliOptions.quiet);
+  }
+  log(`Endpoint: ${endpoint}`, cliOptions.quiet);
+  log(`Default tags: ${defaultTags.join(', ')}`, cliOptions.quiet);
 
-  // 2. Configure env vars in openclaw.json
-  configureEnvVars(cliOptions);
+  if (cliOptions.mode === 'plugin') {
+    applyPluginMode({
+      config,
+      configPath,
+      workspaceDir,
+      options: cliOptions,
+      endpoint,
+      apiKey,
+      defaultTags,
+    });
+  } else if (cliOptions.mode === 'mcp') {
+    applyMcpMode({
+      config,
+      configPath,
+      workspaceDir,
+      options: cliOptions,
+      endpoint,
+      apiKey,
+      defaultTags,
+    });
+  } else {
+    applySkillMode({
+      config,
+      configPath,
+      workspaceDir,
+      options: cliOptions,
+      endpoint,
+      apiKey,
+      defaultTags,
+      templateName: 'skill-legacy',
+    });
+  }
 
-  // 3. Ensure memory/ directory exists
   ensureMemoryDir(workspaceDir, cliOptions);
 
-  // 4. Clean up old AGENTS.md block from previous installs
-  cleanOldAgentsBlock(workspaceDir, cliOptions);
+  if (workspaceDir) {
+    cleanOldAgentsBlock(workspaceDir, cliOptions);
+  }
 
-  // Summary
-  const endpoint = cliOptions.endpoint || process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
-
-  log('\n📊 Configuration Status:', cliOptions.quiet);
-  log(`  ✅ Skill installed: ~/.openclaw/skills/automem/SKILL.md`, cliOptions.quiet);
-  log(`  ✅ Env vars configured in ~/.openclaw/openclaw.json`, cliOptions.quiet);
-  log(`  ✅ memory/ directory ready`, cliOptions.quiet);
-  log(`  🔗 Endpoint: ${endpoint}`, cliOptions.quiet);
-
-  log('\n✨ OpenClaw AutoMem setup complete!\n', cliOptions.quiet);
-  log('Next steps:', cliOptions.quiet);
-  log('  1. Ensure AutoMem service is running at the configured endpoint', cliOptions.quiet);
-  log('  2. Restart OpenClaw gateway to pick up the new skill', cliOptions.quiet);
-  log('  3. Send a message — the bot will recall and store memories via curl', cliOptions.quiet);
-
-  log('\n💡 What the bot should do:', cliOptions.quiet);
-  log(`  • Recall memories via: curl $AUTOMEM_ENDPOINT/recall?query=...`, cliOptions.quiet);
-  log(`  • Store memories via: curl -X POST $AUTOMEM_ENDPOINT/memory`, cliOptions.quiet);
-  log('  • NOT mention disabled API keys or missing tools', cliOptions.quiet);
-  log('  • Only check /health if curl calls are failing', cliOptions.quiet);
-
-  log(`\n💡 Tip: Run with --dry-run to preview changes without modifying files`, cliOptions.quiet);
+  log('', cliOptions.quiet);
+  log('OpenClaw AutoMem setup complete.', cliOptions.quiet);
+  if (cliOptions.mode === 'plugin') {
+    log('Next: restart the OpenClaw gateway so the plugin and bundled skill are reloaded.', cliOptions.quiet);
+  } else if (cliOptions.mode === 'mcp') {
+    log('Next: start a new session so OpenClaw loads the mcporter-backed AutoMem tools.', cliOptions.quiet);
+  } else {
+    log('Next: start a new session so OpenClaw loads the legacy curl skill.', cliOptions.quiet);
+  }
 }
 
-function parseArgs(args: string[]): OpenClawSetupOptions {
-  const options: OpenClawSetupOptions = {};
+export function parseArgs(args: string[]): OpenClawSetupOptions {
+  const options: OpenClawSetupOptions = {
+    mode: 'plugin',
+    scope: 'workspace',
+  };
+
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     switch (arg) {
       case '--workspace':
         if (i + 1 >= args.length) {
-          console.error('Error: --workspace requires a path');
-          process.exit(1);
+          fail('Error: --workspace requires a path');
         }
         options.workspace = args[++i];
         break;
       case '--name':
         if (i + 1 >= args.length) {
-          console.error('Error: --name requires a value');
-          process.exit(1);
+          fail('Error: --name requires a value');
         }
         options.projectName = args[++i];
         break;
       case '--endpoint':
         if (i + 1 >= args.length) {
-          console.error('Error: --endpoint requires a URL');
-          process.exit(1);
+          fail('Error: --endpoint requires a URL');
         }
         options.endpoint = args[++i];
         break;
       case '--api-key':
         if (i + 1 >= args.length) {
-          console.error('Error: --api-key requires a value');
-          process.exit(1);
+          fail('Error: --api-key requires a value');
         }
         options.apiKey = args[++i];
+        break;
+      case '--mode': {
+        if (i + 1 >= args.length) {
+          fail('Error: --mode requires plugin, mcp, or skill');
+        }
+        const modeValue = args[++i];
+        if (modeValue !== 'plugin' && modeValue !== 'mcp' && modeValue !== 'skill') {
+          fail(`Error: invalid --mode "${modeValue}". Use plugin, mcp, or skill.`);
+        }
+        options.mode = modeValue;
+        break;
+      }
+      case '--scope': {
+        if (i + 1 >= args.length) {
+          fail('Error: --scope requires workspace or shared');
+        }
+        const scopeValue = args[++i];
+        if (scopeValue !== 'workspace' && scopeValue !== 'shared') {
+          fail(`Error: invalid --scope "${scopeValue}". Use workspace or shared.`);
+        }
+        options.scope = scopeValue;
+        break;
+      }
+      case '--plugin-source':
+        if (i + 1 >= args.length) {
+          fail('Error: --plugin-source requires an npm spec or path');
+        }
+        options.pluginSource = args[++i];
         break;
       case '--dry-run':
         options.dryRun = true;
@@ -479,10 +947,17 @@ function parseArgs(args: string[]): OpenClawSetupOptions {
         break;
     }
   }
+
   return options;
 }
 
 export async function runOpenClawSetup(args: string[] = []): Promise<void> {
-  const options = parseArgs(args);
-  await applyOpenClawSetup(options);
+  try {
+    const options = parseArgs(args);
+    await applyOpenClawSetup(options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exit(1);
+  }
 }

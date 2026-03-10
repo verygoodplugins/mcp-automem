@@ -194,12 +194,15 @@ OPENCLAW SETUP:
   npx @verygoodplugins/mcp-automem openclaw [options]
 
   Options:
-    --workspace <path>    OpenClaw workspace directory (auto-detected)
-    --endpoint <url>      AutoMem endpoint (default: http://127.0.0.1:8001)
-    --api-key <key>       AutoMem API key (optional)
-    --name <name>         Project name (auto-detected if not provided)
-    --dry-run             Show what would be changed
-    --quiet               Suppress output
+    --mode <plugin|mcp|skill>   Integration mode (default: plugin)
+    --scope <workspace|shared>  Install scope for mcp/skill modes (default: workspace)
+    --workspace <path>          OpenClaw workspace directory (auto-detected)
+    --endpoint <url>            AutoMem endpoint (default: http://127.0.0.1:8001)
+    --api-key <key>             AutoMem API key (optional)
+    --plugin-source <spec>      npm spec or path for plugin installs
+    --name <name>               Project name used to seed default memory tags
+    --dry-run                   Show what would be changed
+    --quiet                     Suppress output
 
 For more information, visit:
 https://github.com/verygoodplugins/mcp-automem

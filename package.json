@@ -11,6 +11,11 @@
   "bin": {
     "mcp-automem": "dist/index.js"
   },
+  "openclaw": {
+    "extensions": [
+      "./dist/openclaw-plugin.js"
+    ]
+  },
   "scripts": {
     "build": "tsc && npm run postbuild",
     "postbuild": "chmod +x dist/index.js",
@@ -71,10 +76,12 @@
   "files": [
     "dist/",
     "templates",
+    "skills",
     "plugins",
     ".claude-plugin",
     "assets",
     "manifest.json",
+    "openclaw.plugin.json",
     "env.example",
     "README.md",
     "CHANGELOG.md",
