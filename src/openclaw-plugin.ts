@@ -6,6 +6,7 @@ import type {
   StoreMemoryArgs,
   UpdateMemoryArgs,
 } from './types.js';
+import { AUTHORABLE_RELATION_TYPES } from './types.js';
 
 type PluginConfig = {
   endpoint: string;
@@ -207,7 +208,7 @@ const associateMemorySchema = {
   properties: {
     memory1_id: { type: 'string' },
     memory2_id: { type: 'string' },
-    type: { type: 'string' },
+    type: { type: 'string', enum: [...AUTHORABLE_RELATION_TYPES] },
     strength: { type: 'number' },
   },
 };

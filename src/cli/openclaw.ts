@@ -22,17 +22,15 @@ interface OpenClawSetupOptions {
 }
 
 type JsonPrimitive = string | number | boolean | null;
-interface JsonArray extends Array<JsonValue> {}
-interface JsonObject {
-  [key: string]: JsonValue | undefined;
-}
+type JsonArray = JsonValue[];
+type JsonObject = { [key: string]: JsonValue | undefined };
 type JsonValue = JsonPrimitive | JsonObject | JsonArray;
 
 const TEMPLATE_ROOT = path.resolve(
   fileURLToPath(new URL('../../templates/openclaw', import.meta.url))
 );
 const PACKAGE_ROOT = path.resolve(fileURLToPath(new URL('../../package.json', import.meta.url)));
-const DEFAULT_AUTOMEM_ENDPOINT = 'http://127.0.0.1:8001';
+import { DEFAULT_AUTOMEM_ENDPOINT } from './templates.js';
 const DEFAULT_PLUGIN_SOURCE = '@verygoodplugins/mcp-automem';
 const OPENCLAW_PLUGIN_ID = 'automem';
 const SENSITIVE_KEY_PATTERN = /(api[-_]?key|token|secret|authorization)/i;
@@ -255,11 +253,11 @@ function sanitizeTag(input: string): string {
 }
 
 export function buildDefaultTags(projectName?: string): string[] {
-  const tags = ['openclaw'];
+  const tags = ['platform/openclaw'];
   const normalizedProjectName = String(projectName || '').replace(/^@.*?\//, '');
   const sanitized = sanitizeTag(normalizedProjectName);
-  if (sanitized && !tags.includes(sanitized)) {
-    tags.push(sanitized);
+  if (sanitized) {
+    tags.push(`project/${sanitized}`);
   }
   return tags;
 }
@@ -530,7 +528,7 @@ export function buildMcporterConfig(params: {
       automem: {
         description: 'AutoMem memory service',
         command: 'npx',
-        args: [serverPackage],
+        args: ['-y', serverPackage],
       },
     },
     imports: Array.isArray(existing.imports) ? existing.imports : [],

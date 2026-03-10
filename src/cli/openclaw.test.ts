@@ -39,8 +39,11 @@ describe('openclaw cli helpers', () => {
   });
 
   it('builds default tags from project names', () => {
-    expect(buildDefaultTags('@scope/My Cool Project')).toEqual(['openclaw', 'my-cool-project']);
-    expect(buildDefaultTags('')).toEqual(['openclaw']);
+    expect(buildDefaultTags('@scope/My Cool Project')).toEqual([
+      'platform/openclaw',
+      'project/my-cool-project',
+    ]);
+    expect(buildDefaultTags('')).toEqual(['platform/openclaw']);
   });
 
   it('redacts sensitive output recursively', () => {
@@ -124,7 +127,7 @@ describe('openclaw cli helpers', () => {
         automem: {
           description: 'AutoMem memory service',
           command: 'npx',
-          args: ['@verygoodplugins/mcp-automem'],
+          args: ['-y', '@verygoodplugins/mcp-automem'],
         },
         other: {
           command: 'uvx',

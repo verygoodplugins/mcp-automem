@@ -51,7 +51,9 @@ function runCliExpectSuccess(
 ): string {
   const result = runCli(args, options);
   if (result.exitCode !== 0) {
-    console.error('CLI stderr:', result.stderr);
+    throw new Error(
+      `CLI exited ${result.exitCode}\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`
+    );
   }
   return result.stdout;
 }
@@ -281,8 +283,8 @@ describe('CLI Smoke Tests', () => {
         }
       );
 
-      expect(output).toMatch(/Would archive .*\.openclaw\/skills\/automem/i);
-      expect(output).toMatch(/Would archive .*\/skills\/automem/i);
+      expect(output).toMatch(/Would archive .*\.openclaw[\\/]+skills[\\/]+automem/i);
+      expect(output).toMatch(/Would archive .*[\\/]+skills[\\/]+automem/i);
     });
   });
 });
