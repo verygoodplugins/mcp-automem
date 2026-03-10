@@ -117,7 +117,8 @@ function readJsonFile(filePath: string): JsonObject {
     const stripped = stripJsonComments(raw);
     const parsed = JSON.parse(stripped) as unknown;
     return isRecord(parsed) ? (parsed as JsonObject) : {};
-  } catch {
+  } catch (error) {
+    console.warn(`Warning: Failed to parse ${filePath}, using defaults.`, (error as Error).message);
     return {};
   }
 }
