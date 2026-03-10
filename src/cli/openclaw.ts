@@ -264,7 +264,7 @@ export function buildDefaultTags(projectName?: string): string[] {
   return tags;
 }
 
-export function redactSensitiveValue(value: unknown): string | unknown {
+export function redactSensitiveValue(value: unknown): unknown {
   if (value === undefined || value === null || value === '') {
     return value;
   }
@@ -906,27 +906,25 @@ export function parseArgs(args: string[]): OpenClawSetupOptions {
         options.apiKey = args[++i];
         break;
       case '--mode': {
-        const value = args[i + 1];
-        if (!value) {
+        if (i + 1 >= args.length) {
           fail('Error: --mode requires plugin, mcp, or skill');
         }
-        if (value !== 'plugin' && value !== 'mcp' && value !== 'skill') {
-          fail(`Error: invalid --mode "${value}". Use plugin, mcp, or skill.`);
+        const modeValue = args[++i];
+        if (modeValue !== 'plugin' && modeValue !== 'mcp' && modeValue !== 'skill') {
+          fail(`Error: invalid --mode "${modeValue}". Use plugin, mcp, or skill.`);
         }
-        options.mode = value;
-        i += 1;
+        options.mode = modeValue;
         break;
       }
       case '--scope': {
-        const value = args[i + 1];
-        if (!value) {
+        if (i + 1 >= args.length) {
           fail('Error: --scope requires workspace or shared');
         }
-        if (value !== 'workspace' && value !== 'shared') {
-          fail(`Error: invalid --scope "${value}". Use workspace or shared.`);
+        const scopeValue = args[++i];
+        if (scopeValue !== 'workspace' && scopeValue !== 'shared') {
+          fail(`Error: invalid --scope "${scopeValue}". Use workspace or shared.`);
         }
-        options.scope = value;
-        i += 1;
+        options.scope = scopeValue;
         break;
       }
       case '--plugin-source':
