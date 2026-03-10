@@ -20,6 +20,7 @@ interface OpenClawSetupOptions {
   mode: OpenClawSetupMode;
   scope: OpenClawSetupScope;
   pluginSource?: string;
+  timeoutMs?: number;
 }
 
 type JsonPrimitive = string | number | boolean | null;
@@ -183,7 +184,7 @@ function detectProjectName(): string {
   }
 
   try {
-    const remote = execSync('git remote get-url origin 2>/dev/null', { encoding: 'utf8' }).trim();
+    const remote = execSync('git remote get-url origin', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
     const match = remote.match(/\/([^/]+?)(\.git)?$/);
     if (match?.[1]) {
       return match[1];
@@ -619,13 +620,18 @@ function installOpenClawPlugin(pluginSource: string, options: OpenClawSetupOptio
     return;
   }
 
+  const timeout = options.timeoutMs ?? 120_000;
   try {
     execFileSync('openclaw', ['plugins', 'install', pluginSource], {
       stdio: options.quiet ? 'ignore' : 'inherit',
       env: process.env,
+      timeout,
     });
   } catch (error) {
-    const err = error as NodeJS.ErrnoException;
+    const err = error as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
+    if (err.killed || err.signal || err.code === 'ETIMEDOUT') {
+      fail(`OpenClaw plugin install timed out after ${timeout} ms.`);
+    }
     if (err.code === 'ENOENT') {
       fail('OpenClaw CLI not found on PATH. Install OpenClaw before using --mode plugin.');
     }
