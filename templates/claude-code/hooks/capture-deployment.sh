@@ -15,29 +15,11 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
-# Check required dependencies
-if ! command -v jq >/dev/null 2>&1; then
-    echo "Warning: jq not installed - capture disabled" >&2
-    exit 0
-fi
-
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "Warning: python3 not installed - capture disabled" >&2
-    exit 0
-fi
-
-# Read JSON input from stdin (Claude Code hook format)
-INPUT_JSON=$(cat)
-
-# Parse JSON fields, fall back to env vars for backward compat
-COMMAND=$(echo "$INPUT_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null)
-COMMAND="${COMMAND:-${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}}"
-OUTPUT=$(echo "$INPUT_JSON" | jq -r '.tool_response // empty' 2>/dev/null)
-OUTPUT="${OUTPUT:-${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}}"
-EXIT_CODE=$(echo "$INPUT_JSON" | jq -r '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end' 2>/dev/null)
-EXIT_CODE="${EXIT_CODE:-${CLAUDE_EXIT_CODE:-0}}"
-CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty' 2>/dev/null)
-PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
+# Get deployment context
+COMMAND="${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}"
+OUTPUT="${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}"
+EXIT_CODE="${CLAUDE_EXIT_CODE:-0}"
+PROJECT_NAME=$(basename "$(pwd)")
 
 # Skip non-deploy commands
 if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(deploy|railway|vercel|netlify|heroku|kubectl|k8s|kubernetes|docker|gcloud|aws|cloudfront|firebase|gh pages)"; then
@@ -150,7 +132,6 @@ AUTOMEM_EXIT_CODE="$EXIT_CODE" \
 AUTOMEM_COMMAND="$COMMAND" \
 AUTOMEM_ERROR_DETAILS="$ERROR_DETAILS" \
 python3 - <<'PY'
-import hashlib
 import json
 import os
 from datetime import datetime, timezone
@@ -193,32 +174,8 @@ def to_int(value, default=0):
     except (TypeError, ValueError):
         return default
 
-def truncate(text, max_len):
-    """Truncate text to max_len to prevent oversized queue entries."""
-    if text and len(text) > max_len:
-        return text[:max_len] + "..."
-    return text
-
-def content_hash(text):
-    return hashlib.md5(text.encode("utf-8")).hexdigest()
-
-def is_duplicate(queue_path, new_content, lookback=20):
-    """Skip if identical content already queued recently."""
-    new_hash = content_hash(new_content)
-    try:
-        with open(queue_path, "r", encoding="utf-8") as f:
-            for line in f.readlines()[-lookback:]:
-                try:
-                    if content_hash(json.loads(line.strip()).get("content", "")) == new_hash:
-                        return True
-                except (json.JSONDecodeError, KeyError):
-                    continue
-    except FileNotFoundError:
-        pass
-    return False
-
 record = {
-    "content": truncate(os.environ.get("AUTOMEM_CONTENT", ""), 1500),
+    "content": os.environ.get("AUTOMEM_CONTENT", ""),
     "tags": [
         "deployment",
         os.environ.get("AUTOMEM_DEPLOY_PLATFORM", "unknown"),
@@ -236,7 +193,7 @@ record = {
         "deploy_time": optional_text(os.environ.get("AUTOMEM_DEPLOY_TIME", "")),
         "git_commit": optional_text(os.environ.get("AUTOMEM_GIT_COMMIT", "")),
         "exit_code": to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0")),
-        "command": truncate(os.environ.get("AUTOMEM_COMMAND", ""), 500),
+        "command": os.environ.get("AUTOMEM_COMMAND", ""),
         "project": os.environ.get("AUTOMEM_PROJECT", ""),
         "error_details": os.environ.get("AUTOMEM_ERROR_DETAILS", ""),
     },
@@ -245,8 +202,6 @@ record = {
 
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
 if queue_path:
-    if is_duplicate(queue_path, record["content"]):
-        raise SystemExit(0)
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)
