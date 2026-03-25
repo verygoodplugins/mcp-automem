@@ -15,11 +15,29 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
-# Get deployment context
-COMMAND="${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}"
-OUTPUT="${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}"
-EXIT_CODE="${CLAUDE_EXIT_CODE:-0}"
-PROJECT_NAME=$(basename "$(pwd)")
+# Check required dependencies
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Warning: jq not installed - capture disabled" >&2
+    exit 0
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Warning: python3 not installed - capture disabled" >&2
+    exit 0
+fi
+
+# Read JSON input from stdin (Claude Code hook format)
+INPUT_JSON=$(cat)
+
+# Parse JSON fields, fall back to env vars for backward compat
+COMMAND=$(echo "$INPUT_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null)
+COMMAND="${COMMAND:-${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}}"
+OUTPUT=$(echo "$INPUT_JSON" | jq -r '.tool_response // empty' 2>/dev/null)
+OUTPUT="${OUTPUT:-${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}}"
+EXIT_CODE=$(echo "$INPUT_JSON" | jq -r '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end' 2>/dev/null)
+EXIT_CODE="${EXIT_CODE:-${CLAUDE_EXIT_CODE:-0}}"
+CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty' 2>/dev/null)
+PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 
 # Skip non-deploy commands
 if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(deploy|railway|vercel|netlify|heroku|kubectl|k8s|kubernetes|docker|gcloud|aws|cloudfront|firebase|gh pages)"; then
@@ -116,11 +134,6 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
 fi
 
 # Queue memory for processing with safe JSON encoding and file locking
-if ! command -v jq >/dev/null 2>&1; then
-    log_message "jq not available; cannot encode deployment memory"
-    exit 1
-fi
-
 DEPLOY_PLATFORM="${DEPLOY_PLATFORM:-unknown}"
 DEPLOY_ENV="${DEPLOY_ENV:-production}"
 PROJECT_NAME="${PROJECT_NAME:-unknown}"
@@ -146,7 +159,7 @@ if ! MEMORY_RECORD=$(jq -c -n \
     --argjson exit_code "$EXIT_CODE" \
     'def optional($value): if $value == "" then null else $value end;
     {
-      content: $content,
+      content: ($content | .[0:1500]),
       tags: ["deployment", "platform:\($platform)", "env:\($env)", "project:\($project)"],
       importance: $importance,
       type: $type,
@@ -159,7 +172,7 @@ if ! MEMORY_RECORD=$(jq -c -n \
         deploy_time: optional($deploy_time),
         git_commit: optional($git_commit),
         exit_code: $exit_code,
-        command: $command,
+        command: ($command | .[0:500]),
         project: $project,
         error_details: optional($error_details)
       },
@@ -172,6 +185,8 @@ fi
 AUTOMEM_QUEUE="$MEMORY_QUEUE" \
 AUTOMEM_RECORD="$MEMORY_RECORD" \
 python3 - <<'PY'
+import hashlib
+import json
 import os
 
 try:
@@ -203,9 +218,33 @@ def unlock_file(handle):
         except OSError:
             pass
 
+def content_hash(text):
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+def is_duplicate(queue_path, new_content, lookback=20):
+    """Skip if identical content already queued recently."""
+    new_hash = content_hash(new_content)
+    try:
+        with open(queue_path, "r", encoding="utf-8") as f:
+            for line in f.readlines()[-lookback:]:
+                try:
+                    if content_hash(json.loads(line.strip()).get("content", "")) == new_hash:
+                        return True
+                except (json.JSONDecodeError, KeyError):
+                    continue
+    except FileNotFoundError:
+        pass
+    return False
+
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
 record = os.environ.get("AUTOMEM_RECORD", "")
 if queue_path and record:
+    try:
+        new_content = json.loads(record).get("content", "")
+    except (json.JSONDecodeError, KeyError):
+        new_content = ""
+    if is_duplicate(queue_path, new_content):
+        raise SystemExit(0)
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)
