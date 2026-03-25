@@ -35,7 +35,9 @@ jobs:
         env:
           CHANGED_FILES: ${{ steps.changed.outputs.files }}
         run: |
-          if ! MAP=$(curl -sf --connect-timeout 10 --max-time 30 --retry 2 --retry-connrefused "https://raw.githubusercontent.com/verygoodplugins/automem-website/main/scripts/file-doc-map.json"); then
+          if ! MAP=$(curl -sf --connect-timeout 10 --max-time 30 --retry 2 --retry-connrefused \
+            -H "Authorization: token ${{ secrets.RELEASE_PLEASE_TOKEN }}" \
+            "https://raw.githubusercontent.com/verygoodplugins/automem-website/main/scripts/file-doc-map.json"); then
             echo "Failed to fetch file-doc-map.json, skipping"
             echo "affected=none" >> $GITHUB_OUTPUT
             exit 0
