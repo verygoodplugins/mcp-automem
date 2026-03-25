@@ -9,7 +9,6 @@ import type {
   AssociateMemoryArgs,
   UpdateMemoryArgs,
   DeleteMemoryArgs,
-  TagSearchArgs,
 } from './types.js';
 
 export class AutoMemClient {
@@ -344,41 +343,6 @@ export class AutoMemClient {
     return {
       memory_id: response.memory_id || args.memory_id,
       message: response.message || 'Memory deleted successfully',
-    };
-  }
-
-  async searchByTag(args: TagSearchArgs): Promise<RecallResult> {
-    if (!args.tags || args.tags.length === 0) {
-      throw new Error('At least one tag is required');
-    }
-
-    const params = new URLSearchParams();
-    args.tags.forEach((tag) => params.append('tags', tag));
-    if (args.limit) {
-      params.set('limit', String(args.limit));
-    }
-
-    const response = await this.makeRequest('GET', `memory/by-tag?${params.toString()}`);
-    return {
-      results: (response.memories || []).map((memory: any) => ({
-        id: memory.id,
-        match_type: 'tag',
-        final_score: memory.importance ?? 0,
-        score_components: { importance: memory.importance ?? 0 },
-        memory: {
-          memory_id: memory.id,
-          content: memory.content || '',
-          tags: memory.tags || [],
-          importance: memory.importance ?? 0,
-          created_at: memory.timestamp || memory.created_at || '',
-          updated_at: memory.updated_at || memory.timestamp || '',
-          metadata: memory.metadata || {},
-          type: memory.type,
-          confidence: memory.confidence,
-        },
-      })),
-      count: response.count || (response.memories ? response.memories.length : 0),
-      tags: response.tags,
     };
   }
 }

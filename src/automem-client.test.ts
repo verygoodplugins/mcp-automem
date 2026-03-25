@@ -312,30 +312,6 @@ describe('AutoMemClient', () => {
     });
   });
 
-  describe('searchByTag', () => {
-    it('should search by tags', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          memories: [{ id: 'mem-1', content: 'Tagged content', tags: ['test'] }],
-          count: 1,
-        }),
-      } as any);
-
-      const result = await client.searchByTag({ tags: ['test'], limit: 10 });
-
-      expect(result.count).toBe(1);
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('memory/by-tag?tags=test&limit=10'),
-        expect.any(Object)
-      );
-    });
-
-    it('should throw if no tags provided', async () => {
-      await expect(client.searchByTag({ tags: [] })).rejects.toThrow('At least one tag is required');
-    });
-  });
-
   describe('URL handling', () => {
     it('should handle endpoint with trailing slash', async () => {
       const clientWithSlash = new AutoMemClient({ endpoint: 'http://localhost:8001/' });
@@ -368,4 +344,3 @@ describe('AutoMemClient', () => {
     });
   });
 });
-
