@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.12.0...mcp-automem-v0.13.0) (2026-03-25)
+
+
+### Features
+
+* **cursor:** split global and project rules ([#81](https://github.com/verygoodplugins/mcp-automem/issues/81)) ([c34a8db](https://github.com/verygoodplugins/mcp-automem/commit/c34a8db61b6213bb31863e945edd71cb32138afd))
+* overhaul OpenClaw plugin, MCP, and skill setup ([#77](https://github.com/verygoodplugins/mcp-automem/issues/77)) ([00d9ae2](https://github.com/verygoodplugins/mcp-automem/commit/00d9ae2756cbddd6d9c5062c706ed25e3cab9f90))
+* sync tool schemas for SSE/MCP parity ([#71](https://github.com/verygoodplugins/mcp-automem/issues/71)) ([4a6c25c](https://github.com/verygoodplugins/mcp-automem/commit/4a6c25c51477a52679c580d8d5d399b6bd00bb91))
+
+
+### Bug Fixes
+
+* align associate_memories public relationship taxonomy ([#76](https://github.com/verygoodplugins/mcp-automem/issues/76)) ([daead2e](https://github.com/verygoodplugins/mcp-automem/commit/daead2e6e3e21de172a362638f270c6faea0b0b1))
+* **hooks:** add stdin parsing, truncation guards, and dedup checks ([#85](https://github.com/verygoodplugins/mcp-automem/issues/85)) ([8279844](https://github.com/verygoodplugins/mcp-automem/commit/82798444e61e9d049e421957a0490a75ff104cc0))
+* **recall:** remove legacy tag merge fallback ([#82](https://github.com/verygoodplugins/mcp-automem/issues/82)) ([5ca6fae](https://github.com/verygoodplugins/mcp-automem/commit/5ca6fae2638e4c08cc1ee9eadd76b5afdbcdb6ee))
+
 ## [0.12.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.11.1...mcp-automem-v0.12.0) (2026-02-06)
 
 ### OpenClaw Integration (New)
