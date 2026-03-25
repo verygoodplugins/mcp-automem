@@ -386,137 +386,37 @@ npx @verygoodplugins/mcp-automem cursor --dry-run
 npx @verygoodplugins/mcp-automem cursor --dir .cursor/rules
 ```
 
-### 3. Global User Rules (Optional)
+### 3. How Cursor Loads Instructions
 
-For memory-first behavior across **ALL** Cursor projects, add this to `Cursor Settings > General > Rules for AI`:
+Cursor can stack multiple instruction layers at once:
+
+- **User Rules**: Global rules from `Cursor Settings > General > Rules for AI`
+- **Project Rules**: Repo-scoped rules in `.cursor/rules/*.mdc`
+- **Custom Modes**: Mode-specific instructions for plan/debug/review/refactor flows
+
+Recommended AutoMem split:
+
+- **User Rules**: Thin global style/autonomy/preferences recall
+- **Project Rules**: Operational memory workflow for the current repo
+- **Custom Modes**: Task-shape guidance only; do not restate memory policy
+
+### 4. Global User Rules (Optional)
+
+For cross-project preference recall and a stable collaboration baseline, copy the thin template in `templates/cursor/user-rules.md` into `Cursor Settings > General > Rules for AI`:
 
 <details>
-<summary>Click to expand: Global Memory-First Rules for Cursor</summary>
+<summary>Click to expand: Thin Global User Rules for Cursor</summary>
 
-## Memory-First Development
-
-### Smart Recall Strategy
-
-At the start of EVERY conversation, use contextual recall:
-
-```javascript
-// Parallel recall for comprehensive context
-const [projectContext, recentWork, userPrefs] = await Promise.all([
-  mcp_memory_recall_memory({
-    query: "<describe the user's current task or question>",
-    tags: ["<project-name>", "cursor"],
-    limit: 5,
-  }),
-  mcp_memory_recall_memory({
-    tags: ["<project-name>"],
-    time_query: "today",
-    limit: 3,
-  }),
-  mcp_memory_recall_memory({
-    query: "user preferences coding style",
-    tags: ["<project-name>"],
-    limit: 2,
-  }),
-]);
-```
-
-### Enhanced Storage Patterns
-
-During conversation, store discoveries with rich metadata:
-
-```javascript
-// Architectural decisions (importance: 0.9)
-mcp_memory_store_memory({
-  content:
-    "[DECISION] Chose PostgreSQL over MongoDB. Need ACID compliance. Impact: Data consistency guaranteed.",
-  tags: [
-    "<project-name>",
-    "cursor",
-    "decision",
-    "architecture",
-    "<current-month>",
-  ],
-  importance: 0.9,
-  metadata: {
-    type: "decision",
-    alternatives_considered: ["MongoDB", "DynamoDB"],
-    deciding_factors: ["ACID", "relationships", "team_expertise"],
-  },
-});
-
-// Bug fixes with patterns (importance: 0.8)
-mcp_memory_store_memory({
-  content:
-    "[BUG-FIX] Auth timeout on slow connections. Root: Missing retry logic. Solution: Exponential backoff.",
-  tags: ["<project-name>", "cursor", "bug-fix", "auth", "<current-month>"],
-  importance: 0.8,
-  metadata: {
-    error_signature: "TimeoutError: Authentication request timed out",
-    solution_pattern: "exponential-backoff-retry",
-    files_modified: ["src/auth/client.ts"],
-  },
-});
-```
-
-### Association Patterns
-
-**Always link related memories** to build a knowledge graph:
-
-```javascript
-// After storing a memory, associate it with related ones
-const bugFix = mcp_memory_store_memory({
-  content: "[BUG-FIX] Auth token expiring too quickly. Increased TTL to 24h.",
-  tags: ["<project-name>", "cursor", "bug-fix", "auth", "<current-month>"],
-  importance: 0.8,
-});
-
-// Find and link to related memories
-const related = mcp_memory_recall_memory({
-  query: "authentication JWT token",
-  tags: ["<project-name>"],
-  limit: 5,
-});
-
-// Associate with original feature
-mcp_memory_associate_memories({
-  memory1_id: bugFix.id,
-  memory2_id: related[0].id,
-  type: "RELATES_TO",
-  strength: 0.9,
-});
-
-// Associate with decision it modifies
-mcp_memory_associate_memories({
-  memory1_id: bugFix.id,
-  memory2_id: related[1].id,
-  type: "EVOLVED_INTO", // Updates the original decision
-  strength: 0.8,
-});
-```
-
-**Common association patterns:**
-
-- Bug fix → Original feature (`RELATES_TO`)
-- New feature → Architecture decision (`DERIVED_FROM`)
-- Pattern → Implementation example (`EXEMPLIFIES`)
-- New decision → Old decision (`EVOLVED_INTO`, `INVALIDATED_BY`)
-- Sequential work → Previous work (`LEADS_TO`, `OCCURRED_BEFORE`)
-
-**Association types:** `RELATES_TO`, `LEADS_TO`, `EVOLVED_INTO`, `DERIVED_FROM`, `EXEMPLIFIES`, `CONTRADICTS`, `REINFORCES`, `INVALIDATED_BY`, `OCCURRED_BEFORE`, `PART_OF`, `PREFERS_OVER`
-
-Internal/system relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, and `DISCOVERED` may appear in recall results, but they are not valid `associate_memories` inputs.
-
-### Proactive Patterns
-
-- **Error Learning**: When debugging, always check for similar past issues first
-- **Pattern Reuse**: Before implementing, recall established patterns in the codebase
-- **Impact Analysis**: For refactoring, understand historical decisions and their rationale
-
-Always use the current project's name in tags for organization.
+- Keep responses direct, concise, and high-signal.
+- If the next step is clear, reversible, and low-risk, proceed without asking.
+- When collaboration style, tone, autonomy, or coding preferences materially affect the work, run a semantic recall for preferences, for example: `personal coding preferences <project-name> collaboration style`.
+- Use recalled memory as context, not ground truth.
+- If recalled memory conflicts with the current repo state or the latest user instruction, current evidence wins.
+- Keep this layer thin. Project rules should own project-specific memory workflow.
 
 </details>
 
-This enables basic memory recall/storage globally. For full agent features (priority, automatic tool selection), use project-level installation.
+Keep this global layer short. Project rules should continue to own recall/store/update/associate behavior, tagging, and the GPT-5.4 project overlay. For full operational memory behavior, use project-level installation.
 
 ---
 
