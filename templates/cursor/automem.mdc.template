@@ -1,12 +1,14 @@
 ---
-description: AutoMem persistent memory - recall context at start, store decisions during work, summarize at end
+description: AutoMem persistent memory - adaptive recall, curated storage, selective associations
 alwaysApply: true
 ---
-<!-- automem-template-version: 1.0.0 -->
+<!-- automem-template-version: 1.2.0 -->
 
 # AutoMem Memory Integration
 
 Use memory tools proactively to maintain persistent context across sessions for {{PROJECT_NAME}}.
+
+Preserve host/platform instructions. This rule adds project-level memory behavior and should complement thin global User Rules, not replace them.
 
 ## About the Memory System
 
@@ -22,9 +24,9 @@ Use memory tools proactively to maintain persistent context across sessions for 
 ## 3-Phase Memory Pattern
 
 ### 1. CONVERSATION START
-Recall relevant context for strategic and contextual questions:
+Default to recall for project-specific, stateful, strategic, debugging, and "why/how" tasks.
 
-**ALWAYS recall for:**
+**Default to recall for:**
 - Project context questions (documentation, tooling, deployment)
 - Architecture discussions or decisions
 - User preferences and choices
@@ -35,75 +37,84 @@ Recall relevant context for strategic and contextual questions:
 - Integration or API work (check past implementations)
 - Refactoring (understand why current structure exists)
 
-**ADAPTIVE RECALL** (based on context clues):
+**Adaptive recall clues:**
 - If files are open: Recall memories tagged with those components
 - If error messages present: Search for similar error patterns
 - If multiple related files: Recall architectural decisions
 - If PR/commit context: Recall related feature implementations
 
-**Skip memory ONLY for:**
+**Skip recall for:**
 - Pure syntax/language questions ("How does Array.map work?")
 - Trivial edits (typos, formatting, simple renames)
 - Direct factual queries about current code ("What's in this function?")
 - File content requests that can be answered by reading the file
 
-**Natural integration:** If memories found, weave context into response naturally. Avoid robotic phrases like "I'm searching my memory" or "Let me recall..." Just use the information as if you've always known it.
+**Start focused:** Begin with one focused project recall and expand only when the task needs more coverage.
+
+```javascript
+{{MCP_TOOL_PREFIX}}recall_memory({
+  query: "<current task or question>",
+  tags: ["{{PROJECT_NAME}}"],
+  limit: 5
+})
+```
+
+- Optional follow-up: if project context is not enough and collaboration style, tone, autonomy, or coding preferences will materially affect the work, run a second semantic recall:
+
+```javascript
+{{MCP_TOOL_PREFIX}}recall_memory({
+  query: "personal coding preferences {{PROJECT_NAME}} collaboration style",
+  limit: 3
+})
+```
+
+- If recall is empty or suspiciously thin, retry once or twice with a broader query, different tags, or a time window before concluding there is no useful memory
+- Use parallel recall only when the task has independent angles such as project context, recent work, and user preferences
+- Avoid platform tags like `cursor` on recall unless you explicitly want platform-specific memories; tags are a hard filter and can hide memories created by other agents
+- Use recalled memory as context, not as unquestionable truth. If memory conflicts with the current repo state or the user's latest instruction, current evidence wins
+- Natural integration: If memories found, weave them into the response naturally. Avoid announcing memory operations
 
 ### 2. DURING CONVERSATION
-Store memories for important events:
+Store candidate memories for durable, high-signal events:
 
 **Decisions** (importance: 0.9, type: "Decision")
 - Architecture choices, library selections, pattern decisions
-- Example: `Chose Redis for caching due to performance needs and sub-millisecond latency requirements`
 
 **Insights** (importance: 0.8, type: "Insight")
-- Root cause discoveries, key learnings, problem resolutions
-- Example: `UserAuth failing on null input. Root cause: missing validation. Added null checks before processing`
+- Significant bug fixes, root cause discoveries, key learnings, problem resolutions
 
 **Patterns** (importance: 0.7, type: "Pattern")
-- Reusable patterns, best practices discovered
-- Example: `Using early returns for validation. Reduces nesting, improves readability. Applied in all API routes`
+- Reusable patterns and best practices discovered
 
 **Preferences** (importance: 0.6-0.8, type: "Preference")
 - Configuration choices, tool selections, style preferences
-- Example: `Using Prettier with 2-space indents and single quotes. Enforced via pre-commit hooks`
 
 **Context** (importance: 0.5-0.7, type: "Context")
-- General information, new features, refactoring notes
-- Example: `Added JWT authentication with refresh tokens. Supports both access and refresh token rotation`
+- General information, new features, and refactoring notes that are likely to matter later
 
-**Storage format:**
+- Persist only durable decisions, patterns, preferences, significant bug fixes, and notable project context
+- Prefer `update_memory` or invalidating older memories when new work supersedes an existing memory
+
+**Store example:**
 ```javascript
 {{MCP_TOOL_PREFIX}}store_memory({
-  content: "Brief title. Context and details. Impact/outcome.",
+  content: "Login timeout on slow connections. Root: missing retry logic. Added exponential backoff. Impact: auth succeeds on flaky networks.",
   type: "Insight",
   confidence: 0.95,
-  tags: ["{{PROJECT_NAME}}", "component", "{{CURRENT_MONTH}}"],
+  tags: ["{{PROJECT_NAME}}", "cursor", "{{CURRENT_MONTH}}", "auth"],
   importance: 0.8,
   metadata: {
-    component: "auth",
     files_modified: ["src/auth/UserAuth.ts"],
-    error_signature: "TypeError: Cannot read property 'id' of null",
-    solution_pattern: "null-check-validation"
+    error_signature: "TimeoutError: Authentication request timed out",
+    solution_pattern: "exponential-backoff-retry"
   }
 })
 ```
 
 ### 3. CONVERSATION END
-Summarize if multiple files modified, significant refactoring, new features, or important decisions:
-
-```javascript
-{{MCP_TOOL_PREFIX}}store_memory({
-  content: "Added authentication system with JWT. Supports login, logout, and token refresh. Impact: Users can now login securely.",
-  type: "Context",
-  tags: ["{{PROJECT_NAME}}", "auth", "{{CURRENT_MONTH}}"],
-  importance: 0.9,
-  metadata: {
-    files_modified: ["src/auth/UserAuth.ts", "src/middleware/auth.ts"],
-    feature: "authentication"
-  }
-})
-```
+- Summarize/store when multiple files were modified, significant refactoring landed, a new feature shipped, or an important decision was made
+- Reuse the same `store_memory` shape shown above
+- If the outcome updates an existing memory, prefer `update_memory` over creating a duplicate
 
 ## Memory Types
 
@@ -145,115 +156,37 @@ Summarize if multiple files modified, significant refactoring, new features, or 
 
 ## Memory Associations
 
-Link related memories for richer context:
+Associate memories only when the relationship is explicit, durable, and useful. Default to `RELATES_TO` unless a stronger relation is clearly true.
 
 ```javascript
 {{MCP_TOOL_PREFIX}}associate_memories({
-  memory1_id: "<first-memory-id>",
-  memory2_id: "<second-memory-id>",
-  type: "RELATES_TO",  // or LEADS_TO, EVOLVED_INTO, CONTRADICTS, etc.
+  memory1_id: "<new-memory-id>",
+  memory2_id: "<related-memory-id>",
+  type: "RELATES_TO",
   strength: 0.8
 })
 ```
 
-Association types: `RELATES_TO`, `LEADS_TO`, `OCCURRED_BEFORE`, `PREFERS_OVER`, `EXEMPLIFIES`, `CONTRADICTS`, `REINFORCES`, `INVALIDATED_BY`, `EVOLVED_INTO`, `DERIVED_FROM`, `PART_OF`
+Reach for stronger relation types only when the evidence is clear: `LEADS_TO`, `OCCURRED_BEFORE`, `PREFERS_OVER`, `EXEMPLIFIES`, `CONTRADICTS`, `REINFORCES`, `INVALIDATED_BY`, `EVOLVED_INTO`, `DERIVED_FROM`, `PART_OF`.
 
 System/internal relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, and `DISCOVERED` may appear in recall results, but they are not valid `associate_memories` inputs.
 
-## Recall Strategies
+## Recall Guidance
 
-**Start simple, expand as needed:**
-```javascript
-// 1. Basic recall (start here)
-{{MCP_TOOL_PREFIX}}recall_memory({
-  query: "authentication patterns",
-  tags: ["{{PROJECT_NAME}}"],
-  limit: 5
-})
+- Start with the project tag and a focused query; add component tags, bug-fix tags, or a time window only when they sharpen the search
+- For coding tasks, pass `active_path`, `language`, or `context` when they help prioritize style or pattern memories
+- Use `expand_entities` or `expand_relations` only for truly connected questions that need multi-hop context
+- Use `auto_decompose` for broad topics that naturally split into sub-queries
+- Use `priority_ids` only when a workflow must force specific memories into the result set
 
-// 2. Add time window if needed
-{{MCP_TOOL_PREFIX}}recall_memory({
-  query: "API changes",
-  tags: ["{{PROJECT_NAME}}"],
-  time_query: "last 30 days"
-})
+## Optional GPT-5.4 Overlay
 
-// 3. For error patterns, be specific
-{{MCP_TOOL_PREFIX}}recall_memory({
-  query: "TypeError authentication timeout login",
-  tags: ["{{PROJECT_NAME}}", "bug-fix"],
-  limit: 5
-})
+When the active model is GPT-5.4, add these small behavioral nudges:
 
-// 4. Use prefix matching for component namespaces
-{{MCP_TOOL_PREFIX}}recall_memory({
-  tags: ["{{PROJECT_NAME}}", "auth/*"],
-  tag_match: "prefix"
-})
-
-// 5. Parallel recall for comprehensive context
-const [decisions, recent, patterns] = await Promise.all([
-  {{MCP_TOOL_PREFIX}}recall_memory({ tags: ["{{PROJECT_NAME}}", "decision"], limit: 3 }),
-  {{MCP_TOOL_PREFIX}}recall_memory({ tags: ["{{PROJECT_NAME}}"], time_query: "today", limit: 3 }),
-  {{MCP_TOOL_PREFIX}}recall_memory({ tags: ["{{PROJECT_NAME}}", "pattern"], limit: 3 })
-]);
-```
-
-## Advanced Recall Features
-
-**Multi-hop reasoning with entity expansion:**
-```javascript
-// For complex questions like "What project does Amanda's sister work on?"
-// The system finds "Amanda's sister is Rachel" then expands to memories about Rachel
-{{MCP_TOOL_PREFIX}}recall_memory({
-  query: "What project does Amanda's sister work on?",
-  expand_entities: true,  // Enable entity-based expansion
-  limit: 10
-})
-```
-
-**Graph-based expansion:**
-```javascript
-// Follow relationships from initial results to find connected memories
-{{MCP_TOOL_PREFIX}}recall_memory({
-  query: "auth architecture",
-  expand_relations: true,  // Follow RELATES_TO, LEADS_TO, etc.
-  relation_limit: 5,       // Max relationships to follow per seed
-  expand_min_importance: 0.5,  // Only include expanded memories with importance >= 0.5
-  expand_min_strength: 0.3     // Only follow relations with strength >= 0.3
-})
-```
-
-**Auto query decomposition:**
-```javascript
-// Automatically breaks complex queries into sub-queries
-{{MCP_TOOL_PREFIX}}recall_memory({
-  query: "authentication patterns for React apps with OAuth",
-  auto_decompose: true  // Extracts ["authentication", "React", "OAuth"] as separate searches
-})
-```
-
-**Context-aware recall for coding tasks:**
-```javascript
-// Boost language-specific and style memories when coding
-{{MCP_TOOL_PREFIX}}recall_memory({
-  query: "error handling patterns",
-  language: "typescript",           // Inferred from file or specified
-  active_path: "src/api/auth.ts",   // Current file for context
-  context: "coding-style",          // General context label
-  context_types: ["Style", "Pattern"],  // Prioritize these memory types
-  context_tags: ["best-practice"]   // Boost these tags in results
-})
-```
-
-**Priority injection:**
-```javascript
-// Ensure specific memories are included in results
-{{MCP_TOOL_PREFIX}}recall_memory({
-  query: "recent architecture decisions",
-  priority_ids: ["mem-abc123", "mem-def456"]  // Always include these
-})
-```
+- Be persistent with tools when recall or verification is needed; do not stop after a weak first result
+- If recall is empty or suspiciously thin, retry with a broader query, different tags, or a time window before concluding there is no useful memory
+- Keep responses compact by default
+- Ask only when a missing choice materially changes the outcome
 
 ## Content Size Guidelines
 
@@ -363,7 +296,7 @@ Format: `Brief title. Context and details. Impact/outcome.`
 ## Error Handling
 
 If memory operations fail:
-- **Recall fails/empty**: Continue without historical context. Don't announce the failure.
+- **Recall fails/empty after retries**: Continue without historical context. Don't announce the failure.
 - **Store fails**: Complete the task normally. Memory is enhancement, not requirement.
 - **Service unavailable**: Focus on solving the immediate problem.
 
@@ -371,13 +304,17 @@ Memory enhances the experience but should never block progress.
 
 ## Best Practices
 
-- **Default to recall**: For project-related questions, always check memory first
+- **Adaptive recall**: Default to recall for stateful or strategic work, skip it for low-context requests
+- **Semantic preference recall**: Use a separate semantic query when personality, tone, autonomy, or coding preferences matter
+- **Project-first workflow**: Keep the operational memory workflow here; let thin global User Rules handle cross-project collaboration defaults
 - **Natural integration**: Use recalled context seamlessly, don't announce memory operations
 - **Tag consistently**: Project, platform, date, component, type on every store
-- **Link related memories**: Use associations to build knowledge graphs
+- **Trust current evidence**: If repo state or the user's latest instruction conflicts with memory, current evidence wins
+- **Update over duplicates**: Prefer `update_memory` or invalidation when new work supersedes older memories
+- **Selective associations**: Link memories only when the relationship is explicit and useful
 - **Avoid noise**: Don't store trivial changes (typos, formatting, comments)
 - **Include context**: Future you needs to understand "why", not just "what"
-- **Parallel recall**: Execute multiple queries simultaneously for faster loading
+- **Parallel recall selectively**: Use multiple queries only when the task has independent angles
 - **Start simple**: Begin with project name tag only, add more tags if needed
 
 ---

@@ -295,6 +295,25 @@ describe('Template Generation', () => {
     expect(fs.existsSync(templatePath)).toBe(true);
   });
 
+  it('should have cursor user rules template file', () => {
+    const templatePath = path.resolve(__dirname, '../../templates/cursor/user-rules.md');
+    expect(fs.existsSync(templatePath)).toBe(true);
+  });
+
+  it('should have cursor rule eval fixture', () => {
+    const evalPath = path.resolve(__dirname, '../../templates/cursor/rule-evals.md');
+    expect(fs.existsSync(evalPath)).toBe(true);
+
+    const evalFixture = fs.readFileSync(evalPath, 'utf8');
+    expect(evalFixture).toMatch(/Global only/);
+    expect(evalFixture).toMatch(/Project only/);
+    expect(evalFixture).toMatch(/Global \+ project \+ custom mode/);
+    expect(evalFixture).toMatch(/Trivial typo fix/);
+    expect(evalFixture).toMatch(/Architecture why-question/);
+    expect(evalFixture).toMatch(/Empty recall fallback/);
+    expect(evalFixture).toMatch(/Personality and preferences recall/);
+  });
+
   it('should have codex template file', () => {
     const templatePath = path.resolve(__dirname, '../../templates/codex/memory-rules.md');
     expect(fs.existsSync(templatePath)).toBe(true);
@@ -319,6 +338,12 @@ describe('Template Generation', () => {
     );
     expect(cursorTemplate).toMatch(/automem-template-version:\s*[\d.]+/);
 
+    const userRulesTemplate = fs.readFileSync(
+      path.resolve(__dirname, '../../templates/cursor/user-rules.md'),
+      'utf8'
+    );
+    expect(userRulesTemplate).toMatch(/automem-template-version:\s*[\d.]+/);
+
     const codexTemplate = fs.readFileSync(
       path.resolve(__dirname, '../../templates/codex/memory-rules.md'),
       'utf8'
@@ -330,5 +355,49 @@ describe('Template Generation', () => {
       'utf8'
     );
     expect(openClawPluginSkill).toMatch(/automem-template-version:\s*[\d.]+/);
+  });
+
+  it('cursor project template should include operational memory workflow', () => {
+    const cursorTemplate = fs.readFileSync(
+      path.resolve(__dirname, '../../templates/cursor/automem.mdc.template'),
+      'utf8'
+    );
+
+    expect(cursorTemplate).toContain('store_memory');
+    expect(cursorTemplate).toContain('associate_memories');
+    expect(cursorTemplate).toContain('## Tagging Convention');
+    expect(cursorTemplate).toContain('Use recalled memory as context, not as unquestionable truth');
+    expect(cursorTemplate).toContain('Associate memories only when the relationship is explicit, durable, and useful');
+    expect(cursorTemplate).toContain('## Optional GPT-5.4 Overlay');
+    expect(cursorTemplate).toContain('query: "personal coding preferences {{PROJECT_NAME}} collaboration style"');
+    expect(cursorTemplate).toContain('Avoid platform tags like `cursor` on recall');
+  });
+
+  it('cursor user rules template should stay thin', () => {
+    const userRulesTemplate = fs.readFileSync(
+      path.resolve(__dirname, '../../templates/cursor/user-rules.md'),
+      'utf8'
+    );
+
+    expect(userRulesTemplate).toContain('personal coding preferences <project-name> collaboration style');
+    expect(userRulesTemplate).toContain('current repo state or the latest user instruction');
+    expect(userRulesTemplate).not.toContain('store_memory');
+    expect(userRulesTemplate).not.toContain('associate_memories');
+    expect(userRulesTemplate).not.toContain('## Optional GPT-5.4 Overlay');
+    expect(userRulesTemplate).not.toContain('Tagging Convention');
+  });
+
+  it('installation guide should describe the layered Cursor rules strategy', () => {
+    const installationGuide = fs.readFileSync(
+      path.resolve(__dirname, '../../INSTALLATION.md'),
+      'utf8'
+    );
+
+    expect(installationGuide).toContain('### 3. How Cursor Loads Instructions');
+    expect(installationGuide).toContain('**User Rules**');
+    expect(installationGuide).toContain('**Project Rules**');
+    expect(installationGuide).toContain('**Custom Modes**');
+    expect(installationGuide).toContain('templates/cursor/user-rules.md');
+    expect(installationGuide).not.toContain('### Optional GPT-5.4 Overlay');
   });
 });
