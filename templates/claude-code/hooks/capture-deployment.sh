@@ -39,8 +39,25 @@ EXIT_CODE="${EXIT_CODE:-${CLAUDE_EXIT_CODE:-0}}"
 CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty' 2>/dev/null)
 PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 
-# Skip non-deploy commands
-if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(deploy|railway|vercel|netlify|heroku|kubectl|k8s|kubernetes|docker|gcloud|aws|cloudfront|firebase|gh pages)"; then
+# Skip non-deploy commands. Guard against read-only CLIs that mention platform names
+# in URLs or output (e.g. `curl https://x.up.railway.app/health`, `docker ps`).
+if [ -z "$COMMAND" ]; then
+    exit 0
+fi
+
+FIRST_WORD=$(echo "$COMMAND" | awk '{print $1}' | tr -d '"'"'")
+case "$FIRST_WORD" in
+    curl|wget|http|ping|dig|nslookup|nc|netcat|cat|ls|grep|rg|find|jq|which|type|echo|awk|sed|head|tail)
+        exit 0
+        ;;
+esac
+
+# Require either explicit "deploy" word OR a platform+action combination that
+# actually deploys something (not just a status check or query).
+DEPLOY_REGEX='\bdeploy(ed|ing|ment|s)?\b'
+PLATFORM_ACTION_REGEX='\b(railway\s+(up|redeploy|run)|vercel(\s+(--prod|deploy))?|netlify\s+deploy|heroku\s+(create|releases:create|run)|git\s+push\s+heroku|kubectl\s+(apply|rollout|set\s+image|create|replace)|docker\s+(push|buildx\s+build\s+.*--push)|gcloud\s+(run|app|builds|functions|compute)\s+(deploy|submit)|firebase\s+deploy|gh\s+(pages|workflow\s+run)|flyctl\s+deploy|fly\s+deploy)\b'
+
+if ! echo "$COMMAND" | grep -qiE "$DEPLOY_REGEX" && ! echo "$COMMAND" | grep -qiE "$PLATFORM_ACTION_REGEX"; then
     exit 0
 fi
 
@@ -93,22 +110,21 @@ DEPLOY_TIME=$(echo "$OUTPUT" | grep -oE "deployed in [0-9.]+[sm]" | grep -oE "[0
 BUILD_ID=$(echo "$OUTPUT" | grep -oE "Build #[0-9]+" | grep -oE "[0-9]+" | head -1)
 VERSION=$(echo "$OUTPUT" | grep -oE "v[0-9.]+|version [0-9.]+" | grep -oE "[0-9.]+" | head -1)
 
-# Determine importance
-IMPORTANCE=0.8  # Deployments are generally important
+# Determine importance + type. Only valid AutoMem types: Decision|Pattern|Preference|Style|Habit|Insight|Context.
+# A deploy event is Context (successful) or Insight (failure analysis) — never Decision.
+IMPORTANCE=0.8
 MEMORY_TYPE="Context"
 
 if [ "$EXIT_CODE" -ne 0 ]; then
-    IMPORTANCE=0.95  # Failed deployments are critical
+    IMPORTANCE=0.95
     MEMORY_TYPE="Insight"
 elif [ "$DEPLOY_ENV" = "production" ]; then
-    IMPORTANCE=0.9  # Production deployments are very important
-    MEMORY_TYPE="Decision"
+    IMPORTANCE=0.9
+    MEMORY_TYPE="Context"
 elif [ "$DEPLOY_ENV" = "staging" ]; then
     IMPORTANCE=0.7
-    MEMORY_TYPE="Context"
 else
     IMPORTANCE=0.6
-    MEMORY_TYPE="Context"
 fi
 
 # Extract error details if deployment failed
@@ -217,31 +233,48 @@ def is_duplicate(queue_path, new_content, lookback=20):
         pass
     return False
 
+project = os.environ.get("AUTOMEM_PROJECT", "")
+platform = os.environ.get("AUTOMEM_DEPLOY_PLATFORM", "unknown")
+deploy_env = os.environ.get("AUTOMEM_DEPLOY_ENV", "production")
+exit_code = to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0"))
+
+# Bare-tag convention (matches existing corpus). No namespace prefixes.
+tags = ["deployment"]
+if platform and platform != "unknown":
+    tags.append(platform)
+tags.append(deploy_env)
+if project:
+    tags.append(project)
+if exit_code != 0:
+    tags.append("failure")
+
+now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
 record = {
     "content": truncate(os.environ.get("AUTOMEM_CONTENT", ""), 1500),
-    "tags": [
-        "deployment",
-        os.environ.get("AUTOMEM_DEPLOY_PLATFORM", "unknown"),
-        os.environ.get("AUTOMEM_DEPLOY_ENV", "production"),
-        os.environ.get("AUTOMEM_PROJECT", ""),
-    ],
+    "tags": tags,
     "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.8")),
     "type": os.environ.get("AUTOMEM_TYPE", "Context"),
     "metadata": {
-        "platform": os.environ.get("AUTOMEM_DEPLOY_PLATFORM", "unknown"),
-        "environment": os.environ.get("AUTOMEM_DEPLOY_ENV", "production"),
+        "platform": platform,
+        "environment": deploy_env,
         "url": optional_text(os.environ.get("AUTOMEM_DEPLOY_URL", "")),
         "version": optional_text(os.environ.get("AUTOMEM_VERSION", "")),
         "build_id": optional_text(os.environ.get("AUTOMEM_BUILD_ID", "")),
         "deploy_time": optional_text(os.environ.get("AUTOMEM_DEPLOY_TIME", "")),
         "git_commit": optional_text(os.environ.get("AUTOMEM_GIT_COMMIT", "")),
-        "exit_code": to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0")),
+        "exit_code": exit_code,
         "command": truncate(os.environ.get("AUTOMEM_COMMAND", ""), 500),
-        "project": os.environ.get("AUTOMEM_PROJECT", ""),
+        "project": project,
         "error_details": os.environ.get("AUTOMEM_ERROR_DETAILS", ""),
     },
-    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "timestamp": now_iso,
 }
+
+# Temporal validity: production deployments represent the *currently live* version
+# from this moment forward. No t_invalid since we don't know when it'll be replaced.
+if deploy_env == "production" and exit_code == 0:
+    record["t_valid"] = now_iso
 
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
 if queue_path:
