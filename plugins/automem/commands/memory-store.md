@@ -24,7 +24,8 @@ Store important information for future recall:
      content: "[formatted content]",
      type: "[Decision|Insight|Pattern|Preference|Context]",
      importance: [0.5-1.0],
-     tags: ["project-name", "component", "type", "YYYY-MM"],
+     confidence: [0.6-0.95],
+     tags: ["category", "project-slug", "language"],
      metadata: {
        files_modified: ["relevant/files.ts"],
        // Additional context as needed
@@ -32,14 +33,18 @@ Store important information for future recall:
    })
    ```
 
+   Use bare tags only. Do not add platform tags or date tags.
+
 4. **Create Associations** (if related memories exist):
    ```javascript
    mcp__memory__associate_memories({
-     memory1_id: "[new-memory-id]",
-     memory2_id: "[related-memory-id]",
-     type: "RELATES_TO",
+     memory1_id: "[related-memory-id]",
+     memory2_id: "[new-memory-id]",
+     type: "[INVALIDATED_BY|PREFERS_OVER|EXEMPLIFIES|LEADS_TO]",
      strength: 0.8
    })
    ```
+
+Recall first when the new memory updates or supersedes existing knowledge. Prefer `update_memory` over near-duplicate stores for facts that changed in place.
 
 Ask the user what they want to store if not clear from context.

@@ -11,7 +11,8 @@ mcp__memory__store_memory({
   content: "[CHOICE] over [ALTERNATIVES]. [REASON]. Impact: [OUTCOME].",
   type: "Decision",
   importance: 0.9,
-  tags: ["project", "component", "decision", "YYYY-MM"],
+  confidence: 0.9,
+  tags: ["decision", "project", "component"],
   metadata: {
     alternatives_considered: ["alt1", "alt2"],
     deciding_factors: ["factor1", "factor2"]
@@ -28,7 +29,8 @@ mcp__memory__store_memory({
   content: "[SYMPTOM]. Root: [CAUSE]. Solution: [FIX].",
   type: "Insight",
   importance: 0.8,
-  tags: ["project", "component", "bug-fix", "YYYY-MM"],
+  confidence: 0.85,
+  tags: ["bugfix", "solution", "project", "component"],
   metadata: {
     error_signature: "exact error message",
     solution_pattern: "pattern-name",
@@ -46,7 +48,8 @@ mcp__memory__store_memory({
   content: "User prefers [PREFERENCE] in [CONTEXT].",
   type: "Preference",
   importance: 0.8,
-  tags: ["preferences", "domain", "YYYY-MM"]
+  confidence: 0.95,
+  tags: ["preference", "domain"]
 })
 ```
 
@@ -59,7 +62,8 @@ mcp__memory__store_memory({
   content: "Using [PATTERN]. [BENEFIT]. Applied in [SCOPE].",
   type: "Pattern",
   importance: 0.7,
-  tags: ["project", "pattern", "domain", "YYYY-MM"],
+  confidence: 0.8,
+  tags: ["pattern", "project", "domain"],
   metadata: {
     pattern: "pattern-name",
     applied_in: ["path/to/*.ts"]
@@ -69,14 +73,15 @@ mcp__memory__store_memory({
 
 ## Feature Summary Pattern
 
-After completing significant work:
+When a durable feature-level memory is genuinely worth keeping:
 
 ```javascript
 mcp__memory__store_memory({
   content: "Added [FEATURE]. [CAPABILITIES]. Impact: [VALUE].",
   type: "Context",
   importance: 0.8,
-  tags: ["project", "feature", "component", "YYYY-MM"],
+  confidence: 0.8,
+  tags: ["feature", "project", "component"],
   metadata: {
     files_modified: ["file1.ts", "file2.ts"],
     feature: "feature-name"
@@ -86,11 +91,13 @@ mcp__memory__store_memory({
 
 ## Tagging Convention
 
-Always include:
-1. **Project name** - Primary identifier
-2. **Component** - Specific area (auth, api, frontend)
-3. **Type** - decision, bug-fix, pattern, feature
-4. **Date** - YYYY-MM format
+Always prefer:
+1. **Category** - `decision`, `bugfix`, `solution`, `pattern`, `feature`
+2. **Project slug** - only when the memory is clearly project-scoped
+3. **Component / domain** - auth, api, frontend, deployment
+4. **Language or domain** - only if it improves recall
+
+Use bare tags only. Do not use platform tags or date tags.
 
 ## Importance Scoring
 

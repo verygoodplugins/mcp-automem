@@ -331,6 +331,25 @@ describe('Template Generation', () => {
     expect(fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-legacy/SKILL.md'))).toBe(true);
   });
 
+  it('plugin-distributed Claude Code runtime assets should match the canonical templates', () => {
+    const pairs: Array<[string, string]> = [
+      ['templates/claude-code/hooks/capture-build-result.sh', 'plugins/automem/scripts/capture-build-result.sh'],
+      ['templates/claude-code/hooks/capture-deployment.sh', 'plugins/automem/scripts/capture-deployment.sh'],
+      ['templates/claude-code/hooks/capture-test-pattern.sh', 'plugins/automem/scripts/capture-test-pattern.sh'],
+      ['templates/claude-code/hooks/session-memory.sh', 'plugins/automem/scripts/session-memory.sh'],
+      ['templates/claude-code/hooks/automem-session-start.sh', 'plugins/automem/scripts/session-start.sh'],
+      ['templates/claude-code/scripts/memory-filters.json', 'plugins/automem/scripts/memory-filters.json'],
+      ['templates/claude-code/scripts/process-session-memory.py', 'plugins/automem/scripts/process-session-memory.py'],
+      ['templates/claude-code/scripts/queue-cleanup.sh', 'plugins/automem/scripts/queue-cleanup.sh'],
+    ];
+
+    for (const [canonical, pluginCopy] of pairs) {
+      const canonicalContent = fs.readFileSync(path.resolve(__dirname, `../../${canonical}`), 'utf8');
+      const pluginContent = fs.readFileSync(path.resolve(__dirname, `../../${pluginCopy}`), 'utf8');
+      expect(pluginContent, `${pluginCopy} drifted from ${canonical}`).toBe(canonicalContent);
+    }
+  });
+
   it('every template version marker should equal package.json version (kept in sync by scripts/sync-template-versions.mjs via prebuild)', () => {
     const pkgVersion = JSON.parse(
       fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8')
@@ -434,5 +453,56 @@ describe('Template Generation', () => {
     expect(installationGuide).toContain('**Custom Modes**');
     expect(installationGuide).toContain('templates/cursor/user-rules.md');
     expect(installationGuide).not.toContain('### Optional GPT-5.4 Overlay');
+  });
+
+  it('Claude Code docs should prefer the CLI installer and mark the plugin deprecated', () => {
+    const readme = fs.readFileSync(path.resolve(__dirname, '../../README.md'), 'utf8');
+    const pluginReadme = fs.readFileSync(path.resolve(__dirname, '../../plugins/automem/README.md'), 'utf8');
+    const deprecations = fs.readFileSync(path.resolve(__dirname, '../../DEPRECATION.md'), 'utf8');
+    const claudeCodeGuide = fs.readFileSync(
+      path.resolve(__dirname, '../../templates/CLAUDE_CODE_INTEGRATION.md'),
+      'utf8'
+    );
+
+    expect(readme).toContain('#### Option A: CLI Setup (Recommended)');
+    expect(readme).toContain('#### Option B: Plugin (Deprecated)');
+    expect(readme).toContain('DEPRECATION.md');
+
+    expect(pluginReadme).toContain('Deprecated');
+    expect(pluginReadme).toContain('npx @verygoodplugins/mcp-automem claude-code');
+
+    expect(claudeCodeGuide).toContain('npx @verygoodplugins/mcp-automem claude-code');
+    expect(claudeCodeGuide).toContain('deprecated');
+
+    expect(deprecations).toContain('Claude Code Plugin');
+    expect(deprecations).toContain('npx @verygoodplugins/mcp-automem claude-code');
+  });
+
+  it('OpenClaw templates should follow semantic-first recall and bare-tag guidance', () => {
+    const mcpSkill = fs.readFileSync(
+      path.resolve(__dirname, '../../templates/openclaw/skill-mcp/SKILL.md'),
+      'utf8'
+    );
+    const legacySkill = fs.readFileSync(
+      path.resolve(__dirname, '../../templates/openclaw/skill-legacy/SKILL.md'),
+      'utf8'
+    );
+    const setupGuide = fs.readFileSync(
+      path.resolve(__dirname, '../../templates/openclaw/OPENCLAW_SETUP.md'),
+      'utf8'
+    );
+
+    expect(mcpSkill).toContain('tags: ["preference"]');
+    expect(mcpSkill).toContain('bugfix", "solution');
+    expect(mcpSkill).toContain('hard gate');
+    expect(mcpSkill).toContain('avoid platform tags like `openclaw`');
+
+    expect(legacySkill).toContain('tags=preference');
+    expect(legacySkill).toContain('bugfix&tags=solution');
+    expect(legacySkill).toContain('"tags": ["project-slug", "decision"]');
+    expect(legacySkill).not.toContain('"tags": ["openclaw"]');
+
+    expect(setupGuide).toContain('semantic');
+    expect(setupGuide).toContain('bare project tags');
   });
 });

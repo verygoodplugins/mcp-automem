@@ -39,11 +39,9 @@ describe('openclaw cli helpers', () => {
   });
 
   it('builds default tags from project names', () => {
-    expect(buildDefaultTags('@scope/My Cool Project')).toEqual([
-      'platform/openclaw',
-      'project/my-cool-project',
-    ]);
-    expect(buildDefaultTags('')).toEqual(['platform/openclaw']);
+    expect(buildDefaultTags('@scope/My Cool Project')).toEqual(['my-cool-project']);
+    expect(buildDefaultTags('')).toEqual([]);
+    expect(buildDefaultTags('api')).toEqual([]);
   });
 
   it('redacts sensitive output recursively', () => {
@@ -69,7 +67,7 @@ describe('openclaw cli helpers', () => {
       buildPluginConfigEntry({
         endpoint: 'http://localhost:8001',
         apiKey: 'top-secret',
-        defaultTags: ['openclaw', 'project-x'],
+        defaultTags: ['project-x'],
       })
     ).toEqual({
       enabled: true,
@@ -79,7 +77,7 @@ describe('openclaw cli helpers', () => {
         autoRecall: true,
         autoRecallLimit: 3,
         exposure: 'dm-only',
-        defaultTags: ['openclaw', 'project-x'],
+        defaultTags: ['project-x'],
       },
     });
   });
@@ -89,14 +87,14 @@ describe('openclaw cli helpers', () => {
       buildSkillConfigEntry({
         endpoint: 'https://memory.example',
         apiKey: 'top-secret',
-        defaultTags: ['openclaw', 'project-x'],
+        defaultTags: ['project-x'],
       })
     ).toEqual({
       enabled: true,
       apiKey: 'top-secret',
       env: {
         AUTOMEM_ENDPOINT: 'https://memory.example',
-        AUTOMEM_DEFAULT_TAGS: 'openclaw,project-x',
+        AUTOMEM_DEFAULT_TAGS: 'project-x',
       },
     });
   });

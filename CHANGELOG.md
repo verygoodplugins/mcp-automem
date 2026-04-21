@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changes
+
+- deprecate the standalone Claude Code plugin in favor of `npx @verygoodplugins/mcp-automem claude-code`
+- sync plugin-distributed Claude Code runtime scripts with the canonical copies under `templates/claude-code/`
+- add plugin migration guidance in `DEPRECATION.md`
+
 ## [0.13.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.12.0...mcp-automem-v0.13.0) (2026-03-25)
 
 

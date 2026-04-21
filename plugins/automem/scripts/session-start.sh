@@ -1,6 +1,9 @@
 #!/bin/bash
 # AutoMem SessionStart hook — prompts Claude to run two-phase recall.
-# Mirrors templates/claude-code/hooks/automem-session-start.sh; keep in sync.
+# Claude executes the MCP tool calls; this script just injects the prompt.
+# Validated against the production corpus (issue #97 §D): bare tags,
+# 1M-context limits, single-query Phase 2 (drops queries[] + auto_decompose
+# because sub-queries converge on the same top scorers and dedup strips them).
 
 PROJECT=$(basename "$PWD")
 

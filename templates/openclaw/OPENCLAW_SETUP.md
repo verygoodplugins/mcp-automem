@@ -83,7 +83,7 @@ Options:
   --endpoint <url>            AutoMem endpoint (default: http://127.0.0.1:8001)
   --api-key <key>             AutoMem API key (optional)
   --plugin-source <spec>      npm spec or local path for plugin installs
-  --name <name>               Project name used to seed default memory tags
+  --name <name>               Project name used to seed default bare store tags
   --dry-run                   Preview changes without writing files
   --quiet                     Suppress non-error output
 ```
@@ -94,6 +94,7 @@ Options:
 - Configures `plugins.entries.automem`
 - Archives old `automem` skill overrides that would shadow the plugin-shipped skill
 - Preserves old AGENTS cleanup only as a migration step
+- Seeds bare project tags for stored memories only; auto-recall stays semantic and separately recalls `preference` memories first
 
 ### In `mcp` mode
 
@@ -101,11 +102,13 @@ Options:
 - Creates `<workspace>/config/mcporter.json` by default
 - Stores endpoint/api key in `skills.entries.automem.env/apiKey`
 - Does not write secrets into `mcporter.json`
+- Uses the same semantic-first recall guidance as plugin mode
 
 ### In `skill` mode
 
 - Installs the legacy curl skill into `<workspace>/skills/automem/` by default
 - Uses the same `skills.entries.automem.env/apiKey` convention
+- Keeps bare-tag examples and semantic-first recall guidance even in curl mode
 
 ## Quick verification
 

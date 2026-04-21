@@ -1,21 +1,44 @@
 # AutoMem Claude Code Integration
 
-Simple integration guide for AutoMem with Claude Code.
+Canonical CLI-based integration guide for AutoMem with Claude Code.
 
 ## Philosophy
 
-**Trust Claude + good instructions > automated hooks**
+**Use the CLI installer as the supported path**
 
-Claude has direct MCP access and can judge what's worth storing better than automated capture hooks. This integration provides:
+```bash
+npx @verygoodplugins/mcp-automem claude-code
+```
+
+This installs the supported Claude Code integration from the repo's canonical `templates/claude-code/` assets.
+
+The old Claude Code marketplace plugin is deprecated and kept only as a migration bridge for one release. See [DEPRECATION.md](../DEPRECATION.md).
+
+Claude has direct MCP access and can judge what's worth storing better than low-signal automation alone. The supported integration provides:
 
 1. **MCP permissions** - So Claude can use memory tools without asking
-2. **Memory rules** - Instructions in CLAUDE.md teaching Claude when to store/recall
+2. **SessionStart and capture hooks** - So recall/setup behavior stays consistent
+3. **Memory rules** - Instructions in CLAUDE.md teaching Claude when to store/recall
 
-No complex hook system, no queue processors, no background scripts.
+The CLI installer is the source of truth. Manual config remains available below as an advanced fallback.
 
 ## Installation
 
-### 1. Add MCP Server
+### 1. Recommended Setup
+
+Run:
+
+```bash
+npx @verygoodplugins/mcp-automem claude-code
+```
+
+This merges AutoMem permissions into `~/.claude/settings.json` and installs the canonical hook/support files under `~/.claude/`.
+
+### 2. Advanced Manual Fallback
+
+If you prefer to configure Claude Code by hand, use the manual steps below.
+
+#### Add MCP Server
 
 Add to `~/.claude.json`:
 
@@ -34,12 +57,12 @@ Add to `~/.claude.json`:
 }
 ```
 
-### 2. Add Permissions (Optional)
+#### Add Permissions (Optional)
 
 To let Claude use memory tools without asking, add to `~/.claude/settings.json`:
 
 > Note: The `mcp__memory__*` prefix assumes your MCP server is named `memory` (the key in `mcpServers`).
-> If you installed AutoMem via a Claude Code plugin, Claude may namespace the server name (e.g., `plugin_automem_memory`), which changes the tool names. Use the exact names shown in your tool list.
+> Migration note: if you previously installed AutoMem via the deprecated Claude Code plugin, Claude may have namespaced the server name (for example `plugin_automem_memory`). After migrating to the CLI path, use the canonical `mcp__memory__*` tool names.
 
 ```json
 {
@@ -56,13 +79,13 @@ To let Claude use memory tools without asking, add to `~/.claude/settings.json`:
 }
 ```
 
-Or use our template:
+Or use the canonical template:
 
 ```bash
 cp templates/claude-code/settings.json ~/.claude/settings.json
 ```
 
-### 3. Add Memory Rules
+#### Add Memory Rules
 
 Append memory instructions to CLAUDE.md:
 
@@ -76,6 +99,14 @@ This teaches Claude:
 - What to store (decisions, patterns, insights, bug fixes)
 - How to score importance (0.9+ critical, 0.7-0.8 important)
 - How to create relationships between memories
+
+### 3. Verify Installation
+
+Ask Claude Code:
+
+```text
+Check the health of the AutoMem service
+```
 
 ## How It Works
 
@@ -95,14 +126,6 @@ Claude stores significant events:
 - Bug fixes with root cause (importance: 0.8)
 - Patterns and insights (importance: 0.7)
 
-### Session End
-
-Claude summarizes if needed:
-
-- Multiple files modified
-- New features implemented
-- Important decisions made
-
 ## Available Tools
 
 - `store_memory` - Save memories with tags, importance, metadata
@@ -114,11 +137,11 @@ Claude summarizes if needed:
 
 ## Tips
 
-1. **Let Claude decide** - The memory rules guide Claude on what's worth storing
-2. **Use project tags** - Always include project name in tags for filtering
-3. **Keep memories concise** - Target 150-300 chars; max 500 chars (auto-summarized beyond that)
-4. **Check periodically** - Ask "What do you remember about this project?"
-5. **Clean up** - Use `delete_memory` for outdated information
+1. **Use the CLI path for new installs** - It is the supported Claude Code integration.
+2. **Manual config is fallback-only** - Keep it for advanced or locked-down environments.
+3. **Keep memories concise** - Target 150-300 chars; max 500 chars (auto-summarized beyond that).
+4. **Use bare tags** - Avoid platform tags and date tags in stored memories.
+5. **Clean up** - Use `delete_memory` for outdated information.
 
 ## Troubleshooting
 
@@ -139,3 +162,4 @@ Claude summarizes if needed:
 - [Memory Rules Template](CLAUDE_MD_MEMORY_RULES.md) - Full instructions for Claude
 - [AutoMem Documentation](https://github.com/verygoodplugins/automem) - Backend service
 - [MCP Tools Reference](../INSTALLATION.md#mcp-tools) - All memory operations
+- [Deprecations](../DEPRECATION.md) - Claude Code plugin migration and removal plan

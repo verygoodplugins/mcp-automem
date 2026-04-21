@@ -1,7 +1,7 @@
 {
   "name": "automem",
   "version": "0.13.0",
-  "description": "Persistent memory for Claude Code - store decisions, patterns, and context across sessions",
+  "description": "Deprecated Claude Code plugin for AutoMem. Use npx @verygoodplugins/mcp-automem claude-code.",
   "author": {
     "name": "Very Good Plugins",
     "email": "info@verygoodplugins.com",

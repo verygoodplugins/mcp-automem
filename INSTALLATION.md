@@ -453,6 +453,8 @@ npx @verygoodplugins/mcp-automem claude-code
 
 This merges permissions into `~/.claude/settings.json` so Claude can use memory tools without asking.
 
+> Note: the old Claude Code marketplace plugin is deprecated and kept only as a migration bridge. Use `npx @verygoodplugins/mcp-automem claude-code` for new installs. See [DEPRECATION.md](DEPRECATION.md).
+
 Or manually add to `~/.claude/settings.json`:
 
 ```json
@@ -678,13 +680,15 @@ codex "What were the key decisions made in this project last week?"
 
 ### Memory Best Practices for Codex
 
-**Tag memories with project context:**
+**Store project-scoped memories with bare tags:**
 
 ```javascript
 mcp__memory__store_memory({
   content: "Implemented OAuth flow using NextAuth.js in my-app",
-  tags: ["my-app", "codex", "auth", "nextauth", "<YYYY-MM>"],
+  type: "Pattern",
+  tags: ["my-app", "auth", "nextauth"],
   importance: 0.8,
+  confidence: 0.8,
 });
 ```
 
@@ -694,18 +698,29 @@ mcp__memory__store_memory({
 mcp__memory__store_memory({
   content:
     "Decided to use server components for data fetching in Next.js 14. Reason: Better performance and SEO.",
-  tags: ["my-app", "codex", "architecture", "nextjs", "<YYYY-MM>"],
+  type: "Decision",
+  tags: ["decision", "my-app", "nextjs"],
   importance: 0.9,
+  confidence: 0.9,
 });
 ```
 
-**Recall context when switching projects:**
+**Recall preferences first, then semantic task context:**
 
 ```javascript
 mcp__memory__recall_memory({
-  query: "setup instructions deployment process",
-  tags: ["my-app", "codex"],
-  limit: 5,
+  tags: ["preference"],
+  limit: 20,
+  sort: "updated_desc",
+  format: "detailed",
+});
+
+mcp__memory__recall_memory({
+  query: "setup instructions deployment process Railway Next.js",
+  tags: ["my-app"],   // drop if the slug is ambiguous
+  time_query: "last 90 days",
+  limit: 30,
+  format: "detailed",
 });
 ```
 
@@ -733,6 +748,7 @@ Memories stored in Codex are available in:
 - Claude Desktop (via AutoMem MCP)
 
 Use consistent project names and tags across platforms.
+Use consistent **bare** project slugs and category tags across platforms; avoid platform tags and date tags.
 
 ---
 
@@ -825,6 +841,7 @@ npx @verygoodplugins/mcp-automem openclaw --mode skill --workspace ~/clawd
 - **Multi-platform memory**: Your agent remembers decisions across WhatsApp, Telegram, Slack, Discord, and other OpenClaw channels
 - **Native plugin option**: New installs can use OpenClaw's plugin system instead of only curl-based skills
 - **Transparent MCP option**: `mcp` mode writes a normal `mcporter.json` and keeps secrets out of it
+- **Semantic-first recall**: OpenClaw now recalls preferences first and keeps task recall semantic instead of hard-gating every turn with installer default tags
 - **Complementary memory layers**: `memory-core` remains useful for local file memory; AutoMem is the semantic graph layer
 
 ### Full Setup Guide
@@ -872,11 +889,14 @@ Store a new memory with optional metadata.
 **Parameters:**
 
 - `content` (required): Memory content - be specific, include context, reasoning, and outcome
-- `tags` (optional): Array of tags for categorization (e.g., `["project-name", "bug-fix", "auth"]`)
+- `type` (optional): Memory classification (`Decision`, `Pattern`, `Preference`, `Style`, `Habit`, `Insight`, `Context`)
+- `tags` (optional): Array of bare tags for categorization (e.g., `["my-project", "bugfix", "auth"]`)
 - `importance` (optional): Score 0-1 (0.9+ critical, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes)
+- `confidence` (optional): How certain the memory is stable/correct (0.95 user-stated, ~0.8 observed, ~0.6 tentative)
 - `metadata` (optional): Structured metadata (e.g., `{ files_modified: ["auth.ts"], error_type: "timeout" }`)
 - `embedding` (optional): Vector for semantic search (auto-generated if omitted)
 - `timestamp` (optional): ISO timestamp (defaults to now)
+- `t_valid` / `t_invalid` (optional): Temporal validity window for facts with a shelf life
 
 **Example:**
 
@@ -884,8 +904,10 @@ Store a new memory with optional metadata.
 store_memory({
   content:
     "Chose PostgreSQL over MongoDB for user service. Need ACID for transactions.",
-  tags: ["my-project", "architecture", "database"],
+  type: "Decision",
+  tags: ["decision", "my-project", "database"],
   importance: 0.9,
+  confidence: 0.9,
 });
 ```
 
@@ -896,23 +918,23 @@ Retrieve memories using hybrid search with semantic, keyword, tag, time, and gra
 **Basic Parameters:**
 
 - `query` (optional): Natural language search query
-- `queries` (optional): Array of queries for broader recall (deduplicated server-side)
+- `queries` (optional): Multiple queries for genuinely multi-topic recall; prefer one good `query` for focused tasks
 - `limit` (optional): Max results (default: 5, max: 50)
-- `tags` (optional): Filter by tags (e.g., `["slack", "slack/channel-ops"]`)
+- `tags` (optional): Hard tag filter (e.g., `["preference"]` or `["my-project"]`)
 - `tag_mode` (optional): `any` (default) or `all`
 - `tag_match` (optional): `exact` or `prefix` (prefix supports namespaces)
 
 **Time Filters:**
 
-- `time_query` (optional): Natural language time window (`today`, `yesterday`, `last week`, `last 30 days`)
+- `time_query` (optional): Natural language time window (`today`, `yesterday`, `last week`, `last 90 days`)
 - `start` (optional): ISO timestamp lower bound
 - `end` (optional): ISO timestamp upper bound
 
 **Graph Expansion (Advanced):**
 
 - `expand_entities` (optional): Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. **Use for complex questions like "What is Sarah's sister's job?"**
-- `expand_relations` (optional): Follow graph relationships from seed results to find connected memories
-- `auto_decompose` (optional): Auto-extract entities and topics from query to generate supplementary searches
+- `expand_relations` (optional): Follow graph relationships from seed results to find connected memories. Drop tag gates first if you want traversal to work well.
+- `auto_decompose` (optional): Auto-extract entities and topics from query to generate supplementary searches. Prefer `false` for focused recalls; use only for genuinely multi-topic requests.
 - `expansion_limit` (optional): Max total expanded memories (default: 25)
 - `relation_limit` (optional): Max relations per seed memory (default: 5)
 - `expand_min_importance` (optional): Minimum importance score (0-1) for expanded results. **Use to filter out low-relevance memories during expansion** (default: no filter)
@@ -929,32 +951,36 @@ Retrieve memories using hybrid search with semantic, keyword, tag, time, and gra
 
 **Examples:**
 
-Basic recall:
+Preference recall:
 
 ```javascript
 recall_memory({
-  query: "database architecture decisions",
-  tags: ["my-project"],
-  limit: 5,
+  tags: ["preference"],
+  limit: 20,
+  sort: "updated_desc",
+  format: "detailed",
 });
 ```
 
-Multi-query recall:
+Semantic task recall:
 
 ```javascript
 recall_memory({
-  queries: ["auth patterns", "login flow", "JWT tokens"],
-  limit: 10,
+  query: "database architecture decisions PostgreSQL auth service",
+  tags: ["my-project"],   // drop if the slug is ambiguous
+  time_query: "last 90 days",
+  limit: 30,
+  format: "detailed",
 });
 ```
 
-Time-filtered recall:
+Debug recall:
 
 ```javascript
 recall_memory({
-  tags: ["bug-fix"],
-  time_query: "last 30 days",
-  limit: 5,
+  query: "TimeoutError authentication request timed out",
+  tags: ["bugfix", "solution"],
+  limit: 20,
 });
 ```
 

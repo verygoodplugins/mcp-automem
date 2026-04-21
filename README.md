@@ -183,7 +183,16 @@ npx @verygoodplugins/mcp-automem cursor
 
 **For Claude Code:**
 
-#### Option A: Plugin (Recommended)
+#### Option A: CLI Setup (Recommended)
+
+```bash
+# Installs SessionStart hook and MCP permissions
+npx @verygoodplugins/mcp-automem claude-code
+```
+
+This is the supported Claude Code integration path.
+
+#### Option B: Plugin (Deprecated)
 
 ```bash
 # In Claude Code, install the plugin:
@@ -191,14 +200,9 @@ npx @verygoodplugins/mcp-automem cursor
 /plugin install automem@verygoodplugins-mcp-automem
 ```
 
-Only one Claude Code plugin ships in this repo: `plugins/automem` with the marketplace catalog at `.claude-plugin/marketplace.json`.
+The marketplace plugin is deprecated and kept only as a migration bridge for one release. Use `npx @verygoodplugins/mcp-automem claude-code` for new installs.
 
-#### Option B: CLI Setup
-
-```bash
-# Installs SessionStart hook and MCP permissions
-npx @verygoodplugins/mcp-automem claude-code
-```
+Migration details: [DEPRECATION.md](DEPRECATION.md)
 
 **For OpenAI Codex:**
 
@@ -408,6 +412,7 @@ Same factors apply here - go with Postgres."
 - 🌐 **[Remote MCP via SSE](INSTALLATION.md#remote-mcp-via-sse-sidecar)** - Connect ChatGPT, Claude Web/Mobile, ElevenLabs
 - 🎯 **[Cursor Setup](INSTALLATION.md#cursor-ide)** - IDE integration with rules
 - 🤖 **[Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md)** - Memory rules integration
+- ⚠️ **[Deprecations](DEPRECATION.md)** - Claude Code plugin migration and removal plan
 - 🚀 **[OpenAI Codex Setup](INSTALLATION.md#openai-codex)** - Codex CLI/IDE/Cloud integration
 - 📖 **[MCP Tools Reference](INSTALLATION.md#mcp-tools)** - All memory operations
 
@@ -444,6 +449,7 @@ This MCP package provides the bridge between your AI and that research-validated
 - [Installation Guide](INSTALLATION.md) - MCP client setup for all platforms
 - [Cursor Integration](INSTALLATION.md#cursor-ide) - IDE rules and configuration
 - [Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md) - Memory rules integration
+- [Deprecations](DEPRECATION.md) - Claude Code plugin migration and removal plan
 - [OpenAI Codex](INSTALLATION.md#openai-codex) - Codex integration
 - [Changelog](CHANGELOG.md) - Release history
 
