@@ -34,6 +34,8 @@ npx @verygoodplugins/mcp-automem claude-code
 
 This merges AutoMem permissions into `~/.claude/settings.json` and installs the canonical hook/support files under `~/.claude/`.
 
+Windows compatibility for this branch is limited to POSIX shell environments such as Git Bash, MSYS2, or WSL. `bash`, `jq`, and Python must be available. This is not full native Windows hook support.
+
 ### 2. Advanced Manual Fallback
 
 If you prefer to configure Claude Code by hand, use the manual steps below.

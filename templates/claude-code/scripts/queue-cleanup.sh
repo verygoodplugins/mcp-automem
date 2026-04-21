@@ -8,6 +8,8 @@ fi
 
 set -o pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_HELPER="$SCRIPT_DIR/python-command.sh"
 QUEUE_FILE="$HOME/.claude/scripts/memory-queue.jsonl"
 LOG_FILE="$HOME/.claude/logs/queue-cleanup.log"
 
@@ -16,6 +18,14 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
+if [ -f "$PYTHON_HELPER" ]; then
+    # shellcheck disable=SC1090
+    . "$PYTHON_HELPER"
+else
+    log_message "Python resolver not found; aborting queue cleanup"
+    exit 1
+fi
+
 if [ ! -s "$QUEUE_FILE" ]; then
     log_message "Queue file empty or doesn't exist, nothing to clean"
     exit 0
@@ -23,6 +33,11 @@ fi
 
 if ! command -v jq >/dev/null 2>&1; then
     log_message "jq not available; aborting queue cleanup"
+    exit 1
+fi
+
+if ! automem_resolve_python >/dev/null 2>&1; then
+    log_message "Python not available (tried python3, python, py -3); aborting queue cleanup"
     exit 1
 fi
 
@@ -39,7 +54,7 @@ if [ ${pipe_status[0]} -ne 0 ] || [ ${pipe_status[1]} -ne 0 ] || [ ! -s "$VALIDA
     exit 1
 fi
 
-QUEUE_FILE="$QUEUE_FILE" LOG_FILE="$LOG_FILE" python3 - <<'PY'
+QUEUE_FILE="$QUEUE_FILE" LOG_FILE="$LOG_FILE" automem_run_python - <<'PY'
 import json
 import os
 import sys

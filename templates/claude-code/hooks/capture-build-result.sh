@@ -3,8 +3,23 @@
 # Capture Build Result Hook for AutoMem
 # Records build outcomes, errors, and optimization patterns
 
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RELATIVE_PYTHON_HELPER="$(cd "$HOOK_DIR/../scripts" 2>/dev/null && pwd)/python-command.sh"
+PYTHON_HELPER="$HOME/.claude/scripts/python-command.sh"
 LOG_FILE="$HOME/.claude/logs/build-results.log"
 MEMORY_QUEUE="$HOME/.claude/scripts/memory-queue.jsonl"
+
+if [ -f "$RELATIVE_PYTHON_HELPER" ]; then
+    PYTHON_HELPER="$RELATIVE_PYTHON_HELPER"
+fi
+
+if [ -f "$PYTHON_HELPER" ]; then
+    # shellcheck disable=SC1090
+    . "$PYTHON_HELPER"
+else
+    echo "Warning: python resolver not found - capture disabled" >&2
+    exit 0
+fi
 
 # Ensure directories exist
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -21,8 +36,8 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 0
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "Warning: python3 not installed - capture disabled" >&2
+if ! automem_resolve_python >/dev/null 2>&1; then
+    echo "Warning: Python not installed (tried python3, python, py -3) - capture disabled" >&2
     exit 0
 fi
 
@@ -138,7 +153,7 @@ AUTOMEM_WARNINGS="$WARNINGS" \
 AUTOMEM_ERRORS="$ERRORS" \
 AUTOMEM_EXIT_CODE="$EXIT_CODE" \
 AUTOMEM_COMMAND="$COMMAND" \
-python3 - <<'PY'
+automem_run_python - <<'PY'
 import hashlib
 import json
 import os
