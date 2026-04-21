@@ -83,9 +83,9 @@ This teaches Claude:
 
 Claude automatically recalls:
 
-- Recent project context (last 7 days)
-- User preferences and workflows
-- Similar errors/solutions if debugging
+- User preferences (Phase 1, tag-only, updated-first)
+- Task context scoped to the current project (Phase 2, single semantic query, 90-day window)
+- Similar errors/solutions on-demand when debugging (Phase 3)
 
 ### During Work
 

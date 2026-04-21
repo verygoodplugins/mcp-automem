@@ -50,6 +50,10 @@ describe('automem-session-start.sh', () => {
     expect(stdout).toMatch(/Phase 1/);
     expect(stdout).toMatch(/tags:\s*\["preference"\]/);
     expect(stdout).toMatch(/limit:\s*20/);
+    // v3: Phase 1 sorts by updated_desc and uses detailed format so the
+    // freshest preferences win and staleness is visible inline.
+    expect(stdout).toMatch(/sort:\s*"updated_desc"/);
+    expect(stdout).toMatch(/format:\s*"detailed"/);
   });
 
   it('injects a Phase 2 task-context recall with project-slug gate + 90-day window', () => {
@@ -65,7 +69,16 @@ describe('automem-session-start.sh', () => {
     expect(stdout).toMatch(/tags:\s*\["my-cool-project"\]/);
     expect(stdout).toMatch(/time_query:\s*"last 90 days"/);
     expect(stdout).toMatch(/limit:\s*30/);
-    expect(stdout).toMatch(/auto_decompose:\s*true/);
+    // v3: Phase 2 uses a SINGLE `query` (not `queries[]` + auto_decompose).
+    // Sub-queries converge on the same top scorers and dedup drops results;
+    // a single targeted query wins empirically. See issue #97 §D.
+    expect(stdout).toMatch(/query:\s*"<proper nouns/);
+    expect(stdout).not.toMatch(/^\s*queries:\s*\[/m);
+    expect(stdout).not.toMatch(/auto_decompose:\s*true/);
+    // The guidance block should warn against the old pattern so future
+    // readers of the injected prompt understand why it changed.
+    expect(stdout).toMatch(/queries\[\]/);
+    expect(stdout).toMatch(/auto_decompose/);
   });
 
   it('injects a Phase 3 on-demand debugging recall gated by bugfix/solution', () => {
