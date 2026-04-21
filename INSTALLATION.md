@@ -41,7 +41,7 @@ Service runs at `http://localhost:8001` with no authentication required.
 
 **Best for:** Multi-device access, team collaboration, always-on availability.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/automem-ai-memory-service?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
+[![Deploy on Railway](https://railway.com/button.svg)](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md#railway-deployment)
 
 One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month.
 

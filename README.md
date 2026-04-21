@@ -118,7 +118,7 @@ Service runs at `http://localhost:8001` - perfect for single-machine use.
 
 **Option B: Railway Cloud** (recommended for production)
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/automem-ai-memory-service?referralCode=VuFE6g&utm_medium=integration&utm_source=template&utm_campaign=generic)
+[![Deploy on Railway](https://railway.com/button.svg)](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md#railway-deployment)
 
 One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month after trial.
 
@@ -465,7 +465,8 @@ We welcome contributions! Please:
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes with tests
-4. Submit a pull request
+4. Submit a pull request with a Conventional Commit title such as `fix:`, `feat:`, `docs:`, or `chore:`
+5. Do not prefix the PR title with labels like `[codex]` or `[wip]` because the squash-merge commit is taken from the PR title
 
 ## License
 
