@@ -5,7 +5,7 @@ user-invocable: true
 metadata: {"openclaw":{"skillKey":"automem","primaryEnv":"AUTOMEM_API_KEY","requires":{"env":["AUTOMEM_ENDPOINT"]}}}
 ---
 
-<!-- automem-template-version: 2.0.0 -->
+<!-- automem-template-version: 0.13.0 -->
 
 # AutoMem
 

@@ -4,7 +4,7 @@
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
-import { execFileSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -331,46 +331,73 @@ describe('Template Generation', () => {
     expect(fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-legacy/SKILL.md'))).toBe(true);
   });
 
-  it('templates should have version markers', () => {
-    const cursorTemplate = fs.readFileSync(
-      path.resolve(__dirname, '../../templates/cursor/automem.mdc.template'),
-      'utf8'
-    );
-    expect(cursorTemplate).toMatch(/automem-template-version:\s*[\d.]+/);
+  it('every template version marker should equal package.json version (kept in sync by scripts/sync-template-versions.mjs via prebuild)', () => {
+    const pkgVersion = JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8')
+    ).version;
 
-    const userRulesTemplate = fs.readFileSync(
-      path.resolve(__dirname, '../../templates/cursor/user-rules.md'),
-      'utf8'
-    );
-    expect(userRulesTemplate).toMatch(/automem-template-version:\s*[\d.]+/);
+    const repoRoot = path.resolve(__dirname, '../..');
+    const tracked = execSync('git ls-files', { cwd: repoRoot, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean)
+      .filter((f) => /\.(md|mdc|template)$/.test(f));
 
-    const codexTemplate = fs.readFileSync(
-      path.resolve(__dirname, '../../templates/codex/memory-rules.md'),
-      'utf8'
-    );
-    expect(codexTemplate).toMatch(/automem-template-version:\s*[\d.]+/);
+    const marker = /<!--\s*automem-template-version:\s*([\d.]+)\s*-->/g;
+    const drifted: string[] = [];
+    let totalMarkers = 0;
 
-    const openClawPluginSkill = fs.readFileSync(
-      path.resolve(__dirname, '../../skills/automem/SKILL.md'),
-      'utf8'
-    );
-    expect(openClawPluginSkill).toMatch(/automem-template-version:\s*[\d.]+/);
+    for (const rel of tracked) {
+      const content = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+      let m: RegExpExecArray | null;
+      while ((m = marker.exec(content)) !== null) {
+        totalMarkers += 1;
+        if (m[1] !== pkgVersion) {
+          drifted.push(`${rel}: ${m[1]} (expected ${pkgVersion})`);
+        }
+      }
+    }
+
+    expect(totalMarkers).toBeGreaterThan(0);
+    expect(
+      drifted,
+      `\nTemplate versions drifted from package.json (${pkgVersion}). Run \`npm run sync-versions\` (or \`npm run build\`) to fix:\n  ${drifted.join('\n  ')}`
+    ).toEqual([]);
   });
 
-  it('cursor project template should include operational memory workflow', () => {
+  it('cursor project template should include operational memory workflow (3.0.0 playbook)', () => {
     const cursorTemplate = fs.readFileSync(
       path.resolve(__dirname, '../../templates/cursor/automem.mdc.template'),
       'utf8'
     );
 
+    // Core MCP tool references remain.
     expect(cursorTemplate).toContain('store_memory');
     expect(cursorTemplate).toContain('associate_memories');
-    expect(cursorTemplate).toContain('## Tagging Convention');
-    expect(cursorTemplate).toContain('Use recalled memory as context, not as unquestionable truth');
-    expect(cursorTemplate).toContain('Associate memories only when the relationship is explicit, durable, and useful');
+
+    // 3.0.0 playbook structural elements.
+    expect(cursorTemplate).toContain("## Tool's real behavior");
+    expect(cursorTemplate).toContain('Session start — two-phase recall');
+    expect(cursorTemplate).toContain('Three mid-conversation triggers');
+    expect(cursorTemplate).toContain('The atomic ritual');
+    expect(cursorTemplate).toContain('Mandatory association pairings');
     expect(cursorTemplate).toContain('## Optional GPT-5.4 Overlay');
-    expect(cursorTemplate).toContain('query: "personal coding preferences {{PROJECT_NAME}} collaboration style"');
-    expect(cursorTemplate).toContain('Avoid platform tags like `cursor` on recall');
+
+    // Cursor-specific preservation: active_path/language rankers.
+    expect(cursorTemplate).toContain('active_path');
+    expect(cursorTemplate).toContain('language');
+
+    // Validated-parameter guardrails.
+    expect(cursorTemplate).toContain('"last 90 days"');
+    expect(cursorTemplate).toContain('limit: 20');
+    expect(cursorTemplate).toContain('limit: 30');
+    expect(cursorTemplate).toContain('format: "detailed"');
+
+    // Tag discipline: bare tags only, no platform tag, no [YYYY-MM].
+    expect(cursorTemplate).toContain('NO platform tag');
+    expect(cursorTemplate).not.toContain('{{CURRENT_MONTH}}');
+
+    // Recalled memory isn't ground truth.
+    expect(cursorTemplate).toContain('current evidence wins');
   });
 
   it('cursor user rules template should stay thin', () => {
@@ -379,12 +406,20 @@ describe('Template Generation', () => {
       'utf8'
     );
 
+    // Keeps the cross-project preference-recall pattern.
     expect(userRulesTemplate).toContain('personal coding preferences <project-name> collaboration style');
-    expect(userRulesTemplate).toContain('current repo state or the latest user instruction');
+
+    // 3.0.0 global-rule concepts that must be present.
+    expect(userRulesTemplate).toContain('Corrections are gold');
+    expect(userRulesTemplate).toContain('Bare tags only');
+    expect(userRulesTemplate).toContain('current evidence wins');
+
+    // Must stay thin — no operational workflow.
     expect(userRulesTemplate).not.toContain('store_memory');
     expect(userRulesTemplate).not.toContain('associate_memories');
     expect(userRulesTemplate).not.toContain('## Optional GPT-5.4 Overlay');
     expect(userRulesTemplate).not.toContain('Tagging Convention');
+    expect(userRulesTemplate).not.toContain('The atomic ritual');
   });
 
   it('installation guide should describe the layered Cursor rules strategy', () => {

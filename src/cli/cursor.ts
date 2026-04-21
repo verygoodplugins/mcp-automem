@@ -101,13 +101,6 @@ function detectProjectName(): string {
   return path.basename(process.cwd());
 }
 
-function getCurrentMonth(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
-}
-
 function replaceTemplateVars(content: string, vars: Record<string, string>): string {
   let result = content;
   for (const [key, value] of Object.entries(vars)) {
@@ -307,7 +300,6 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
 
   const vars: Record<string, string> = {
     PROJECT_NAME: projectName,
-    CURRENT_MONTH: getCurrentMonth(),
     VERSION: PACKAGE_VERSION,
     MCP_SERVER_NAME: cursorServerName,
     MCP_TOOL_PREFIX: `mcp_${sanitizeCursorServerName(cursorServerName)}_`,

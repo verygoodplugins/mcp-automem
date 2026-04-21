@@ -1,6 +1,6 @@
 # AutoMem Memory Rules for CLAUDE.md
 
-<!-- automem-template-version: 3.0.0 -->
+<!-- automem-template-version: 0.13.0 -->
 
 Add this section to your `~/.claude/CLAUDE.md` file. The SessionStart hook will prompt memory recall automatically.
 

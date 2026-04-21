@@ -17,8 +17,10 @@
     ]
   },
   "scripts": {
+    "prebuild": "node scripts/sync-template-versions.mjs",
     "build": "tsc && npm run postbuild",
     "postbuild": "chmod +x dist/index.js",
+    "sync-versions": "node scripts/sync-template-versions.mjs",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint .",
     "prepare": "husky",

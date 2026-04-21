@@ -1,327 +1,281 @@
 ---
-description: AutoMem persistent memory - adaptive recall, curated storage, selective associations
+description: AutoMem persistent memory — validated two-phase recall, curated storage, mandatory associations
 alwaysApply: true
 ---
-<!-- automem-template-version: 1.2.0 -->
+<!-- automem-template-version: 0.13.0 -->
 
 # AutoMem Memory Integration
 
-Use memory tools proactively to maintain persistent context across sessions for {{PROJECT_NAME}}.
+Use AutoMem proactively to maintain persistent context across sessions for {{PROJECT_NAME}}. Preserve host/platform instructions; this rule adds project-level memory behavior and should complement thin global User Rules, not replace them.
 
-Preserve host/platform instructions. This rule adds project-level memory behavior and should complement thin global User Rules, not replace them.
+Tools are `{{MCP_TOOL_PREFIX}}*` (e.g. `{{MCP_TOOL_PREFIX}}recall_memory`). Data lives in FalkorDB (graph) + Qdrant (vector). Memories persist across every session, every project.
 
-## About the Memory System
+## Tool's real behavior (validated against production corpus)
 
-**AutoMem MCP Server**: You have access to the AutoMem memory system via MCP (Model Context Protocol). The memory server is already installed and active in your environment.
+- **Tags are a hard gate** — memories without a matching tag are excluded before scoring. Useful when you genuinely want a category (`preference`, `bugfix`); harmful when you're guessing a project slug.
+- **`auto_decompose: true` hurts focused recalls.** Sub-queries converge on the same top scorers, dedup strips them, residuals don't clear threshold. Keep it off by default; turn it on only for genuinely multi-topic questions.
+- **`limit` caps at 50.** Anything under 15 is throwing away context budget you have.
+- **`format: "detailed"`** gives timestamps, confidence, importance, and relations inline. Default `text` hides all of it. Use detailed when you need to judge staleness.
+- **`expand_relations: true` breaks under tag gates** — the server re-applies the filter to expansion targets. If you want graph traversal, drop the tag.
+- **`store_memory` can silently fail** (returns success, doesn't persist). Known quirk. After storing anything that matters, recall it back with a distinctive phrase to verify. Retry once if gone.
+- **Bare tag convention** — `automem`, not `project/automem`. Older memories use `project/<slug>` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. `entity:*:*` tags are server-injected — don't author them.
+- **Don't use platform tags (`cursor`, `codex`, etc.) or date-stamped tags (`[YYYY-MM]`)** in stores. Platform tags bifurcate the corpus; dates duplicate the first-class `timestamp` / `t_valid` / `t_invalid` fields and add noise.
 
-**How it works**:
-- Tools are accessed via MCP with the `{{MCP_TOOL_PREFIX}}` prefix (e.g., `{{MCP_TOOL_PREFIX}}store_memory`)
-- Data is stored in **FalkorDB** (graph database for relationships) and **Qdrant** (vector database for semantic search)
-- Memories persist across all conversations and sessions
+### Slug-collision rule
 
-**Your role**: Use these MCP tools to store important context and recall it when needed. The system handles storage, indexing, and retrieval automatically.
+Bare project slugs must not collide with common topic words. `mcp-automem` ✓ — unique. `video` ✗ — collides with "video content strategy" memories. If `{{PROJECT_NAME}}` is a common word, drop the Phase 2 tag gate and rely on semantic query alone.
 
-## 3-Phase Memory Pattern
+## Session start — two-phase recall
 
-### 1. CONVERSATION START
-Default to recall for project-specific, stateful, strategic, debugging, and "why/how" tasks.
+Standardized defaults across every AutoMem template: Phase 1 `limit 20`, Phase 2 `limit 30`, `time_query: "last 90 days"`. See `CLAUDE_MD_MEMORY_RULES.md` for the validated tradeoff (`limit 10→30` + `30→90 day` window compounds to 2.5× useful results with zero score-quality loss).
 
-**Default to recall for:**
-- Project context questions (documentation, tooling, deployment)
-- Architecture discussions or decisions
-- User preferences and choices
-- Feature planning or strategy
-- Any question about "why" something exists or how it should be done
-- Debugging issues (search for similar past problems)
-- Performance optimization discussions
-- Integration or API work (check past implementations)
-- Refactoring (understand why current structure exists)
-
-**Adaptive recall clues:**
-- If files are open: Recall memories tagged with those components
-- If error messages present: Search for similar error patterns
-- If multiple related files: Recall architectural decisions
-- If PR/commit context: Recall related feature implementations
-
-**Skip recall for:**
-- Pure syntax/language questions ("How does Array.map work?")
-- Trivial edits (typos, formatting, simple renames)
-- Direct factual queries about current code ("What's in this function?")
-- File content requests that can be answered by reading the file
-
-**Start focused:** Begin with one focused project recall and expand only when the task needs more coverage.
+**Phase 1 — Preferences** (tag-only, no query, no time gate):
 
 ```javascript
 {{MCP_TOOL_PREFIX}}recall_memory({
-  query: "<current task or question>",
-  tags: ["{{PROJECT_NAME}}"],
-  limit: 5
+  tags: ["preference"],
+  limit: 20,
+  sort: "updated_desc",
+  format: "detailed"
 })
 ```
 
-- Optional follow-up: if project context is not enough and collaboration style, tone, autonomy, or coding preferences will materially affect the work, run a second semantic recall:
+Sort by `updated_desc` so the freshest preferences win; `format: "detailed"` surfaces timestamps / confidence / importance inline so you can judge staleness at a glance.
+
+**Phase 2 — Task context** (one semantic query built from real nouns; project-slug gate when unambiguous; 90-day window):
 
 ```javascript
 {{MCP_TOOL_PREFIX}}recall_memory({
-  query: "personal coding preferences {{PROJECT_NAME}} collaboration style",
-  limit: 3
+  query: "<proper nouns, product names, tools, specific topics from the user's message>",
+  tags: ["{{PROJECT_NAME}}"],        // drop if slug collides with a common word
+  time_query: "last 90 days",
+  limit: 30,
+  format: "detailed",
+  language: "<typescript|python|...>", // optional ranker — boosts, doesn't gate
+  active_path: "<current file path>"   // optional ranker — Cursor-specific
 })
 ```
 
-- If recall is empty or suspiciously thin, retry once or twice with a broader query, different tags, or a time window before concluding there is no useful memory
-- Use parallel recall only when the task has independent angles such as project context, recent work, and user preferences
-- Avoid platform tags like `cursor` on recall unless you explicitly want platform-specific memories; tags are a hard filter and can hide memories created by other agents
-- Use recalled memory as context, not as unquestionable truth. If memory conflicts with the current repo state or the user's latest instruction, current evidence wins
-- Natural integration: If memories found, weave them into the response naturally. Avoid announcing memory operations
+**How to write the query:**
+- Use the specific things the user named. "AutoMem Discord bot Railway deploy" beats "current project status."
+- Proper nouns are gold — people, products, places. They anchor recall hard.
+- Tools mentioned = include them (Railway, Vercel, pytest, etc.).
+- Skip meta words. "Recent," "decisions," "corrections," "project" water down the embedding.
 
-### 2. DURING CONVERSATION
-Store candidate memories for durable, high-signal events:
+**Skip Phase 2 entirely for:** pure syntax questions, trivial edits (typos, renames, formatting), direct factual queries about current code, file-content requests answerable by reading the file. Memory doesn't help those and costs latency.
 
-**Decisions** (importance: 0.9, type: "Decision")
-- Architecture choices, library selections, pattern decisions
+**Escalate only when Phase 2 returns too broad or empty:**
+- All wrong domain → add a category tag (`bugfix`, `decision`, `deployment`).
+- Too many different projects → add the project slug (if not already gated).
+- Empty → drop the 90-day window (topic may be dormant-but-important).
+- Need graph traversal → drop tags, set `expand_relations: true` (the tag re-apply bug only hurts with tags on).
 
-**Insights** (importance: 0.8, type: "Insight")
-- Significant bug fixes, root cause discoveries, key learnings, problem resolutions
+**Phase 3 — On-demand debugging** (only when actively investigating a specific error symptom):
 
-**Patterns** (importance: 0.7, type: "Pattern")
-- Reusable patterns and best practices discovered
+```javascript
+{{MCP_TOOL_PREFIX}}recall_memory({
+  query: "<error message or symptom>",
+  tags: ["bugfix", "solution"],
+  limit: 20
+})
+```
 
-**Preferences** (importance: 0.6-0.8, type: "Preference")
-- Configuration choices, tool selections, style preferences
+**Don't re-recall mid-conversation** unless the topic genuinely shifts, you're about to assert a specific technical claim and want to verify it's current, or a proper noun you don't recognize enters the conversation. With 1M context, turn-1 memories are still in scope on turn 15 — re-recalling wastes budget.
 
-**Context** (importance: 0.5-0.7, type: "Context")
-- General information, new features, and refactoring notes that are likely to matter later
+## Storage
 
-- Persist only durable decisions, patterns, preferences, significant bug fixes, and notable project context
-- Prefer `update_memory` or invalidating older memories when new work supersedes an existing memory
-
-**Store example:**
 ```javascript
 {{MCP_TOOL_PREFIX}}store_memory({
-  content: "Login timeout on slow connections. Root: missing retry logic. Added exponential backoff. Impact: auth succeeds on flaky networks.",
-  type: "Insight",
-  confidence: 0.95,
-  tags: ["{{PROJECT_NAME}}", "cursor", "{{CURRENT_MONTH}}", "auth"],
-  importance: 0.8,
-  metadata: {
-    files_modified: ["src/auth/UserAuth.ts"],
-    error_signature: "TimeoutError: Authentication request timed out",
-    solution_pattern: "exponential-backoff-retry"
-  }
+  content: "Brief title. Context + reasoning. Outcome.",   // 150–300 chars
+  type: "Decision",   // Decision | Pattern | Preference | Style | Habit | Insight | Context
+  tags: ["<category>", "<project-slug>", "<language>"],    // bare strings; NO platform tag, NO [YYYY-MM]
+  importance: 0.85,   // 0.9+ critical, 0.7–0.85 important, 0.5–0.6 standard
+  confidence: 0.9     // separate dial: 0.95 user-stated, 0.80 observed, 0.60 tentative
 })
 ```
 
-### 3. CONVERSATION END
-- Summarize/store when multiple files were modified, significant refactoring landed, a new feature shipped, or an important decision was made
-- Reuse the same `store_memory` shape shown above
-- If the outcome updates an existing memory, prefer `update_memory` over creating a duplicate
+- Target 150–300 chars, one paragraph: "Title. Context. Outcome."
+- Soft limit 500 chars (server auto-summarizes). Hard limit 2000 chars (rejected).
+- Put structured data (file paths, metrics, exit codes) in `metadata`, not `content`.
+- Cross-project memories (personal preferences, workflow habits that span projects) use `tags: ["personal", "<category>"]` instead of a project slug. Keeps them discoverable from every project without getting drowned by high-importance technical memories.
 
-## Memory Types
+`importance` = how much this matters. `confidence` = how sure you are it's stable and correct. Don't default everything to 0.95 — it flattens the signal decay uses to identify noise.
 
-**Valid types:**
-- **Decision** - Strategic or technical decisions (architecture, libraries, approaches)
-- **Pattern** - Recurring approaches, best practices, code patterns
-- **Preference** - User/team preferences (tools, config, style)
-- **Style** - Code style or formatting preferences
-- **Habit** - Regular behaviors or workflows
-- **Insight** - Key learnings, realizations, problem resolutions
-- **Context** - General contextual information (default if type omitted)
-
-**Type selection guide:**
-- Use explicit `type` when you're confident about the classification
-- Omit `type` to let the system auto-classify (less accurate but acceptable)
-- Include `confidence: 0.95` when providing explicit type (defaults to 0.9)
-
-## Tagging Convention
-
-**For project-specific memories** (code, architecture, decisions):
-1. `{{PROJECT_NAME}}` - Project identifier
-2. `cursor` - Platform tag
-3. `{{CURRENT_MONTH}}` - Current month (YYYY-MM format)
-4. Component tag - Specific area (e.g., "auth", "api", "frontend")
-
-**For personal/cross-project memories** (preferences, lifestyle, relationships):
-1. `personal` - Personal namespace (instead of project tag)
-2. `{{CURRENT_MONTH}}` - Current month
-3. Category tag - Domain (e.g., "health", "preferences", "workflow")
-
-**Why separate namespaces?** Project tags help filter technical memories, but personal memories should be discoverable across all projects. Using `personal` instead of a project tag ensures preferences and lifestyle context aren't drowned out by high-importance technical memories.
-
-## Importance Scoring
-
-- **0.9-1.0**: Critical decisions, major features, breaking changes
-- **0.7-0.9**: Important patterns, significant bugs, new integrations
-- **0.5-0.7**: Helpful patterns, minor features, config changes
-- **0.3-0.5**: Small fixes, temporary workarounds, notes
-
-## Memory Associations
-
-Associate memories only when the relationship is explicit, durable, and useful. Default to `RELATES_TO` unless a stronger relation is clearly true.
+**Temporal validity** — for facts with a shelf life (deployment URL, staging env, active incident, ongoing PR):
 
 ```javascript
-{{MCP_TOOL_PREFIX}}associate_memories({
-  memory1_id: "<new-memory-id>",
-  memory2_id: "<related-memory-id>",
-  type: "RELATES_TO",
-  strength: 0.8
+{{MCP_TOOL_PREFIX}}store_memory({
+  content: "{{PROJECT_NAME}} deployed to Railway at https://<url>",
+  type: "Context",
+  tags: ["deployment", "{{PROJECT_NAME}}", "railway"],
+  importance: 0.8,
+  confidence: 0.9,
+  t_valid: "<ISO now>",
+  t_invalid: "<ISO when this stops being true>"
 })
 ```
 
-Reach for stronger relation types only when the evidence is clear: `LEADS_TO`, `OCCURRED_BEFORE`, `PREFERS_OVER`, `EXEMPLIFIES`, `CONTRADICTS`, `REINFORCES`, `INVALIDATED_BY`, `EVOLVED_INTO`, `DERIVED_FROM`, `PART_OF`.
+## Three mid-conversation triggers (and only three)
 
-System/internal relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, and `DISCOVERED` may appear in recall results, but they are not valid `associate_memories` inputs.
+Most memory systems fail here. Guidance that lists what counts as a correction without telling you how to notice one fired mid-turn results in stores piling up at session end (the session-summary dump pattern — the #1 source of corpus noise) or not happening at all. Listen for trigger phrases; treat store + associate as one atomic ritual.
 
-## Recall Guidance
+**1. User correction or override.**
+Listen for: "actually," "no, I prefer," "not X, Y," "that's wrong," "stop doing X," "never do X," "I told you before," "we decided X already," "you keep doing Y."
+→ Store as `Preference`, importance 0.9, confidence 0.95, include `correction` in tags. Associate `INVALIDATED_BY` the old memory (strength 0.9). This turn — not queued for later.
 
-- Start with the project tag and a focused query; add component tags, bug-fix tags, or a time window only when they sharpen the search
-- For coding tasks, pass `active_path`, `language`, or `context` when they help prioritize style or pattern memories
-- Use `expand_entities` or `expand_relations` only for truly connected questions that need multi-hop context
-- Use `auto_decompose` for broad topics that naturally split into sub-queries
-- Use `priority_ids` only when a workflow must force specific memories into the result set
+**2. Decision stabilizes after at least one round of discussion.**
+Listen for: "let's go with X," "yeah that's the plan," "ship it," "do it that way," "final answer." Signal: the decision survived a round of pushback. One-turn ideas don't qualify — they haven't stabilized.
+→ Store as `Decision`, importance 0.85–0.9. If alternatives came up, associate `PREFERS_OVER` them.
+
+**3. Pattern articulated — not inferred.**
+Listen for: "I always do X," "every time," "this is how I usually," "my thing is." Or you observing "you tend to do X" and the user confirming.
+→ Store as `Pattern`, importance 0.8. Associate concrete examples with `EXEMPLIFIES`.
+
+### The atomic ritual — every store runs all four steps
+
+```javascript
+// Step 1: Recall to find what this relates to (tight query, small limit)
+const related = await {{MCP_TOOL_PREFIX}}recall_memory({
+  query: "<what's being corrected / decided / named>",
+  limit: 5
+});
+
+// Step 2: Store with type, importance, tags, non-default confidence
+const newId = await {{MCP_TOOL_PREFIX}}store_memory({
+  content: "Brief title. Context + reasoning. Outcome.",
+  type: "Preference",   // or Decision / Pattern
+  tags: ["correction", "{{PROJECT_NAME}}"],
+  importance: 0.9,
+  confidence: 0.95
+});
+
+// Step 3: Verify the store landed (silent-fail insurance)
+await {{MCP_TOOL_PREFIX}}recall_memory({
+  query: "<distinctive phrase from the new content>",
+  limit: 3
+});
+// If not in results, retry the store once.
+
+// Step 4: Link to step 1's result if plausible
+if (related?.results?.length) {
+  await {{MCP_TOOL_PREFIX}}associate_memories({
+    memory1_id: related.results[0].id,
+    memory2_id: newId,
+    type: "INVALIDATED_BY",   // or PREFERS_OVER / EXEMPLIFIES / LEADS_TO
+    strength: 0.9
+  });
+}
+```
+
+Step 4 is where the graph actually gets built. Skipping it is the #1 reason AutoMem degrades into a flat bag of notes.
+
+### Mandatory association pairings
+
+| Trigger | Store as | Then associate |
+|---|---|---|
+| User correction | `Preference`, 0.9 / 0.95 | Old memory → `INVALIDATED_BY` (0.9) |
+| Architectural decision | `Decision`, 0.9 / 0.9 | Alternatives considered → `PREFERS_OVER` |
+| Bug fix | `Insight`, 0.75 / 0.85, tags include `bugfix` + `solution` | Bug-report memory → `LEADS_TO` |
+| Pattern discovered | `Pattern`, 0.8 | Concrete examples → `EXEMPLIFIES` |
+| Knowledge evolved | `update_memory` old + new store | `EVOLVED_INTO` (old → new) |
+| Deprecated info | `update_memory` (importance 0.1, `metadata.deprecated: true`) | `INVALIDATED_BY` (old ← new) |
+
+Skip the association only if step 1's related-memory search returns nothing plausible.
+
+### Prefer `update_memory` over new-store + `INVALIDATED_BY`
+
+When a fact changes in place — URL, version, price, deployment state, name — update the existing memory. Reserve new-store + `INVALIDATED_BY` for archaeology worth preserving (e.g., "considered $15/mo before landing on $9/mo"). Before storing on any topic, recall first — prefer `update_memory` or an association over a near-duplicate.
+
+```javascript
+{{MCP_TOOL_PREFIX}}update_memory({
+  memory_id: "<existing id>",
+  content: "<updated content>",
+  importance: 0.85   // optional — adjust if stakes changed
+})
+```
+
+### What NOT to store mid-conversation
+
+- **Session summaries.** Ever. "End of session, here's what we accomplished" creates most corpus garbage.
+- **Agent task-result dumps.** Same family.
+- **"Useful context that might matter later."** Speculative stores are noise. If unsure, skip.
+- **Things the user said they'll remember themselves** — calendar, plans, casual opinions.
+- **Confirmations.** "Great, that worked" doesn't need a memory. The decision that preceded it might.
+- **Anything stored to perform attentiveness.** Memory is for future-you, not for showing the user you were listening this turn.
+
+## Valid relation types for `associate_memories`
+
+`RELATES_TO`, `LEADS_TO`, `OCCURRED_BEFORE`, `PREFERS_OVER`, `EXEMPLIFIES`, `CONTRADICTS`, `REINFORCES`, `INVALIDATED_BY`, `EVOLVED_INTO`, `DERIVED_FROM`, `PART_OF`.
+
+System-injected relations (`SIMILAR_TO`, `PRECEDED_BY`, `DISCOVERED`, `SUMMARIZES`, `SHARES_THEME`, `PARALLEL_CONTEXT`, `EXPLAINS`) show up in recall results but are NOT valid inputs here.
 
 ## Optional GPT-5.4 Overlay
 
 When the active model is GPT-5.4, add these small behavioral nudges:
 
-- Be persistent with tools when recall or verification is needed; do not stop after a weak first result
-- If recall is empty or suspiciously thin, retry with a broader query, different tags, or a time window before concluding there is no useful memory
-- Keep responses compact by default
-- Ask only when a missing choice materially changes the outcome
+- Be persistent with tools when recall or verification is needed; don't stop after a weak first result.
+- If recall is empty or thin, retry with a broader query or drop the tag gate before concluding there's no useful memory.
+- Keep responses compact by default.
+- Ask only when a missing choice materially changes the outcome.
 
-## Content Size Guidelines
+## Memory vs current state
 
-**Target**: 150-300 characters (one meaningful paragraph)
-**Maximum**: 500 characters (auto-summarized if exceeded)
-**Hard limit**: 2000 characters (rejected)
-
-If you need more detail:
-- Split into multiple atomic memories with associations
-- Use metadata for structured data (files, error signatures, etc.)
-- Create associations between related smaller memories
-
-## Content Structure
-
-Format: `Brief title. Context and details. Impact/outcome.`
-
-**Good:**
-- `Using PostgreSQL over MongoDB. Need ACID guarantees for transactions. Impact: Ensures data consistency.` (type: "Decision")
-- `Login failing on special characters. Root: missing input sanitization. Added validator. Files: auth/login.ts` (type: "Insight")
-- `Early returns for validation. Reduces nesting, improves readability. Applied in all API routes.` (type: "Pattern")
-
-**Avoid:**
-- Trivial changes: "Fixed typo", "Updated comment"
-- Missing context: "Changed config" (what config? why?)
-- Secrets: Never store API keys, passwords, tokens
-- Type prefixes in content: Don't use `[DECISION]` or `[BUG-FIX]` - use the `type` field instead
-- Wall-of-text memories: If you're writing a paragraph, break it up
-
-## Tool Reference
-
-**Store memory:**
-```javascript
-{{MCP_TOOL_PREFIX}}store_memory({
-  content: string,              // Required: Memory content (no [TYPE] prefix needed)
-  type?: string,                // Optional: "Decision", "Pattern", "Insight", "Preference", "Style", "Habit", "Context"
-  confidence?: number,          // Optional: 0.0-1.0 (default: 0.9 if type provided, auto-computed otherwise)
-  tags?: string[],              // Optional: Tags for categorization
-  importance?: number,          // Optional: 0.0-1.0 (default: 0.5)
-  metadata?: object,            // Optional: Custom metadata
-  timestamp?: string,           // Optional: ISO 8601 timestamp
-  id?: string,                  // Optional: Custom memory ID
-  t_valid?: string,             // Optional: When memory becomes valid
-  t_invalid?: string            // Optional: When memory expires
-})
-```
-
-**Recall memories:**
-```javascript
-{{MCP_TOOL_PREFIX}}recall_memory({
-  // Basic search
-  query?: string,              // Natural language search
-  queries?: string[],          // Multiple queries (deduplicated server-side)
-  tags?: string[],             // Filter by tags
-  limit?: number,              // default: 5, max: 50
-  
-  // Time filters
-  time_query?: string,         // "today", "last week", "last 30 days"
-  start?: string,              // ISO timestamp lower bound
-  end?: string,                // ISO timestamp upper bound
-  
-  // Tag matching
-  tag_mode?: "any"|"all",      // OR (default) vs AND for tags
-  tag_match?: "exact"|"prefix", // Prefix supports namespaces (auth/*)
-  
-  // Graph expansion (advanced)
-  expand_entities?: boolean,   // Multi-hop via entity expansion
-  expand_relations?: boolean,  // Follow graph relationships
-  auto_decompose?: boolean,    // Auto-generate sub-queries
-  expansion_limit?: number,    // Max expanded results (default: 25)
-  relation_limit?: number,     // Max relations per seed (default: 5)
-  expand_min_importance?: number, // Filter expanded results by importance (0-1)
-  expand_min_strength?: number,   // Filter expansion by relation strength (0-1)
-  
-  // Context hints (advanced)
-  context?: string,            // Context label (e.g., "coding-style")
-  language?: string,           // Programming language hint
-  active_path?: string,        // Current file path
-  context_tags?: string[],     // Priority tags to boost
-  context_types?: string[],    // Priority memory types (Decision, Pattern, etc.)
-  priority_ids?: string[]      // Memory IDs to always include
-})
-```
-
-**Update memory:**
-```javascript
-{{MCP_TOOL_PREFIX}}update_memory({
-  memory_id: string,
-  content?: string,
-  type?: string,
-  confidence?: number,
-  tags?: string[],
-  importance?: number,
-  metadata?: object
-})
-```
-
-**Associate memories:**
-```javascript
-{{MCP_TOOL_PREFIX}}associate_memories({
-  memory1_id: string,
-  memory2_id: string,
-  type: "RELATES_TO" | "LEADS_TO" | "OCCURRED_BEFORE" | "PREFERS_OVER" | "EXEMPLIFIES" | "CONTRADICTS" | "REINFORCES" | "INVALIDATED_BY" | "EVOLVED_INTO" | "DERIVED_FROM" | "PART_OF",
-  strength: number  // 0.0-1.0
-})
-```
+Recalled context is a prior, not ground truth. If a memory disagrees with the current repo state, the user's latest instruction, or a freshly read file — **current evidence wins**. Update or invalidate the stale memory rather than acting on it.
 
 ## Error Handling
 
-If memory operations fail:
-- **Recall fails/empty after retries**: Continue without historical context. Don't announce the failure.
-- **Store fails**: Complete the task normally. Memory is enhancement, not requirement.
-- **Service unavailable**: Focus on solving the immediate problem.
+- **Recall fails / empty after retries**: continue without historical context. Don't announce the failure to the user.
+- **Store fails**: complete the task normally. Memory is enhancement, not requirement.
+- **Service unavailable**: focus on solving the immediate problem.
 
-Memory enhances the experience but should never block progress.
+Memory enhances the experience but should never block progress. Weave recalled context in naturally — don't announce memory operations.
 
-## Best Practices
+## Tool Reference
 
-- **Adaptive recall**: Default to recall for stateful or strategic work, skip it for low-context requests
-- **Semantic preference recall**: Use a separate semantic query when personality, tone, autonomy, or coding preferences matter
-- **Project-first workflow**: Keep the operational memory workflow here; let thin global User Rules handle cross-project collaboration defaults
-- **Natural integration**: Use recalled context seamlessly, don't announce memory operations
-- **Tag consistently**: Project, platform, date, component, type on every store
-- **Trust current evidence**: If repo state or the user's latest instruction conflicts with memory, current evidence wins
-- **Update over duplicates**: Prefer `update_memory` or invalidation when new work supersedes older memories
-- **Selective associations**: Link memories only when the relationship is explicit and useful
-- **Avoid noise**: Don't store trivial changes (typos, formatting, comments)
-- **Include context**: Future you needs to understand "why", not just "what"
-- **Parallel recall selectively**: Use multiple queries only when the task has independent angles
-- **Start simple**: Begin with project name tag only, add more tags if needed
+```javascript
+{{MCP_TOOL_PREFIX}}store_memory({
+  content: string,                // 150–300 chars target
+  type?: "Decision"|"Pattern"|"Preference"|"Style"|"Habit"|"Insight"|"Context",
+  tags?: string[],                // bare — no platform, no [YYYY-MM]
+  importance?: number,            // 0.0–1.0
+  confidence?: number,            // 0.0–1.0 — separate dial from importance
+  metadata?: object,              // structured data lives here
+  timestamp?: string,             // ISO 8601; usually omit and let server set
+  t_valid?: string, t_invalid?: string,   // temporal validity
+  id?: string
+})
+
+{{MCP_TOOL_PREFIX}}recall_memory({
+  query?: string, queries?: string[],     // single query beats auto_decompose for focused tasks
+  tags?: string[], tag_mode?: "any"|"all", tag_match?: "exact"|"prefix",
+  limit?: number,                         // up to 50; ≥15 recommended
+  time_query?: string, start?: string, end?: string,
+  sort?: "score"|"time_desc"|"time_asc"|"updated_desc"|"updated_asc",
+  format?: "text"|"items"|"detailed"|"json",
+  language?: string, active_path?: string, context?: string,  // rankers (boost, don't gate)
+  context_tags?: string[], context_types?: string[],          // currently unreliable; use limit + good query instead
+  expand_entities?: boolean, expand_relations?: boolean,
+  expand_min_importance?: number, expand_min_strength?: number,
+  auto_decompose?: boolean,               // off by default; on only for multi-topic questions
+  priority_ids?: string[]
+})
+
+{{MCP_TOOL_PREFIX}}update_memory({
+  memory_id: string,
+  content?, type?, confidence?, tags?, importance?, metadata?
+})
+
+{{MCP_TOOL_PREFIX}}associate_memories({
+  memory1_id: string, memory2_id: string,
+  type: "RELATES_TO"|"LEADS_TO"|"OCCURRED_BEFORE"|"PREFERS_OVER"|"EXEMPLIFIES"|"CONTRADICTS"|"REINFORCES"|"INVALIDATED_BY"|"EVOLVED_INTO"|"DERIVED_FROM"|"PART_OF",
+  strength: number                        // 0.0–1.0
+})
+```
 
 ---
 
 **Installed**: `npx @verygoodplugins/mcp-automem cursor`
 **Cursor MCP Server**: `{{MCP_SERVER_NAME}}` (tools prefixed with `{{MCP_TOOL_PREFIX}}`)
 **Project**: {{PROJECT_NAME}}
-**Current Month**: {{CURRENT_MONTH}}
 
-Memory is your persistent brain across sessions. Use it strategically!
+Memory is your persistent brain across sessions. Use it strategically — 200 sharp memories beat 2000 fuzzy ones.
