@@ -178,9 +178,34 @@ def is_duplicate(queue_path, new_content, lookback=20):
         pass
     return False
 
+project = os.environ.get("AUTOMEM_PROJECT", "")
+framework = os.environ.get("AUTOMEM_TEST_FRAMEWORK", "unknown")
+tests_failed = to_int(os.environ.get("AUTOMEM_TESTS_FAILED", "0"))
+
+# Map framework → bare language tag (covers the common cases).
+FRAMEWORK_TO_LANG = {
+    "pytest": "python",
+    "jest/vitest": "typescript",
+    "go": "go",
+    "phpunit": "php",
+}
+lang = FRAMEWORK_TO_LANG.get(framework)
+
+# Bare-tag convention (matches existing corpus). No namespace prefixes.
+tags = ["test"]
+if framework and framework != "unknown":
+    # Replace slashes with hyphens so tags don't get split by the prefix index.
+    tags.append(framework.replace('/', '-'))
+if lang:
+    tags.append(lang)
+if project:
+    tags.append(project)
+if tests_failed > 0:
+    tags.append("failure")
+
 record = {
     "content": truncate(os.environ.get("AUTOMEM_CONTENT", ""), 1500),
-    "tags": ["test", os.environ.get("AUTOMEM_TEST_FRAMEWORK", "unknown"), os.environ.get("AUTOMEM_PROJECT", "")],
+    "tags": tags,
     "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.5")),
     "type": os.environ.get("AUTOMEM_TYPE", "Context"),
     "metadata": {

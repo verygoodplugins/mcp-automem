@@ -254,14 +254,17 @@ function sanitizeTag(input: string): string {
     .slice(0, 64);
 }
 
+function isAmbiguousProjectSlug(slug: string): boolean {
+  return ['api', 'app', 'test', 'video'].includes(slug);
+}
+
 export function buildDefaultTags(projectName?: string): string[] {
-  const tags = ['platform/openclaw'];
   const normalizedProjectName = String(projectName || '').replace(/^@.*?\//, '');
   const sanitized = sanitizeTag(normalizedProjectName);
-  if (sanitized) {
-    tags.push(`project/${sanitized}`);
+  if (!sanitized || isAmbiguousProjectSlug(sanitized)) {
+    return [];
   }
-  return tags;
+  return [sanitized];
 }
 
 export function redactSensitiveValue(value: unknown): unknown {
@@ -820,7 +823,10 @@ export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Prom
     log(`Scope: ${cliOptions.scope}`, cliOptions.quiet);
   }
   log(`Endpoint: ${endpoint}`, cliOptions.quiet);
-  log(`Default tags: ${defaultTags.join(', ')}`, cliOptions.quiet);
+  log(
+    `Default store tags: ${defaultTags.length > 0 ? defaultTags.join(', ') : '(none - semantic recall only)'}`,
+    cliOptions.quiet
+  );
 
   if (cliOptions.mode === 'plugin') {
     applyPluginMode({

@@ -3,8 +3,7 @@
 AutoMem-Enhanced Session Memory Processor
 Analyzes Claude Code session data with importance scoring, type classification,
 and relationship creation for the new AutoMem service.
-
-This is the self-contained processor script bundled with the Claude Code plugin.
+Canonical processor script; plugin wrapper delegates here.
 """
 
 import json
@@ -499,34 +498,40 @@ class SessionMemoryProcessor:
                 print("Similar memory already exists, skipping")
                 return
             
-            # Prepare metadata
+            # Bare-tag convention (matches existing corpus). Type must be a valid
+            # AutoMem enum (Decision|Pattern|Preference|Style|Habit|Insight|Context).
             session_info = session_data.get('session_data', {})
+            project = session_info.get('project_name', 'unknown')
+            tags = ['session-milestone']
+            if project and project != 'unknown':
+                tags.append(project)
+
             metadata = {
-                'tags': ['session_milestone', 'claude_code', 'automated'],
-                'type': 'session_completion',
-                'project': session_info.get('project_name', 'unknown'),
+                'tags': tags,
+                'type': 'Insight',
+                'project': project,
                 'git_branch': session_info.get('git_branch', ''),
                 'git_repo': session_info.get('git_repo', ''),
                 'significance_score': significance,
                 'patterns': patterns,
                 'reasons': reasons,
             }
-            
-            # Add domain tags based on patterns
+
+            # Add bare domain tags based on work focus
             if patterns.get('work_focus'):
                 for focus in patterns['work_focus']:
                     if 'feature' in focus:
-                        metadata['tags'].append('coding')
+                        metadata['tags'].append('feature')
                     elif 'bug' in focus or 'fix' in focus:
-                        metadata['tags'].append('debugging')
+                        metadata['tags'].append('bugfix')
                     elif 'test' in focus:
-                        metadata['tags'].append('testing')
+                        metadata['tags'].append('test')
                     elif 'doc' in focus:
-                        metadata['tags'].append('documentation')
+                        metadata['tags'].append('docs')
                     elif 'refactor' in focus:
-                        metadata['tags'].append('architecture')
-            
-            # Add significance level tag relative to the threshold
+                        metadata['tags'].append('refactor')
+
+            # Add significance level as a bare tag
             storage_threshold = self.significance_threshold
             moderate_cutoff = storage_threshold + 2
             major_cutoff = storage_threshold + 5
@@ -559,10 +564,14 @@ class SessionMemoryProcessor:
                     
                     insight_content += ', '.join(insight_parts)
                     
+                    insight_project = session_info.get('project_name', 'unknown')
+                    insight_tags = ['pattern', 'work-style']
+                    if insight_project and insight_project != 'unknown':
+                        insight_tags.append(insight_project)
                     insight_metadata = {
-                        'tags': ['pattern', 'insight', 'work_style', 'automated'],
-                        'type': 'work_pattern',
-                        'project': session_info.get('project_name', 'unknown'),
+                        'tags': insight_tags,
+                        'type': 'Pattern',
+                        'project': insight_project,
                     }
                     
                     self.store_memory(insight_content, insight_metadata)

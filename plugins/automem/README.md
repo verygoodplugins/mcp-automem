@@ -1,10 +1,20 @@
 # AutoMem Plugin for Claude Code
 
-Persistent memory for Claude Code via the AutoMem MCP server. Store decisions, patterns, and context across sessions.
+Persistent memory for Claude Code via the AutoMem MCP server.
+
+> Deprecated: this plugin is kept only as a migration bridge for one compatibility release.
+> Use `npx @verygoodplugins/mcp-automem claude-code` for new installs.
+> Migration details: [../../DEPRECATION.md](../../DEPRECATION.md)
 
 ## Installation
 
-### From GitHub Marketplace
+### Supported Install Path
+
+```bash
+npx @verygoodplugins/mcp-automem claude-code
+```
+
+### Deprecated Plugin Install
 
 ```bash
 # In Claude Code:
@@ -22,11 +32,11 @@ Persistent memory for Claude Code via the AutoMem MCP server. Store decisions, p
 
 ### Agent Skill: Memory Management
 
-The plugin includes a **memory-management skill** that teaches Claude the 3-phase memory pattern:
+The plugin includes a **memory-management skill** that mirrors the canonical Claude Code templates:
 
 1. **Session Start (Recall)** - Automatically recall project context
 2. **During Work (Store)** - Store decisions, patterns, bug fixes
-3. **Session End (Summarize)** - Store session summaries
+3. **Stop/queue processing** - Capture significant events through the same shipped scripts as the CLI templates
 
 ### Slash Commands
 
@@ -81,27 +91,27 @@ export AUTOMEM_API_KEY=your_api_key_here
 
 ## Tagging Convention
 
-Always include:
+Use bare tags only:
 
-1. **Project name** - Primary identifier
-2. **Component** - Specific area (auth, api, frontend)
-3. **Type** - decision, bug-fix, pattern, feature
-4. **Date** - YYYY-MM format
+1. **Project slug** when the memory is clearly project-scoped
+2. **Category tags** like `decision`, `bugfix`, `deployment`, `test`
+3. **Language tags** only when they add recall value
 
-Example: `["myapp", "auth", "bug-fix", "2025-12"]`
+Do not use platform tags or date tags.
 
-## Alternative: NPX Installation
+Example: `["mcp-automem", "bugfix", "typescript"]`
 
-If you prefer the CLI approach instead of the plugin:
+## Recommended Alternative
 
 ```bash
 npx @verygoodplugins/mcp-automem claude-code
 ```
 
-This installs the SessionStart hook and MCP permissions without the full plugin.
+This is the supported Claude Code installation path and will remain after the plugin payload is removed.
 
 ## More Information
 
 - [AutoMem Documentation](../../README.md)
 - [MCP Server on npm](https://www.npmjs.com/package/@verygoodplugins/mcp-automem)
 - [AutoMem Service](https://github.com/verygoodplugins/automem)
+- [Deprecations](../../DEPRECATION.md)

@@ -7,29 +7,32 @@ description: Search and recall relevant memories for the current context
 Perform context-aware memory search:
 
 1. **Analyze Context**:
-   - Current working directory (extract project name)
-   - Recently opened files
-   - User's query or intent
+   - User's actual nouns: project names, products, files, errors, people, tools
+   - Whether this is a preferences recall, project-context recall, or debugging recall
+   - Whether a tag gate would help or would hard-filter away relevant results
 
 2. **Execute Recall**:
 
    Use `mcp__memory__recall_memory` with appropriate strategy:
 
-   **Project Context** (default):
+   **Preferences**:
    ```javascript
    mcp__memory__recall_memory({
-     query: "[user query or project context]",
-     tags: ["project-name"],
-     limit: 10
+     tags: ["preference"],
+     limit: 20,
+     sort: "updated_desc",
+     format: "detailed"
    })
    ```
 
-   **Recent Work**:
+   **Project / task context**:
    ```javascript
    mcp__memory__recall_memory({
-     tags: ["project-name"],
-     time_query: "last 7 days",
-     limit: 5
+     query: "[proper nouns, file names, tool names, specific topics from the user's request]",
+     tags: ["project-slug"],   // drop if ambiguous
+     time_query: "last 90 days",
+     limit: 30,
+     format: "detailed"
    })
    ```
 
@@ -37,10 +40,12 @@ Perform context-aware memory search:
    ```javascript
    mcp__memory__recall_memory({
      query: "[error message keywords]",
-     tags: ["bug-fix"],
-     limit: 5
+     tags: ["bugfix", "solution"],
+     limit: 20
    })
    ```
+
+   Use `queries[]` only for genuinely multi-topic questions. Prefer one good query over templated multi-query recall.
 
 3. **Present Results**: Show memories with:
    - Content summary

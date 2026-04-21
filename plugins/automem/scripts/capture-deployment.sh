@@ -39,8 +39,25 @@ EXIT_CODE="${EXIT_CODE:-${CLAUDE_EXIT_CODE:-0}}"
 CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty' 2>/dev/null)
 PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 
-# Skip non-deploy commands
-if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(deploy|railway|vercel|netlify|heroku|kubectl|k8s|kubernetes|docker|gcloud|aws|cloudfront|firebase|gh pages)"; then
+# Skip non-deploy commands. Guard against read-only CLIs that mention platform names
+# in URLs or output (e.g. `curl https://x.up.railway.app/health`, `docker ps`).
+if [ -z "$COMMAND" ]; then
+    exit 0
+fi
+
+FIRST_WORD=$(echo "$COMMAND" | awk '{print $1}' | tr -d '"'"'")
+case "$FIRST_WORD" in
+    curl|wget|http|ping|dig|nslookup|nc|netcat|cat|ls|grep|rg|find|jq|which|type|echo|awk|sed|head|tail)
+        exit 0
+        ;;
+esac
+
+# Require either explicit "deploy" word OR a platform+action combination that
+# actually deploys something (not just a status check or query).
+DEPLOY_REGEX='(^|[^[:alnum:]_])deploy(ed|ing|ment|s)?($|[^[:alnum:]_])'
+PLATFORM_ACTION_REGEX='(^|[[:space:]])(railway[[:space:]]+(up|redeploy|run)|vercel([[:space:]]+(--prod|deploy))?|netlify[[:space:]]+deploy|heroku[[:space:]]+(create|releases:create|run)|git[[:space:]]+push[[:space:]]+heroku|kubectl[[:space:]]+(apply|rollout|set[[:space:]]+image|create|replace)|docker[[:space:]]+(push|buildx[[:space:]]+build[[:space:]]+.*--push)|gcloud[[:space:]]+(run|app|builds|functions|compute)[[:space:]]+(deploy|submit)|firebase[[:space:]]+deploy|gh[[:space:]]+(pages|workflow[[:space:]]+run)|flyctl[[:space:]]+deploy|fly[[:space:]]+deploy)($|[[:space:]])'
+
+if ! echo "$COMMAND" | grep -qiE "$DEPLOY_REGEX" && ! echo "$COMMAND" | grep -qiE "$PLATFORM_ACTION_REGEX"; then
     exit 0
 fi
 
@@ -93,22 +110,21 @@ DEPLOY_TIME=$(echo "$OUTPUT" | grep -oE "deployed in [0-9.]+[sm]" | grep -oE "[0
 BUILD_ID=$(echo "$OUTPUT" | grep -oE "Build #[0-9]+" | grep -oE "[0-9]+" | head -1)
 VERSION=$(echo "$OUTPUT" | grep -oE "v[0-9.]+|version [0-9.]+" | grep -oE "[0-9.]+" | head -1)
 
-# Determine importance
-IMPORTANCE=0.8  # Deployments are generally important
+# Determine importance + type. Only valid AutoMem types: Decision|Pattern|Preference|Style|Habit|Insight|Context.
+# A deploy event is Context (successful) or Insight (failure analysis) — never Decision.
+IMPORTANCE=0.8
 MEMORY_TYPE="Context"
 
 if [ "$EXIT_CODE" -ne 0 ]; then
-    IMPORTANCE=0.95  # Failed deployments are critical
+    IMPORTANCE=0.95
     MEMORY_TYPE="Insight"
 elif [ "$DEPLOY_ENV" = "production" ]; then
-    IMPORTANCE=0.9  # Production deployments are very important
-    MEMORY_TYPE="Decision"
+    IMPORTANCE=0.9
+    MEMORY_TYPE="Context"
 elif [ "$DEPLOY_ENV" = "staging" ]; then
     IMPORTANCE=0.7
-    MEMORY_TYPE="Context"
 else
     IMPORTANCE=0.6
-    MEMORY_TYPE="Context"
 fi
 
 # Extract error details if deployment failed
@@ -134,60 +150,26 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
 fi
 
 # Queue memory for processing with safe JSON encoding and file locking
-DEPLOY_PLATFORM="${DEPLOY_PLATFORM:-unknown}"
-DEPLOY_ENV="${DEPLOY_ENV:-production}"
-PROJECT_NAME="${PROJECT_NAME:-unknown}"
-IMPORTANCE="${IMPORTANCE:-0.8}"
-EXIT_CODE="${EXIT_CODE:-0}"
-TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
-
-if ! MEMORY_RECORD=$(jq -c -n \
-    --arg content "$CONTENT" \
-    --arg platform "$DEPLOY_PLATFORM" \
-    --arg env "$DEPLOY_ENV" \
-    --arg project "$PROJECT_NAME" \
-    --arg type "$MEMORY_TYPE" \
-    --arg url "$DEPLOY_URL" \
-    --arg version "$VERSION" \
-    --arg build_id "$BUILD_ID" \
-    --arg deploy_time "$DEPLOY_TIME" \
-    --arg git_commit "$GIT_COMMIT" \
-    --arg command "$COMMAND" \
-    --arg error_details "$ERROR_DETAILS" \
-    --arg timestamp "$TIMESTAMP" \
-    --argjson importance "$IMPORTANCE" \
-    --argjson exit_code "$EXIT_CODE" \
-    'def optional($value): if $value == "" then null else $value end;
-    {
-      content: ($content | .[0:1500]),
-      tags: ["deployment", "platform:\($platform)", "env:\($env)", "project:\($project)"],
-      importance: $importance,
-      type: $type,
-      metadata: {
-        platform: $platform,
-        environment: $env,
-        url: optional($url),
-        version: optional($version),
-        build_id: optional($build_id),
-        deploy_time: optional($deploy_time),
-        git_commit: optional($git_commit),
-        exit_code: $exit_code,
-        command: ($command | .[0:500]),
-        project: $project,
-        error_details: optional($error_details)
-      },
-      timestamp: $timestamp
-    }'); then
-    log_message "Failed to build deployment memory record"
-    exit 1
-fi
-
 AUTOMEM_QUEUE="$MEMORY_QUEUE" \
-AUTOMEM_RECORD="$MEMORY_RECORD" \
+AUTOMEM_CONTENT="$CONTENT" \
+AUTOMEM_DEPLOY_PLATFORM="$DEPLOY_PLATFORM" \
+AUTOMEM_DEPLOY_ENV="$DEPLOY_ENV" \
+AUTOMEM_PROJECT="$PROJECT_NAME" \
+AUTOMEM_IMPORTANCE="$IMPORTANCE" \
+AUTOMEM_TYPE="$MEMORY_TYPE" \
+AUTOMEM_DEPLOY_URL="$DEPLOY_URL" \
+AUTOMEM_VERSION="$VERSION" \
+AUTOMEM_BUILD_ID="$BUILD_ID" \
+AUTOMEM_DEPLOY_TIME="$DEPLOY_TIME" \
+AUTOMEM_GIT_COMMIT="$GIT_COMMIT" \
+AUTOMEM_EXIT_CODE="$EXIT_CODE" \
+AUTOMEM_COMMAND="$COMMAND" \
+AUTOMEM_ERROR_DETAILS="$ERROR_DETAILS" \
 python3 - <<'PY'
 import hashlib
 import json
 import os
+from datetime import datetime, timezone
 
 try:
     import fcntl  # type: ignore[attr-defined]
@@ -218,6 +200,21 @@ def unlock_file(handle):
         except OSError:
             pass
 
+def optional_text(value):
+    return value if value else None
+
+def to_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+def truncate(text, max_len):
+    """Truncate text to max_len to prevent oversized queue entries."""
+    if text and len(text) > max_len:
+        return text[:max_len] + "..."
+    return text
+
 def content_hash(text):
     return hashlib.md5(text.encode("utf-8")).hexdigest()
 
@@ -236,20 +233,58 @@ def is_duplicate(queue_path, new_content, lookback=20):
         pass
     return False
 
+project = os.environ.get("AUTOMEM_PROJECT", "")
+platform = os.environ.get("AUTOMEM_DEPLOY_PLATFORM", "unknown")
+deploy_env = os.environ.get("AUTOMEM_DEPLOY_ENV", "production")
+exit_code = to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0"))
+
+# Bare-tag convention (matches existing corpus). No namespace prefixes.
+tags = ["deployment"]
+if platform and platform != "unknown":
+    tags.append(platform)
+tags.append(deploy_env)
+if project:
+    tags.append(project)
+if exit_code != 0:
+    tags.append("failure")
+
+now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+record = {
+    "content": truncate(os.environ.get("AUTOMEM_CONTENT", ""), 1500),
+    "tags": tags,
+    "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.8")),
+    "type": os.environ.get("AUTOMEM_TYPE", "Context"),
+    "metadata": {
+        "platform": platform,
+        "environment": deploy_env,
+        "url": optional_text(os.environ.get("AUTOMEM_DEPLOY_URL", "")),
+        "version": optional_text(os.environ.get("AUTOMEM_VERSION", "")),
+        "build_id": optional_text(os.environ.get("AUTOMEM_BUILD_ID", "")),
+        "deploy_time": optional_text(os.environ.get("AUTOMEM_DEPLOY_TIME", "")),
+        "git_commit": optional_text(os.environ.get("AUTOMEM_GIT_COMMIT", "")),
+        "exit_code": exit_code,
+        "command": truncate(os.environ.get("AUTOMEM_COMMAND", ""), 500),
+        "project": project,
+        "error_details": os.environ.get("AUTOMEM_ERROR_DETAILS", ""),
+    },
+    "timestamp": now_iso,
+}
+
+# Temporal validity: production deployments represent the *currently live* version
+# from this moment forward. No t_invalid since we don't know when it'll be replaced.
+if deploy_env == "production" and exit_code == 0:
+    record["t_valid"] = now_iso
+
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
-record = os.environ.get("AUTOMEM_RECORD", "")
-if queue_path and record:
-    try:
-        new_content = json.loads(record).get("content", "")
-    except (json.JSONDecodeError, KeyError):
-        new_content = ""
-    if is_duplicate(queue_path, new_content):
+if queue_path:
+    if is_duplicate(queue_path, record["content"]):
         raise SystemExit(0)
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)
         try:
-            handle.write(record + "\n")
+            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
         finally:
             unlock_file(handle)
 PY

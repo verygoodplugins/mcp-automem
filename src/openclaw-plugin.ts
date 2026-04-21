@@ -42,6 +42,12 @@ function mergeTags(defaultTags: string[], provided: string[] | undefined, inject
   return deduped.length > 0 ? deduped : undefined;
 }
 
+function explicitTags(provided: string[] | undefined): string[] | undefined {
+  const nextProvided = Array.isArray(provided) ? provided.filter(Boolean) : [];
+  const deduped = [...new Set(nextProvided)];
+  return deduped.length > 0 ? deduped : undefined;
+}
+
 function parsePluginConfig(value: unknown): PluginConfig {
   const raw = isRecord(value) ? value : {};
   const endpoint = typeof raw.endpoint === 'string' ? raw.endpoint.trim() : '';
@@ -257,7 +263,7 @@ const openClawPlugin = {
       },
       defaultTags: {
         label: 'Default Tags',
-        help: 'Applied to stored memories and default recall scope when tags are omitted.',
+        help: 'Applied to stored memories. Recall stays semantic unless tags are explicitly provided.',
       },
     },
   },
@@ -309,7 +315,7 @@ const openClawPlugin = {
         const request = params as RecallMemoryArgs;
         const result = await client.recallMemory({
           ...request,
-          tags: mergeTags(config.defaultTags, request.tags, true),
+          tags: explicitTags(request.tags),
         });
         return jsonResult(result);
       },
@@ -371,18 +377,36 @@ const openClawPlugin = {
         }
 
         try {
-          const result = await client.recallMemory({
-            query: prompt,
-            limit: config.autoRecallLimit,
-            tags: mergeTags(config.defaultTags, undefined),
+          const preferenceResult = await client.recallMemory({
+            tags: ['preference'],
+            limit: Math.max(config.autoRecallLimit, 5),
+            sort: 'updated_desc',
+            format: 'detailed',
           });
 
-          if (!Array.isArray(result.results) || result.results.length === 0) {
+          const contextResult = await client.recallMemory({
+            query: prompt,
+            limit: Math.max(config.autoRecallLimit * 2, 6),
+            format: 'detailed',
+          });
+
+          const mergedResults = [...(preferenceResult.results || []), ...(contextResult.results || [])];
+          const seen = new Set<string>();
+          const uniqueResults = mergedResults.filter((entry) => {
+            const key = entry.id || entry.memory?.memory_id || entry.memory?.id || JSON.stringify(entry.memory || {});
+            if (!key || seen.has(key)) {
+              return false;
+            }
+            seen.add(key);
+            return true;
+          });
+
+          if (uniqueResults.length === 0) {
             return;
           }
 
-          const memoryContext = result.results
-            .slice(0, config.autoRecallLimit)
+          const memoryContext = uniqueResults
+            .slice(0, Math.max(config.autoRecallLimit * 2, 6))
             .map((entry) => formatRecallContext(entry))
             .join('\n');
 

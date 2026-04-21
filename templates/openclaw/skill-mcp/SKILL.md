@@ -5,7 +5,7 @@ user-invocable: true
 metadata: {"openclaw":{"skillKey":"automem","primaryEnv":"AUTOMEM_API_KEY","requires":{"env":["AUTOMEM_ENDPOINT"]}}}
 ---
 
-<!-- automem-template-version: 2.0.0 -->
+<!-- automem-template-version: 0.13.0 -->
 
 # AutoMem
 
@@ -26,8 +26,12 @@ Interpret `/automem remember ...`, `/automem recall ...`, `/automem update ...`,
 
 ## Rules
 
-- Recall before answering questions about past decisions, preferences, or similar incidents.
+- Recall preferences first with `tags: ["preference"]`, `sort: "updated_desc"`, and `format: "detailed"` when collaboration style or user habits matter.
+- For task context, prefer one semantic query built from the user's actual nouns. Do not hard-gate recall with default tags unless the conversation is clearly scoped to an unambiguous project slug.
+- For debugging, use a tighter recall on the symptom with `tags: ["bugfix", "solution"]`.
+- Tags are a hard gate. Use bare tags only, and avoid platform tags like `openclaw`.
 - Store only durable information worth reusing later.
+- Default project tags are for stored memories. Recall should stay semantic unless tags are explicitly needed.
 - Use `memory-core` and file-backed workspace memory for local notes and raw transcripts; AutoMem is the semantic cross-session layer.
 - If delete targets are ambiguous, show the likely matches and ask for confirmation before deleting.
 - Do not fall back to raw curl commands in this mode unless the user explicitly asks for the legacy setup.

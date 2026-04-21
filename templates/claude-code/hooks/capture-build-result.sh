@@ -54,10 +54,11 @@ elif echo "$COMMAND" | grep -q "pnpm build"; then
     BUILD_TOOL="pnpm"
 elif echo "$COMMAND" | grep -q "webpack\|vite\|rollup\|parcel"; then
     BUILD_TOOL=$(echo "$COMMAND" | grep -oE "webpack|vite|rollup|parcel" | head -1)
-elif echo "$COMMAND" | grep -q "go build"; then
-    BUILD_TOOL="go"
+# cargo must be checked before go — "cargo build" contains "go build" as a substring.
 elif echo "$COMMAND" | grep -q "cargo build"; then
     BUILD_TOOL="cargo"
+elif echo "$COMMAND" | grep -qE "(^|[[:space:]])go build"; then
+    BUILD_TOOL="go"
 elif echo "$COMMAND" | grep -q "gradle\|mvn"; then
     BUILD_TOOL=$(echo "$COMMAND" | grep -oE "gradle|mvn" | head -1)
 elif echo "$COMMAND" | grep -q "make"; then
@@ -76,14 +77,16 @@ ERRORS=0
 if [ "$BUILD_TOOL" = "npm" ] || [ "$BUILD_TOOL" = "yarn" ]; then
     BUILD_TIME=$(echo "$OUTPUT" | grep -oE "in [0-9.]+s" | grep -oE "[0-9.]+" | head -1)
     BUILD_SIZE=$(echo "$OUTPUT" | grep -oE "[0-9.]+ [KMG]B" | head -1)
-    WARNINGS=$(echo "$OUTPUT" | grep -c "warning" || echo 0)
+    WARNINGS=$(echo "$OUTPUT" | grep -c "warning" | head -1 || true)
+    WARNINGS="${WARNINGS:-0}"
 elif [ "$BUILD_TOOL" = "webpack" ] || [ "$BUILD_TOOL" = "vite" ]; then
     BUILD_TIME=$(echo "$OUTPUT" | grep -oE "built in [0-9.]+s" | grep -oE "[0-9.]+" | head -1)
     BUILD_SIZE=$(echo "$OUTPUT" | grep -oE "dist.*[0-9.]+ [KMG]B" | grep -oE "[0-9.]+ [KMG]B" | head -1)
 fi
 
 # Count errors
-ERRORS=$(echo "$OUTPUT" | grep -c -E "ERROR|error:|Error:" || echo 0)
+ERRORS=$(echo "$OUTPUT" | grep -c -E "ERROR|error:|Error:" | head -1 || true)
+ERRORS="${ERRORS:-0}"
 
 # Determine importance and type
 IMPORTANCE=0.5
@@ -203,9 +206,33 @@ def is_duplicate(queue_path, new_content, lookback=20):
         pass
     return False
 
+project = os.environ.get("AUTOMEM_PROJECT", "")
+build_tool = os.environ.get("AUTOMEM_BUILD_TOOL", "unknown")
+exit_code = to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0"))
+
+# Map build_tool → best-guess bare language tag (covers the common cases).
+TOOL_TO_LANG = {
+    "npm": "typescript", "yarn": "typescript", "pnpm": "typescript",
+    "webpack": "typescript", "vite": "typescript", "rollup": "typescript", "parcel": "typescript",
+    "go": "go", "cargo": "rust", "gradle": "java", "mvn": "java",
+    "make": "c", "composer": "php",
+}
+lang = TOOL_TO_LANG.get(build_tool)
+
+# Bare-tag convention (matches existing corpus). No namespace prefixes.
+tags = ["build"]
+if build_tool and build_tool != "unknown":
+    tags.append(build_tool)
+if lang:
+    tags.append(lang)
+if project:
+    tags.append(project)
+if exit_code != 0:
+    tags.append("failure")
+
 record = {
     "content": truncate(os.environ.get("AUTOMEM_CONTENT", ""), 1500),
-    "tags": ["build", os.environ.get("AUTOMEM_BUILD_TOOL", "unknown"), os.environ.get("AUTOMEM_PROJECT", "")],
+    "tags": tags,
     "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.5")),
     "type": os.environ.get("AUTOMEM_TYPE", "Context"),
     "metadata": {

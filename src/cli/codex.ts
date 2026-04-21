@@ -42,11 +42,6 @@ function detectProjectName(): string {
   return path.basename(process.cwd());
 }
 
-function getCurrentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
 function replaceTemplateVars(content: string, vars: Record<string, string>): string {
   let result = content;
   for (const [k, v] of Object.entries(vars)) {
@@ -115,7 +110,6 @@ export async function applyCodexSetup(cliOptions: CodexSetupOptions): Promise<vo
 
   const vars = {
     PROJECT_NAME: projectName,
-    CURRENT_MONTH: getCurrentMonth(),
   };
 
   log(`\n🔧 Setting up Codex AutoMem rules for: ${projectName}`, cliOptions.quiet);

@@ -102,57 +102,22 @@ else
 fi
 
 # Queue memory for processing with safe JSON encoding and file locking
-PROJECT_NAME="${PROJECT_NAME:-unknown}"
-TEST_FRAMEWORK="${TEST_FRAMEWORK:-unknown}"
-IMPORTANCE="${IMPORTANCE:-0.5}"
-TESTS_PASSED="${TESTS_PASSED:-0}"
-TESTS_FAILED="${TESTS_FAILED:-0}"
-EXIT_CODE="${EXIT_CODE:-0}"
-TIMESTAMP=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
-
-if ! ERROR_DETAILS_JSON=$(jq -c -n --arg error "$ERROR_DETAILS" '$error'); then
-    log_message "Failed to encode test error details"
-    exit 1
-fi
-
-if ! MEMORY_RECORD=$(jq -c -n \
-    --arg content "$CONTENT" \
-    --arg test_framework "$TEST_FRAMEWORK" \
-    --arg project "$PROJECT_NAME" \
-    --arg type "$MEMORY_TYPE" \
-    --arg command "$COMMAND" \
-    --arg timestamp "$TIMESTAMP" \
-    --argjson importance "$IMPORTANCE" \
-    --argjson tests_passed "$TESTS_PASSED" \
-    --argjson tests_failed "$TESTS_FAILED" \
-    --argjson exit_code "$EXIT_CODE" \
-    --argjson error_details "$ERROR_DETAILS_JSON" \
-    '{
-      content: ($content | .[0:1500]),
-      tags: ["test", "framework:\($test_framework)", "project:\($project)"],
-      importance: $importance,
-      type: $type,
-      metadata: {
-        test_framework: $test_framework,
-        tests_passed: $tests_passed,
-        tests_failed: $tests_failed,
-        exit_code: $exit_code,
-        command: ($command | .[0:500]),
-        project: $project,
-        error_details: $error_details
-      },
-      timestamp: $timestamp
-    }'); then
-    log_message "Failed to build test memory record"
-    exit 1
-fi
-
 AUTOMEM_QUEUE="$MEMORY_QUEUE" \
-AUTOMEM_RECORD="$MEMORY_RECORD" \
+AUTOMEM_CONTENT="$CONTENT" \
+AUTOMEM_TEST_FRAMEWORK="$TEST_FRAMEWORK" \
+AUTOMEM_PROJECT="$PROJECT_NAME" \
+AUTOMEM_IMPORTANCE="$IMPORTANCE" \
+AUTOMEM_TYPE="$MEMORY_TYPE" \
+AUTOMEM_TESTS_PASSED="$TESTS_PASSED" \
+AUTOMEM_TESTS_FAILED="$TESTS_FAILED" \
+AUTOMEM_EXIT_CODE="$EXIT_CODE" \
+AUTOMEM_COMMAND="$COMMAND" \
+AUTOMEM_ERROR_DETAILS="$ERROR_DETAILS" \
 python3 - <<'PY'
 import hashlib
 import json
 import os
+from datetime import datetime, timezone
 
 try:
     import fcntl  # type: ignore[attr-defined]
@@ -183,6 +148,18 @@ def unlock_file(handle):
         except OSError:
             pass
 
+def to_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+def truncate(text, max_len):
+    """Truncate text to max_len to prevent oversized queue entries."""
+    if text and len(text) > max_len:
+        return text[:max_len] + "..."
+    return text
+
 def content_hash(text):
     return hashlib.md5(text.encode("utf-8")).hexdigest()
 
@@ -201,20 +178,57 @@ def is_duplicate(queue_path, new_content, lookback=20):
         pass
     return False
 
+project = os.environ.get("AUTOMEM_PROJECT", "")
+framework = os.environ.get("AUTOMEM_TEST_FRAMEWORK", "unknown")
+tests_failed = to_int(os.environ.get("AUTOMEM_TESTS_FAILED", "0"))
+
+# Map framework → bare language tag (covers the common cases).
+FRAMEWORK_TO_LANG = {
+    "pytest": "python",
+    "jest/vitest": "typescript",
+    "go": "go",
+    "phpunit": "php",
+}
+lang = FRAMEWORK_TO_LANG.get(framework)
+
+# Bare-tag convention (matches existing corpus). No namespace prefixes.
+tags = ["test"]
+if framework and framework != "unknown":
+    # Replace slashes with hyphens so tags don't get split by the prefix index.
+    tags.append(framework.replace('/', '-'))
+if lang:
+    tags.append(lang)
+if project:
+    tags.append(project)
+if tests_failed > 0:
+    tags.append("failure")
+
+record = {
+    "content": truncate(os.environ.get("AUTOMEM_CONTENT", ""), 1500),
+    "tags": tags,
+    "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.5")),
+    "type": os.environ.get("AUTOMEM_TYPE", "Context"),
+    "metadata": {
+        "test_framework": os.environ.get("AUTOMEM_TEST_FRAMEWORK", "unknown"),
+        "tests_passed": to_int(os.environ.get("AUTOMEM_TESTS_PASSED", "0")),
+        "tests_failed": to_int(os.environ.get("AUTOMEM_TESTS_FAILED", "0")),
+        "exit_code": to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0")),
+        "command": truncate(os.environ.get("AUTOMEM_COMMAND", ""), 500),
+        "project": os.environ.get("AUTOMEM_PROJECT", ""),
+        "error_details": os.environ.get("AUTOMEM_ERROR_DETAILS", ""),
+    },
+    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+}
+
 queue_path = os.environ.get("AUTOMEM_QUEUE", "")
-record = os.environ.get("AUTOMEM_RECORD", "")
-if queue_path and record:
-    try:
-        new_content = json.loads(record).get("content", "")
-    except (json.JSONDecodeError, KeyError):
-        new_content = ""
-    if is_duplicate(queue_path, new_content):
+if queue_path:
+    if is_duplicate(queue_path, record["content"]):
         raise SystemExit(0)
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     with open(queue_path, "a", encoding="utf-8") as handle:
         lock_file(handle)
         try:
-            handle.write(record + "\n")
+            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
         finally:
             unlock_file(handle)
 PY
