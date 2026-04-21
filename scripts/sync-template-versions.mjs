@@ -4,21 +4,62 @@
 // We never ship a template-prose change without also bumping the package, so one version
 // number is the source of truth for both.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MARKER = /<!--\s*automem-template-version:\s*([\d.]+)\s*-->/g;
+const TEMPLATE_FILE_RE = /\.(md|mdc|template)$/;
+const FALLBACK_ROOTS = ['templates', 'skills', 'plugins'];
+const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist']);
 
 const pkgVersion = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version;
 
-// Use git to enumerate tracked files so we don't walk node_modules / dist / ad-hoc dirs.
-const trackedFiles = execSync('git ls-files', { cwd: REPO_ROOT, encoding: 'utf8' })
-  .split('\n')
-  .filter(Boolean)
-  .filter((f) => /\.(md|mdc|template)$/.test(f));
+function walkTemplateFiles(rootRel) {
+  const rootAbs = join(REPO_ROOT, rootRel);
+  if (!existsSync(rootAbs)) return [];
+
+  const files = [];
+  // Iterative depth-first traversal using an explicit stack to avoid recursion limits.
+  const stack = [rootRel];
+
+  while (stack.length > 0) {
+    const currentRel = stack.pop();
+    const currentAbs = join(REPO_ROOT, currentRel);
+
+    for (const entry of readdirSync(currentAbs, { withFileTypes: true })) {
+      const entryRel = join(currentRel, entry.name);
+      if (entry.isDirectory()) {
+        if (!IGNORED_DIRS.has(entry.name)) {
+          stack.push(entryRel);
+        }
+        continue;
+      }
+      if (entry.isFile() && TEMPLATE_FILE_RE.test(entryRel)) {
+        files.push(entryRel);
+      }
+    }
+  }
+
+  return files;
+}
+
+function listCandidateFiles() {
+  try {
+    // Prefer git-tracked files so we match repository contents when git is available.
+    return execSync('git ls-files', { cwd: REPO_ROOT, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean)
+      .filter((f) => TEMPLATE_FILE_RE.test(f));
+  } catch {
+    // Fallback for tarballs/zips or environments without git.
+    return FALLBACK_ROOTS.flatMap((root) => walkTemplateFiles(root));
+  }
+}
+
+const trackedFiles = listCandidateFiles();
 
 let touched = 0;
 let scanned = 0;

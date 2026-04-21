@@ -57,7 +57,27 @@ if [ -n "$GIT_BRANCH" ]; then
 fi
 
 # Save session context to temporary file
-TEMP_FILE="/tmp/claude_session_$(date +%s)_$$.json"
+create_temp_file() {
+    local temp_file=""
+
+    if command -v mktemp >/dev/null 2>&1; then
+        temp_file=$(mktemp "${TMPDIR:-/tmp}/claude_session.XXXXXX") || return 1
+    elif command -v python3 >/dev/null 2>&1; then
+        temp_file=$(python3 -c 'import os, tempfile; fd, path = tempfile.mkstemp(prefix="claude_session.", dir=os.environ.get("TMPDIR", "/tmp")); os.close(fd); print(path)') || return 1
+    elif command -v python >/dev/null 2>&1; then
+        temp_file=$(python -c 'import os, tempfile; fd, path = tempfile.mkstemp(prefix="claude_session.", dir=os.environ.get("TMPDIR", "/tmp")); os.close(fd); print(path)') || return 1
+    else
+        return 1
+    fi
+
+    printf '%s\n' "$temp_file"
+}
+
+TEMP_FILE="$(create_temp_file)"
+if [ -z "$TEMP_FILE" ]; then
+    log_message "Failed to create secure temporary file"
+    exit 1
+fi
 cleanup() {
     rm -f "$TEMP_FILE"
 }

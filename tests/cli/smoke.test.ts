@@ -356,10 +356,41 @@ describe('Template Generation', () => {
     ).version;
 
     const repoRoot = path.resolve(__dirname, '../..');
-    const tracked = execSync('git ls-files', { cwd: repoRoot, encoding: 'utf8' })
-      .split('\n')
-      .filter(Boolean)
-      .filter((f) => /\.(md|mdc|template)$/.test(f));
+    const TEMPLATE_FILE_RE = /\.(md|mdc|template)$/;
+    const FALLBACK_ROOTS = ['templates', 'skills', 'plugins'];
+    const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist']);
+
+    function walkTemplateFiles(rootRel: string): string[] {
+      const rootAbs = path.join(repoRoot, rootRel);
+      if (!fs.existsSync(rootAbs)) return [];
+      const files: string[] = [];
+      // Iterative depth-first traversal using an explicit stack to avoid recursion limits.
+      const stack = [rootRel];
+      while (stack.length > 0) {
+        const currentRel = stack.pop()!;
+        const currentAbs = path.join(repoRoot, currentRel);
+        for (const entry of fs.readdirSync(currentAbs, { withFileTypes: true })) {
+          const entryRel = path.join(currentRel, entry.name);
+          if (entry.isDirectory()) {
+            if (!IGNORED_DIRS.has(entry.name)) stack.push(entryRel);
+            continue;
+          }
+          if (entry.isFile() && TEMPLATE_FILE_RE.test(entryRel)) files.push(entryRel);
+        }
+      }
+      return files;
+    }
+
+    let tracked: string[];
+    try {
+      tracked = execSync('git ls-files', { cwd: repoRoot, encoding: 'utf8' })
+        .split('\n')
+        .filter(Boolean)
+        .filter((f) => TEMPLATE_FILE_RE.test(f));
+    } catch {
+      // Fallback for environments without git (e.g. source snapshots or some CI caches).
+      tracked = FALLBACK_ROOTS.flatMap((root) => walkTemplateFiles(root));
+    }
 
     const marker = /<!--\s*automem-template-version:\s*([\d.]+)\s*-->/g;
     const drifted: string[] = [];
