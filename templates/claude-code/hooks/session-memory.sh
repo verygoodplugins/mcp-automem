@@ -7,11 +7,30 @@
 # Configuration
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELATIVE_PROCESSOR="$(cd "$HOOK_DIR/../scripts" 2>/dev/null && pwd)/process-session-memory.py"
+RELATIVE_PYTHON_HELPER="$(cd "$HOOK_DIR/../scripts" 2>/dev/null && pwd)/python-command.sh"
 MEMORY_PROCESSOR="$HOME/.claude/scripts/process-session-memory.py"
+PYTHON_HELPER="$HOME/.claude/scripts/python-command.sh"
 LOG_FILE="$HOME/.claude/logs/session-memory.log"
 
 if [ -f "$RELATIVE_PROCESSOR" ]; then
     MEMORY_PROCESSOR="$RELATIVE_PROCESSOR"
+fi
+
+if [ -f "$RELATIVE_PYTHON_HELPER" ]; then
+    PYTHON_HELPER="$RELATIVE_PYTHON_HELPER"
+fi
+
+if [ -f "$PYTHON_HELPER" ]; then
+    # shellcheck disable=SC1090
+    . "$PYTHON_HELPER"
+else
+    echo "Warning: python resolver not found - session capture disabled" >&2
+    exit 0
+fi
+
+if ! automem_resolve_python >/dev/null 2>&1; then
+    echo "Warning: Python not installed (tried python3, python, py -3) - session capture disabled" >&2
+    exit 0
 fi
 
 # Ensure log directory exists
@@ -62,10 +81,8 @@ create_temp_file() {
 
     if command -v mktemp >/dev/null 2>&1; then
         temp_file=$(mktemp "${TMPDIR:-/tmp}/claude_session.XXXXXX") || return 1
-    elif command -v python3 >/dev/null 2>&1; then
-        temp_file=$(python3 -c 'import os, tempfile; fd, path = tempfile.mkstemp(prefix="claude_session.", dir=os.environ.get("TMPDIR", "/tmp")); os.close(fd); print(path)') || return 1
-    elif command -v python >/dev/null 2>&1; then
-        temp_file=$(python -c 'import os, tempfile; fd, path = tempfile.mkstemp(prefix="claude_session.", dir=os.environ.get("TMPDIR", "/tmp")); os.close(fd); print(path)') || return 1
+    elif automem_resolve_python >/dev/null 2>&1; then
+        temp_file=$(automem_run_python -c 'import os, tempfile; fd, path = tempfile.mkstemp(prefix="claude_session.", dir=os.environ.get("TMPDIR", "/tmp")); os.close(fd); print(path)') || return 1
     else
         return 1
     fi
@@ -97,7 +114,7 @@ AUTOMEM_USER="$USER" \
 AUTOMEM_HOSTNAME="$(hostname)" \
 AUTOMEM_PLATFORM="$(uname -s)" \
 AUTOMEM_TEMP_FILE="$TEMP_FILE" \
-python3 - <<'PY'
+automem_run_python - <<'PY'
 import json
 import os
 from datetime import datetime, timezone
@@ -136,7 +153,7 @@ if [ -f "$MEMORY_PROCESSOR" ]; then
     log_message "Processing session with Python processor"
     
     PROCESS_TIMEOUT=10
-    python3 "$MEMORY_PROCESSOR" "$TEMP_FILE" >> "$LOG_FILE" 2>&1 &
+    automem_run_python "$MEMORY_PROCESSOR" "$TEMP_FILE" >> "$LOG_FILE" 2>&1 &
     PROCESS_PID=$!
     RESULT=0
 

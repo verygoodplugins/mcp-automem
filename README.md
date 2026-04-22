@@ -19,7 +19,7 @@ npx @verygoodplugins/mcp-automem setup
 
 Your AI assistant now remembers everything. Forever. Across every conversation.
 
-Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex** - any MCP-compatible AI platform.
+Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex**, **Google Antigravity** - any MCP-compatible AI platform.
 
 ## The Problem We Solve
 
@@ -34,7 +34,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 ### 🧠 Persistent Memory Across Sessions
 
 - AI remembers decisions, patterns, and context **forever**
-- Works across **all MCP platforms** - Claude Desktop, Cursor, Claude Code
+- Works across **all MCP platforms** - Claude Desktop, Cursor, Claude Code, Codex, Antigravity
 - **Cross-device sync** - same memory on Mac, Windows, Linux
 
 ### 🏆 Graph-Vector Architecture
@@ -52,6 +52,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 | **Claude Code**    | ✅ Full | 30 seconds |
 | **GitHub Copilot** | ✅ Full | 2 minutes  |
 | **OpenAI Codex**   | ✅ Full | 30 seconds |
+| **Google Antigravity** | ✅ Full | 30 seconds |
 | **Any MCP client** | ✅ Full | 30 seconds |
 
 ## See It In Action
@@ -192,6 +193,8 @@ npx @verygoodplugins/mcp-automem claude-code
 
 This is the supported Claude Code integration path.
 
+On Windows, this compatibility path currently assumes a POSIX shell environment such as Git Bash, MSYS2, or WSL. `bash`, `jq`, and Python must be available. This is not full native Windows hook support yet.
+
 #### Option B: Plugin (Deprecated)
 
 ```bash
@@ -213,6 +216,15 @@ npx @verygoodplugins/mcp-automem config --format=json
 # Optional: add memory-first rules to this repo
 npx @verygoodplugins/mcp-automem codex
 ```
+
+**For Google Antigravity:**
+
+1. Open the MCP Store from the `...` menu at the top of the editor's agent panel
+2. Click `Manage MCP Servers` and then `View raw config`
+3. Paste the config from [templates/antigravity/mcp_config.json](/Users/jgarturo/Projects/OpenAI/mcp-servers/mcp-automem/templates/antigravity/mcp_config.json) into `~/.gemini/antigravity/mcp_config.json`
+4. Restart or reload Antigravity so the `memory` server is available
+
+👉 **[Google Antigravity Setup](INSTALLATION.md#google-antigravity)** for the full flow and verification steps
 
 👉 **[Full Installation Guide](INSTALLATION.md)** for detailed MCP client and platform-specific setup
 
@@ -414,6 +426,7 @@ Same factors apply here - go with Postgres."
 - 🤖 **[Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md)** - Memory rules integration
 - ⚠️ **[Deprecations](DEPRECATION.md)** - Claude Code plugin migration and removal plan
 - 🚀 **[OpenAI Codex Setup](INSTALLATION.md#openai-codex)** - Codex CLI/IDE/Cloud integration
+- 🪐 **[Google Antigravity Setup](INSTALLATION.md#google-antigravity)** - Raw MCP config via Antigravity's MCP Store
 - 📖 **[MCP Tools Reference](INSTALLATION.md#mcp-tools)** - All memory operations
 
 ### AutoMem Service (separate repo)
@@ -451,6 +464,7 @@ This MCP package provides the bridge between your AI and that research-validated
 - [Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md) - Memory rules integration
 - [Deprecations](DEPRECATION.md) - Claude Code plugin migration and removal plan
 - [OpenAI Codex](INSTALLATION.md#openai-codex) - Codex integration
+- [Google Antigravity](INSTALLATION.md#google-antigravity) - Antigravity MCP setup
 - [Changelog](CHANGELOG.md) - Release history
 
 ### AutoMem Service
