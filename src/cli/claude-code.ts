@@ -268,7 +268,10 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   try {
     currentSettings = JSON.parse(raw);
   } catch (error) {
-    throw new Error(`Cannot parse existing settings.json at ${targetPath}: ${(error as Error).message}`);
+    throw new Error(
+      `Cannot parse existing settings.json at ${targetPath}: ${(error as Error).message}`,
+      { cause: error }
+    );
   }
 
   const merged = mergeSettings(currentSettings, templateSettings);

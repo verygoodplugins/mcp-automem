@@ -6,21 +6,42 @@ updates:
       interval: "weekly"
     groups:
       production-dependencies:
+        dependency-type: "production"
+        patterns:
+          - "*"
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      dev-toolchain-majors:
+        dependency-type: "development"
+        update-types:
+          - "major"
+        patterns:
+          - "@eslint/*"
+          - "@types/*"
+          - "@vitest/*"
+          - "eslint"
+          - "typescript"
+          - "typescript-eslint"
+          - "vitest"
+      dev-other-majors:
+        dependency-type: "development"
+        update-types:
+          - "major"
         patterns:
           - "*"
         exclude-patterns:
+          - "@eslint/*"
           - "@types/*"
+          - "@vitest/*"
+          - "eslint"
           - "typescript"
+          - "typescript-eslint"
           - "vitest"
-          - "eslint*"
-          - "prettier"
-      dev-dependencies:
-        patterns:
-          - "@types/*"
-          - "typescript"
-          - "vitest"
-          - "eslint*"
-          - "prettier"
     commit-message:
       prefix: "chore(deps)"
     open-pull-requests-limit: 10
