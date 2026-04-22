@@ -122,6 +122,23 @@ describe('CLI Smoke Tests', () => {
     });
   });
 
+  describe('claude-code command', () => {
+    it('should run with --dry-run without creating files', () => {
+      const homeDir = path.join(tempDir, 'claude-home');
+      const claudeDir = path.join(tempDir, 'claude-config');
+      fs.mkdirSync(homeDir, { recursive: true });
+
+      const result = runCli(['claude-code', '--dry-run', '--dir', claudeDir], {
+        env: {
+          HOME: homeDir,
+        },
+      });
+
+      expect((result.stdout + result.stderr).length).toBeGreaterThan(0);
+      expect(fs.existsSync(claudeDir)).toBe(false);
+    });
+  });
+
   describe('setup command', () => {
     it('should show config with --yes flag (non-interactive)', () => {
       const result = runCli(['setup', '--yes', '--endpoint', 'http://test:8001']);
@@ -338,6 +355,7 @@ describe('Template Generation', () => {
       ['templates/claude-code/hooks/capture-test-pattern.sh', 'plugins/automem/scripts/capture-test-pattern.sh'],
       ['templates/claude-code/hooks/session-memory.sh', 'plugins/automem/scripts/session-memory.sh'],
       ['templates/claude-code/hooks/automem-session-start.sh', 'plugins/automem/scripts/session-start.sh'],
+      ['templates/claude-code/scripts/python-command.sh', 'plugins/automem/scripts/python-command.sh'],
       ['templates/claude-code/scripts/memory-filters.json', 'plugins/automem/scripts/memory-filters.json'],
       ['templates/claude-code/scripts/process-session-memory.py', 'plugins/automem/scripts/process-session-memory.py'],
       ['templates/claude-code/scripts/queue-cleanup.sh', 'plugins/automem/scripts/queue-cleanup.sh'],
@@ -494,16 +512,32 @@ describe('Template Generation', () => {
       path.resolve(__dirname, '../../templates/CLAUDE_CODE_INTEGRATION.md'),
       'utf8'
     );
+    const installationGuide = fs.readFileSync(
+      path.resolve(__dirname, '../../INSTALLATION.md'),
+      'utf8'
+    );
+    const claudeSettings = fs.readFileSync(
+      path.resolve(__dirname, '../../templates/claude-code/settings.json'),
+      'utf8'
+    );
 
     expect(readme).toContain('#### Option A: CLI Setup (Recommended)');
     expect(readme).toContain('#### Option B: Plugin (Deprecated)');
     expect(readme).toContain('DEPRECATION.md');
+    expect(readme).toContain('Git Bash, MSYS2, or WSL');
 
     expect(pluginReadme).toContain('Deprecated');
     expect(pluginReadme).toContain('npx @verygoodplugins/mcp-automem claude-code');
 
     expect(claudeCodeGuide).toContain('npx @verygoodplugins/mcp-automem claude-code');
     expect(claudeCodeGuide).toContain('deprecated');
+    expect(claudeCodeGuide).toContain('Git Bash, MSYS2, or WSL');
+
+    expect(installationGuide).toContain('Git Bash, MSYS2, or WSL');
+
+    expect(claudeSettings).toContain('Bash(python3:*)');
+    expect(claudeSettings).toContain('Bash(python:*)');
+    expect(claudeSettings).toContain('Bash(py:*)');
 
     expect(deprecations).toContain('Claude Code Plugin');
     expect(deprecations).toContain('npx @verygoodplugins/mcp-automem claude-code');

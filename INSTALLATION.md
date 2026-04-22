@@ -67,6 +67,7 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [Cursor IDE](#cursor-ide) - AI-powered code editor
 - [Claude Code](#claude-code) - Terminal coding assistant with automation hooks
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
+- [Google Antigravity](#google-antigravity) - Desktop editor with MCP Store and raw config
 - [OpenClaw](#openclaw) - Personal AI assistant with multi-platform messaging (WhatsApp, Telegram, Slack, Discord, etc.)
 
 ---
@@ -453,6 +454,8 @@ npx @verygoodplugins/mcp-automem claude-code
 
 This merges permissions into `~/.claude/settings.json` so Claude can use memory tools without asking.
 
+> Windows compatibility note: the Claude Code hook payload remains Bash-based. On Windows, use a POSIX shell environment such as Git Bash, MSYS2, or WSL, and make sure `bash`, `jq`, and Python are available. This is not full native Windows hook support yet.
+
 > Note: the old Claude Code marketplace plugin is deprecated and kept only as a migration bridge. Use `npx @verygoodplugins/mcp-automem claude-code` for new installs. See [DEPRECATION.md](DEPRECATION.md).
 
 Or manually add to `~/.claude/settings.json`:
@@ -749,6 +752,80 @@ Memories stored in Codex are available in:
 
 Use consistent project names and tags across platforms.
 Use consistent **bare** project slugs and category tags across platforms; avoid platform tags and date tags.
+
+---
+
+## Google Antigravity
+
+Google Antigravity supports MCP servers through its built-in MCP Store and a raw config file. AutoMem fits Antigravity's local stdio MCP flow directly, so the primary path is to add the `memory` server to Antigravity's custom MCP server config.
+
+### 1. Open Antigravity's MCP raw config
+
+Antigravity's own MCP docs currently describe this flow:
+
+1. Open the MCP Store via the `...` dropdown at the top of the editor's agent panel
+2. Click **Manage MCP Servers**
+3. Click **View raw config**
+4. Edit `mcp_config.json`
+
+**Config location:** `~/.gemini/antigravity/mcp_config.json`
+
+### 2. Add the AutoMem MCP server
+
+Merge the following into the `mcpServers` object in `~/.gemini/antigravity/mcp_config.json`.
+
+You can also copy it directly from [templates/antigravity/mcp_config.json](/Users/jgarturo/Projects/OpenAI/mcp-servers/mcp-automem/templates/antigravity/mcp_config.json).
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_ENDPOINT": "https://your-automem-instance.railway.app",
+        "AUTOMEM_API_KEY": "your-api-key-if-required"
+      }
+    }
+  }
+}
+```
+
+**For local development:**
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"
+      }
+    }
+  }
+}
+```
+
+### 3. Reload Antigravity
+
+Restart Antigravity, or reload the MCP configuration from the MCP Store, so the `memory` server is picked up.
+
+### 4. Verify installation
+
+Confirm the `memory` server appears in Antigravity's MCP server list, then ask Antigravity:
+
+```text
+Check the health of the AutoMem service
+```
+
+You should see connection status for FalkorDB and Qdrant.
+
+### Optional: use the remote MCP sidecar instead
+
+Antigravity's MCP config also supports remote Streamable HTTP servers via `serverUrl`, so you can use the optional AutoMem remote sidecar if you want an HTTPS MCP endpoint instead of a local `npx` process.
+
+Use the local stdio configuration above as the default path. Reach for remote MCP only if you specifically want the sidecar model described in [Remote MCP via HTTP (Sidecar)](#remote-mcp-via-http-sidecar).
 
 ---
 
