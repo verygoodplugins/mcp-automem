@@ -7,26 +7,30 @@
 AUTOMEM_PYTHON_CMD=()
 AUTOMEM_PYTHON_LABEL=""
 
+automem_is_python3() {
+    "$@" -c 'import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)' >/dev/null 2>&1
+}
+
 automem_resolve_python() {
     if [ "${#AUTOMEM_PYTHON_CMD[@]}" -gt 0 ]; then
         return 0
     fi
 
-    if command -v python3 >/dev/null 2>&1; then
+    if command -v python3 >/dev/null 2>&1 && automem_is_python3 python3; then
         AUTOMEM_PYTHON_CMD=(python3)
         AUTOMEM_PYTHON_LABEL="python3"
         return 0
     fi
 
-    if command -v python >/dev/null 2>&1; then
-        AUTOMEM_PYTHON_CMD=(python)
-        AUTOMEM_PYTHON_LABEL="python"
+    if command -v py >/dev/null 2>&1 && automem_is_python3 py -3; then
+        AUTOMEM_PYTHON_CMD=(py -3)
+        AUTOMEM_PYTHON_LABEL="py -3"
         return 0
     fi
 
-    if command -v py >/dev/null 2>&1; then
-        AUTOMEM_PYTHON_CMD=(py -3)
-        AUTOMEM_PYTHON_LABEL="py -3"
+    if command -v python >/dev/null 2>&1 && automem_is_python3 python; then
+        AUTOMEM_PYTHON_CMD=(python)
+        AUTOMEM_PYTHON_LABEL="python"
         return 0
     fi
 
