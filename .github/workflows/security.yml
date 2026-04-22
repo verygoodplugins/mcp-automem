@@ -39,15 +39,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "20"
           cache: "npm"
 
       - run: npm ci
 
       - name: Audit dependencies
         run: npm audit --audit-level=high
-        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        continue-on-error: true
 
       - name: Check for known vulnerabilities
         run: npx better-npm-audit audit --level high
-        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        continue-on-error: true

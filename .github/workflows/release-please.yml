@@ -6,7 +6,7 @@
 #    - Updates version in package.json
 #    - Updates CHANGELOG.md
 #    - Creates a GitHub Release with tag
-#    - Triggers the npm publish and docs dispatch jobs below
+#    - Triggers the npm publish job below
 #
 # Commit message format:
 #   feat: add new feature          → minor version bump
@@ -15,8 +15,13 @@
 #   chore/docs: no version bump
 #
 # npm Publishing:
-#   Uses Trusted Publishing (OIDC) - no secrets needed!
+#   Uses Trusted Publishing (OIDC) - no NPM_TOKEN needed!
+#   Requires Node 24+ for npm 11.5.1+ OIDC support.
 #   Configure at: https://www.npmjs.com/package/@verygoodplugins/mcp-{name}/access
+#
+# RELEASE_PLEASE_TOKEN:
+#   Uses org-level PAT so the Release PR triggers CI workflows.
+#   PRs created by GITHUB_TOKEN don't trigger other workflows (GitHub security).
 
 name: Release Please
 
@@ -39,8 +44,9 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          manifest-file: ".release-please-manifest.json"
+          config-file: "release-please-config.json"
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
   npm-publish:
     needs: release-please
@@ -58,114 +64,10 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      - run: npm ci
+      # Use npm install for cross-version lockfile compatibility
+      - run: npm install
       - run: npm run build
       - run: npm test
 
       # Trusted Publishing: No NPM_TOKEN needed!
-      - run: npm publish --access public --provenance
-
-  # Build and upload Claude Desktop Extension (.mcpb) to release
-  build-extension:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - run: npm ci
-      - run: npm run build
-
-      # Build the .mcpb Claude Desktop Extension
-      - name: Build Claude Desktop Extension
-        run: npx @anthropic-ai/mcpb pack
-
-      # Upload .mcpb to the GitHub release
-      - name: Upload Extension to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
-          files: "*.mcpb"
-
-  # Dispatch docs update to automem-website when a release is created
-  docs-dispatch:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Get changed files since last release
-        id: changed
-        run: |
-          CURR_TAG="${{ needs.release-please.outputs.tag_name }}"
-          # Get the tag before the current one
-          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${CURR_TAG}$" | head -1)
-
-          if [ -z "$PREV_TAG" ]; then
-            echo "::warning::No previous tag found, diffing against first commit"
-            PREV_TAG=$(git rev-list --max-parents=0 HEAD)
-          fi
-
-          echo "Diffing $PREV_TAG..$CURR_TAG"
-          FILES=$(git diff --name-only "$PREV_TAG" "$CURR_TAG" | jq -R -s -c 'split("\n") | map(select(. != ""))')
-          echo "files=$FILES" >> $GITHUB_OUTPUT
-
-      - name: Check file-doc mapping
-        id: check
-        env:
-          CHANGED_FILES: ${{ steps.changed.outputs.files }}
-        run: |
-          if ! MAP=$(curl -sf --connect-timeout 10 --max-time 30 --retry 2 --retry-connrefused \
-            -H "Authorization: token ${{ secrets.RELEASE_PLEASE_TOKEN }}" \
-            "https://raw.githubusercontent.com/verygoodplugins/automem-website/main/scripts/file-doc-map.json"); then
-            echo "::warning::Failed to fetch file-doc-map.json, dispatching anyway"
-            echo "affected=unknown" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          REPO_KEY="${{ github.event.repository.name }}"
-          CHANGED="$CHANGED_FILES"
-
-          AFFECTED=$(echo "$MAP" | jq -r --arg repo "$REPO_KEY" --argjson changed "$CHANGED" '
-            def matches_pattern($file; $pattern):
-              if ($pattern | endswith("/**")) then
-                ($file | startswith($pattern[0:-2]))
-              else
-                $file == $pattern
-              end;
-
-            .[$repo] // {} | to_entries | map(
-              select(.key as $pattern | $changed | any(. as $file | matches_pattern($file; $pattern)))
-            ) | map(.value) | flatten | unique | .[]
-          ')
-
-          if [ -z "$AFFECTED" ]; then
-            echo "No doc pages affected by this release"
-            echo "affected=none" >> $GITHUB_OUTPUT
-          else
-            AFFECTED_JSON=$(echo "$AFFECTED" | jq -R -s -c 'split("\n") | map(select(. != ""))')
-            echo "Affected doc pages: $AFFECTED_JSON"
-            echo "affected=$AFFECTED_JSON" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Dispatch to automem-website
-        if: steps.check.outputs.affected != 'none'
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-        run: |
-          gh api repos/verygoodplugins/automem-website/dispatches \
-            -f event_type=docs-update \
-            -f "client_payload[source_repo]=${{ github.event.repository.full_name }}" \
-            -f "client_payload[source_sha]=${{ needs.release-please.outputs.tag_name }}" \
-            -f "client_payload[changed_files]=${{ steps.changed.outputs.files }}" \
-            -f "client_payload[affected_docs]=${{ steps.check.outputs.affected }}" \
-            -f "client_payload[reason]=Release ${{ needs.release-please.outputs.tag_name }}"
+      - run: npm publish --provenance --access public

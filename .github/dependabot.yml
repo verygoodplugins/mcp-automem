@@ -5,43 +5,35 @@ updates:
     schedule:
       interval: "weekly"
     groups:
-      production-dependencies:
+      runtime-dependencies:
         dependency-type: "production"
-        patterns:
-          - "*"
-      dev-dependencies:
+      toolchain:
         dependency-type: "development"
-        update-types:
-          - "minor"
-          - "patch"
         patterns:
-          - "*"
-      dev-toolchain-majors:
-        dependency-type: "development"
-        update-types:
-          - "major"
-        patterns:
-          - "@eslint/*"
+          - "@eslint/js"
           - "@types/*"
-          - "@vitest/*"
+          - "@vitest/coverage-v8"
           - "eslint"
+          - "eslint-config-prettier"
+          - "prettier"
+          - "tsx"
           - "typescript"
           - "typescript-eslint"
           - "vitest"
-      dev-other-majors:
-        dependency-type: "development"
-        update-types:
-          - "major"
-        patterns:
-          - "*"
-        exclude-patterns:
-          - "@eslint/*"
-          - "@types/*"
-          - "@vitest/*"
-          - "eslint"
-          - "typescript"
-          - "typescript-eslint"
-          - "vitest"
+    ignore:
+      # Major bumps for coupled toolchain packages need manual coordination
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript-eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/*"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
     open-pull-requests-limit: 10
