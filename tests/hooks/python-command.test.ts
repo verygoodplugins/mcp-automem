@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 const HELPER_PATH = path.resolve(__dirname, '../../templates/claude-code/scripts/python-command.sh');
 
+// These tests require a Unix-like environment with bash (Linux/macOS/WSL/Git Bash).
 function resolveBash(): string {
   const result = spawnSync('which', ['bash'], { encoding: 'utf8' });
   return result.stdout.trim() || '/bin/bash';
@@ -19,17 +20,17 @@ function makeExecutable(dir: string, name: string, body: string) {
   fs.chmodSync(filePath, 0o755);
 }
 
-// Fake that passes automem_is_python3 (exits 0)
-function makePython3Stub(dir: string, name: string, printPrefix: string) {
-  makeExecutable(dir, name, `printf "${printPrefix}:%s\\n" "$*"`);
+// Fake that passes automem_is_python3 (exits 0 on any invocation).
+function makePython3Stub(dir: string, name: string) {
+  makeExecutable(dir, name, 'exit 0');
 }
 
-// Fake that fails automem_is_python3 (exits 1 for any -c invocation)
+// Fake that fails automem_is_python3 (exits 1 for any -c invocation, simulating Python 2).
 function makePython2Stub(dir: string, name: string) {
   makeExecutable(dir, name, 'case "$1" in -c) exit 1 ;; esac; exit 0');
 }
 
-// Fake that always exits 1 (unavailable / broken stub)
+// Fake that always exits 1, shadowing any same-named system binary via PATH prepend.
 function blockInterpreter(dir: string, name: string) {
   makeExecutable(dir, name, 'exit 1');
 }
@@ -42,6 +43,7 @@ function runHelper(pathDir: string, command: string) {
       encoding: 'utf8',
       env: {
         ...process.env,
+        // Prepend the temp dir so our stubs shadow any system interpreters with the same name.
         PATH: pathDir + path.delimiter + (process.env.PATH || ''),
       },
     }
@@ -65,8 +67,8 @@ describe('python-command.sh', () => {
 
   it('prefers python3 when available', () => {
     const dir = createBinDir();
-    makePython3Stub(dir, 'python3', 'python3');
-    makePython3Stub(dir, 'python', 'python');
+    makePython3Stub(dir, 'python3');
+    makePython3Stub(dir, 'python');
     blockInterpreter(dir, 'py');
 
     const label = runHelper(dir, 'automem_python_label');
@@ -78,7 +80,7 @@ describe('python-command.sh', () => {
     const dir = createBinDir();
     blockInterpreter(dir, 'python3');
     blockInterpreter(dir, 'py');
-    makePython3Stub(dir, 'python', 'python');
+    makePython3Stub(dir, 'python');
 
     const label = runHelper(dir, 'automem_python_label');
     expect(label.status).toBe(0);
@@ -88,7 +90,8 @@ describe('python-command.sh', () => {
   it('uses py -3 when only the Windows launcher is available', () => {
     const dir = createBinDir();
     blockInterpreter(dir, 'python3');
-    makePython3Stub(dir, 'py', 'py');
+    // py stub must echo its arguments so automem_run_python output can be verified.
+    makeExecutable(dir, 'py', 'printf "py:%s\\n" "$*"');
     blockInterpreter(dir, 'python');
 
     const label = runHelper(dir, 'automem_python_label');
@@ -103,7 +106,7 @@ describe('python-command.sh', () => {
   it('prefers py -3 over a python that is Python 2', () => {
     const dir = createBinDir();
     blockInterpreter(dir, 'python3');
-    makePython3Stub(dir, 'py', 'py');
+    makePython3Stub(dir, 'py');
     makePython2Stub(dir, 'python');
 
     const label = runHelper(dir, 'automem_python_label');
