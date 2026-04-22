@@ -192,6 +192,8 @@ npx @verygoodplugins/mcp-automem claude-code
 
 This is the supported Claude Code integration path.
 
+On Windows, this compatibility path currently assumes a POSIX shell environment such as Git Bash, MSYS2, or WSL. `bash`, `jq`, and Python must be available. This is not full native Windows hook support yet.
+
 #### Option B: Plugin (Deprecated)
 
 ```bash

@@ -453,6 +453,8 @@ npx @verygoodplugins/mcp-automem claude-code
 
 This merges permissions into `~/.claude/settings.json` so Claude can use memory tools without asking.
 
+> Windows compatibility note: the Claude Code hook payload remains Bash-based. On Windows, use a POSIX shell environment such as Git Bash, MSYS2, or WSL, and make sure `bash`, `jq`, and Python are available. This is not full native Windows hook support yet.
+
 > Note: the old Claude Code marketplace plugin is deprecated and kept only as a migration bridge. Use `npx @verygoodplugins/mcp-automem claude-code` for new installs. See [DEPRECATION.md](DEPRECATION.md).
 
 Or manually add to `~/.claude/settings.json`:
