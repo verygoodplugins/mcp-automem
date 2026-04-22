@@ -240,12 +240,11 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
   const targetPath = path.join(targetDir, 'automem.mdc');
 
   // Check for existing installation and version
-  let existingVersion: string | null = null;
   let shouldUpdate = true;
   
   if (fs.existsSync(targetPath)) {
     const existingContent = fs.readFileSync(targetPath, 'utf8');
-    existingVersion = extractMdcVersion(existingContent);
+    const existingVersion = extractMdcVersion(existingContent);
     
     if (existingVersion) {
       const comparison = compareVersions(PACKAGE_VERSION, existingVersion);

@@ -491,7 +491,7 @@ This release focuses on **simplicity and reliability**. By removing the experime
   - Eliminates manual JSON editing for initial setup
   - Includes detailed "How it works" section with link format breakdown
   - Users configure `AUTOMEM_ENDPOINT` after installation
-  - Follows Cursor's official [MCP Install Links](https://cursor.com/docs/context/mcp/install-links) specification
+  - Follows Cursor's official [MCP Install Links](https://cursor.com/docs/mcp/install-links) specification
 - **Warp Terminal support**: Complete integration for AI-powered terminal assistance with persistent memory
   - Added Warp section to README.md with platform support table
   - Created comprehensive Warp setup guide in INSTALLATION.md

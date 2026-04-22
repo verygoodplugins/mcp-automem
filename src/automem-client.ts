@@ -63,7 +63,7 @@ export class AutoMemClient {
       throw error;
     }
 
-    let data: any = null;
+    let data: any;
     try {
       // Some error responses may not be JSON; treat parse errors as non-retryable
       data = await response.json();

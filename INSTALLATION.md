@@ -508,9 +508,9 @@ GitHub Copilot coding agent on GitHub.com supports MCP servers configured per re
 
 References:
 
-- [Copilot coding agent access management](https://docs.github.com/en/copilot/concepts/agents/coding-agent/access-management)
-- [Add Copilot coding agent to an organization](https://docs.github.com/en/copilot/managing-copilot/managing-github-copilot-in-your-organization/adding-copilot-coding-agent-to-organization)
-- [Extend Copilot coding agent with MCP](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp)
+- [Copilot coding agent access management](https://docs.github.com/en/copilot/concepts/agents/cloud-agent/access-management)
+- [Add Copilot coding agent to an organization](https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-for-organization/add-copilot-cloud-agent)
+- [Extend Copilot coding agent with MCP](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/extend-cloud-agent-with-mcp)
 
 ### 1. Create a Copilot environment secret (recommended)
 
@@ -677,7 +677,7 @@ codex "What were the key decisions made in this project last week?"
 
 **In Cloud Agent:**
 
-- Launch tasks from [chatgpt.com/codex](https://chatgpt.com/codex)
+- Launch tasks from [chatgpt.com/codex](https://chatgpt.com/codex/)
 - Codex has access to stored memories across environments
 - Memories sync between CLI, IDE, and cloud agent
 
@@ -772,9 +772,9 @@ Antigravity's own MCP docs currently describe this flow:
 
 ### 2. Add the AutoMem MCP server
 
-Merge the following into the `mcpServers` object in `~/.gemini/antigravity/mcp_config.json`.
+Paste the following as the full contents of `~/.gemini/antigravity/mcp_config.json`, or merge the `memory` entry into your existing `mcpServers` object.
 
-You can also copy it directly from [templates/antigravity/mcp_config.json](/Users/jgarturo/Projects/OpenAI/mcp-servers/mcp-automem/templates/antigravity/mcp_config.json).
+You can also copy it directly from [templates/antigravity/mcp_config.json](templates/antigravity/mcp_config.json).
 
 ```json
 {

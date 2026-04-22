@@ -34,7 +34,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 ### 🧠 Persistent Memory Across Sessions
 
 - AI remembers decisions, patterns, and context **forever**
-- Works across **all MCP platforms** - Claude Desktop, Cursor, Claude Code, Codex, Antigravity
+- Works across **all MCP platforms** - Claude Desktop, Cursor, Claude Code, OpenAI Codex, Google Antigravity
 - **Cross-device sync** - same memory on Mac, Windows, Linux
 
 ### 🏆 Graph-Vector Architecture
@@ -221,7 +221,7 @@ npx @verygoodplugins/mcp-automem codex
 
 1. Open the MCP Store from the `...` menu at the top of the editor's agent panel
 2. Click `Manage MCP Servers` and then `View raw config`
-3. Paste the config from [templates/antigravity/mcp_config.json](/Users/jgarturo/Projects/OpenAI/mcp-servers/mcp-automem/templates/antigravity/mcp_config.json) into `~/.gemini/antigravity/mcp_config.json`
+3. Paste the config from [templates/antigravity/mcp_config.json](templates/antigravity/mcp_config.json) into `~/.gemini/antigravity/mcp_config.json`
 4. Restart or reload Antigravity so the `memory` server is available
 
 👉 **[Google Antigravity Setup](INSTALLATION.md#google-antigravity)** for the full flow and verification steps
