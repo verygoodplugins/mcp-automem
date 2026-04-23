@@ -149,7 +149,7 @@ export function renderOpenClawPolicyContext(params: {
     'Use AutoMem with the validated shared policy.',
     '',
     'Recall rules:',
-    `- First substantive turn: run ${tools.recall} for preferences with tags ["preference"], limit ${AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit}, sort "updated_desc", format "detailed". Then run ONE semantic task-context recall using the user\'s real nouns, time_query "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days", limit ${AUTOMEM_POLICY_DEFAULTS.contextRecallLimit}, format "detailed", and only use the project gate when it is unambiguous.`,
+    `- First substantive turn: run ${tools.recall} for preferences with tags ["preference"], limit ${AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit}, sort "updated_desc", format "detailed". Then run ONE semantic task-context recall using the user's real nouns, time_query "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days", limit ${AUTOMEM_POLICY_DEFAULTS.contextRecallLimit}, format "detailed", and only use the project gate when it is unambiguous.`,
     `- Active debugging only: run ${tools.recall} with the error symptom, tags ["bugfix", "solution"], and limit ${AUTOMEM_POLICY_DEFAULTS.debugRecallLimit}.`,
     '- After turn 1, recall again only for topic shifts, new proper nouns, or active debugging. Do not re-recall on routine follow-ups.',
     `- If the user explicitly asks what you know about a person, project, or topic, run ${tools.recall} before answering from memory. Do not promise a "live recall" without doing it.`,
