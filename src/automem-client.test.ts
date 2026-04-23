@@ -1,18 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AutoMemClient } from './automem-client.js';
 
-// Mock node-fetch
-vi.mock('node-fetch', () => ({
-  default: vi.fn(),
-}));
-
-import fetch from 'node-fetch';
-const mockFetch = vi.mocked(fetch);
+const mockFetch = vi.fn();
 
 describe('AutoMemClient', () => {
   let client: AutoMemClient;
 
   beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch);
     client = new AutoMemClient({
       endpoint: 'http://localhost:8001',
       apiKey: 'test-key',
@@ -21,6 +16,7 @@ describe('AutoMemClient', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.resetAllMocks();
   });
 

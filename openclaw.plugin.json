@@ -2,12 +2,9 @@
   "id": "automem",
   "name": "AutoMem",
   "description": "Persistent graph-vector memory backed by an AutoMem service.",
-  "kind": "memory",
-  "skills": ["./skills"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["endpoint"],
     "properties": {
       "endpoint": {
         "type": "string",
@@ -23,8 +20,31 @@
       "autoRecallLimit": {
         "type": "integer",
         "minimum": 1,
-        "maximum": 10,
-        "default": 3
+        "maximum": 50
+      },
+      "preferenceRecallLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 20
+      },
+      "contextRecallLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 30
+      },
+      "debugRecallLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 20
+      },
+      "contextRecallWindowDays": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 365,
+        "default": 90
       },
       "exposure": {
         "type": "string",
@@ -36,6 +56,9 @@
         "items": {
           "type": "string"
         }
+      },
+      "startupProfile": {
+        "type": "string"
       }
     }
   },
@@ -55,7 +78,20 @@
       "help": "Recall relevant memories before a new agent turn."
     },
     "autoRecallLimit": {
-      "label": "Auto Recall Limit"
+      "label": "Legacy Auto Recall Limit",
+      "help": "Compatibility fallback for older installs. Prefer the per-phase recall settings below."
+    },
+    "preferenceRecallLimit": {
+      "label": "Preference Recall Limit"
+    },
+    "contextRecallLimit": {
+      "label": "Context Recall Limit"
+    },
+    "debugRecallLimit": {
+      "label": "Debug Recall Limit"
+    },
+    "contextRecallWindowDays": {
+      "label": "Context Recall Window (days)"
     },
     "exposure": {
       "label": "Exposure",
@@ -63,7 +99,11 @@
     },
     "defaultTags": {
       "label": "Default Tags",
-      "help": "Project tags to apply when the request does not supply tags."
+      "help": "Used as the project gate for first-turn context recall when unambiguous, and merged into stored memories."
+    },
+    "startupProfile": {
+      "label": "Startup Profile",
+      "help": "Cached profile and personality cues hydrated from AutoMem for fast first-turn startup."
     }
   }
 }

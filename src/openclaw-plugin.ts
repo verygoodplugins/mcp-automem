@@ -1,4 +1,18 @@
 import { AutoMemClient } from './automem-client.js';
+import {
+  type OpenClawRecallLikeResult,
+  buildOpenClawStartupContext,
+  dedupeOpenClawRecallResults,
+  formatOpenClawRecallContext,
+} from './openclaw-startup-profile.js';
+import {
+  AUTOMEM_POLICY_DEFAULTS,
+  isSubstantivePrompt,
+  looksLikeDebugPrompt,
+  looksLikeExplicitRecallPrompt,
+  renderOpenClawPolicyContext,
+  resolveProjectGateTags,
+} from './memory-policy/shared.js';
 import type {
   AssociateMemoryArgs,
   DeleteMemoryArgs,
@@ -9,13 +23,42 @@ import type {
 import { AUTHORABLE_RELATION_TYPES } from './types.js';
 
 type PluginConfig = {
-  endpoint: string;
+  endpoint?: string;
   apiKey?: string;
   autoRecall: boolean;
-  autoRecallLimit: number;
+  preferenceRecallLimit: number;
+  contextRecallLimit: number;
+  debugRecallLimit: number;
+  contextRecallWindowDays: number;
   exposure: 'dm-only' | 'all' | 'off';
   defaultTags: string[];
+  startupProfile?: string;
 };
+
+type SessionState = {
+  seenEntities: Set<string>;
+};
+
+const sessionStates = new Map<string, SessionState>();
+const COMMON_ENTITY_STOPWORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'automem',
+  'do',
+  'how',
+  'i',
+  'it',
+  'jack',
+  'tell',
+  'the',
+  'they',
+  'we',
+  'what',
+  'who',
+  'why',
+  'you',
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -26,12 +69,14 @@ function normalizeStringArray(value: unknown): string[] {
     return [];
   }
 
-  return value
-    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-    .filter(Boolean);
+  return value.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter(Boolean);
 }
 
-function mergeTags(defaultTags: string[], provided: string[] | undefined, injectIfMissingOnly = false): string[] | undefined {
+function mergeTags(
+  defaultTags: string[],
+  provided: string[] | undefined,
+  injectIfMissingOnly = false
+): string[] | undefined {
   const nextProvided = Array.isArray(provided) ? provided.filter(Boolean) : [];
   if (injectIfMissingOnly && nextProvided.length > 0) {
     return nextProvided;
@@ -48,22 +93,43 @@ function explicitTags(provided: string[] | undefined): string[] | undefined {
   return deduped.length > 0 ? deduped : undefined;
 }
 
+function parseOptionalInteger(value: unknown, max: number): number | undefined {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number.parseInt(value, 10)
+        : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return undefined;
+  }
+  return Math.min(parsed, max);
+}
+
 function parsePluginConfig(value: unknown): PluginConfig {
   const raw = isRecord(value) ? value : {};
-  const endpoint = typeof raw.endpoint === 'string' ? raw.endpoint.trim() : '';
-  if (!endpoint) {
-    throw new Error('AutoMem OpenClaw plugin requires config.endpoint');
-  }
+  const endpoint =
+    typeof raw.endpoint === 'string' && raw.endpoint.trim() ? raw.endpoint.trim() : undefined;
 
-  const apiKey = typeof raw.apiKey === 'string' && raw.apiKey.trim() ? raw.apiKey.trim() : undefined;
+  const apiKey =
+    typeof raw.apiKey === 'string' && raw.apiKey.trim() ? raw.apiKey.trim() : undefined;
   const autoRecall = typeof raw.autoRecall === 'boolean' ? raw.autoRecall : true;
-  const rawLimit =
-    typeof raw.autoRecallLimit === 'number'
-      ? raw.autoRecallLimit
-      : typeof raw.autoRecallLimit === 'string'
-        ? Number.parseInt(raw.autoRecallLimit, 10)
-        : Number.NaN;
-  const autoRecallLimit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, 10) : 3;
+  const legacyAutoRecallLimit = parseOptionalInteger(raw.autoRecallLimit, 50);
+  const preferenceRecallLimit =
+    parseOptionalInteger(raw.preferenceRecallLimit, 50) ??
+    legacyAutoRecallLimit ??
+    AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit;
+  const contextRecallLimit =
+    parseOptionalInteger(raw.contextRecallLimit, 50) ??
+    legacyAutoRecallLimit ??
+    AUTOMEM_POLICY_DEFAULTS.contextRecallLimit;
+  const debugRecallLimit =
+    parseOptionalInteger(raw.debugRecallLimit, 50) ??
+    legacyAutoRecallLimit ??
+    AUTOMEM_POLICY_DEFAULTS.debugRecallLimit;
+  const contextRecallWindowDays =
+    parseOptionalInteger(raw.contextRecallWindowDays, 365) ??
+    AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays;
   const exposure =
     raw.exposure === 'all' || raw.exposure === 'off' || raw.exposure === 'dm-only'
       ? raw.exposure
@@ -73,9 +139,16 @@ function parsePluginConfig(value: unknown): PluginConfig {
     endpoint,
     apiKey,
     autoRecall,
-    autoRecallLimit,
+    preferenceRecallLimit,
+    contextRecallLimit,
+    debugRecallLimit,
+    contextRecallWindowDays,
     exposure,
     defaultTags: normalizeStringArray(raw.defaultTags),
+    startupProfile:
+      typeof raw.startupProfile === 'string' && raw.startupProfile.trim()
+        ? raw.startupProfile.trim()
+        : undefined,
   };
 }
 
@@ -88,7 +161,9 @@ function shouldAutoRecall(exposure: PluginConfig['exposure'], sessionKey?: strin
     return true;
   }
 
-  const normalized = String(sessionKey || '').trim().toLowerCase();
+  const normalized = String(sessionKey || '')
+    .trim()
+    .toLowerCase();
   if (!normalized || normalized === 'main') {
     return true;
   }
@@ -102,14 +177,101 @@ function shouldAutoRecall(exposure: PluginConfig['exposure'], sessionKey?: strin
   );
 }
 
-function formatRecallContext(result: { memory?: { content?: string; tags?: string[]; type?: string } }): string {
-  const content = String(result.memory?.content || '').replace(/\s+/g, ' ').trim();
-  const compact = content.length > 220 ? `${content.slice(0, 217)}...` : content;
-  const tags = Array.isArray(result.memory?.tags) && result.memory.tags.length > 0
-    ? ` [tags: ${result.memory.tags.slice(0, 4).join(', ')}]`
-    : '';
-  const type = result.memory?.type ? `[${result.memory.type}] ` : '';
-  return `- ${type}${compact}${tags}`;
+function configSkipsBootstrap(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const agents = isRecord(value.agents) ? value.agents : undefined;
+  const defaults = isRecord(agents?.defaults) ? agents.defaults : undefined;
+  return defaults?.skipBootstrap === true;
+}
+
+export function isLikelyStartupTurn(messages: unknown): boolean {
+  return Array.isArray(messages) && messages.length <= 1;
+}
+
+function normalizeSessionKey(sessionKey?: string): string {
+  const normalized = String(sessionKey || '').trim();
+  return normalized || '__default__';
+}
+
+function getSessionState(sessionKey?: string): SessionState {
+  const key = normalizeSessionKey(sessionKey);
+  let state = sessionStates.get(key);
+  if (!state) {
+    state = { seenEntities: new Set<string>() };
+    sessionStates.set(key, state);
+  }
+  return state;
+}
+
+export function resetOpenClawSessionStateForTests(): void {
+  sessionStates.clear();
+}
+
+function extractPromptEntities(prompt: string): string[] {
+  const source = String(prompt || '');
+  const matches = new Set<string>();
+
+  for (const match of source.matchAll(/"([^"\n]{2,80})"/g)) {
+    const candidate = match[1]?.trim();
+    if (candidate) {
+      matches.add(candidate);
+    }
+  }
+
+  for (const match of source.matchAll(/\b[A-Z][a-z][A-Za-z0-9_-]{1,}\b/g)) {
+    const candidate = match[0]?.trim();
+    if (match.index === 0) {
+      continue;
+    }
+    if (candidate && !COMMON_ENTITY_STOPWORDS.has(candidate.toLowerCase())) {
+      matches.add(candidate);
+    }
+  }
+
+  for (const match of source.matchAll(/\b[a-z0-9]+(?:[-_/][a-z0-9]+)+\b/gi)) {
+    const candidate = match[0]?.trim();
+    if (
+      candidate &&
+      candidate.length >= 4 &&
+      !COMMON_ENTITY_STOPWORDS.has(candidate.toLowerCase())
+    ) {
+      matches.add(candidate);
+    }
+  }
+
+  return [...matches];
+}
+
+function hasNewPromptEntities(prompt: string, sessionKey?: string): boolean {
+  const state = getSessionState(sessionKey);
+  const entities = extractPromptEntities(prompt);
+  return entities.some((entity) => !state.seenEntities.has(entity.toLowerCase()));
+}
+
+function rememberPromptEntities(prompt: string, sessionKey?: string): void {
+  const state = getSessionState(sessionKey);
+  for (const entity of extractPromptEntities(prompt)) {
+    state.seenEntities.add(entity.toLowerCase());
+  }
+}
+
+function buildRelevantMemoriesSection(
+  results: OpenClawRecallLikeResult[],
+  maxEntries: number
+): string | undefined {
+  const uniqueResults = dedupeOpenClawRecallResults(results);
+  if (uniqueResults.length === 0) {
+    return undefined;
+  }
+
+  const memoryContext = uniqueResults
+    .slice(0, maxEntries)
+    .map((entry) => formatOpenClawRecallContext(entry))
+    .join('\n');
+  return `<relevant-memories>\nThe following AutoMem memories may be relevant to this turn:\n${memoryContext}\n</relevant-memories>`;
 }
 
 function jsonResult(payload: unknown) {
@@ -223,20 +385,23 @@ const openClawPlugin = {
   id: 'automem',
   name: 'AutoMem',
   description: 'Persistent AutoMem-backed graph memory for OpenClaw.',
-  kind: 'memory',
   configSchema: {
     parse: parsePluginConfig,
     jsonSchema: {
       type: 'object',
       additionalProperties: false,
-      required: ['endpoint'],
       properties: {
         endpoint: { type: 'string', minLength: 1 },
         apiKey: { type: 'string' },
         autoRecall: { type: 'boolean', default: true },
-        autoRecallLimit: { type: 'integer', minimum: 1, maximum: 10, default: 3 },
+        autoRecallLimit: { type: 'integer', minimum: 1, maximum: 50 },
+        preferenceRecallLimit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+        contextRecallLimit: { type: 'integer', minimum: 1, maximum: 50, default: 30 },
+        debugRecallLimit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+        contextRecallWindowDays: { type: 'integer', minimum: 1, maximum: 365, default: 90 },
         exposure: { type: 'string', enum: ['dm-only', 'all', 'off'], default: 'dm-only' },
         defaultTags: { type: 'array', items: { type: 'string' } },
+        startupProfile: { type: 'string' },
       },
     },
     uiHints: {
@@ -255,7 +420,20 @@ const openClawPlugin = {
         help: 'Recall memory before an agent turn starts.',
       },
       autoRecallLimit: {
-        label: 'Auto Recall Limit',
+        label: 'Legacy Auto Recall Limit',
+        help: 'Compatibility fallback for older installs. Prefer the per-phase recall settings below.',
+      },
+      preferenceRecallLimit: {
+        label: 'Preference Recall Limit',
+      },
+      contextRecallLimit: {
+        label: 'Context Recall Limit',
+      },
+      debugRecallLimit: {
+        label: 'Debug Recall Limit',
+      },
+      contextRecallWindowDays: {
+        label: 'Context Recall Window (days)',
       },
       exposure: {
         label: 'Exposure',
@@ -263,11 +441,16 @@ const openClawPlugin = {
       },
       defaultTags: {
         label: 'Default Tags',
-        help: 'Applied to stored memories. Recall stays semantic unless tags are explicitly provided.',
+        help: 'Used as the project gate for first-turn context recall when unambiguous, and merged into stored memories.',
+      },
+      startupProfile: {
+        label: 'Startup Profile',
+        help: 'Cached profile and personality cues hydrated from AutoMem for fast first-turn startup.',
       },
     },
   },
   register(api: {
+    config?: unknown;
     pluginConfig?: unknown;
     logger: { warn: (message: string) => void };
     registerTool: (tool: {
@@ -278,14 +461,21 @@ const openClawPlugin = {
       execute: (_toolCallId: string, params: unknown) => Promise<unknown>;
     }) => void;
     on: (
-      hookName: 'before_agent_start',
+      hookName: 'before_prompt_build',
       handler: (
-        event: { prompt: string },
+        event: { prompt: string; messages: unknown[] },
         ctx: { sessionKey?: string }
-      ) => Promise<{ prependContext?: string } | void>
+      ) => Promise<{ prependSystemContext?: string } | void>
     ) => void;
   }) {
     const config = parsePluginConfig(api.pluginConfig);
+    if (!config.endpoint) {
+      api.logger.warn(
+        'automem: plugin loaded without config.endpoint; configure plugins.entries.automem.config.endpoint to enable tools.'
+      );
+      return;
+    }
+
     const client = new AutoMemClient({
       endpoint: config.endpoint,
       ...(config.apiKey ? { apiKey: config.apiKey } : {}),
@@ -370,52 +560,115 @@ const openClawPlugin = {
     });
 
     if (config.autoRecall) {
-      api.on('before_agent_start', async (event, ctx) => {
+      api.on('before_prompt_build', async (event, ctx) => {
         const prompt = String(event.prompt || '').trim();
-        if (!prompt || !shouldAutoRecall(config.exposure, ctx.sessionKey)) {
-          return;
+        const sections: string[] = [
+          renderOpenClawPolicyContext({ defaultTags: config.defaultTags }),
+        ];
+        const bootstrapSkipped = configSkipsBootstrap(api.config);
+        const startupTurn = bootstrapSkipped && isLikelyStartupTurn(event.messages);
+        const firstSubstantiveTurn =
+          isLikelyStartupTurn(event.messages) && isSubstantivePrompt(prompt);
+        const debugTurn = looksLikeDebugPrompt(prompt);
+        const explicitRecallTurn = looksLikeExplicitRecallPrompt(prompt);
+        const topicShiftRecallTurn =
+          !firstSubstantiveTurn &&
+          !startupTurn &&
+          !debugTurn &&
+          hasNewPromptEntities(prompt, ctx.sessionKey);
+
+        if (startupTurn) {
+          try {
+            const startupResult = await client.recallMemory({
+              query: 'user name timezone preferred name work style ongoing context',
+              limit: Math.max(config.preferenceRecallLimit, 4),
+              sort: 'time_desc',
+              format: 'detailed',
+            });
+            sections.push(
+              buildOpenClawStartupContext({
+                startupProfile: config.startupProfile,
+                startupResults: startupResult.results || [],
+              })
+            );
+          } catch (error) {
+            api.logger.warn(`automem: startup recall failed: ${String(error)}`);
+            sections.push(
+              buildOpenClawStartupContext({
+                startupProfile: config.startupProfile,
+                startupResults: [],
+              })
+            );
+          }
         }
 
-        try {
-          const preferenceResult = await client.recallMemory({
+        if (!prompt || !shouldAutoRecall(config.exposure, ctx.sessionKey)) {
+          return {
+            prependSystemContext: sections.join('\n\n'),
+          };
+        }
+
+        const recalledResults: OpenClawRecallLikeResult[] = [];
+        const projectGateTags = resolveProjectGateTags(config.defaultTags);
+        const maxContextEntries = Math.max(
+          config.preferenceRecallLimit,
+          config.contextRecallLimit,
+          config.debugRecallLimit
+        );
+
+        const runRecall = async (label: string, args: RecallMemoryArgs) => {
+          try {
+            const result = await client.recallMemory(args);
+            recalledResults.push(...(result.results || []));
+          } catch (error) {
+            api.logger.warn(`automem: ${label} recall failed: ${String(error)}`);
+          }
+        };
+
+        if (firstSubstantiveTurn) {
+          await runRecall('preference', {
             tags: ['preference'],
-            limit: Math.max(config.autoRecallLimit, 5),
+            limit: config.preferenceRecallLimit,
             sort: 'updated_desc',
             format: 'detailed',
           });
-
-          const contextResult = await client.recallMemory({
+          await runRecall('context', {
             query: prompt,
-            limit: Math.max(config.autoRecallLimit * 2, 6),
+            ...(projectGateTags ? { tags: projectGateTags } : {}),
+            time_query: `last ${config.contextRecallWindowDays} days`,
+            limit: config.contextRecallLimit,
             format: 'detailed',
           });
-
-          const mergedResults = [...(preferenceResult.results || []), ...(contextResult.results || [])];
-          const seen = new Set<string>();
-          const uniqueResults = mergedResults.filter((entry) => {
-            const key = entry.id || entry.memory?.memory_id || entry.memory?.id || JSON.stringify(entry.memory || {});
-            if (!key || seen.has(key)) {
-              return false;
-            }
-            seen.add(key);
-            return true;
-          });
-
-          if (uniqueResults.length === 0) {
-            return;
-          }
-
-          const memoryContext = uniqueResults
-            .slice(0, Math.max(config.autoRecallLimit * 2, 6))
-            .map((entry) => formatRecallContext(entry))
-            .join('\n');
-
-          return {
-            prependContext: `<relevant-memories>\nThe following AutoMem memories may be relevant to this turn:\n${memoryContext}\n</relevant-memories>`,
-          };
-        } catch (error) {
-          api.logger.warn(`automem: auto-recall failed: ${String(error)}`);
         }
+
+        if (explicitRecallTurn || topicShiftRecallTurn) {
+          await runRecall(explicitRecallTurn ? 'explicit-memory-probe' : 'topic-shift', {
+            query: prompt,
+            time_query: `last ${config.contextRecallWindowDays} days`,
+            limit: config.contextRecallLimit,
+            format: 'detailed',
+          });
+        }
+
+        if (debugTurn) {
+          await runRecall('debug', {
+            query: prompt,
+            tags: ['bugfix', 'solution'],
+            limit: config.debugRecallLimit,
+            format: 'detailed',
+          });
+        }
+
+        const memorySection = buildRelevantMemoriesSection(recalledResults, maxContextEntries);
+        if (memorySection) {
+          sections.push(memorySection);
+        }
+
+        rememberPromptEntities(prompt, ctx.sessionKey);
+
+        return {
+          prependSystemContext: sections.join('\n\n'),
+        };
       });
     }
   },
