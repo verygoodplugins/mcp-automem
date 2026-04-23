@@ -297,8 +297,8 @@ When creating substantial content, briefly note which memories informed the appr
 ![Claude Desktop with Custom Instructions](screenshots/claude-desktop-custom-instructions-3.jpg)
 _Add memory instructions to Custom Instructions_
 
-5. Click **Save**
-6. Restart Claude Desktop
+1. Click **Save**
+2. Restart Claude Desktop
 
 **How this works:**
 
@@ -653,6 +653,7 @@ Restart the Codex CLI or reload your IDE extension to load the MCP server.
 ### 5. Verify Installation
 
 Ask Codex:
+
 ```text
 Check the health of the AutoMem service
 ```
@@ -662,6 +663,7 @@ You should see connection status for FalkorDB and Qdrant.
 ### How to Use with Codex
 
 **In the CLI:**
+
 ```bash
 cd ~/Projects/my-app
 
@@ -898,10 +900,24 @@ AutoMem now supports three OpenClaw integration modes, in this recommended order
 3. **Run the recommended setup**:
 
    ```bash
-   npx @verygoodplugins/mcp-automem openclaw --mode plugin
+   curl -fsSL https://automem.ai/install.sh | bash
    ```
 
-4. **Restart OpenClaw gateway** and start a new session.
+   Local-build equivalent while developing this repo:
+
+   ```bash
+   ./install.sh
+   ```
+
+4. **Open OpenClaw**. The installer will restart the gateway, verify the plugin, and open or print the dashboard URL.
+
+`openclaw --mode plugin` installs a lean native plugin package staged inside `@verygoodplugins/mcp-automem`. That keeps `memory-core` as OpenClaw's active memory slot instead of replacing it.
+It also enables the `/plugins` chat command so users can verify and inspect the install from inside OpenClaw.
+It also appends the AutoMem tool names to `tools.alsoAllow`, which keeps them callable even when OpenClaw is using a restrictive base profile such as `tools.profile = "coding"` without forcing a restrictive global allowlist.
+On fresh installs, it also probes AutoMem once: if the service is reachable and already contains memory, the installer sets `agents.defaults.skipBootstrap = true` so OpenClaw skips the name/timezone/vibe bootstrap flow. If AutoMem is empty or unavailable, the normal bootstrap remains in place.
+When AutoMem already knows the user, the installer also hydrates a compact startup profile from memory so the first browser chat can behave like a returning user agent conversation instead of a generic blank slate.
+
+For a deterministic dogfood pass, see the scripted clean-install demo in [`templates/openclaw/OPENCLAW_SETUP.md`](./templates/openclaw/OPENCLAW_SETUP.md).
 
 ### Alternate modes
 
@@ -917,9 +933,15 @@ npx @verygoodplugins/mcp-automem openclaw --mode skill --workspace ~/clawd
 
 - **Multi-platform memory**: Your agent remembers decisions across WhatsApp, Telegram, Slack, Discord, and other OpenClaw channels
 - **Native plugin option**: New installs can use OpenClaw's plugin system instead of only curl-based skills
+- **Lower-friction onboarding**: Populated AutoMem installs can start with memory-aware context immediately instead of redoing first-run bootstrap questions
 - **Transparent MCP option**: `mcp` mode writes a normal `mcporter.json` and keeps secrets out of it
-- **Semantic-first recall**: OpenClaw now recalls preferences first and keeps task recall semantic instead of hard-gating every turn with installer default tags
+- **Shared memory-policy parity**: OpenClaw now follows the same validated AutoMem policy as Claude Desktop, Claude Code, and Cursor
+- **Targeted recall instead of every-turn recall**: preference recall on the first substantive turn (`limit 20`), semantic task recall on that turn (`limit 30`, `last 90 days`), then bugfix recall only for active debugging
+- **Semantic-first recall**: OpenClaw only uses installer `defaultTags` as an unambiguous project gate for first-turn task recall instead of hard-gating every turn
+- **Optional full replacement mode**: `--replace-memory` disables `memory-core`, disables the bundled `session-memory` hook, and turns off dreaming so AutoMem becomes the only memory system
 - **Complementary memory layers**: `memory-core` remains useful for local file memory; AutoMem is the semantic graph layer
+
+Use `https://automem.ai/install.sh` for the OpenClaw happy path, or `npx @verygoodplugins/mcp-automem openclaw --mode plugin` when you need the raw CLI. Do not point `openclaw plugins install` at the main `@verygoodplugins/mcp-automem` package directly.
 
 ### Full Setup Guide
 
