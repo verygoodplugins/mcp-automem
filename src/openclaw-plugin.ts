@@ -39,6 +39,8 @@ type SessionState = {
   seenEntities: Set<string>;
 };
 
+const MAX_SESSION_STATES = 500;
+const MAX_SEEN_ENTITIES_PER_SESSION = 200;
 const sessionStates = new Map<string, SessionState>();
 const COMMON_ENTITY_STOPWORDS = new Set([
   'a',
@@ -199,11 +201,31 @@ function normalizeSessionKey(sessionKey?: string): string {
 function getSessionState(sessionKey?: string): SessionState {
   const key = normalizeSessionKey(sessionKey);
   let state = sessionStates.get(key);
-  if (!state) {
-    state = { seenEntities: new Set<string>() };
+  if (state) {
+    sessionStates.delete(key);
     sessionStates.set(key, state);
+    return state;
+  }
+  state = { seenEntities: new Set<string>() };
+  sessionStates.set(key, state);
+  while (sessionStates.size > MAX_SESSION_STATES) {
+    const oldest = sessionStates.keys().next().value;
+    if (typeof oldest !== 'string') break;
+    sessionStates.delete(oldest);
   }
   return state;
+}
+
+function addSeenEntity(state: SessionState, entity: string): void {
+  if (state.seenEntities.has(entity)) {
+    state.seenEntities.delete(entity);
+  }
+  state.seenEntities.add(entity);
+  while (state.seenEntities.size > MAX_SEEN_ENTITIES_PER_SESSION) {
+    const oldest = state.seenEntities.values().next().value;
+    if (typeof oldest !== 'string') break;
+    state.seenEntities.delete(oldest);
+  }
 }
 
 export function resetOpenClawSessionStateForTests(): void {
@@ -254,7 +276,7 @@ function hasNewPromptEntities(prompt: string, sessionKey?: string): boolean {
 function rememberPromptEntities(prompt: string, sessionKey?: string): void {
   const state = getSessionState(sessionKey);
   for (const entity of extractPromptEntities(prompt)) {
-    state.seenEntities.add(entity.toLowerCase());
+    addSeenEntity(state, entity.toLowerCase());
   }
 }
 
@@ -563,7 +585,15 @@ const openClawPlugin = {
       api.on('before_prompt_build', async (event, ctx) => {
         const prompt = String(event.prompt || '').trim();
         const sections: string[] = [
-          renderOpenClawPolicyContext({ defaultTags: config.defaultTags }),
+          renderOpenClawPolicyContext({
+            defaultTags: config.defaultTags,
+            limits: {
+              preferenceRecallLimit: config.preferenceRecallLimit,
+              contextRecallLimit: config.contextRecallLimit,
+              debugRecallLimit: config.debugRecallLimit,
+              contextRecallWindowDays: config.contextRecallWindowDays,
+            },
+          }),
         ];
         const bootstrapSkipped = configSkipsBootstrap(api.config);
         const startupTurn = bootstrapSkipped && isLikelyStartupTurn(event.messages);

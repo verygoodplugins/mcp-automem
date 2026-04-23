@@ -911,8 +911,8 @@ AutoMem now supports three OpenClaw integration modes, in this recommended order
 
 4. **Open OpenClaw**. The installer will restart the gateway, verify the plugin, and open or print the dashboard URL.
 
-`openclaw --mode plugin` installs a lean native plugin package staged inside `@verygoodplugins/mcp-automem`. That keeps `memory-core` as OpenClaw's active memory slot instead of replacing it.
-It also enables the `/plugins` chat command so users can verify and inspect the install from inside OpenClaw.
+The recommended setup command above installs OpenClaw in `plugin` mode using the packaged flow from `@verygoodplugins/mcp-automem` (under the hood: `npx @verygoodplugins/mcp-automem openclaw --mode plugin`). That stages a lean native plugin package and keeps `memory-core` as OpenClaw's active memory slot instead of replacing it.
+Plugin mode also enables the `/plugins` chat command so users can verify and inspect the install from inside OpenClaw.
 It also appends the AutoMem tool names to `tools.alsoAllow`, which keeps them callable even when OpenClaw is using a restrictive base profile such as `tools.profile = "coding"` without forcing a restrictive global allowlist.
 On fresh installs, it also probes AutoMem once: if the service is reachable and already contains memory, the installer sets `agents.defaults.skipBootstrap = true` so OpenClaw skips the name/timezone/vibe bootstrap flow. If AutoMem is empty or unavailable, the normal bootstrap remains in place.
 When AutoMem already knows the user, the installer also hydrates a compact startup profile from memory so the first browser chat can behave like a returning user agent conversation instead of a generic blank slate.

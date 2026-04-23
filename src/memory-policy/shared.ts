@@ -25,7 +25,7 @@ const CASUAL_OPENING_PATTERN =
 const DEBUG_PROMPT_PATTERN =
   /(error|exception|traceback|stack trace|stacktrace|failing|fails|failed|failure|bug|regression|crash|broken|debug|investigat|not work|doesn't work|does not work|cannot|can't|fix)/i;
 const EXPLICIT_RECALL_PROMPT_PATTERN =
-  /(what do (you|we) (have|know) about|tell me about|who is|who's|do you remember|remember|recall|search memory|check memory|look in memory|have we spoken about|what do you have on)/i;
+  /(what do (you|we) (have|know) about|what do you remember about|tell me about|who is|who's|do you remember|remember when|recall|search memory|check memory|look in memory|have we spoken about|what do you have on)/i;
 
 type ToolNames = {
   recall: string;
@@ -128,9 +128,17 @@ export function renderClaudeCodeSessionStartPrompt(projectExpression: string): s
   ].join('\n');
 }
 
+export type OpenClawPolicyLimits = {
+  preferenceRecallLimit?: number;
+  contextRecallLimit?: number;
+  debugRecallLimit?: number;
+  contextRecallWindowDays?: number;
+};
+
 export function renderOpenClawPolicyContext(params: {
   defaultTags: string[];
   tools?: Partial<ToolNames>;
+  limits?: OpenClawPolicyLimits;
 }): string {
   const tools: ToolNames = {
     recall: params.tools?.recall || 'automem_recall_memory',
@@ -138,6 +146,13 @@ export function renderOpenClawPolicyContext(params: {
     update: params.tools?.update || 'automem_update_memory',
     associate: params.tools?.associate || 'automem_associate_memories',
   };
+  const preferenceLimit =
+    params.limits?.preferenceRecallLimit ?? AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit;
+  const contextLimit =
+    params.limits?.contextRecallLimit ?? AUTOMEM_POLICY_DEFAULTS.contextRecallLimit;
+  const debugLimit = params.limits?.debugRecallLimit ?? AUTOMEM_POLICY_DEFAULTS.debugRecallLimit;
+  const windowDays =
+    params.limits?.contextRecallWindowDays ?? AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays;
   const projectGate = resolveProjectGateTags(params.defaultTags);
   const projectGateLine = projectGate
     ? `Project gate for first-turn task-context recall: ${projectGate.join(', ')}`
@@ -149,8 +164,8 @@ export function renderOpenClawPolicyContext(params: {
     'Use AutoMem with the validated shared policy.',
     '',
     'Recall rules:',
-    `- First substantive turn: run ${tools.recall} for preferences with tags ["preference"], limit ${AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit}, sort "updated_desc", format "detailed". Then run ONE semantic task-context recall using the user's real nouns, time_query "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days", limit ${AUTOMEM_POLICY_DEFAULTS.contextRecallLimit}, format "detailed", and only use the project gate when it is unambiguous.`,
-    `- Active debugging only: run ${tools.recall} with the error symptom, tags ["bugfix", "solution"], and limit ${AUTOMEM_POLICY_DEFAULTS.debugRecallLimit}.`,
+    `- First substantive turn: run ${tools.recall} for preferences with tags ["preference"], limit ${preferenceLimit}, sort "updated_desc", format "detailed". Then run ONE semantic task-context recall using the user's real nouns, time_query "last ${windowDays} days", limit ${contextLimit}, format "detailed", and only use the project gate when it is unambiguous.`,
+    `- Active debugging only: run ${tools.recall} with the error symptom, tags ["bugfix", "solution"], and limit ${debugLimit}.`,
     '- After turn 1, recall again only for topic shifts, new proper nouns, or active debugging. Do not re-recall on routine follow-ups.',
     `- If the user explicitly asks what you know about a person, project, or topic, run ${tools.recall} before answering from memory. Do not promise a "live recall" without doing it.`,
     '',

@@ -246,8 +246,8 @@ case "$selected_client" in
 esac
 
 echo "Restarting OpenClaw gateway..."
-if ! node -e 'const { spawnSync } = require("child_process"); const result = spawnSync("openclaw", ["gateway", "restart"], { stdio: "ignore", timeout: 20000 }); if (result.error && result.error.code !== "ETIMEDOUT") process.exit(1); process.exit(result.status ?? 1);' >/dev/null 2>&1; then
-  echo "OpenClaw gateway restart did not complete cleanly. Retry manually: openclaw gateway restart" >&2
+if ! node -e 'const { spawnSync } = require("child_process"); const result = spawnSync("openclaw", ["gateway", "restart"], { stdio: "ignore", timeout: 20000 }); if (result.error) { if (result.error.code === "ETIMEDOUT") { console.error("Warning: OpenClaw gateway restart timed out after 20s; continuing to health check."); process.exit(0); } process.exit(1); } if (typeof result.status === "number") process.exit(result.status); process.exit(1);'; then
+  echo "OpenClaw gateway restart failed. Retry manually: openclaw gateway restart" >&2
   exit 1
 fi
 
