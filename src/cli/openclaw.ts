@@ -3,7 +3,10 @@ import os from 'os';
 import path from 'path';
 import { execFileSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { AutoMemClient } from '../automem-client.js';
 import { readAutoMemApiKeyFromEnv } from '../env.js';
+import { buildDefaultProjectTags } from '../memory-policy/shared.js';
+import { buildStartupProfileFromResults } from '../openclaw-startup-profile.js';
 import { DEFAULT_AUTOMEM_ENDPOINT } from './templates.js';
 
 export type OpenClawSetupMode = 'plugin' | 'mcp' | 'skill';
@@ -21,20 +24,48 @@ interface OpenClawSetupOptions {
   scope: OpenClawSetupScope;
   pluginSource?: string;
   timeoutMs?: number;
+  replaceMemory?: boolean;
 }
 
 type JsonPrimitive = string | number | boolean | null;
 type JsonArray = JsonValue[];
 type JsonObject = { [key: string]: JsonValue | undefined };
 type JsonValue = JsonPrimitive | JsonObject | JsonArray;
+type BootstrapProbeClient = Pick<AutoMemClient, 'checkHealth' | 'recallMemory'>;
+
+type BootstrapBypassProbeResult = {
+  shouldSkipBootstrap: boolean;
+  reason: string;
+  healthStatus: 'healthy' | 'error';
+  memoryCount?: number;
+};
 
 const TEMPLATE_ROOT = path.resolve(
   fileURLToPath(new URL('../../templates/openclaw', import.meta.url))
 );
 const PACKAGE_ROOT = path.resolve(fileURLToPath(new URL('../../package.json', import.meta.url)));
+const BUNDLED_PLUGIN_ROOT = path.resolve(
+  fileURLToPath(new URL('../../dist/openclaw-plugin-package', import.meta.url))
+);
 const DEFAULT_PLUGIN_SOURCE = '@verygoodplugins/mcp-automem';
 const OPENCLAW_PLUGIN_ID = 'automem';
+const OPENCLAW_TOOL_NAMES = [
+  'automem_store_memory',
+  'automem_recall_memory',
+  'automem_update_memory',
+  'automem_delete_memory',
+  'automem_associate_memories',
+  'automem_check_health',
+] as const;
 const SENSITIVE_KEY_PATTERN = /(api[-_]?key|token|secret|authorization)/i;
+const OPENCLAW_ONBOARDING_ARTIFACTS = [
+  'AGENTS.md',
+  'SOUL.md',
+  'TOOLS.md',
+  'BOOTSTRAP.md',
+  'IDENTITY.md',
+  'USER.md',
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -221,7 +252,9 @@ function looksLikePath(input: string): boolean {
 }
 
 function resolvePluginSource(input?: string): string {
-  const candidate = input?.trim() || readCurrentPackageName() || DEFAULT_PLUGIN_SOURCE;
+  const candidate =
+    input?.trim() ||
+    (fs.existsSync(BUNDLED_PLUGIN_ROOT) ? BUNDLED_PLUGIN_ROOT : readCurrentPackageName() || DEFAULT_PLUGIN_SOURCE);
   return looksLikePath(candidate) ? resolveTildePath(candidate) : candidate;
 }
 
@@ -245,26 +278,8 @@ function archivePath(targetPath: string): string {
   return candidate;
 }
 
-function sanitizeTag(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64);
-}
-
-function isAmbiguousProjectSlug(slug: string): boolean {
-  return ['api', 'app', 'test', 'video'].includes(slug);
-}
-
 export function buildDefaultTags(projectName?: string): string[] {
-  const normalizedProjectName = String(projectName || '').replace(/^@.*?\//, '');
-  const sanitized = sanitizeTag(normalizedProjectName);
-  if (!sanitized || isAmbiguousProjectSlug(sanitized)) {
-    return [];
-  }
-  return [sanitized];
+  return buildDefaultProjectTags(projectName);
 }
 
 export function redactSensitiveValue(value: unknown): unknown {
@@ -463,6 +478,7 @@ export function buildPluginConfigEntry(params: {
   endpoint: string;
   apiKey?: string;
   defaultTags: string[];
+  startupProfile?: string;
 }): Record<string, unknown> {
   const existing = isRecord(params.existing) ? params.existing : {};
   const existingConfig = isRecord(existing.config) ? existing.config : {};
@@ -480,15 +496,31 @@ export function buildPluginConfigEntry(params: {
       ...(params.apiKey || existingApiKey ? { apiKey: params.apiKey || existingApiKey } : {}),
       autoRecall:
         typeof existingConfig.autoRecall === 'boolean' ? existingConfig.autoRecall : true,
-      autoRecallLimit:
-        typeof existingConfig.autoRecallLimit === 'number' && Number.isFinite(existingConfig.autoRecallLimit)
-          ? existingConfig.autoRecallLimit
-          : 3,
+      ...(typeof existingConfig.autoRecallLimit === 'number' && Number.isFinite(existingConfig.autoRecallLimit)
+        ? { autoRecallLimit: existingConfig.autoRecallLimit }
+        : {}),
+      ...(typeof existingConfig.preferenceRecallLimit === 'number' &&
+      Number.isFinite(existingConfig.preferenceRecallLimit)
+        ? { preferenceRecallLimit: existingConfig.preferenceRecallLimit }
+        : {}),
+      ...(typeof existingConfig.contextRecallLimit === 'number' &&
+      Number.isFinite(existingConfig.contextRecallLimit)
+        ? { contextRecallLimit: existingConfig.contextRecallLimit }
+        : {}),
+      ...(typeof existingConfig.debugRecallLimit === 'number' &&
+      Number.isFinite(existingConfig.debugRecallLimit)
+        ? { debugRecallLimit: existingConfig.debugRecallLimit }
+        : {}),
+      ...(typeof existingConfig.contextRecallWindowDays === 'number' &&
+      Number.isFinite(existingConfig.contextRecallWindowDays)
+        ? { contextRecallWindowDays: existingConfig.contextRecallWindowDays }
+        : {}),
       exposure:
         typeof existingConfig.exposure === 'string' && existingConfig.exposure.trim()
           ? existingConfig.exposure
           : 'dm-only',
       ...(params.defaultTags.length > 0 ? { defaultTags: params.defaultTags } : {}),
+      ...(params.startupProfile ? { startupProfile: params.startupProfile } : {}),
     },
   };
 }
@@ -540,20 +572,176 @@ export function buildMcporterConfig(params: {
   };
 }
 
-function normalizeSkillEntryForPlugin(existing?: Record<string, unknown>): Record<string, unknown> {
-  const next = isRecord(existing) ? { ...existing } : {};
-  delete next.apiKey;
-  delete next.env;
-  return {
-    ...next,
-    enabled: true,
-  };
-}
-
 function disablePluginEntry(existing?: Record<string, unknown>): Record<string, unknown> {
   const next = isRecord(existing) ? { ...existing } : {};
   next.enabled = false;
   return next;
+}
+
+function disableSkillEntry(existing?: Record<string, unknown>): Record<string, unknown> {
+  const next = isRecord(existing) ? { ...existing } : {};
+  next.enabled = false;
+  return next;
+}
+
+export function enablePluginsCommand(config: JsonObject): void {
+  const commands = isRecord(config.commands) ? { ...config.commands } : {};
+  commands.plugins = true;
+  config.commands = commands as JsonValue;
+}
+
+export function allowPluginWhenAllowlistExists(config: JsonObject, pluginId: string): void {
+  const plugins = isRecord(config.plugins) ? { ...config.plugins } : {};
+  const allow = Array.isArray(plugins.allow)
+    ? plugins.allow.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+
+  if (allow.length === 0 || allow.includes(pluginId)) {
+    if (plugins.allow) {
+      config.plugins = plugins as JsonValue;
+    }
+    return;
+  }
+
+  plugins.allow = [...allow, pluginId];
+  config.plugins = plugins as JsonValue;
+}
+
+export function allowAutoMemTools(config: JsonObject): void {
+  const tools = isRecord(config.tools) ? { ...config.tools } : {};
+  const allow = Array.isArray(tools.allow)
+    ? tools.allow.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+  const alsoAllow = Array.isArray(tools.alsoAllow)
+    ? tools.alsoAllow.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+  const normalizedAutoMemTools = new Set(OPENCLAW_TOOL_NAMES);
+  const legacyAutoMemOnlyAllow =
+    allow.length > 0 && allow.every((entry) => normalizedAutoMemTools.has(entry as (typeof OPENCLAW_TOOL_NAMES)[number]));
+
+  if (allow.length > 0 && !legacyAutoMemOnlyAllow) {
+    const nextAllow = [...allow];
+    for (const toolName of OPENCLAW_TOOL_NAMES) {
+      if (!nextAllow.includes(toolName)) {
+        nextAllow.push(toolName);
+      }
+    }
+    tools.allow = nextAllow;
+    config.tools = tools as JsonValue;
+    return;
+  }
+
+  const nextAlsoAllow = [...alsoAllow];
+  for (const toolName of OPENCLAW_TOOL_NAMES) {
+    if (!nextAlsoAllow.includes(toolName)) {
+      nextAlsoAllow.push(toolName);
+    }
+  }
+
+  tools.alsoAllow = nextAlsoAllow;
+  if (legacyAutoMemOnlyAllow || allow.length === 0) {
+    delete tools.allow;
+  }
+  config.tools = tools as JsonValue;
+}
+
+function readAgentDefaults(config: JsonObject): JsonObject {
+  const agents = isRecord(config.agents) ? { ...config.agents } : {};
+  const defaults = isRecord(agents.defaults) ? { ...agents.defaults } : {};
+  agents.defaults = defaults as JsonValue;
+  config.agents = agents as JsonValue;
+  return defaults as JsonObject;
+}
+
+export function hasExplicitSkipBootstrap(config: JsonObject): boolean {
+  const agents = isRecord(config.agents) ? config.agents : undefined;
+  const defaults = isRecord(agents?.defaults) ? agents.defaults : undefined;
+  return typeof defaults?.skipBootstrap === 'boolean';
+}
+
+export function enableSkipBootstrap(config: JsonObject): void {
+  const defaults = readAgentDefaults(config);
+  defaults.skipBootstrap = true;
+}
+
+export function hasOnboardingArtifacts(workspaceDir: string | null): boolean {
+  if (!workspaceDir || !fs.existsSync(workspaceDir)) {
+    return false;
+  }
+
+  return OPENCLAW_ONBOARDING_ARTIFACTS.some((name) =>
+    fs.existsSync(path.join(workspaceDir, name))
+  );
+}
+
+export function isFreshOnboardingTarget(config: JsonObject, workspaceDir: string | null): boolean {
+  if (hasExplicitSkipBootstrap(config)) {
+    return false;
+  }
+
+  return !hasOnboardingArtifacts(workspaceDir);
+}
+
+export async function probeBootstrapBypass(
+  client: BootstrapProbeClient
+): Promise<BootstrapBypassProbeResult> {
+  const health = await client.checkHealth();
+  if (health.status !== 'healthy') {
+    return {
+      shouldSkipBootstrap: false,
+      reason: 'AutoMem is unavailable or unhealthy; leaving bootstrap enabled.',
+      healthStatus: 'error',
+    };
+  }
+
+  try {
+    const recall = await client.recallMemory({
+      limit: 1,
+      sort: 'time_desc',
+      format: 'detailed',
+    });
+
+    const memoryCount = recall.count ?? recall.results?.length ?? 0;
+    if (memoryCount > 0) {
+      return {
+        shouldSkipBootstrap: true,
+        reason: 'AutoMem already has memory for this user; skipping bootstrap.',
+        healthStatus: 'healthy',
+        memoryCount,
+      };
+    }
+
+    return {
+      shouldSkipBootstrap: false,
+      reason: 'AutoMem is reachable but empty; leaving bootstrap enabled.',
+      healthStatus: 'healthy',
+      memoryCount,
+    };
+  } catch (error) {
+    return {
+      shouldSkipBootstrap: false,
+      reason: `AutoMem recall probe failed; leaving bootstrap enabled. ${String(error)}`,
+      healthStatus: 'healthy',
+      memoryCount: 0,
+    };
+  }
+}
+
+export async function hydrateStartupProfile(
+  client: BootstrapProbeClient
+): Promise<string | undefined> {
+  try {
+    const recall = await client.recallMemory({
+      query: 'user name timezone preferred name work style personality tone ongoing context',
+      limit: 5,
+      sort: 'time_desc',
+      format: 'detailed',
+    });
+
+    return buildStartupProfileFromResults(recall.results || [], { maxEntries: 4 });
+  } catch {
+    return undefined;
+  }
 }
 
 function installSkillTemplate(params: {
@@ -620,13 +808,13 @@ function archiveLegacySkillOverrides(workspaceDir: string | null, options: OpenC
 
 function installOpenClawPlugin(pluginSource: string, options: OpenClawSetupOptions) {
   if (options.dryRun) {
-    log(`[DRY RUN] Would run: openclaw plugins install ${pluginSource}`, options.quiet);
+    log(`[DRY RUN] Would run: openclaw plugins install ${pluginSource} --force`, options.quiet);
     return;
   }
 
   const timeout = options.timeoutMs ?? 120_000;
   try {
-    execFileSync('openclaw', ['plugins', 'install', pluginSource], {
+    execFileSync('openclaw', ['plugins', 'install', pluginSource, '--force'], {
       stdio: options.quiet ? 'ignore' : 'inherit',
       env: process.env,
       timeout,
@@ -643,6 +831,52 @@ function installOpenClawPlugin(pluginSource: string, options: OpenClawSetupOptio
   }
 }
 
+export function disableBuiltInMemorySlot(config: JsonObject) {
+  const plugins = isRecord(config.plugins) ? { ...config.plugins } : {};
+  const slots = isRecord(plugins.slots) ? { ...plugins.slots } : {};
+  slots.memory = 'none';
+  plugins.slots = slots as JsonValue;
+  config.plugins = plugins as JsonValue;
+}
+
+export function disableSessionMemoryHook(config: JsonObject) {
+  const hooks = isRecord(config.hooks) ? { ...config.hooks } : {};
+  const internal = isRecord(hooks.internal) ? { ...hooks.internal } : {};
+  const entries = isRecord(internal.entries) ? { ...internal.entries } : {};
+  const sessionMemory = isRecord(entries['session-memory'])
+    ? { ...entries['session-memory'] }
+    : {};
+  sessionMemory.enabled = false;
+  entries['session-memory'] = sessionMemory as JsonValue;
+  internal.entries = entries as JsonValue;
+  hooks.internal = internal as JsonValue;
+  config.hooks = hooks as JsonValue;
+}
+
+export function disableMemoryCoreDreaming(config: JsonObject) {
+  const plugins = isRecord(config.plugins) ? { ...config.plugins } : {};
+  const entries = isRecord(plugins.entries) ? { ...plugins.entries } : {};
+  const memoryCoreEntry = isRecord(entries['memory-core']) ? { ...entries['memory-core'] } : {};
+  const memoryCoreConfig = isRecord(memoryCoreEntry.config) ? { ...memoryCoreEntry.config } : {};
+  const dreaming = isRecord(memoryCoreConfig.dreaming) ? { ...memoryCoreConfig.dreaming } : {};
+  dreaming.enabled = false;
+  memoryCoreConfig.dreaming = dreaming as JsonValue;
+  memoryCoreEntry.config = memoryCoreConfig as JsonValue;
+  entries['memory-core'] = memoryCoreEntry as JsonValue;
+  plugins.entries = entries as JsonValue;
+  config.plugins = plugins as JsonValue;
+}
+
+export function replaceOpenClawMemorySystem(config: JsonObject, options: OpenClawSetupOptions) {
+  disableBuiltInMemorySlot(config);
+  disableSessionMemoryHook(config);
+  disableMemoryCoreDreaming(config);
+  log(
+    'Configured OpenClaw to replace the built-in memory layer: plugins.slots.memory="none", session-memory hook disabled, dreaming disabled.',
+    options.quiet
+  );
+}
+
 function resolveMcporterConfigPath(scope: OpenClawSetupScope, workspaceDir: string | null): string {
   if (scope === 'shared') {
     return path.join(os.homedir(), '.mcporter', 'mcporter.json');
@@ -657,7 +891,7 @@ function updateOpenClawConfig(config: JsonObject, configPath: string, options: O
   writeJsonFileWithBackup(configPath, config, options);
 }
 
-function applyPluginMode(params: {
+async function applyPluginMode(params: {
   config: JsonObject;
   configPath: string;
   workspaceDir: string | null;
@@ -668,29 +902,69 @@ function applyPluginMode(params: {
 }) {
   installOpenClawPlugin(resolvePluginSource(params.options.pluginSource), params.options);
   archiveLegacySkillOverrides(params.workspaceDir, params.options);
+  const client = new AutoMemClient({
+    endpoint: params.endpoint,
+    ...(params.apiKey ? { apiKey: params.apiKey } : {}),
+  });
+  let startupProfile: string | undefined;
 
   const plugins = isRecord(params.config.plugins) ? { ...params.config.plugins } : {};
   const pluginEntries = isRecord(plugins.entries) ? { ...plugins.entries } : {};
   const existingPluginEntry = isRecord(pluginEntries[OPENCLAW_PLUGIN_ID])
     ? (pluginEntries[OPENCLAW_PLUGIN_ID] as Record<string, unknown>)
     : undefined;
+
+  if (hasExplicitSkipBootstrap(params.config)) {
+    log('Preserving existing agents.defaults.skipBootstrap setting.', params.options.quiet);
+  } else if (isFreshOnboardingTarget(params.config, params.workspaceDir)) {
+    const probe = await probeBootstrapBypass(client);
+
+    if (probe.shouldSkipBootstrap) {
+      enableSkipBootstrap(params.config);
+      startupProfile = await hydrateStartupProfile(client);
+      if (startupProfile) {
+        log('Hydrated startup profile from AutoMem for the first OpenClaw turn.', params.options.quiet);
+      }
+      log(
+        `${probe.reason}${probe.memoryCount ? ` (${probe.memoryCount} memory found in probe)` : ''}`,
+        params.options.quiet
+      );
+    } else {
+      log(probe.reason, params.options.quiet);
+    }
+  } else {
+    log(
+      'Existing OpenClaw onboarding files were found; leaving bootstrap settings unchanged.',
+      params.options.quiet
+    );
+  }
+
   pluginEntries[OPENCLAW_PLUGIN_ID] = buildPluginConfigEntry({
     existing: existingPluginEntry,
     endpoint: params.endpoint,
     apiKey: params.apiKey,
     defaultTags: params.defaultTags,
+    startupProfile,
   }) as JsonValue;
   plugins.entries = pluginEntries as JsonValue;
   params.config.plugins = plugins as JsonValue;
+  allowPluginWhenAllowlistExists(params.config, OPENCLAW_PLUGIN_ID);
+  allowAutoMemTools(params.config);
+  enablePluginsCommand(params.config);
+  if (params.options.replaceMemory) {
+    replaceOpenClawMemorySystem(params.config, params.options);
+  }
 
   const skills = isRecord(params.config.skills) ? { ...params.config.skills } : {};
   const skillEntries = isRecord(skills.entries) ? { ...skills.entries } : {};
   const existingSkillEntry = isRecord(skillEntries[OPENCLAW_PLUGIN_ID])
     ? (skillEntries[OPENCLAW_PLUGIN_ID] as Record<string, unknown>)
     : undefined;
-  skillEntries[OPENCLAW_PLUGIN_ID] = normalizeSkillEntryForPlugin(existingSkillEntry) as JsonValue;
-  skills.entries = skillEntries as JsonValue;
-  params.config.skills = skills as JsonValue;
+  if (existingSkillEntry) {
+    skillEntries[OPENCLAW_PLUGIN_ID] = disableSkillEntry(existingSkillEntry) as JsonValue;
+    skills.entries = skillEntries as JsonValue;
+    params.config.skills = skills as JsonValue;
+  }
 
   if (params.options.dryRun) {
     renderConfigEntryForOutput(
@@ -784,7 +1058,7 @@ function applyMcpMode(params: {
 function resolveModeSummary(mode: OpenClawSetupMode): string {
   switch (mode) {
     case 'plugin':
-      return 'native OpenClaw plugin with typed tools and auto-recall hook';
+      return 'lean native OpenClaw plugin with typed tools and auto-recall hook';
     case 'mcp':
       return 'workspace skill plus mcporter stdio server';
     case 'skill':
@@ -818,7 +1092,17 @@ export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Prom
 
   log(`Setting up OpenClaw AutoMem for ${projectName}`, cliOptions.quiet);
   log(`Mode: ${cliOptions.mode} (${resolveModeSummary(cliOptions.mode)})`, cliOptions.quiet);
-  log(`Workspace: ${workspaceDir || '(not required for this run)'}`, cliOptions.quiet);
+  const workspaceSource = cliOptions.workspace
+    ? '(from --workspace)'
+    : process.env.OPENCLAW_WORKSPACE || process.env.CLAWDBOT_WORKSPACE
+      ? '(from env)'
+      : workspaceDir
+        ? '(auto-detected, override with --workspace <path>)'
+        : '';
+  log(
+    `Workspace: ${workspaceDir || '(not required for this run)'}${workspaceSource ? ' ' + workspaceSource : ''}`,
+    cliOptions.quiet
+  );
   if (cliOptions.mode !== 'plugin') {
     log(`Scope: ${cliOptions.scope}`, cliOptions.quiet);
   }
@@ -827,9 +1111,12 @@ export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Prom
     `Default store tags: ${defaultTags.length > 0 ? defaultTags.join(', ') : '(none - semantic recall only)'}`,
     cliOptions.quiet
   );
+  if (cliOptions.replaceMemory) {
+    log('Memory mode: replace built-in OpenClaw memory with AutoMem', cliOptions.quiet);
+  }
 
   if (cliOptions.mode === 'plugin') {
-    applyPluginMode({
+    await applyPluginMode({
       config,
       configPath,
       workspaceDir,
@@ -938,6 +1225,9 @@ export function parseArgs(args: string[]): OpenClawSetupOptions {
           fail('Error: --plugin-source requires an npm spec or path');
         }
         options.pluginSource = args[++i];
+        break;
+      case '--replace-memory':
+        options.replaceMemory = true;
         break;
       case '--dry-run':
         options.dryRun = true;
