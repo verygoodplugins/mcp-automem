@@ -31,13 +31,13 @@ Desktop conversations don't look like coding sessions. They open with things lik
 ```javascript
 mcp__memory__recall_memory({
   tags: ["preference"],
-  limit: 15,
+  limit: 20,
   sort: "updated_desc",
   format: "detailed",
 });
 ```
 
-No query, no time gate. Sort by `updated_desc` so the freshest preferences win — a recent one shouldn't get crowded out by an old one. 15 is about the size of the preference-tagged population; no point going higher.
+No query, no time gate. Sort by `updated_desc` so the freshest preferences win — a recent one shouldn't get crowded out by an old one. 20 is the validated default for preference recall.
 
 **Turn 1 (or first substantive turn): one semantic recall on actual content.**
 
@@ -49,7 +49,7 @@ For anything stateful — project work, running threads, requests that assume sh
 mcp__memory__recall_memory({
   query:
     "<proper nouns, product names, people, specific tools from the message>",
-  limit: 25,
+  limit: 30,
   time_query: "last 90 days",
   format: "detailed",
 });
@@ -82,7 +82,7 @@ mcp__memory__recall_memory({
 });
 ```
 
-**Don't re-recall mid-conversation** unless the topic genuinely shifts. With a 1M context, memories pulled on turn 1 are still in scope. Burning another recall on turn 4 of the same thread is waste.
+**Don't re-recall mid-conversation** unless the topic genuinely shifts, a new proper noun enters the conversation, or you're actively debugging. With a 1M context, memories pulled on turn 1 are still in scope. Burning another recall on turn 4 of the same thread is waste.
 
 ---
 

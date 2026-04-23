@@ -80,7 +80,7 @@ Sort by `updated_desc` so the freshest preferences win; `format: "detailed"` sur
 })
 ```
 
-**Don't re-recall mid-conversation** unless the topic genuinely shifts, you're about to assert a specific technical claim and want to verify it's current, or a proper noun you don't recognize enters the conversation. With 1M context, turn-1 memories are still in scope on turn 15 — re-recalling wastes budget.
+**Don't re-recall mid-conversation** unless the topic genuinely shifts, a proper noun you do not recognize enters the conversation, or you are actively debugging. With 1M context, turn-1 memories are still in scope on turn 15 — re-recalling wastes budget.
 
 ## Storage
 

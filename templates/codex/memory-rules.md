@@ -40,7 +40,17 @@ mcp__memory__recall_memory({
 });
 ```
 
-Skip Phase 2 entirely for pure syntax questions, trivial edits, or direct factual queries about current code. Don't re-recall mid-conversation unless the topic shifts, an unfamiliar proper noun enters, or you need to verify a specific technical claim — with 1M context, turn-1 memories are still in scope on turn 15.
+Skip Phase 2 entirely for pure syntax questions, trivial edits, or direct factual queries about current code. Don't re-recall mid-conversation unless the topic genuinely shifts, an unfamiliar proper noun enters, or you need to verify a specific technical claim — with 1M context, turn-1 memories are still in scope on turn 15.
+
+For active-debugging turns only, add a targeted bugfix recall:
+
+```javascript
+mcp__memory__recall_memory({
+  query: "<error symptom, stack trace keywords>",
+  tags: ["bugfix", "solution"],
+  limit: 20
+});
+```
 
 ### Storage
 
@@ -73,7 +83,7 @@ mcp__memory__store_memory({
 ### Three mid-conversation triggers (and only three)
 
 1. **User correction or override** ("actually…", "no, I prefer…", "stop doing X", "we decided X already") → `Preference`, importance 0.9, confidence 0.95, tag `correction`. Associate `INVALIDATED_BY` the prior memory.
-2. **Decision survives a round of discussion** ("let's go with X", "ship it", "yeah that's the plan") → `Decision`, importance 0.85–0.9. Associate `PREFERS_OVER` alternatives considered.
+2. **Stabilized decision — the decision stabilizes after surviving at least one round of discussion** ("let's go with X", "ship it", "yeah that's the plan") → `Decision`, importance 0.85–0.9. Associate `PREFERS_OVER` alternatives considered.
 3. **Pattern explicitly articulated** ("I always do X", "every time", "my thing is") → `Pattern`, importance 0.8. Associate `EXEMPLIFIES` concrete examples.
 
 For each trigger, run the atomic ritual *this turn* — don't queue for later.
