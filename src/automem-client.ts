@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 import type {
   AutoMemConfig,
   MemoryRecord,
@@ -25,7 +24,7 @@ export class AutoMemClient {
     retryCount = 0
   ): Promise<any> {
     const url = `${this.config.endpoint.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
-    
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -34,10 +33,13 @@ export class AutoMemClient {
       headers.Authorization = `Bearer ${this.config.apiKey}`;
     }
 
-    const options: any = {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25_000);
+
+    const options: RequestInit = {
       method,
       headers,
-      timeout: 25000, // 25s timeout - Claude Desktop has ~30s MCP timeout
+      signal: controller.signal,
     };
 
     if (body && method !== 'GET') {
@@ -52,6 +54,7 @@ export class AutoMemClient {
     try {
       response = await fetch(url, options);
     } catch (error) {
+      clearTimeout(timeoutId);
       if (error instanceof Error && retryCount < maxRetries) {
         const delay = baseDelay * Math.pow(2, retryCount);
         console.error(`[AutoMem] Network error, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
@@ -62,6 +65,7 @@ export class AutoMemClient {
       console.error(`AutoMem API error (${method} ${url}):`, error);
       throw error;
     }
+    clearTimeout(timeoutId);
 
     let data: any;
     try {

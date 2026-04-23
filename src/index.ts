@@ -194,6 +194,9 @@ CODEX SETUP:
 OPENCLAW SETUP:
   npx @verygoodplugins/mcp-automem openclaw [options]
 
+  Recommended happy path:
+    curl -fsSL https://automem.ai/install.sh | bash
+
   Options:
     --mode <plugin|mcp|skill>   Integration mode (default: plugin)
     --scope <workspace|shared>  Install scope for mcp/skill modes (default: workspace)
@@ -202,6 +205,7 @@ OPENCLAW SETUP:
     --api-key <key>             AutoMem API key (optional)
     --plugin-source <spec>      npm spec or path for plugin installs
     --name <name>               Project name used to seed default memory tags
+    --replace-memory            Disable OpenClaw's built-in memory layer and use AutoMem as the only memory system
     --dry-run                   Show what would be changed
     --quiet                     Suppress output
 
