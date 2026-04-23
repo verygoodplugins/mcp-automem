@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.13.0...mcp-automem-v0.14.0) (2026-04-23)
+
+
+### Features
+
+* **openclaw:** plugin-first memory parity with shared policy ([#107](https://github.com/verygoodplugins/mcp-automem/issues/107)) ([613e415](https://github.com/verygoodplugins/mcp-automem/commit/613e415e7ca891e8209f066d2d41de0c70069102))
+
+
+### Bug Fixes
+
+* accept HTTP 429 in link checker to prevent false CI failures ([#93](https://github.com/verygoodplugins/mcp-automem/issues/93)) ([4fc5124](https://github.com/verygoodplugins/mcp-automem/commit/4fc512469fe070f06ac7173d2877d6b398b4610c))
+* **deps:** revert eslint to v9 and typescript to 5.x for compatibility ([#91](https://github.com/verygoodplugins/mcp-automem/issues/91)) ([86943c6](https://github.com/verygoodplugins/mcp-automem/commit/86943c6680ccda0508dd7b2ef3e3abc0f051283d))
+* downgrade @eslint/js to ^9.0.0 to match eslint peer dependency ([#92](https://github.com/verygoodplugins/mcp-automem/issues/92)) ([682fded](https://github.com/verygoodplugins/mcp-automem/commit/682fdeddc835b80711eb84656c67d46123a10ffb))
+* improve Claude Code Windows Python compatibility ([#102](https://github.com/verygoodplugins/mcp-automem/issues/102)) ([f0a4a0b](https://github.com/verygoodplugins/mcp-automem/commit/f0a4a0bc2659845599488850bca95fbda7b89f78))
+* recover dependabot workflow compatibility ([#104](https://github.com/verygoodplugins/mcp-automem/issues/104)) ([22208a2](https://github.com/verygoodplugins/mcp-automem/commit/22208a20fa648f552bd61237bf66d037f974758f))
+
 ## [Unreleased]
 
 ### Changes
