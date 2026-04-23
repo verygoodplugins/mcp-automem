@@ -434,6 +434,7 @@ Same factors apply here - go with Postgres."
 - 🏗️ **[AutoMem Service](https://github.com/verygoodplugins/automem)** - Backend repository
 - 🚀 **[Service Installation](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md)** - Local, Railway, Docker deployment
 - ⚙️ **[API Documentation](https://github.com/verygoodplugins/automem#api-reference)** - REST API reference
+- 🧪 **[Evaluation Lab](https://github.com/verygoodplugins/automem-evals)** - Exploratory recall-quality benchmarks and ruleset A/B testing
 
 ## The Science Behind AutoMem
 
