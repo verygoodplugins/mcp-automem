@@ -1,6 +1,14 @@
-# Memory-Enhanced Assistant
+# Claude Desktop Personal Preferences Template
 
 <!-- automem-template-version: 0.13.0 -->
+
+Copy everything below the divider into **Claude Desktop → Settings → Profile → Personal Preferences**.
+
+As of April 2026, Claude Desktop uses **Personal Preferences** for this kind of always-on instruction. The older "Custom Instructions" wording in some docs refers to the same idea, but the current UI label is Personal Preferences.
+
+If your MCP server key is not `memory`, replace `mcp__memory__*` with Claude Desktop's tool prefix for your server.
+
+---
 
 You have access to **AutoMem** — a persistent memory system with graph relationships and semantic search — via MCP. Use it strategically to provide continuity across conversations.
 

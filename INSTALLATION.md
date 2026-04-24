@@ -250,94 +250,39 @@ Check the health of the AutoMem service
 
 You should see connection status for FalkorDB and Qdrant.
 
-### 4. Configure Custom Instructions (Optional but Recommended)
+### 4. Add Personal Preferences (Optional but Recommended)
 
-Enable automatic memory usage by adding custom instructions to Claude Desktop.
+Teach Claude Desktop when to recall, store, update, and associate memories by adding the AutoMem starter template to Claude's **Personal Preferences**.
 
-**How to add Custom Instructions:**
+As of April 2026, Claude Desktop's UI labels this area **Personal Preferences**:
 
-1. Open Claude Desktop
-2. Click the **Settings** icon (gear) in the bottom-left corner
-3. Select **Custom Instructions** from the menu
-4. Add the following to your instructions:
+1. Open Claude Desktop.
+2. Open **Settings**.
+3. Go to **Profile → Personal Preferences**.
+4. Paste the starter template from [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md).
+5. Click **Save**, then restart Claude Desktop.
 
-```markdown
-<important>
-The Memory MCP is vital to our operations and should be used strategically.
+The template assumes your MCP server key is `memory`, so tool names look like `mcp__memory__recall_memory`. If you configured a different key in `claude_desktop_config.json`, update the tool prefix in the pasted template.
 
-AT CONVERSATION START:
+On macOS, from this repository, you can copy just the paste-ready part of the template with:
 
-- Always recall memories for context about recent work and ongoing topics
-- Check for relevant decisions, preferences, or patterns
-- Skip memory for trivial questions or simple factual queries
-
-BEFORE CREATING CONTENT:
-
-- Check memories for style preferences and past corrections
-- Review relevant patterns from previous interactions
-- Look for any established conventions or preferences
-
-CREATE/UPDATE MEMORIES FOR:
-
-- Important decisions and milestones (importance: 0.85+)
-- Observed patterns and preferences (importance: 0.75+)
-- Corrections you make to my outputs (these are critical style signals)
-- Significant outcomes from our conversations
-
-SKIP MEMORY FOR:
-
-- Simple edits or basic questions
-- Routine operations
-- Already well-documented information
-
-When creating substantial content, briefly note which memories informed the approach. Use associations to connect related memories when appropriate.
-</important>
+```bash
+awk 'seen { print } /^---$/ { seen = 1 }' templates/CLAUDE_DESKTOP_INSTRUCTIONS.md | pbcopy
 ```
 
-![Claude Desktop with Custom Instructions](screenshots/claude-desktop-custom-instructions-3.jpg)
-_Add memory instructions to Custom Instructions_
+![Claude Desktop with Personal Preferences](screenshots/claude-desktop-custom-instructions-3.jpg)
+_Add the AutoMem starter template to Personal Preferences_
 
-1. Click **Save**
-2. Restart Claude Desktop
+**What the template does:**
 
-**How this works:**
+1. **Semantic-first recall:** Claude pulls preferences first, then runs one targeted semantic recall using the real nouns in your message. It avoids project tag gates on turn 1 unless the scope is explicit.
+2. **Lower-noise storage:** Claude stores only durable preferences, stabilized decisions, named patterns, and significant fixes. It skips session summaries and speculative "might matter later" notes.
+3. **Graph hygiene:** Important stores run a recall → store → verify → associate ritual so memory does not degrade into a flat bag of notes.
 
-This prompt solves three core problems:
-
-_Prompt design inspired by [James Kemp](https://x.com/jamesckemp)_
-
-1. **Prevents over-fetching**: Without clear triggers, Claude either recalls memory constantly (slow) or randomly (inconsistent). The prompt defines exactly when to recall: conversation start for context, before creating content for style/patterns, but skip for trivial queries.
-
-2. **Importance scoring prevents noise**: Generic "store important things" leads to database bloat. The thresholds (0.85+ for decisions, 0.75+ for patterns) create a hierarchy:
-
-   - **High importance (0.85+)**: Architectural decisions, major milestones - stuff you'll reference months later
-   - **Medium importance (0.75+)**: Patterns, preferences - useful across projects
-   - **Skip**: Bug fixes, simple edits - clutters search results
-
-3. **Corrections as style signals**: This is the key insight. When you correct Claude's output (formatting, tone, structure), that's a strong signal about your preferences. Storing these as memories prevents Claude from making the same mistake twice.
+For the full paste-ready text, use [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md). For Claude Code's `~/.claude/CLAUDE.md` path, use [`templates/CLAUDE_MD_MEMORY_RULES.md`](templates/CLAUDE_MD_MEMORY_RULES.md) instead.
 
 ![Claude Desktop Using Memory](screenshots/claude-desktop-with-instructions.jpg)
-_Claude automatically using memory tools with custom instructions_
-
-**Example behavior:**
-
-_Without the prompt:_
-
-```bash
-User: "Add auth to the API"
-Claude: [Generates generic JWT implementation]
-```
-
-_With the prompt:_
-
-```bash
-User: "Add auth to the API"
-Claude: [Recalls: "User prefers bcrypt + JWT", "Express middleware pattern"]
-       [Generates implementation matching your established patterns]
-       [Stores: "Added JWT auth to ProjectX API (importance: 0.85)"]
-```
-
-The "briefly note which memories informed" part ensures transparency - you'll see what context Claude is using, making it easier to spot when memories are outdated or wrong.
+_Claude Desktop using AutoMem from Personal Preferences_
 
 ---
 

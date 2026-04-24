@@ -161,7 +161,8 @@ Claude stores significant events:
 
 ## Learn More
 
-- [Memory Rules Template](CLAUDE_MD_MEMORY_RULES.md) - Full instructions for Claude
+- [Claude Code Memory Rules Template](CLAUDE_MD_MEMORY_RULES.md) - Full instructions for `~/.claude/CLAUDE.md`
+- [Claude Desktop Personal Preferences Template](CLAUDE_DESKTOP_INSTRUCTIONS.md) - Paste-ready Desktop instructions
 - [AutoMem Documentation](https://github.com/verygoodplugins/automem) - Backend service
 - [MCP Tools Reference](../INSTALLATION.md#mcp-tools) - All memory operations
 - [Deprecations](../DEPRECATION.md) - Claude Code plugin migration and removal plan
