@@ -2,7 +2,9 @@
 
 <!-- automem-template-version: 0.13.0 -->
 
-Add this section to your `~/.claude/CLAUDE.md` file. The SessionStart hook will prompt memory recall automatically.
+Add this section to your `~/.claude/CLAUDE.md` file for Claude Code. The SessionStart hook will prompt memory recall automatically.
+
+For Claude Desktop, use Personal Preferences instead: copy the starter template from [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](CLAUDE_DESKTOP_INSTRUCTIONS.md).
 
 ## Quick Installation
 
@@ -10,7 +12,7 @@ Add this section to your `~/.claude/CLAUDE.md` file. The SessionStart hook will 
 cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md
 ```
 
-## Memory Rules Template
+## Claude Code Memory Rules Template
 
 Add this to `~/.claude/CLAUDE.md`:
 
@@ -19,8 +21,9 @@ Add this to `~/.claude/CLAUDE.md`:
 # AutoMem Memory Rules
 
 TOOL NAMING:
-- Claude Code / Claude Desktop expose MCP tools as `mcp__<server>__<tool>` (e.g. `mcp__memory__recall_memory`).
+- Claude Code exposes MCP tools as `mcp__<server>__<tool>` (e.g. `mcp__memory__recall_memory`).
 - These examples assume your server name is `memory`.
+- Claude Desktop uses the same tool-name shape, but its setup instructions live in `templates/CLAUDE_DESKTOP_INSTRUCTIONS.md` because Desktop preferences are semantic-first and not project-session-first.
 
 ---
 

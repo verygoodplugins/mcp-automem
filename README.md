@@ -57,10 +57,10 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 
 ## See It In Action
 
-### Claude Desktop with Custom Instructions
+### Claude Desktop with Personal Preferences
 
 ![Claude Desktop Using Memory](screenshots/claude-desktop-with-instructions.jpg)
-_Claude automatically recalls memories at conversation start using custom instructions_
+_Claude automatically recalls memories using the Personal Preferences template_
 
 ### Cursor IDE with Memory Rules
 
@@ -140,7 +140,7 @@ After installing:
 2. Optionally enter your **API Key** (required for Railway, skip for local)
 3. Click Enable
 
-That's it! Claude now has persistent memory.
+Then add the paste-ready Personal Preferences starter from [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md). That's it: Claude now has persistent memory and knows when to use it.
 
 #### Other Platforms
 
@@ -170,6 +170,8 @@ The wizard will:
 # Setup prints config snippet - just paste into claude_desktop_config.json
 npx @verygoodplugins/mcp-automem setup
 ```
+
+Then paste [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md) into **Claude Desktop → Settings → Profile → Personal Preferences**.
 
 **For Cursor IDE:**
 
@@ -364,7 +366,7 @@ mcp__memory__recall_memory({
 #### Claude Desktop
 
 - ✅ Direct MCP integration
-- ✅ Manual and automated workflows
+- ✅ Paste-ready Personal Preferences starter template
 - ✅ Full memory API access
 
 ## Why AutoMem MCP?
