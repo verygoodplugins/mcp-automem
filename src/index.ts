@@ -267,11 +267,6 @@ if (command === "recall") {
     "http://127.0.0.1:8001";
   const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
-  if (!AUTOMEM_API_URL) {
-    console.error("❌ AUTOMEM_API_URL not set");
-    process.exit(1);
-  }
-
   const client = new AutoMemClient({
     endpoint: AUTOMEM_API_URL,
     apiKey: AUTOMEM_API_KEY,
