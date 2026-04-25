@@ -146,7 +146,7 @@ describe('openclaw cli helpers', () => {
       enabled: true,
       apiKey: 'top-secret',
       env: {
-        AUTOMEM_ENDPOINT: 'https://memory.example',
+        AUTOMEM_API_URL: 'https://memory.example',
         AUTOMEM_DEFAULT_TAGS: 'project-x',
       },
     });

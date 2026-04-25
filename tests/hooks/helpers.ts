@@ -79,6 +79,7 @@ export function runCaptureHook(
       // Hooks should never need the API key to run — the queue drain is a
       // separate Stop-hook step. Unset to catch accidental dependencies.
       AUTOMEM_API_KEY: '',
+      AUTOMEM_API_URL: '',
       AUTOMEM_ENDPOINT: '',
     },
   });

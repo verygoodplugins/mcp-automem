@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildSummaryInstructions, DEFAULT_AUTOMEM_ENDPOINT } from './templates.js';
+import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildSummaryInstructions, DEFAULT_AUTOMEM_API_URL } from './templates.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
 
 interface SetupOptions {
@@ -20,7 +20,8 @@ interface ConfigOptions {
   format: 'text' | 'json';
 }
 
-const ENV_ENDPOINT_KEY = 'AUTOMEM_ENDPOINT';
+const ENV_API_URL_KEY = 'AUTOMEM_API_URL';
+const LEGACY_ENV_ENDPOINT_KEY = 'AUTOMEM_ENDPOINT';
 const ENV_API_KEY = 'AUTOMEM_API_KEY';
 
 function parseSetupArgs(args: string[]): SetupOptions {
@@ -163,9 +164,11 @@ export async function runSetup(args: string[] = []): Promise<void> {
 
   const existingValues = loadEnvValues(envPath);
   const defaultEndpoint = options.endpoint
-    ?? existingValues[ENV_ENDPOINT_KEY]
-    ?? process.env[ENV_ENDPOINT_KEY]
-    ?? DEFAULT_AUTOMEM_ENDPOINT;
+    ?? existingValues[ENV_API_URL_KEY]
+    ?? existingValues[LEGACY_ENV_ENDPOINT_KEY]
+    ?? process.env[ENV_API_URL_KEY]
+    ?? process.env[LEGACY_ENV_ENDPOINT_KEY]
+    ?? DEFAULT_AUTOMEM_API_URL;
 
   const defaultApiKey = options.apiKey
     ?? existingValues[ENV_API_KEY]
@@ -173,7 +176,7 @@ export async function runSetup(args: string[] = []): Promise<void> {
     ?? '';
 
   const endpoint = options.endpoint
-    ?? await promptValue('AutoMem endpoint', DEFAULT_AUTOMEM_ENDPOINT, defaultEndpoint);
+    ?? await promptValue('AutoMem API URL', DEFAULT_AUTOMEM_API_URL, defaultEndpoint);
 
   let apiKey = options.apiKey ?? defaultApiKey;
   if (!options.apiKey && input.isTTY && output.isTTY) {
@@ -205,7 +208,7 @@ export async function runSetup(args: string[] = []): Promise<void> {
   }
 
   const updates: Record<string, string> = {
-    [ENV_ENDPOINT_KEY]: endpoint,
+    [ENV_API_URL_KEY]: endpoint,
   };
   if (apiKey && apiKey !== '<required>' && apiKey !== '<unchanged>') {
     updates[ENV_API_KEY] = apiKey;
@@ -232,7 +235,9 @@ export async function runSetup(args: string[] = []): Promise<void> {
 
 export async function runConfig(args: string[] = []): Promise<void> {
   const options = parseConfigArgs(args);
-  const endpoint = process.env[ENV_ENDPOINT_KEY] ?? DEFAULT_AUTOMEM_ENDPOINT;
+  const endpoint = process.env[ENV_API_URL_KEY]
+    ?? process.env[LEGACY_ENV_ENDPOINT_KEY]
+    ?? DEFAULT_AUTOMEM_API_URL;
   const apiKey = process.env[ENV_API_KEY] ?? '${AUTOMEM_API_KEY}';
 
   if (options.format === 'json') {
@@ -242,7 +247,7 @@ export async function runConfig(args: string[] = []): Promise<void> {
           command: 'npx',
           args: ['@verygoodplugins/mcp-automem'],
           env: {
-            AUTOMEM_ENDPOINT: endpoint,
+            AUTOMEM_API_URL: endpoint,
             AUTOMEM_API_KEY: apiKey,
           },
         },

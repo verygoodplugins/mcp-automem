@@ -261,17 +261,19 @@ if (command === "queue") {
 }
 
 if (command === "recall") {
-  const AUTOMEM_ENDPOINT =
-    process.env.AUTOMEM_ENDPOINT || "http://127.0.0.1:8001";
+  const AUTOMEM_API_URL =
+    process.env.AUTOMEM_API_URL ||
+    process.env.AUTOMEM_ENDPOINT ||
+    "http://127.0.0.1:8001";
   const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
-  if (!AUTOMEM_ENDPOINT) {
-    console.error("❌ AUTOMEM_ENDPOINT not set");
+  if (!AUTOMEM_API_URL) {
+    console.error("❌ AUTOMEM_API_URL not set");
     process.exit(1);
   }
 
   const client = new AutoMemClient({
-    endpoint: AUTOMEM_ENDPOINT,
+    endpoint: AUTOMEM_API_URL,
     apiKey: AUTOMEM_API_KEY,
   });
 
@@ -301,20 +303,26 @@ if (command === "recall") {
   }
 }
 
-const AUTOMEM_ENDPOINT =
-  process.env.AUTOMEM_ENDPOINT || "http://127.0.0.1:8001";
+const AUTOMEM_API_URL =
+  process.env.AUTOMEM_API_URL ||
+  process.env.AUTOMEM_ENDPOINT ||
+  "http://127.0.0.1:8001";
 const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
-if (!process.env.AUTOMEM_ENDPOINT) {
+if (!process.env.AUTOMEM_API_URL && !process.env.AUTOMEM_ENDPOINT) {
   if (isInteractiveTerminal()) {
     console.warn(
-      "⚠️  AUTOMEM_ENDPOINT not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting."
+      "⚠️  AUTOMEM_API_URL not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting."
     );
   }
+} else if (!process.env.AUTOMEM_API_URL && process.env.AUTOMEM_ENDPOINT) {
+  console.warn(
+    "⚠️  AUTOMEM_ENDPOINT is deprecated; rename it to AUTOMEM_API_URL. The old name still works for now."
+  );
 }
 
 const clientConfig: AutoMemConfig = {
-  endpoint: AUTOMEM_ENDPOINT,
+  endpoint: AUTOMEM_API_URL,
   apiKey: AUTOMEM_API_KEY,
 };
 
