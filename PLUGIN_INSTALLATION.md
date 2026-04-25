@@ -141,7 +141,7 @@ If using cloud deployment, update the service URL:
          "command": "npx",
          "args": ["-y", "@verygoodplugins/mcp-automem"],
          "env": {
-           "AUTOMEM_ENDPOINT": "https://your-instance.railway.app"
+           "AUTOMEM_API_URL": "https://your-instance.railway.app"
          }
        }
      }
@@ -232,7 +232,7 @@ docker run -p 8001:8001 verygoodplugins/automem
 
 # 3. If cloud deployment, verify URL in .mcp.json:
 cat ~/.claude/plugins/automem@*/.claude-plugin/.mcp.json
-# Update AUTOMEM_ENDPOINT if needed
+# Update AUTOMEM_API_URL if needed
 
 # 4. Restart Claude Code after URL change
 ```

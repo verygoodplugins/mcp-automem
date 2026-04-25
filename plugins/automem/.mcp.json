@@ -4,7 +4,7 @@
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "${AUTOMEM_ENDPOINT:-http://127.0.0.1:8001}"
+        "AUTOMEM_API_URL": "${AUTOMEM_API_URL:-${AUTOMEM_ENDPOINT:-http://127.0.0.1:8001}}"
       }
     }
   }

@@ -35,7 +35,7 @@
         "${__dirname}/dist/index.js"
       ],
       "env": {
-        "AUTOMEM_ENDPOINT": "${user_config.automem_endpoint}",
+        "AUTOMEM_API_URL": "${user_config.automem_api_url}",
         "AUTOMEM_API_KEY": "${user_config.automem_api_key}"
       }
     }
@@ -67,9 +67,9 @@
     }
   ],
   "user_config": {
-    "automem_endpoint": {
+    "automem_api_url": {
       "type": "string",
-      "title": "AutoMem Endpoint",
+      "title": "AutoMem API URL",
       "description": "URL of your AutoMem service (e.g., http://127.0.0.1:8001 for local, or https://your-app.railway.app for cloud)",
       "required": true,
       "default": "http://127.0.0.1:8001"

@@ -2,11 +2,11 @@
 name: automem
 description: Persistent AutoMem memory via the legacy curl-based AutoMem skill.
 requires_env:
-  - AUTOMEM_ENDPOINT
+  - AUTOMEM_API_URL
 optional_env:
   - AUTOMEM_API_KEY
 user-invocable: true
-metadata: {"openclaw":{"skillKey":"automem","primaryEnv":"AUTOMEM_API_KEY","requires":{"env":["AUTOMEM_ENDPOINT"]}}}
+metadata: {"openclaw":{"skillKey":"automem","primaryEnv":"AUTOMEM_API_KEY","requires":{"env":["AUTOMEM_API_URL"]}}}
 ---
 
 <!-- automem-template-version: 0.13.0 -->
@@ -17,12 +17,12 @@ This mode uses direct HTTP calls with `curl`.
 
 ## API usage
 
-Base URL: `$AUTOMEM_ENDPOINT`
+Base URL: `$AUTOMEM_API_URL`
 
 Store memory:
 
 ```bash
-curl -s -X POST "$AUTOMEM_ENDPOINT/memory" \
+curl -s -X POST "$AUTOMEM_API_URL/memory" \
   -H "Content-Type: application/json" \
   ${AUTOMEM_API_KEY:+-H "Authorization: Bearer $AUTOMEM_API_KEY"} \
   -d '{
@@ -37,13 +37,13 @@ Recall memory:
 ```bash
 curl -s \
   ${AUTOMEM_API_KEY:+-H "Authorization: Bearer $AUTOMEM_API_KEY"} \
-  "$AUTOMEM_ENDPOINT/recall?query=QUERY&limit=20&format=detailed"
+  "$AUTOMEM_API_URL/recall?query=QUERY&limit=20&format=detailed"
 ```
 
 Update memory:
 
 ```bash
-curl -s -X PATCH "$AUTOMEM_ENDPOINT/memory/MEMORY_ID" \
+curl -s -X PATCH "$AUTOMEM_API_URL/memory/MEMORY_ID" \
   -H "Content-Type: application/json" \
   ${AUTOMEM_API_KEY:+-H "Authorization: Bearer $AUTOMEM_API_KEY"} \
   -d '{"content":"Updated context."}'
@@ -52,7 +52,7 @@ curl -s -X PATCH "$AUTOMEM_ENDPOINT/memory/MEMORY_ID" \
 Delete memory:
 
 ```bash
-curl -s -X DELETE "$AUTOMEM_ENDPOINT/memory/MEMORY_ID" \
+curl -s -X DELETE "$AUTOMEM_API_URL/memory/MEMORY_ID" \
   ${AUTOMEM_API_KEY:+-H "Authorization: Bearer $AUTOMEM_API_KEY"}
 ```
 

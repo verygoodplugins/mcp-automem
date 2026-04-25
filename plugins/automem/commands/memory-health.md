@@ -18,7 +18,7 @@ Verify the AutoMem memory service is working:
    - Any error messages
 
 3. **Troubleshooting** (if unhealthy):
-   - Verify `AUTOMEM_ENDPOINT` environment variable is set
+   - Verify `AUTOMEM_API_URL` environment variable is set
    - Check if AutoMem service is running
    - Confirm network connectivity
 

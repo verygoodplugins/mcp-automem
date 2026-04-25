@@ -91,7 +91,7 @@ Deploy the AutoMem remote MCP sidecar on Railway (one‑click) or any Docker pla
 
 Required env vars for the sidecar:
 
-- `AUTOMEM_ENDPOINT` — URL to your AutoMem service (prefer internal URL on Railway, e.g. `http://memory-service.railway.internal:8001`)
+- `AUTOMEM_API_URL` — URL to your AutoMem service (prefer internal URL on Railway, e.g. `http://memory-service.railway.internal:8001`)
 - `AUTOMEM_API_TOKEN` — Token for your AutoMem service (if enabled)
 
 Sidecar endpoints:
@@ -162,7 +162,7 @@ Common fixes from the sidecar guide:
 - Ensure your memory service listens on `PORT=8001`
 - On Railway, prefer internal DNS: `http://memory-service.railway.internal:8001`
 - Check sidecar logs for errors (e.g., `railway logs --service automem-mcp-sse`)
-- As a fallback, set `AUTOMEM_ENDPOINT` to the public URL of your memory service
+- As a fallback, set `AUTOMEM_API_URL` to the public URL of your memory service
 
 For deeper details, see the AutoMem service docs linked above.
 
@@ -212,7 +212,7 @@ Add AutoMem to your Claude Desktop configuration:
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "https://your-automem-instance.railway.app",
+        "AUTOMEM_API_URL": "https://your-automem-instance.railway.app",
         "AUTOMEM_API_KEY": "your-api-key-if-required"
       }
     }
@@ -229,7 +229,7 @@ Add AutoMem to your Claude Desktop configuration:
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001"
       }
     }
   }
@@ -301,7 +301,7 @@ Click to install AutoMem MCP server in Cursor:
 
 **After installation:**
 
-- Update `AUTOMEM_ENDPOINT` with your AutoMem instance URL in `~/.cursor/mcp.json`
+- Update `AUTOMEM_API_URL` with your AutoMem instance URL in `~/.cursor/mcp.json`
 - Optionally set `AUTOMEM_API_KEY` if using authentication
 - Restart Cursor to load the server
 
@@ -381,7 +381,7 @@ Add AutoMem to `~/.claude.json`:
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001",
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001",
         "AUTOMEM_API_KEY": "your-api-key-if-required"
       }
     }
@@ -476,7 +476,7 @@ In your GitHub repository: **Settings → Copilot → Coding agent → MCP confi
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "https://xxxx.up.railway.app",
+        "AUTOMEM_API_URL": "https://xxxx.up.railway.app",
         "AUTOMEM_API_KEY": "COPILOT_MCP_AUTOMEM_API_KEY"
       }
     }
@@ -486,7 +486,7 @@ In your GitHub repository: **Settings → Copilot → Coding agent → MCP confi
 
 **Notes:**
 
-- `AUTOMEM_ENDPOINT` must be reachable from GitHub's hosted environment (so `localhost` typically won't work).
+- `AUTOMEM_API_URL` must be reachable from GitHub's hosted environment (so `localhost` typically won't work).
 - GitHub Copilot coding agent supports MCP **tools** (not resources/prompts), and supports MCP server types `"local"`, `"http"`, and `"sse"`.
 
 ### Optional: organization/enterprise-level setup (custom agents)
@@ -554,7 +554,7 @@ command = "npx"
 args = ["-y", "@verygoodplugins/mcp-automem"]
 
 [mcp_servers.memory.env]
-AUTOMEM_ENDPOINT = "https://your-automem-instance.railway.app"
+AUTOMEM_API_URL = "https://your-automem-instance.railway.app"
 AUTOMEM_API_KEY = "your-api-key-if-required"
 ```
 
@@ -566,7 +566,7 @@ command = "npx"
 args = ["-y", "@verygoodplugins/mcp-automem"]
 
 [mcp_servers.memory.env]
-AUTOMEM_ENDPOINT = "http://127.0.0.1:8001"
+AUTOMEM_API_URL = "http://127.0.0.1:8001"
 ```
 
 **Using local build (for development):**
@@ -577,7 +577,7 @@ command = "/opt/homebrew/bin/node"  # or "/usr/bin/node" on Linux
 args = ["/path/to/mcp-automem/dist/index.js"]
 
 [mcp_servers.memory.env]
-AUTOMEM_ENDPOINT = "https://your-automem-instance.railway.app"
+AUTOMEM_API_URL = "https://your-automem-instance.railway.app"
 AUTOMEM_API_KEY = "your-api-key"
 ```
 
@@ -730,7 +730,7 @@ You can also copy it directly from [templates/antigravity/mcp_config.json](templ
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "https://your-automem-instance.railway.app",
+        "AUTOMEM_API_URL": "https://your-automem-instance.railway.app",
         "AUTOMEM_API_KEY": "your-api-key-if-required"
       }
     }
@@ -747,7 +747,7 @@ You can also copy it directly from [templates/antigravity/mcp_config.json](templ
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001"
       }
     }
   }
@@ -903,12 +903,14 @@ For mode-by-mode setup, migration notes, and troubleshooting:
 Create `.env` file or set in your shell:
 
 ```env
-# Required: AutoMem service endpoint
-AUTOMEM_ENDPOINT=https://your-automem-instance.railway.app
+# Required: AutoMem service URL
+AUTOMEM_API_URL=https://your-automem-instance.railway.app
 
 # Optional: API key for authenticated instances
 AUTOMEM_API_KEY=your_api_key_here
 ```
+
+> **Deprecated alias:** `AUTOMEM_ENDPOINT` is the previous name for this variable. It still works (the server falls back to it when `AUTOMEM_API_URL` is unset), but new configurations should use `AUTOMEM_API_URL`.
 
 **Note**: Do not use shared/public AutoMem URLs. Deploy your own instance for production use.
 
@@ -1178,7 +1180,7 @@ npx @verygoodplugins/mcp-automem help
 
 #### Service unreachable
 
-- Verify `AUTOMEM_ENDPOINT` is correct and accessible
+- Verify `AUTOMEM_API_URL` is correct and accessible
 - Check if AutoMem service is running (`/health` endpoint should return 200)
 - Ensure no firewall blocking the connection
 
@@ -1225,7 +1227,7 @@ npx @verygoodplugins/mcp-automem help
 - Verify config file exists at `~/.codex/config.toml`
 - Check TOML syntax is valid (no missing brackets or quotes)
 - Ensure command path is correct (use `which npx` or `which node`)
-- Check AutoMem endpoint is accessible: `curl $AUTOMEM_ENDPOINT/health`
+- Check AutoMem endpoint is accessible: `curl $AUTOMEM_API_URL/health`
 - Restart Codex CLI or reload IDE extension
 - Ensure you have ChatGPT Plus/Pro/Team/Enterprise subscription
 

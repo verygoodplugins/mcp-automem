@@ -243,11 +243,11 @@ Expected browser-chat behavior on the next OpenClaw session:
 
 1. Run `mcporter list`
 2. Verify `<workspace>/config/mcporter.json` contains the `automem` server
-3. Confirm `skills.entries.automem.env.AUTOMEM_ENDPOINT` is set in `~/.openclaw/openclaw.json`
+3. Confirm `skills.entries.automem.env.AUTOMEM_API_URL` is set in `~/.openclaw/openclaw.json`
 
 ### Legacy skill cannot reach AutoMem
 
-1. Verify endpoint: `curl "$AUTOMEM_ENDPOINT/health"`
+1. Verify endpoint: `curl "$AUTOMEM_API_URL/health"`
 2. Check the API key if your AutoMem service is authenticated
 3. Prefer `plugin` or `mcp` mode unless you explicitly need curl behavior
 
