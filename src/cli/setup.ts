@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildSummaryInstructions, DEFAULT_AUTOMEM_API_URL } from './templates.js';
+import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildMcpConfigJson, buildSummaryInstructions, DEFAULT_AUTOMEM_API_URL } from './templates.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
 
 interface SetupOptions {
@@ -67,12 +67,17 @@ function parseConfigArgs(args: string[]): ConfigOptions {
   const options: ConfigOptions = { format: 'text' };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
+    let formatValue: string | undefined;
     if (arg === '--format' && args[i + 1]) {
-      const formatValue = args[i + 1].toLowerCase();
-      if (formatValue === 'json') {
-        options.format = 'json';
-      }
+      formatValue = args[i + 1];
       i += 1;
+    } else if (arg.startsWith('--format=')) {
+      formatValue = arg.slice('--format='.length);
+    } else if (arg === '--json') {
+      formatValue = 'json';
+    }
+    if (formatValue && formatValue.toLowerCase() === 'json') {
+      options.format = 'json';
     }
   }
   return options;
@@ -241,19 +246,7 @@ export async function runConfig(args: string[] = []): Promise<void> {
   const apiKey = process.env[ENV_API_KEY] ?? '${AUTOMEM_API_KEY}';
 
   if (options.format === 'json') {
-    const snippet = {
-      mcpServers: {
-        memory: {
-          command: 'npx',
-          args: ['@verygoodplugins/mcp-automem'],
-          env: {
-            AUTOMEM_API_URL: endpoint,
-            AUTOMEM_API_KEY: apiKey,
-          },
-        },
-      },
-    };
-    console.log(JSON.stringify(snippet, null, 2));
+    console.log(JSON.stringify(buildMcpConfigJson(endpoint, apiKey), null, 2));
     return;
   }
 

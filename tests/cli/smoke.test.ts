@@ -88,10 +88,13 @@ describe('CLI Smoke Tests', () => {
       delete cleanEnv.AUTOMEM_API_URL;
       cleanEnv.AUTOMEM_ENDPOINT = 'http://legacy-host:8765';
 
+      // Run from tempDir so dotenv doesn't pick up the project root's .env file
+      // and inject AUTOMEM_API_URL, which would defeat the fallback assertion.
       const stdout = execFileSync(process.execPath, [CLI_PATH, 'config', '--format=json'], {
         encoding: 'utf8',
         timeout: 10000,
         env: cleanEnv,
+        cwd: tempDir,
       });
 
       expect(stdout).toContain('http://legacy-host:8765');

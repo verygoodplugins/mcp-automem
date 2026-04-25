@@ -25,6 +25,21 @@ export function buildClaudeCodeExport(endpoint = DEFAULT_AUTOMEM_API_URL, apiKey
   ].join(os.EOL);
 }
 
+export function buildMcpConfigJson(endpoint: string, apiKey: string) {
+  return {
+    mcpServers: {
+      memory: {
+        command: 'npx',
+        args: ['@verygoodplugins/mcp-automem'],
+        env: {
+          AUTOMEM_API_URL: endpoint,
+          AUTOMEM_API_KEY: apiKey,
+        },
+      },
+    },
+  };
+}
+
 export function buildSummaryInstructions(endpoint: string, apiKeyProvided: boolean) {
   const lines: string[] = [
     '',
