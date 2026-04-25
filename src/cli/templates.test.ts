@@ -21,8 +21,8 @@ describe('config snippets — canonical AUTOMEM_API_URL only', () => {
   it('Claude Code shell export emits AUTOMEM_API_URL only (no deprecated alias line)', () => {
     const out = buildClaudeCodeExport(endpoint, apiKey);
 
-    expect(out).toMatch(new RegExp(`export AUTOMEM_API_URL="${endpoint}"`));
-    expect(out).toMatch(new RegExp(`export AUTOMEM_API_KEY="${apiKey}"`));
+    expect(out).toContain(`export AUTOMEM_API_URL="${endpoint}"`);
+    expect(out).toContain(`export AUTOMEM_API_KEY="${apiKey}"`);
     expect(out).not.toContain('AUTOMEM_ENDPOINT');
   });
 
