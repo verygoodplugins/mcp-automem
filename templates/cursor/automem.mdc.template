@@ -2,7 +2,7 @@
 description: AutoMem persistent memory — validated two-phase recall, curated storage, mandatory associations
 alwaysApply: true
 ---
-<!-- automem-template-version: 0.13.0 -->
+<!-- automem-template-version: 0.14.0 -->
 
 # AutoMem Memory Integration
 

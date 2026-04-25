@@ -1,5 +1,5 @@
 <!-- BEGIN AUTOMEM CODEX RULES -->
-<!-- automem-template-version: 0.13.0 -->
+<!-- automem-template-version: 0.14.0 -->
 
 ## Memory — AutoMem (persistent context for {{PROJECT_NAME}})
 

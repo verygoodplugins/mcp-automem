@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changes
 
+- rename the AutoMem service URL env var from `AUTOMEM_ENDPOINT` to `AUTOMEM_API_URL`. The old name still works (the server, queue processor, install script, and OpenClaw resolver all read it as a fallback), but a one-line deprecation warning is logged when only the old name is set. Re-running `npx @verygoodplugins/mcp-automem setup` migrates a `.env` file in place; templates and docs now advertise the new name.
+- `mcp-automem config` now accepts `--format=json` (single-arg form) and `--json` as shorthand, and silences the dotenv banner for machine-readable output so the JSON is safe to pipe into `jq`.
 - deprecate the standalone Claude Code plugin in favor of `npx @verygoodplugins/mcp-automem claude-code`
 - sync plugin-distributed Claude Code runtime scripts with the canonical copies under `templates/claude-code/`
 - add plugin migration guidance in `DEPRECATION.md`

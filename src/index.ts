@@ -37,12 +37,18 @@ function isInteractiveTerminal(): boolean {
 
 const command = (process.argv[2] || "").toLowerCase();
 const isServerMode = command.length === 0;
+const isMachineReadableCommand =
+  command === "config" && process.argv.slice(3).some(
+    (arg) => arg === "--json" || arg === "--format=json" || arg === "--format"
+  );
+const shouldSilenceDotenv = isServerMode || isMachineReadableCommand;
+
+// Prevent dotenv from writing its banner to stdout when the caller expects clean
+// machine-readable output (stdio server mode, or `config --format=json`).
+process.env.DOTENV_CONFIG_QUIET = shouldSilenceDotenv ? "true" : process.env.DOTENV_CONFIG_QUIET ?? "false";
+process.env.DOTENV_CONFIG_DEBUG = "false";
 
 if (isServerMode) {
-  // Prevent dotenv (and other deps) from writing to stdout in stdio server mode.
-  // Note: dotenv logs if debug=true even when quiet=true, so force both off.
-  process.env.DOTENV_CONFIG_QUIET = "true";
-  process.env.DOTENV_CONFIG_DEBUG = "false";
   const logToStderr = (...args: unknown[]) => console.error(...args);
   console.log = logToStderr;
   console.info = logToStderr;
@@ -50,7 +56,7 @@ if (isServerMode) {
   console.warn = logToStderr;
 }
 
-config({ quiet: isServerMode });
+config({ quiet: shouldSilenceDotenv });
 
 // Optional: allow upstream supervisors (AutoHub, etc.) to set a stable process title for safe cleanup.
 // This prevents "kill by package name" from taking down other running MCP clients (Codex/Cursor/etc.).
@@ -261,17 +267,14 @@ if (command === "queue") {
 }
 
 if (command === "recall") {
-  const AUTOMEM_ENDPOINT =
-    process.env.AUTOMEM_ENDPOINT || "http://127.0.0.1:8001";
+  const AUTOMEM_API_URL =
+    process.env.AUTOMEM_API_URL ||
+    process.env.AUTOMEM_ENDPOINT ||
+    "http://127.0.0.1:8001";
   const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
-  if (!AUTOMEM_ENDPOINT) {
-    console.error("❌ AUTOMEM_ENDPOINT not set");
-    process.exit(1);
-  }
-
   const client = new AutoMemClient({
-    endpoint: AUTOMEM_ENDPOINT,
+    endpoint: AUTOMEM_API_URL,
     apiKey: AUTOMEM_API_KEY,
   });
 
@@ -301,20 +304,26 @@ if (command === "recall") {
   }
 }
 
-const AUTOMEM_ENDPOINT =
-  process.env.AUTOMEM_ENDPOINT || "http://127.0.0.1:8001";
+const AUTOMEM_API_URL =
+  process.env.AUTOMEM_API_URL ||
+  process.env.AUTOMEM_ENDPOINT ||
+  "http://127.0.0.1:8001";
 const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
-if (!process.env.AUTOMEM_ENDPOINT) {
+if (!process.env.AUTOMEM_API_URL && !process.env.AUTOMEM_ENDPOINT) {
   if (isInteractiveTerminal()) {
     console.warn(
-      "⚠️  AUTOMEM_ENDPOINT not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting."
+      "⚠️  AUTOMEM_API_URL not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting."
     );
   }
+} else if (!process.env.AUTOMEM_API_URL && process.env.AUTOMEM_ENDPOINT) {
+  console.warn(
+    "⚠️  AUTOMEM_ENDPOINT is deprecated; rename it to AUTOMEM_API_URL. The old name still works for now."
+  );
 }
 
 const clientConfig: AutoMemConfig = {
-  endpoint: AUTOMEM_ENDPOINT,
+  endpoint: AUTOMEM_API_URL,
   apiKey: AUTOMEM_API_KEY,
 };
 

@@ -25,7 +25,7 @@ npx @verygoodplugins/mcp-automem claude-code
 ### Requirements
 
 - AutoMem service running (see [main README](../../README.md))
-- `AUTOMEM_ENDPOINT` environment variable set
+- `AUTOMEM_API_URL` environment variable set (`AUTOMEM_ENDPOINT` is the deprecated name and still works)
 - `AUTOMEM_API_KEY` if your AutoMem deployment requires auth
 
 ## What's Included
@@ -62,14 +62,14 @@ Configures the AutoMem MCP server with these tools:
 
 ## Configuration
 
-Set the `AUTOMEM_ENDPOINT` environment variable:
+Set the `AUTOMEM_API_URL` environment variable:
 
 ```bash
 # Local development
-export AUTOMEM_ENDPOINT=http://127.0.0.1:8001
+export AUTOMEM_API_URL=http://127.0.0.1:8001
 
 # Or in your shell profile
-echo 'export AUTOMEM_ENDPOINT=http://127.0.0.1:8001' >> ~/.zshrc
+echo 'export AUTOMEM_API_URL=http://127.0.0.1:8001' >> ~/.zshrc
 ```
 
 If your AutoMem deployment requires authentication, also export `AUTOMEM_API_KEY`:

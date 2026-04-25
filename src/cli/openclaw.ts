@@ -7,7 +7,7 @@ import { AutoMemClient } from '../automem-client.js';
 import { readAutoMemApiKeyFromEnv } from '../env.js';
 import { buildDefaultProjectTags } from '../memory-policy/shared.js';
 import { buildStartupProfileFromResults } from '../openclaw-startup-profile.js';
-import { DEFAULT_AUTOMEM_ENDPOINT } from './templates.js';
+import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
 export type OpenClawSetupMode = 'plugin' | 'mcp' | 'skill';
 export type OpenClawSetupScope = 'workspace' | 'shared';
@@ -542,7 +542,7 @@ export function buildSkillConfigEntry(params: {
     ...(params.apiKey || existingApiKey ? { apiKey: params.apiKey || existingApiKey } : {}),
     env: {
       ...existingEnv,
-      AUTOMEM_ENDPOINT: params.endpoint,
+      AUTOMEM_API_URL: params.endpoint,
       ...(params.defaultTags.length > 0
         ? { AUTOMEM_DEFAULT_TAGS: params.defaultTags.join(',') }
         : {}),
@@ -1067,7 +1067,12 @@ function resolveModeSummary(mode: OpenClawSetupMode): string {
 }
 
 function resolveEndpoint(options: OpenClawSetupOptions): string {
-  return options.endpoint?.trim() || process.env.AUTOMEM_ENDPOINT || DEFAULT_AUTOMEM_ENDPOINT;
+  return (
+    options.endpoint?.trim() ||
+    process.env.AUTOMEM_API_URL ||
+    process.env.AUTOMEM_ENDPOINT ||
+    DEFAULT_AUTOMEM_API_URL
+  );
 }
 
 function resolveApiKey(options: OpenClawSetupOptions): string | undefined {

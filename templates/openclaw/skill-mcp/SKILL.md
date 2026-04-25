@@ -2,10 +2,10 @@
 name: automem
 description: Persistent AutoMem memory via mcporter-exposed AutoMem tools.
 user-invocable: true
-metadata: {"openclaw":{"skillKey":"automem","primaryEnv":"AUTOMEM_API_KEY","requires":{"env":["AUTOMEM_ENDPOINT"]}}}
+metadata: {"openclaw":{"skillKey":"automem","primaryEnv":"AUTOMEM_API_KEY","requires":{"env":["AUTOMEM_API_URL"]}}}
 ---
 
-<!-- automem-template-version: 0.13.0 -->
+<!-- automem-template-version: 0.14.0 -->
 
 # AutoMem
 

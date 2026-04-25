@@ -51,7 +51,7 @@ Add to `~/.claude.json`:
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001",
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001",
         "AUTOMEM_API_KEY": "your-api-key-if-required"
       }
     }
@@ -150,7 +150,7 @@ Claude stores significant events:
 ### Memories not storing
 
 - Check MCP server is configured in `~/.claude.json`
-- Verify AutoMem service is running: `curl $AUTOMEM_ENDPOINT/health`
+- Verify AutoMem service is running: `curl $AUTOMEM_API_URL/health`
 - Check permissions in `~/.claude/settings.json`
 
 ### Recall not finding results

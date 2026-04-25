@@ -175,7 +175,12 @@ function isCursorAutoMemServerConfig(serverConfig: any): boolean {
 
   const env = serverConfig.env;
   if (env && typeof env === 'object') {
-    if ('AUTOMEM_ENDPOINT' in env || 'AUTOMEM_API_KEY' in env || 'AUTOMEM_API_TOKEN' in env) {
+    if (
+      'AUTOMEM_API_URL' in env ||
+      'AUTOMEM_ENDPOINT' in env ||
+      'AUTOMEM_API_KEY' in env ||
+      'AUTOMEM_API_TOKEN' in env
+    ) {
       return true;
     }
   }
@@ -332,7 +337,7 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
     log(`        "command": "npx",`, cliOptions.quiet);
     log(`        "args": ["-y", "@verygoodplugins/mcp-automem"],`, cliOptions.quiet);
     log(`        "env": {`, cliOptions.quiet);
-    log(`          "AUTOMEM_ENDPOINT": "http://127.0.0.1:8001"`, cliOptions.quiet);
+    log(`          "AUTOMEM_API_URL": "http://127.0.0.1:8001"`, cliOptions.quiet);
     log(`        }`, cliOptions.quiet);
     log(`      }`, cliOptions.quiet);
     log(`    }`, cliOptions.quiet);

@@ -3,14 +3,18 @@
  * These tests run against a real AutoMem instance (local Docker or remote).
  *
  * Run with: npm run test:integration
- * Requires: AutoMem service at AUTOMEM_TEST_ENDPOINT (default: http://localhost:8001)
+ * Requires: AutoMem service at AUTOMEM_TEST_API_URL (default: http://localhost:8001).
+ * AUTOMEM_TEST_ENDPOINT is the deprecated alias and is still read as a fallback.
  */
 
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { AutoMemClient } from '../../src/automem-client.js';
 import { AUTHORABLE_RELATION_TYPES } from '../../src/types.js';
 
-const AUTOMEM_ENDPOINT = process.env.AUTOMEM_TEST_ENDPOINT || 'http://localhost:8001';
+const AUTOMEM_TEST_API_URL =
+  process.env.AUTOMEM_TEST_API_URL ||
+  process.env.AUTOMEM_TEST_ENDPOINT ||
+  'http://localhost:8001';
 const TEST_TAG = `test-${Date.now()}`;
 
 let client: AutoMemClient;
@@ -19,7 +23,7 @@ const createdMemoryIds: string[] = [];
 
 // Check if service is available before running tests
 beforeAll(async () => {
-  client = new AutoMemClient({ endpoint: AUTOMEM_ENDPOINT });
+  client = new AutoMemClient({ endpoint: AUTOMEM_TEST_API_URL });
 
   try {
     const health = await client.checkHealth();
@@ -28,7 +32,7 @@ beforeAll(async () => {
       console.warn(`AutoMem service not healthy: ${JSON.stringify(health)}`);
     }
   } catch (error) {
-    console.warn(`AutoMem service not available at ${AUTOMEM_ENDPOINT}: ${error}`);
+    console.warn(`AutoMem service not available at ${AUTOMEM_TEST_API_URL}: ${error}`);
     serviceAvailable = false;
   }
 });
@@ -342,4 +346,4 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
 });
 
 // Export for conditional running
-export { serviceAvailable, AUTOMEM_ENDPOINT };
+export { serviceAvailable, AUTOMEM_TEST_API_URL };

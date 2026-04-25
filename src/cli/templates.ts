@@ -1,15 +1,15 @@
 import os from 'os';
 
-export const DEFAULT_AUTOMEM_ENDPOINT = 'http://127.0.0.1:8001';
+export const DEFAULT_AUTOMEM_API_URL = 'http://127.0.0.1:8001';
 
-export function buildClaudeDesktopSnippet(endpointVar = '${AUTOMEM_ENDPOINT}', apiKeyVar = '${AUTOMEM_API_KEY}') {
+export function buildClaudeDesktopSnippet(endpointVar = '${AUTOMEM_API_URL}', apiKeyVar = '${AUTOMEM_API_KEY}') {
   return `{
   "mcpServers": {
     "memory": {
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_ENDPOINT": "${endpointVar}",
+        "AUTOMEM_API_URL": "${endpointVar}",
         "AUTOMEM_API_KEY": "${apiKeyVar}"
       }
     }
@@ -17,12 +17,27 @@ export function buildClaudeDesktopSnippet(endpointVar = '${AUTOMEM_ENDPOINT}', a
 }`;
 }
 
-export function buildClaudeCodeExport(endpoint = DEFAULT_AUTOMEM_ENDPOINT, apiKey = 'your-auto-mem-api-key') {
+export function buildClaudeCodeExport(endpoint = DEFAULT_AUTOMEM_API_URL, apiKey = 'your-auto-mem-api-key') {
   return [
     'claude mcp add memory "npx -y @verygoodplugins/mcp-automem"',
-    `export AUTOMEM_ENDPOINT="${endpoint}"`,
+    `export AUTOMEM_API_URL="${endpoint}"`,
     `export AUTOMEM_API_KEY="${apiKey}"`
   ].join(os.EOL);
+}
+
+export function buildMcpConfigJson(endpoint: string, apiKey: string) {
+  return {
+    mcpServers: {
+      memory: {
+        command: 'npx',
+        args: ['@verygoodplugins/mcp-automem'],
+        env: {
+          AUTOMEM_API_URL: endpoint,
+          AUTOMEM_API_KEY: apiKey,
+        },
+      },
+    },
+  };
 }
 
 export function buildSummaryInstructions(endpoint: string, apiKeyProvided: boolean) {

@@ -76,7 +76,7 @@ node dist/index.js
 npm start
 ```
 
-The server expects `AUTOMEM_ENDPOINT` (and optionally `AUTOMEM_API_KEY`) in environment or `.env` file.
+The server expects `AUTOMEM_API_URL` (and optionally `AUTOMEM_API_KEY`) in environment or `.env` file. `AUTOMEM_ENDPOINT` is the deprecated alias and is still read as a fallback.
 
 ## Architecture
 
@@ -174,11 +174,12 @@ See `templates/CLAUDE_CODE_INTEGRATION.md` for complete architecture, hook syste
 ## Environment Variables
 
 ```env
-# Required: AutoMem service endpoint
+# Required: AutoMem service URL
 # For local development:
-AUTOMEM_ENDPOINT=http://127.0.0.1:8001
+AUTOMEM_API_URL=http://127.0.0.1:8001
 # Or for Railway deployment (your own instance):
-AUTOMEM_ENDPOINT=https://your-automem-instance.railway.app
+AUTOMEM_API_URL=https://your-automem-instance.railway.app
+# (AUTOMEM_ENDPOINT is the deprecated name and is still read as a fallback.)
 
 # Optional: API key for authenticated AutoMem instances
 AUTOMEM_API_KEY=your_api_key_here

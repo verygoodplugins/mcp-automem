@@ -26,7 +26,7 @@ function runCli(
       cwd: options.cwd || process.cwd(),
       env: {
         ...process.env,
-        AUTOMEM_ENDPOINT: 'http://localhost:9999',
+        AUTOMEM_API_URL: 'http://localhost:9999',
         ...options.env,
       },
     });
@@ -80,7 +80,24 @@ describe('CLI Smoke Tests', () => {
     it('should include Claude Desktop snippet', () => {
       const output = runCliExpectSuccess(['config']);
       expect(output).toMatch(/Claude Desktop/i);
-      expect(output).toMatch(/AUTOMEM_ENDPOINT/i);
+      expect(output).toMatch(/AUTOMEM_API_URL/i);
+    });
+
+    it('falls back to AUTOMEM_ENDPOINT when AUTOMEM_API_URL is unset (deprecation alias)', () => {
+      const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
+      delete cleanEnv.AUTOMEM_API_URL;
+      cleanEnv.AUTOMEM_ENDPOINT = 'http://legacy-host:8765';
+
+      // Run from tempDir so dotenv doesn't pick up the project root's .env file
+      // and inject AUTOMEM_API_URL, which would defeat the fallback assertion.
+      const stdout = execFileSync(process.execPath, [CLI_PATH, 'config', '--format=json'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        env: cleanEnv,
+        cwd: tempDir,
+      });
+
+      expect(stdout).toContain('http://legacy-host:8765');
     });
 
     it('should include Claude Code setup', () => {

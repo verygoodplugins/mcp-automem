@@ -1,6 +1,6 @@
 # Claude Desktop Personal Preferences Template
 
-<!-- automem-template-version: 0.13.0 -->
+<!-- automem-template-version: 0.14.0 -->
 
 Copy everything below the divider into **Claude Desktop → Settings → Profile → Personal Preferences**.
 

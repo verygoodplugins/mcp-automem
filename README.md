@@ -175,14 +175,14 @@ Then paste [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](templates/CLAUDE_DESKTOP
 
 **For Cursor IDE:**
 
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=memory&config=eyJlbnYiOnsiQVVUT01FTV9FTkRQT0lOVCI6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMSIsIkFVVE9NRU1fQVBJX0tFWSI6InlvdXItYXBpLWtleS1pZi1yZXF1aXJlZCJ9LCJjb21tYW5kIjoibnB4IC15IEB2ZXJ5Z29vZHBsdWdpbnMvbWNwLWF1dG9tZW0ifQ%3D%3D)
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=memory&config=eyJlbnYiOnsiQVVUT01FTV9BUElfVVJMIjoiaHR0cDovLzEyNy4wLjAuMTo4MDAxIiwiQVVUT01FTV9BUElfS0VZIjoieW91ci1hcGkta2V5LWlmLXJlcXVpcmVkIn0sImNvbW1hbmQiOiJucHggLXkgQHZlcnlnb29kcGx1Z2lucy9tY3AtYXV0b21lbSJ9)
 
 ```bash
 # Or use CLI to install automem.mdc rule file
 npx @verygoodplugins/mcp-automem cursor
 ```
 
-> **Note:** After one-click install, configure your `AUTOMEM_ENDPOINT` in `~/.cursor/mcp.json` or Claude Desktop config
+> **Note:** After one-click install, configure your `AUTOMEM_API_URL` in `~/.cursor/mcp.json` or Claude Desktop config
 
 **For Claude Code:**
 
