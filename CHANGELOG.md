@@ -36,6 +36,10 @@ All notable changes to this project will be documented in this file.
 - sync plugin-distributed Claude Code runtime scripts with the canonical copies under `templates/claude-code/`
 - add plugin migration guidance in `DEPRECATION.md`
 
+### Bug Fixes
+
+- replace Unix `chmod +x` in `postbuild` script with cross-platform `fs.chmodSync` so `npm run build` works on Windows 11. The `chmod` command is not available in cmd.exe (which npm uses for lifecycle scripts on Windows), causing `postbuild` to fail even though `tsc` compiled successfully. The executable bit is now set inside `scripts/build-openclaw-plugin-package.mjs` using Node.js built-in `fs.chmodSync`.
+
 ## [0.13.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.12.0...mcp-automem-v0.13.0) (2026-03-25)
 
 
