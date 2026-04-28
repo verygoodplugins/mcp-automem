@@ -38,10 +38,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'CLAUDE_HOOK_TYPE=session_end bash \"$HOME/.claude/hooks/session-memory.sh\"'"
-          },
-          {
-            "type": "command",
             "command": "bash \"$HOME/.claude/scripts/queue-cleanup.sh\""
           },
           {
