@@ -1,6 +1,6 @@
 {
   "name": "automem",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Deprecated Claude Code plugin for AutoMem. Use npx @verygoodplugins/mcp-automem claude-code.",
   "author": {
     "name": "Very Good Plugins",
