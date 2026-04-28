@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -54,4 +54,5 @@ for (const filename of runtimeFiles) {
   cpSync(join(DIST_ROOT, filename), targetPath);
 }
 
+chmodSync(join(DIST_ROOT, 'index.js'), 0o755);
 console.log(`✓ staged lean OpenClaw plugin package in ${join('dist', 'openclaw-plugin-package')}`);

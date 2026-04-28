@@ -14,7 +14,7 @@
   "scripts": {
     "prebuild": "node scripts/sync-template-versions.mjs",
     "build": "tsc",
-    "postbuild": "node scripts/build-openclaw-plugin-package.mjs && chmod +x dist/index.js",
+    "postbuild": "node scripts/build-openclaw-plugin-package.mjs",
     "sync-versions": "node scripts/sync-template-versions.mjs",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint .",
