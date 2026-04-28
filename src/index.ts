@@ -943,7 +943,7 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
       title: "Delete Memory",
       readOnlyHint: false,
       destructiveHint: true,
-      idempotentHint: true,
+      idempotentHint: false,
       openWorldHint: false,
     },
     inputSchema: {

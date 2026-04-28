@@ -434,7 +434,17 @@ describe('AutoMemClient', () => {
     it('should reject XOR collision (content + memories)', async () => {
       await expect(
         client.storeMemory({ content: 'single', memories: [{ content: 'one' }] } as any)
-      ).rejects.toThrow('not both');
+      ).rejects.toThrow('Remove top-level single-mode field(s): content');
+    });
+
+    it('should reject shared top-level fields in batch mode instead of dropping them', async () => {
+      await expect(
+        client.storeMemory({
+          tags: ['import'],
+          importance: 0.8,
+          memories: [{ content: 'one' }],
+        } as any)
+      ).rejects.toThrow('Remove top-level single-mode field(s): tags, importance');
     });
   });
 

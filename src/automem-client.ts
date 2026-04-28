@@ -14,6 +14,21 @@ import type {
 } from './types.js';
 
 const BATCH_DISALLOWED_FIELDS = ['id', 'embedding', 't_valid', 't_invalid'] as const;
+const BATCH_TOP_LEVEL_SINGLE_FIELDS = [
+  'content',
+  'type',
+  'confidence',
+  'id',
+  'tags',
+  'importance',
+  'embedding',
+  'metadata',
+  'timestamp',
+  't_valid',
+  't_invalid',
+  'updated_at',
+  'last_accessed',
+] as const;
 const BATCH_MAX_ITEMS = 500;
 
 function nonEmptyTags(tags: unknown): string[] {
@@ -145,9 +160,12 @@ export class AutoMemClient {
 
   async storeMemory(args: StoreMemoryArgs): Promise<StoreMemoryResult> {
     if (Array.isArray(args.memories)) {
-      if (typeof args.content === 'string' && args.content.length > 0) {
+      const conflictingFields = BATCH_TOP_LEVEL_SINGLE_FIELDS.filter(
+        (field) => args[field] !== undefined
+      );
+      if (conflictingFields.length > 0) {
         throw new Error(
-          'store_memory: pass either `content` (single) or `memories` (batch), not both'
+          `store_memory: batch mode accepts per-item fields inside \`memories\` only. Remove top-level single-mode field(s): ${conflictingFields.join(', ')}.`
         );
       }
       return this.batchStore(args.memories);
