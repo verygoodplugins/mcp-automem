@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.14.0...mcp-automem-v0.15.0) (2026-04-28)
+
+
+### Features
+
+* **api:** parity with AutoMem v0.15.2 via mode-multiplexed params ([#112](https://github.com/verygoodplugins/mcp-automem/issues/112)) ([b81c63a](https://github.com/verygoodplugins/mcp-automem/commit/b81c63ae8f833feb4f6fb21e795c389f99a5dbe8))
+* rename AUTOMEM_ENDPOINT to AUTOMEM_API_URL ([#110](https://github.com/verygoodplugins/mcp-automem/issues/110)) ([29f9e8d](https://github.com/verygoodplugins/mcp-automem/commit/29f9e8df87e12ab48d32f22e4006cf6d7ca548fc))
+
 ## [0.14.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.13.0...mcp-automem-v0.14.0) (2026-04-23)
 
 
