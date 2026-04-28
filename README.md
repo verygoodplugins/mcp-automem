@@ -315,16 +315,19 @@ _Claude Mobile (iOS) connected to AutoMem via remote MCP_
 
 ### Core Memory Operations
 
-- **`store_memory`** - Save memories with content, tags, importance, metadata
-- **`recall_memory`** - Hybrid search with graph expansion and context awareness:
-  - **Basic search**: query, multi-query, tags, time filters
-  - **Graph expansion**: entity expansion (multi-hop reasoning), relation following
-  - **Expansion filtering**: `expand_min_importance` and `expand_min_strength` to reduce noise in expanded results
-  - **Context hints**: language, active file, priority types/tags
-- **`associate_memories`** - Create relationships (11 public authorable types; recall results may also include read-only system relations)
-- **`update_memory`** - Modify existing memories
-- **`delete_memory`** - Remove memories
-- **`check_database_health`** - Monitor service status
+- **`store_memory`** — Save memories with content, tags, importance, metadata. Two modes:
+  - **Single (default)**: top-level `content` plus optional fields, including `embedding`, `t_valid`, `t_invalid`, custom `id`.
+  - **Batch**: `memories: [...]` (≤500 items) for bulk ingestion. Per-item `id`/`embedding`/`t_valid`/`t_invalid` are not supported in batch mode.
+- **`recall_memory`** — Three modes selected by which params you pass:
+  - **ID fetch**: `memory_id` → fetches one memory by ID; updates `last_accessed`.
+  - **Tag enumeration**: `tags` + `exhaustive: true` → paginated exact-match listing for cleanup/audit workflows where ranked recall undercounts. Pair with `limit` (≤200) and `offset`; returns `has_more`.
+  - **Ranked retrieval (default)**: hybrid search across vector, keyword, tags, recency, with optional graph expansion and `exclude_tags` to filter out unwanted scopes.
+- **`associate_memories`** — Create relationships (11 public authorable types; recall results may also include read-only system relations)
+- **`update_memory`** — Modify existing memories
+- **`delete_memory`** — Two modes:
+  - **Single (default)**: `memory_id` → removes one memory and its embedding.
+  - **Bulk-by-tag**: `tags: [...]` → bulk-delete all memories matching ANY tag (exact, case-insensitive). No dry-run; verify with `recall_memory({ tags, exhaustive: true })` first.
+- **`check_database_health`** — Monitor service status
 
 ### Advanced Recall (v0.8.0+)
 

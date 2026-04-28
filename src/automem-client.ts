@@ -1,14 +1,55 @@
 import type {
   AutoMemConfig,
+  BatchMemoryInput,
   MemoryRecord,
   RecallResult,
   HealthStatus,
   StoreMemoryArgs,
+  StoreMemoryResult,
   RecallMemoryArgs,
   AssociateMemoryArgs,
   UpdateMemoryArgs,
   DeleteMemoryArgs,
+  DeleteMemoryResult,
 } from './types.js';
+
+const BATCH_DISALLOWED_FIELDS = ['id', 'embedding', 't_valid', 't_invalid'] as const;
+const BATCH_MAX_ITEMS = 500;
+
+function nonEmptyTags(tags: unknown): string[] {
+  if (!Array.isArray(tags)) return [];
+  return tags
+    .map((t) => (typeof t === 'string' ? t.trim() : ''))
+    .filter((t) => t.length > 0);
+}
+
+function mapStoredMemory(raw: any) {
+  return {
+    memory_id: raw?.id || raw?.memory_id || '',
+    content: raw?.content || '',
+    tags: raw?.tags || [],
+    importance: raw?.importance ?? 0,
+    created_at: raw?.timestamp || raw?.created_at || '',
+    updated_at: raw?.updated_at || raw?.timestamp || '',
+    metadata: raw?.metadata || {},
+    type: raw?.type,
+    confidence: raw?.confidence,
+    last_accessed: raw?.last_accessed,
+  };
+}
+
+function wrapMemoryAsRecallResult(raw: any): RecallResult['results'][number] {
+  const memory = mapStoredMemory(raw);
+  return {
+    id: memory.memory_id,
+    match_type: 'direct',
+    final_score: 1,
+    score_components: {},
+    relations: [],
+    related_to: [],
+    memory: memory as any,
+  };
+}
 
 export class AutoMemClient {
   private config: AutoMemConfig;
@@ -102,7 +143,20 @@ export class AutoMemClient {
     return data;
   }
 
-  async storeMemory(args: StoreMemoryArgs): Promise<{ memory_id: string; message: string }> {
+  async storeMemory(args: StoreMemoryArgs): Promise<StoreMemoryResult> {
+    if (Array.isArray(args.memories)) {
+      if (typeof args.content === 'string' && args.content.length > 0) {
+        throw new Error(
+          'store_memory: pass either `content` (single) or `memories` (batch), not both'
+        );
+      }
+      return this.batchStore(args.memories);
+    }
+
+    if (typeof args.content !== 'string' || args.content.length === 0) {
+      throw new Error('store_memory: `content` is required (or pass `memories` for batch mode)');
+    }
+
     const body: MemoryRecord = {
       content: args.content,
       ...(args.type && { type: args.type }),
@@ -129,7 +183,118 @@ export class AutoMemClient {
     };
   }
 
+  private async batchStore(memories: BatchMemoryInput[]): Promise<StoreMemoryResult> {
+    if (memories.length === 0) {
+      throw new Error('store_memory: `memories` array must contain at least one item');
+    }
+    if (memories.length > BATCH_MAX_ITEMS) {
+      throw new Error(
+        `store_memory: \`memories\` array exceeds max ${BATCH_MAX_ITEMS} items (got ${memories.length})`
+      );
+    }
+
+    const sanitized = memories.map((item, index) => {
+      if (!item || typeof item !== 'object') {
+        throw new Error(`store_memory: memories[${index}] must be an object`);
+      }
+      if (typeof item.content !== 'string' || item.content.trim().length === 0) {
+        throw new Error(`store_memory: memories[${index}].content is required`);
+      }
+      for (const field of BATCH_DISALLOWED_FIELDS) {
+        if ((item as any)[field] !== undefined) {
+          throw new Error(
+            `store_memory: memories[${index}].${field} is not allowed in batch mode (use single-store mode for ${field})`
+          );
+        }
+      }
+      const out: BatchMemoryInput = { content: item.content };
+      if (item.tags !== undefined) out.tags = item.tags;
+      if (item.importance !== undefined) out.importance = item.importance;
+      if (item.metadata !== undefined) out.metadata = item.metadata;
+      if (item.timestamp !== undefined) out.timestamp = item.timestamp;
+      if (item.type !== undefined) out.type = item.type;
+      if (item.confidence !== undefined) out.confidence = item.confidence;
+      return out;
+    });
+
+    const response = await this.makeRequest('POST', 'memory/batch', { memories: sanitized });
+    const memoryIds: string[] = Array.isArray(response.memory_ids) ? response.memory_ids : [];
+    const stored: number =
+      typeof response.stored === 'number' ? response.stored : memoryIds.length;
+    return {
+      memory_ids: memoryIds,
+      stored,
+      qdrant: response.qdrant,
+      enrichment: response.enrichment,
+      query_time_ms: response.query_time_ms,
+      message: response.message || `Stored ${stored} memories`,
+    };
+  }
+
   async recallMemory(args: RecallMemoryArgs): Promise<RecallResult> {
+    // Mode 1: ID fetch — short-circuit to GET /memory/{id}.
+    if (typeof args.memory_id === 'string' && args.memory_id.trim().length > 0) {
+      const memory = await this.fetchMemoryById(args.memory_id.trim());
+      return {
+        results: memory ? [wrapMemoryAsRecallResult(memory)] : [],
+        count: memory ? 1 : 0,
+        mode: 'id_fetch',
+      };
+    }
+
+    // Mode 2: tag enumeration — route to GET /memory/by-tag for paginated exact-match listing.
+    if (args.exhaustive === true) {
+      const cleanTags = nonEmptyTags(args.tags);
+      if (cleanTags.length === 0) {
+        throw new Error(
+          'recall_memory: `exhaustive: true` requires non-empty `tags`'
+        );
+      }
+      if (args.tag_match && args.tag_match !== 'exact') {
+        throw new Error(
+          'recall_memory: enumeration mode (`exhaustive: true`) only supports exact tag matching; remove `tag_match: "prefix"`'
+        );
+      }
+      if (args.tag_mode && args.tag_mode !== 'any') {
+        throw new Error(
+          'recall_memory: enumeration mode (`exhaustive: true`) only supports any-of tag matching; remove `tag_mode: "all"`'
+        );
+      }
+      // Reject ranked-only params that would silently change the meaning of the query.
+      // Without this, `recall_memory({ tags, exhaustive: true, time_query: "last 7 days" })`
+      // would return *all* memories tagged X (ignoring the time window), which is misleading.
+      const rankedOnlyParams: Array<keyof RecallMemoryArgs> = [
+        'query',
+        'queries',
+        'embedding',
+        'time_query',
+        'start',
+        'end',
+        'exclude_tags',
+        'expand_relations',
+        'expand_entities',
+        'auto_decompose',
+        'expansion_limit',
+        'relation_limit',
+        'expand_min_importance',
+        'expand_min_strength',
+        'sort',
+      ];
+      const conflicting = rankedOnlyParams.filter((key) => {
+        const v = (args as Record<string, unknown>)[key];
+        if (v === undefined || v === null) return false;
+        if (Array.isArray(v)) return v.length > 0;
+        return true;
+      });
+      if (conflicting.length > 0) {
+        throw new Error(
+          `recall_memory: enumeration mode (\`exhaustive: true\`) only accepts \`tags\`, \`limit\`, \`offset\`, \`tag_mode: "any"\`, \`tag_match: "exact"\`, and \`format\`. Remove ranked-only param(s): ${conflicting.join(', ')}.`
+        );
+      }
+      return this.listByTag(cleanTags, args.limit, args.offset);
+    }
+
+    // Mode 3: ranked retrieval — existing /recall path.
     const params = new URLSearchParams();
 
     // Support single query OR multiple queries
@@ -163,6 +328,10 @@ export class AutoMemClient {
 
     if (Array.isArray(args.tags)) {
       args.tags.forEach((tag) => params.append('tags', tag));
+    }
+
+    if (Array.isArray(args.exclude_tags) && args.exclude_tags.length > 0) {
+      args.exclude_tags.forEach((tag) => params.append('exclude_tags', tag));
     }
 
     if (args.tag_mode && (args.tag_mode === 'any' || args.tag_mode === 'all')) {
@@ -274,6 +443,7 @@ export class AutoMemClient {
         },
       })),
       count: response.count || (response.results ? response.results.length : 0),
+      mode: 'ranked',
       dedup_removed: response.dedup_removed,
       keywords: response.keywords,
       time_window: response.time_window,
@@ -283,6 +453,37 @@ export class AutoMemClient {
       expansion: response.expansion,
       entity_expansion: response.entity_expansion,
       context_priority: response.context_priority,
+    };
+  }
+
+  private async fetchMemoryById(memoryId: string): Promise<any | null> {
+    const response = await this.makeRequest('GET', `memory/${encodeURIComponent(memoryId)}`);
+    return response?.memory ?? response ?? null;
+  }
+
+  private async listByTag(
+    tags: string[],
+    limit?: number,
+    offset?: number
+  ): Promise<RecallResult> {
+    const params = new URLSearchParams();
+    tags.forEach((tag) => params.append('tags', tag));
+    if (typeof limit === 'number' && limit > 0) {
+      params.set('limit', String(Math.min(Math.floor(limit), 200)));
+    }
+    if (typeof offset === 'number' && offset > 0) {
+      params.set('offset', String(Math.floor(offset)));
+    }
+    const response = await this.makeRequest('GET', `memory/by-tag?${params.toString()}`);
+    const memories = Array.isArray(response.memories) ? response.memories : [];
+    return {
+      results: memories.map((m: any) => wrapMemoryAsRecallResult(m)),
+      count: typeof response.count === 'number' ? response.count : memories.length,
+      mode: 'enumeration',
+      tags: response.tags ?? tags,
+      limit: response.limit,
+      offset: response.offset,
+      has_more: Boolean(response.has_more),
     };
   }
 
@@ -338,15 +539,43 @@ export class AutoMemClient {
     };
   }
 
-  async deleteMemory(args: DeleteMemoryArgs): Promise<{ memory_id: string; message: string }> {
-    if (!args.memory_id) {
-      throw new Error('memory_id is required');
+  async deleteMemory(args: DeleteMemoryArgs): Promise<DeleteMemoryResult> {
+    const cleanTags = nonEmptyTags(args.tags);
+    const hasTags = cleanTags.length > 0;
+    const hasId = typeof args.memory_id === 'string' && args.memory_id.trim().length > 0;
+
+    if (hasTags && hasId) {
+      throw new Error(
+        'delete_memory: pass either `memory_id` (single) or `tags` (bulk-by-tag), not both'
+      );
+    }
+
+    if (hasTags) {
+      return this.bulkDeleteByTag(cleanTags);
+    }
+
+    if (!hasId) {
+      throw new Error('delete_memory: `memory_id` or `tags` is required');
     }
 
     const response = await this.makeRequest('DELETE', `memory/${args.memory_id}`);
     return {
       memory_id: response.memory_id || args.memory_id,
       message: response.message || 'Memory deleted successfully',
+    };
+  }
+
+  private async bulkDeleteByTag(tags: string[]): Promise<DeleteMemoryResult> {
+    const params = new URLSearchParams();
+    tags.forEach((tag) => params.append('tags', tag));
+    const response = await this.makeRequest('DELETE', `memory/by-tag?${params.toString()}`);
+    const deleted = typeof response.deleted_count === 'number' ? response.deleted_count : 0;
+    return {
+      deleted_count: deleted,
+      tags: response.tags ?? tags,
+      message:
+        response.message ||
+        `Deleted ${deleted} memor${deleted === 1 ? 'y' : 'ies'} matching tag(s) ${tags.join(', ')}`,
     };
   }
 }

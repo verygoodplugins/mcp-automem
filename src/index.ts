@@ -338,9 +338,13 @@ const tools: Tool[] = [
   {
     name: "store_memory",
     title: "Store Memory",
-    description: `Store a memory with optional tags, importance score, and metadata. Use this to persist important information for future recall.
+    description: `Store memory in one of two modes — single-memory (set top-level \`content\`) or batch (set \`memories: [...]\` for up to 500). Use this to persist important information for future recall.
 
-**Content size guidelines:**
+**Mode 1 — Single (default):** pass top-level \`content\` plus any optional fields (tags, importance, metadata, type, confidence, embedding, t_valid, t_invalid, id, etc.).
+
+**Mode 2 — Batch:** pass \`memories: [{ content, tags?, importance?, metadata?, timestamp?, type?, confidence? }, ...]\` to store up to 500 memories in one request. Faster for bulk ingestion (imports, benchmark seeding). Batch mode does NOT accept \`id\`, \`embedding\`, \`t_valid\`, or \`t_invalid\` per-item — use single mode for those.
+
+**Content size guidelines (per item):**
 - Target: 150-300 characters (one meaningful paragraph)
 - Maximum: 500 characters (auto-summarized if exceeded)
 - Hard limit: 2000 characters (rejected)
@@ -351,11 +355,12 @@ const tools: Tool[] = [
 - When discovering a pattern: store the pattern and where it applies
 - After fixing a bug: store the root cause and solution
 - When learning user preferences: store what they prefer and why
+- For bulk ingestion (imports, seeding): use batch mode
 
 **Examples:**
 - store_memory({ content: "Chose PostgreSQL over MongoDB for user service. Need ACID for transactions.", tags: ["architecture", "database"], importance: 0.9 })
-- store_memory({ content: "User prefers early returns over nested conditionals in validation code.", tags: ["code-style", "preferences"], importance: 0.7 })
-- store_memory({ content: "Auth timeout fixed by adding retry with exponential backoff. Root cause: flaky network.", tags: ["bug-fix", "auth"], importance: 0.8 })`,
+- store_memory({ content: "User prefers early returns over nested conditionals.", tags: ["code-style"], importance: 0.7 })
+- store_memory({ memories: [{ content: "...", tags: ["import"] }, { content: "...", tags: ["import"] }] })  // Batch`,
     annotations: {
       title: "Store Memory",
       readOnlyHint: false,
@@ -369,71 +374,91 @@ const tools: Tool[] = [
         content: {
           type: "string",
           description:
-            "The memory content to store. Be specific: include context, reasoning, and outcome.",
+            "Single-memory mode (XOR with `memories`). The memory content to store. Be specific: include context, reasoning, and outcome.",
+        },
+        memories: {
+          type: "array",
+          maxItems: 500,
+          description:
+            "Batch mode (XOR with `content`). Up to 500 memory objects to store in one call. Each item supports content (required), tags, importance, timestamp, type, confidence, metadata. Batch mode does NOT support `id`, `embedding`, `t_valid`, or `t_invalid` per-item — use single-memory mode for those.",
+          items: {
+            type: "object",
+            required: ["content"],
+            properties: {
+              content: { type: "string" },
+              tags: { type: "array", items: { type: "string" } },
+              importance: { type: "number", minimum: 0, maximum: 1 },
+              timestamp: { type: "string" },
+              type: { type: "string", enum: [...MEMORY_TYPES] },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              metadata: { type: "object" },
+            },
+          },
         },
         tags: {
           type: "array",
           items: { type: "string" },
           description:
-            'Tags to categorize the memory (e.g., ["project-name", "bug-fix", "auth"])',
+            'Single-memory mode. Tags to categorize the memory (e.g., ["project-name", "bug-fix", "auth"])',
         },
         importance: {
           type: "number",
           minimum: 0,
           maximum: 1,
           description:
-            "Importance score: 0.9+ critical decisions, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes",
+            "Single-memory mode. Importance: 0.9+ critical decisions, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes",
         },
         embedding: {
           type: "array",
           items: { type: "number" },
           description:
-            "Optional embedding vector for semantic search (auto-generated if omitted)",
+            "Single-memory mode only. Optional embedding vector for semantic search (auto-generated if omitted). Not supported in batch mode.",
         },
         metadata: {
           type: "object",
           description:
-            'Optional structured metadata (e.g., { files_modified: ["auth.ts"], error_type: "timeout" })',
+            'Single-memory mode. Optional structured metadata (e.g., { files_modified: ["auth.ts"], error_type: "timeout" })',
         },
         timestamp: {
           type: "string",
-          description: "Optional ISO timestamp (defaults to now)",
+          description: "Single-memory mode. Optional ISO timestamp (defaults to now)",
         },
         type: {
           type: "string",
           enum: [...MEMORY_TYPES],
-          description: "Memory type for classification",
+          description: "Single-memory mode. Memory type for classification",
         },
         confidence: {
           type: "number",
           minimum: 0,
           maximum: 1,
           description:
-            "Classification confidence (0-1, default 0.9 when type provided)",
+            "Single-memory mode. Classification confidence (0-1, default 0.9 when type provided)",
         },
         id: {
           type: "string",
-          description: "Custom memory ID (auto-generated if omitted)",
+          description:
+            "Single-memory mode only. Custom memory ID (auto-generated if omitted). Not supported in batch mode.",
         },
         t_valid: {
           type: "string",
           description:
-            "ISO 8601 timestamp when the memory becomes valid",
+            "Single-memory mode only. ISO 8601 timestamp when the memory becomes valid. Not supported in batch mode.",
         },
         t_invalid: {
           type: "string",
-          description: "ISO 8601 timestamp when the memory expires",
+          description:
+            "Single-memory mode only. ISO 8601 timestamp when the memory expires. Not supported in batch mode.",
         },
         updated_at: {
           type: "string",
-          description: "ISO 8601 last-updated timestamp",
+          description: "Single-memory mode. ISO 8601 last-updated timestamp",
         },
         last_accessed: {
           type: "string",
-          description: "ISO 8601 last-accessed timestamp",
+          description: "Single-memory mode. ISO 8601 last-accessed timestamp",
         },
       },
-      required: ["content"],
     },
     outputSchema: {
       type: "object",
@@ -441,41 +466,63 @@ const tools: Tool[] = [
         memory_id: {
           type: "string",
           description:
-            "Unique ID of the stored memory (use this for associations)",
+            "Single-mode result: unique ID of the stored memory (use for associations)",
+        },
+        memory_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Batch-mode result: IDs of the stored memories.",
+        },
+        stored: {
+          type: "integer",
+          description: "Batch-mode result: number of memories stored.",
+        },
+        qdrant: {
+          type: "string",
+          description: "Batch-mode result: Qdrant indexing summary from the server.",
+        },
+        enrichment: {
+          type: "string",
+          description: "Batch-mode result: enrichment status from the server.",
+        },
+        query_time_ms: {
+          type: "number",
+          description: "Batch-mode result: server-reported execution time in milliseconds.",
         },
         message: {
           type: "string",
           description: "Confirmation message",
         },
       },
-      required: ["memory_id", "message"],
+      required: ["message"],
     },
   },
   {
     name: "recall_memory",
     title: "Recall Memory",
-    description: `Search and retrieve relevant memories using semantic search, keywords, tags, time filters, and graph expansion. This is the primary tool for accessing stored knowledge.
+    description: `Recall memories from AutoMem in one of three modes. The mode is selected by which params you pass.
 
-**When to use:**
+**Mode 1 — ID fetch:** pass \`memory_id\` to retrieve a single memory by ID. All other params are ignored. Routes to GET /memory/{id} and updates last_accessed.
+
+**Mode 2 — Tag enumeration:** pass \`tags\` + \`exhaustive: true\` for paginated exact-match listing (NOT ranked retrieval). Use this for cleanup/audit workflows where ranked retrieval silently undercounts large tag sets. Pair with \`limit\` (≤200) and \`offset\`. Returns \`has_more\`/\`limit\`/\`offset\` page metadata. Tag matching is exact, case-insensitive, any-of mode — \`tag_match: "prefix"\` and \`tag_mode: "all"\` are rejected in this mode.
+
+**Mode 3 — Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency, and optional graph expansion. The primary tool for finding relevant context.
+
+**When to use ranked (mode 3):**
 - At conversation start: recall context about the current project/topic
 - Before making decisions: check for past decisions on similar topics
 - When debugging: search for similar past errors and their solutions
-- When implementing: find established patterns and preferences
-- For complex questions: use expand_entities for multi-hop reasoning
+- For complex questions: use \`expand_entities\` for multi-hop reasoning
 
-**Search strategies:**
-- Semantic: Use natural language queries like "authentication timeout issues"
-- Tags: Filter by project or category with tags: ["my-project", "bug-fix"]
-- Time: Use time_query for recency like "last 7 days" or "today"
-- Multi-query: Pass multiple queries in 'queries' array for broader recall
-- Multi-hop: Use expand_entities=true for questions requiring connected reasoning
+**When to use enumeration (mode 2):** when you need to know *how many* memories carry a tag, or to walk all of them for cleanup/migration. Ranked recall ignores low-importance hits — enumeration does not.
 
 **Examples:**
 - recall_memory({ query: "database architecture decisions", tags: ["my-project"], limit: 5 })
-- recall_memory({ queries: ["auth patterns", "login flow", "JWT tokens"], limit: 10 })
-- recall_memory({ tags: ["bug-fix"], time_query: "last 30 days", limit: 5 })
-- recall_memory({ query: "What is Sarah's sister's job?", expand_entities: true })  // Multi-hop
-- recall_memory({ query: "Python style preferences", language: "python", context: "coding-style" })`,
+- recall_memory({ memory_id: "abc123" })  // Mode 1
+- recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50 })  // Mode 2
+- recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50, offset: 50 })  // Mode 2 page 2
+- recall_memory({ query: "auth", exclude_tags: ["deprecated"] })  // Mode 3 with exclusion
+- recall_memory({ query: "What is Sarah's sister's job?", expand_entities: true })  // Mode 3 multi-hop`,
     annotations: {
       title: "Recall Memory",
       readOnlyHint: true,
@@ -486,6 +533,22 @@ const tools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
+        memory_id: {
+          type: "string",
+          description:
+            "MODE: ID fetch. When set, fetches the single memory by ID and IGNORES all other params. Routes to GET /memory/{id}; updates last_accessed.",
+        },
+        exhaustive: {
+          type: "boolean",
+          description:
+            "MODE: tag enumeration. When true, requires non-empty `tags`. Routes to GET /memory/by-tag for paginated exact-match listing — NOT ranked retrieval. Use for cleanup/audit workflows where ranked recall undercounts. `limit` is clamped to 200. `tag_match: \"prefix\"` and `tag_mode: \"all\"` are rejected in this mode.",
+        },
+        exclude_tags: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Ranked-mode only. Tags to exclude from results (any match excludes). Independent of `tag_match` — supports both exact and prefix matching internally on the server.",
+        },
         query: {
           type: "string",
           description:
@@ -505,10 +568,10 @@ const tools: Tool[] = [
         limit: {
           type: "integer",
           minimum: 1,
-          maximum: 50,
+          maximum: 200,
           default: 5,
           description:
-            "Max memories to return (default: 5, increase for broader context)",
+            "Max memories to return. Schema allows 1–200; in enumeration mode (`exhaustive: true`) the server honors up to 200, while ranked mode is typically clamped server-side to ~50. Default 5.",
         },
         time_query: {
           type: "string",
@@ -655,6 +718,24 @@ const tools: Tool[] = [
         count: {
           type: "integer",
           description: "Number of memories returned",
+        },
+        mode: {
+          type: "string",
+          enum: ["ranked", "enumeration", "id_fetch"],
+          description: "Mode that produced the result.",
+        },
+        has_more: {
+          type: "boolean",
+          description:
+            "Enumeration mode only: true if more pages exist past `offset + limit`.",
+        },
+        limit: {
+          type: "integer",
+          description: "Enumeration mode only: page size used for this response.",
+        },
+        offset: {
+          type: "integer",
+          description: "Enumeration mode only: offset used for this response.",
         },
         results: {
           type: "array",
@@ -843,16 +924,21 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
   {
     name: "delete_memory",
     title: "Delete Memory",
-    description: `Permanently delete a memory and its embedding. Use sparingly - consider updating instead.
+    description: `Delete a memory by ID (\`memory_id\`) or bulk-delete by tag (\`tags\`). Use sparingly — consider \`update_memory\` instead.
+
+**Mode 1 — Single (default):** pass \`memory_id\` to delete one memory and its embedding. Idempotent: re-running on the same ID is a no-op.
+
+**Mode 2 — Bulk-by-tag:** pass \`tags: [...]\` to delete ALL memories tagged with ANY of these tags. Tag matching is exact (case-insensitive), any-of mode. There is NO dry-run. This can delete thousands of memories in one call. NOT idempotent in practice — re-running may catch new memories that were tagged the same way after the first call. Verify with \`recall_memory({ tags, exhaustive: true })\` first if uncertain.
 
 **When to use:**
-- Memory contains incorrect information that can't be corrected
-- Memory is a duplicate
-- Memory contains sensitive information that shouldn't persist
-- Memory is no longer relevant and clutters recall results
+- Memory contains incorrect information that can't be corrected (Mode 1)
+- Memory is a duplicate (Mode 1)
+- Cleanup of benchmark/test data scoped by tag (Mode 2)
+- Removing all memories under a deprecated tag namespace (Mode 2)
 
-**Example:**
-- delete_memory({ memory_id: "abc123" })`,
+**Examples:**
+- delete_memory({ memory_id: "abc123" })  // Mode 1
+- delete_memory({ tags: ["benchmark-test"] })  // Mode 2, bulk by tag`,
     annotations: {
       title: "Delete Memory",
       readOnlyHint: false,
@@ -866,24 +952,38 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
         memory_id: {
           type: "string",
           description:
-            "ID of the memory to delete (from store_memory or recall results)",
+            "Single-delete mode (XOR with `tags`). ID of the memory to delete (from store_memory or recall results).",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Bulk-delete mode (XOR with `memory_id`). Bulk-deletes ALL memories tagged with ANY of these tags. Exact match, case-insensitive. No dry-run.",
         },
       },
-      required: ["memory_id"],
     },
     outputSchema: {
       type: "object",
       properties: {
         memory_id: {
           type: "string",
-          description: "ID of the deleted memory",
+          description: "Single-delete result: ID of the deleted memory.",
+        },
+        deleted_count: {
+          type: "integer",
+          description: "Bulk-delete result: number of memories deleted.",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Bulk-delete result: tags that were used for the bulk delete.",
         },
         message: {
           type: "string",
           description: "Confirmation message",
         },
       },
-      required: ["memory_id", "message"],
+      required: ["message"],
     },
   },
   {
@@ -947,39 +1047,70 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "store_memory": {
         const storeArgs = args as unknown as StoreMemoryArgs;
 
-        // Content size governance: reject if content exceeds hard limit
+        // Content size governance applies to single-store mode only.
+        // Batch mode pushes governance into the per-item content trim and the server's auto-summarize.
         const SOFT_LIMIT = 500;
         const HARD_LIMIT = 2000;
-        const contentLength = storeArgs.content?.length || 0;
+        const isBatchMode = Array.isArray(storeArgs.memories);
+        const contentLength = isBatchMode ? 0 : (storeArgs.content?.length || 0);
         let sizeWarning = "";
 
-        // Hard limit: reject oversized content outright
-        if (contentLength > HARD_LIMIT) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `❌ Memory rejected: Content length (${contentLength} chars) exceeds hard limit (${HARD_LIMIT} chars).\n\nPlease split into smaller, focused memories or summarize the content before storing.`,
+        if (!isBatchMode) {
+          // Hard limit: reject oversized content outright (single mode only)
+          if (contentLength > HARD_LIMIT) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `❌ Memory rejected: Content length (${contentLength} chars) exceeds hard limit (${HARD_LIMIT} chars).\n\nPlease split into smaller, focused memories or summarize the content before storing.`,
+                },
+              ],
+              structuredContent: {
+                error: "content_too_large",
+                content_length: contentLength,
+                hard_limit: HARD_LIMIT,
+                message: `Content exceeds maximum allowed length of ${HARD_LIMIT} characters`,
               },
-            ],
-            structuredContent: {
-              error: "content_too_large",
-              content_length: contentLength,
-              hard_limit: HARD_LIMIT,
-              message: `Content exceeds maximum allowed length of ${HARD_LIMIT} characters`,
-            },
-            isError: true,
-          };
-        }
+              isError: true,
+            };
+          }
 
-        // Soft limit: warn that backend may auto-summarize
-        if (contentLength > SOFT_LIMIT) {
-          sizeWarning = `\n📝 Content length (${contentLength} chars) exceeds recommended size (${SOFT_LIMIT}). Backend may auto-summarize.`;
+          // Soft limit: warn that backend may auto-summarize
+          if (contentLength > SOFT_LIMIT) {
+            sizeWarning = `\n📝 Content length (${contentLength} chars) exceeds recommended size (${SOFT_LIMIT}). Backend may auto-summarize.`;
+          }
         }
 
         const result = await client.storeMemory(storeArgs);
 
-        // Build response text
+        if (isBatchMode) {
+          const stored = result.stored ?? result.memory_ids?.length ?? 0;
+          const ids = result.memory_ids ?? [];
+          const idPreview = ids.length > 10
+            ? `${ids.slice(0, 10).join(', ')}, …(+${ids.length - 10})`
+            : ids.join(', ');
+          const output = {
+            stored,
+            memory_ids: ids,
+            message: result.message,
+            ...(result.qdrant ? { qdrant: result.qdrant } : {}),
+            ...(result.enrichment ? { enrichment: result.enrichment } : {}),
+            ...(typeof result.query_time_ms === 'number'
+              ? { query_time_ms: result.query_time_ms }
+              : {}),
+          };
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Stored ${stored} memories.${idPreview ? `\nIDs: ${idPreview}` : ''}\nMessage: ${result.message}`,
+              },
+            ],
+            structuredContent: output,
+          };
+        }
+
+        // Single-store mode response
         let responseText = `Memory stored successfully!\n\nMemory ID: ${result.memory_id}`;
         if (result.message) {
           responseText += `\nMessage: ${result.message}`;
@@ -1063,6 +1194,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "delete_memory": {
         const deleteArgs = args as unknown as DeleteMemoryArgs;
         const result = await client.deleteMemory(deleteArgs);
+
+        if (typeof result.deleted_count === 'number') {
+          // Bulk-delete-by-tag mode
+          const tags = result.tags ?? deleteArgs.tags ?? [];
+          const output = {
+            deleted_count: result.deleted_count,
+            tags,
+            message: result.message,
+          };
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Bulk delete complete: removed ${result.deleted_count} memor${result.deleted_count === 1 ? 'y' : 'ies'} matching tag(s) ${tags.join(', ')}.`,
+              },
+            ],
+            structuredContent: output,
+          };
+        }
+
         const output = {
           memory_id: result.memory_id,
           message: `Memory ${result.memory_id} deleted successfully!`,

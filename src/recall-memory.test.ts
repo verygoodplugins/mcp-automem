@@ -124,4 +124,47 @@ describe('buildRecallMemoryResponse', () => {
       ],
     });
   });
+
+  it('surfaces enumeration metadata (mode/has_more/limit/offset) when present', async () => {
+    const recallResult = makeRecallResult({
+      mode: 'enumeration',
+      count: 1,
+      limit: 50,
+      offset: 50,
+      has_more: true,
+    });
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue(recallResult),
+    };
+
+    const response = await buildRecallMemoryResponse(client, {
+      tags: ['benchmark'],
+      exhaustive: true,
+      limit: 50,
+      offset: 50,
+    });
+
+    expect(response.structuredContent).toMatchObject({
+      mode: 'enumeration',
+      has_more: true,
+      limit: 50,
+      offset: 50,
+    });
+    expect(response.content[0].text).toContain('enumeration page: offset 50, limit 50');
+    expect(response.content[0].text).toContain('more pages available');
+  });
+
+  it('omits enumeration metadata fields when result is in ranked mode', async () => {
+    const recallResult = makeRecallResult({ mode: 'ranked' });
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue(recallResult),
+    };
+
+    const response = await buildRecallMemoryResponse(client, { query: 'x' });
+
+    expect(response.structuredContent).toMatchObject({ mode: 'ranked' });
+    expect(response.structuredContent).not.toHaveProperty('has_more');
+    expect(response.structuredContent).not.toHaveProperty('offset');
+    expect(response.structuredContent).not.toHaveProperty('limit');
+  });
 });

@@ -178,7 +178,7 @@ export async function runQueueCommand(args: string[] = []): Promise<void> {
     }
 
     if (options.dryRun) {
-      console.log(`[dry-run] would store memory: ${record.content.slice(0, 80)}...`);
+      console.log(`[dry-run] would store memory: ${content.slice(0, 80)}...`);
       storedCount += 1;
       continue;
     }
