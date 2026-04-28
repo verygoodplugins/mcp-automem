@@ -20,6 +20,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- wrap hook commands in `bash -c '…'` so they execute correctly on Windows Git Bash. Claude Code on Windows invokes hook commands via `CreateProcess` (no parent shell), which couldn't parse the previous inline `CLAUDE_HOOK_TYPE=… bash …` prefix and broke `PostToolUse:Bash` and `Stop` hooks with `bash: CLAUDE_HOOK_TYPE=…: No such file or directory` ([#108](https://github.com/verygoodplugins/mcp-automem/issues/108)). Affects `templates/claude-code/settings.json` and `plugins/automem/hooks/hooks.json`. The wrapped form is a no-op on macOS/Linux. Adds a `windows-latest` CI job that exercises the wrapped commands via Node `child_process` to catch future regressions.
+
 ### Changes
 
 - rename the AutoMem service URL env var from `AUTOMEM_ENDPOINT` to `AUTOMEM_API_URL`. The old name still works (the server, queue processor, install script, and OpenClaw resolver all read it as a fallback), but a one-line deprecation warning is logged when only the old name is set. Re-running `npx @verygoodplugins/mcp-automem setup` migrates a `.env` file in place; templates and docs now advertise the new name.
