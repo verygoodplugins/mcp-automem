@@ -150,7 +150,8 @@ export class AutoMemClient {
           ? ' (check AUTOMEM_API_KEY or AUTOMEM_API_TOKEN is set for the MCP server process)'
           : '';
 
-      const error = new Error(`${baseMessage}${hint}`);
+      const error = new Error(`${baseMessage}${hint}`) as Error & { status?: number };
+      error.status = response.status;
       console.error(`AutoMem API error (${method} ${url}):`, error);
       throw error;
     }
@@ -475,8 +476,17 @@ export class AutoMemClient {
   }
 
   private async fetchMemoryById(memoryId: string): Promise<any | null> {
-    const response = await this.makeRequest('GET', `memory/${encodeURIComponent(memoryId)}`);
-    return response?.memory ?? response ?? null;
+    try {
+      const response = await this.makeRequest('GET', `memory/${encodeURIComponent(memoryId)}`);
+      return response?.memory ?? response ?? null;
+    } catch (error) {
+      // A missing ID should yield an empty result, not an exception. recallMemory's
+      // ID-fetch branch maps `null` to `{ count: 0, results: [] }`.
+      if ((error as { status?: number })?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   private async listByTag(
@@ -501,7 +511,7 @@ export class AutoMemClient {
       tags: response.tags ?? tags,
       limit: response.limit,
       offset: response.offset,
-      has_more: Boolean(response.has_more),
+      has_more: typeof response.has_more === 'boolean' ? response.has_more : undefined,
     };
   }
 
@@ -576,9 +586,10 @@ export class AutoMemClient {
       throw new Error('delete_memory: `memory_id` or `tags` is required');
     }
 
-    const response = await this.makeRequest('DELETE', `memory/${args.memory_id}`);
+    const memoryId = args.memory_id!.trim();
+    const response = await this.makeRequest('DELETE', `memory/${encodeURIComponent(memoryId)}`);
     return {
-      memory_id: response.memory_id || args.memory_id,
+      memory_id: response.memory_id || memoryId,
       message: response.message || 'Memory deleted successfully',
     };
   }

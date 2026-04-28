@@ -1047,8 +1047,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "store_memory": {
         const storeArgs = args as unknown as StoreMemoryArgs;
 
-        // Content size governance applies to single-store mode only.
-        // Batch mode pushes governance into the per-item content trim and the server's auto-summarize.
+        // Content size governance applies to single-store mode only. In batch mode the client
+        // only checks that each item's `content` is non-empty (see batchStore in automem-client.ts);
+        // the AutoMem service enforces its own hard/soft limits and auto-summarizes on the way in.
         const SOFT_LIMIT = 500;
         const HARD_LIMIT = 2000;
         const isBatchMode = Array.isArray(storeArgs.memories);
