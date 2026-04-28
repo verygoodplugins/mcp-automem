@@ -66,6 +66,111 @@ describe('openclaw AutoMem plugin', () => {
     expect(isLikelyStartupTurn([{}, {}])).toBe(false);
   });
 
+  describe('extended schemas (parity with v0.15.2)', () => {
+    function captureRegisteredTools(pluginConfig?: Record<string, unknown>) {
+      const tools: Array<{
+        name: string;
+        execute: (id: string, params: unknown) => Promise<unknown>;
+        parameters: any;
+      }> = [];
+      openClawPlugin.register({
+        pluginConfig: {
+          endpoint: 'http://localhost:8001',
+          autoRecall: false,
+          ...(pluginConfig || {}),
+        },
+        logger: { warn: vi.fn() },
+        registerTool: (tool) => {
+          tools.push({
+            name: tool.name,
+            execute: tool.execute,
+            parameters: tool.parameters,
+          });
+        },
+        on: () => {},
+      });
+      return tools;
+    }
+
+    it('exposes new params on recall, store, delete schemas', () => {
+      const tools = captureRegisteredTools();
+      const recall = tools.find((t) => t.name === 'automem_recall_memory');
+      const store = tools.find((t) => t.name === 'automem_store_memory');
+      const del = tools.find((t) => t.name === 'automem_delete_memory');
+      expect(recall?.parameters?.properties?.memory_id).toBeDefined();
+      expect(recall?.parameters?.properties?.exhaustive).toBeDefined();
+      expect(recall?.parameters?.properties?.exclude_tags).toBeDefined();
+      expect(store?.parameters?.properties?.memories).toBeDefined();
+      expect(store?.parameters?.properties?.memories?.maxItems).toBe(500);
+      expect(del?.parameters?.properties?.tags).toBeDefined();
+      expect(del?.parameters?.required).toBeUndefined();
+    });
+
+    it('keeps the surface at six tools (no new tool registrations)', () => {
+      const tools = captureRegisteredTools();
+      expect(tools.map((t) => t.name).sort()).toEqual([
+        'automem_associate_memories',
+        'automem_check_health',
+        'automem_delete_memory',
+        'automem_recall_memory',
+        'automem_store_memory',
+        'automem_update_memory',
+      ]);
+    });
+
+    it('applies mergeTags per item in batch store mode', async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ stored: 2, memory_ids: ['m1', 'm2'], status: 'success' })
+      );
+
+      const tools = captureRegisteredTools({ defaultTags: ['mcp-automem'] });
+      const store = tools.find((t) => t.name === 'automem_store_memory')!;
+
+      await store.execute('call-1', {
+        memories: [
+          { content: 'one', tags: ['extra'] },
+          { content: 'two' },
+        ],
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+      expect(body.memories).toHaveLength(2);
+      expect(body.memories[0].tags).toEqual(['mcp-automem', 'extra']);
+      expect(body.memories[1].tags).toEqual(['mcp-automem']);
+    });
+
+    it('does not inject defaultTags on bulk-delete-by-tag', async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ status: 'success', tags: ['x'], deleted_count: 1 })
+      );
+
+      const tools = captureRegisteredTools({ defaultTags: ['mcp-automem'] });
+      const del = tools.find((t) => t.name === 'automem_delete_memory')!;
+
+      await del.execute('call-1', { tags: ['x'] });
+
+      const url = getRequestUrl(0);
+      expect(url.pathname).toBe('/memory/by-tag');
+      const tagParams = url.searchParams.getAll('tags');
+      expect(tagParams).toEqual(['x']);
+      expect(tagParams).not.toContain('mcp-automem');
+    });
+
+    it('routes recall_memory({memory_id}) to GET /memory/{id}', async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ status: 'success', memory: { id: 'mem-x', content: 'hi' } })
+      );
+
+      const tools = captureRegisteredTools();
+      const recall = tools.find((t) => t.name === 'automem_recall_memory')!;
+
+      await recall.execute('call-1', { memory_id: 'mem-x' });
+
+      const url = getRequestUrl(0);
+      expect(url.pathname).toBe('/memory/mem-x');
+    });
+  });
+
   it('detects profile-like memories', () => {
     expect(
       looksLikeOpenClawProfileCue({

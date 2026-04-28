@@ -20,6 +20,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Features
+
+- parity with AutoMem service v0.15.2 — exposed via mode-multiplexed parameters on existing tools (no new tools, surface stays at 6):
+  - `recall_memory` gains three modes: ID fetch (`memory_id`), tag enumeration (`exhaustive: true` + `tags`, paginated via `limit`/`offset`, returns `has_more`), and ranked retrieval (default, now also supports `exclude_tags`).
+  - `store_memory` gains batch mode (`memories: [...]`, ≤500 items) routed to `POST /memory/batch`. Per-item `id`/`embedding`/`t_valid`/`t_invalid` are not supported in batch mode by design.
+  - `delete_memory` gains bulk-by-tag mode (`tags: [...]`) routed to `DELETE /memory/by-tag`. Exact-match, case-insensitive, no dry-run.
+- the OpenClaw plugin's six `automem_*` tools mirror the new modes via extended schemas; batch store applies the configured `defaultTags` per item, while bulk-delete-by-tag never injects defaults.
+
 ### Changes
 
 - rename the AutoMem service URL env var from `AUTOMEM_ENDPOINT` to `AUTOMEM_API_URL`. The old name still works (the server, queue processor, install script, and OpenClaw resolver all read it as a fallback), but a one-line deprecation warning is logged when only the old name is set. Re-running `npx @verygoodplugins/mcp-automem setup` migrates a `.env` file in place; templates and docs now advertise the new name.
