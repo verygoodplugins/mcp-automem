@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 
 export interface CopilotSetupOptions {
   targetDir?: string;
-  format?: 'cli' | 'vscode';
+  format?: 'cli' | 'vscode' | 'both';
   profile?: string;
   dryRun?: boolean;
   yes?: boolean;
@@ -157,8 +157,8 @@ function writeFileWithBackup(targetPath: string, content: string, options: Copil
  * Remap event name keys in a hook JSON object based on the selected format.
  * Templates use camelCase keys; when --format vscode is chosen, remap to PascalCase.
  */
-function remapHookEventNames(hookData: CopilotHookFile, format: 'cli' | 'vscode'): CopilotHookFile {
-  if (format === 'cli') {
+function remapHookEventNames(hookData: CopilotHookFile, format: 'cli' | 'vscode' | 'both'): CopilotHookFile {
+  if (format === 'cli' || format === 'both') {
     return hookData;
   }
 
@@ -213,7 +213,8 @@ function removeStaleHooks(targetDir: string, profileHooks: string[], options: Co
 function installHookFiles(targetDir: string, profileHooks: string[], options: CopilotSetupOptions) {
   const hookTemplateDir = path.join(TEMPLATE_ROOT, 'hooks');
   const hookTargetDir = path.join(targetDir, 'hooks');
-  const format = options.format ?? 'cli';
+  const format = options.format ?? 'both';
+  const hookFormat: 'cli' | 'vscode' = (format === 'both' || format === 'cli') ? 'cli' : 'vscode';
 
   for (const hookFileName of profileHooks) {
     const templatePath = path.join(hookTemplateDir, hookFileName);
@@ -233,7 +234,7 @@ function installHookFiles(targetDir: string, profileHooks: string[], options: Co
     }
 
     // Remap event names based on --format (T026)
-    hookData = remapHookEventNames(hookData, format);
+    hookData = remapHookEventNames(hookData, hookFormat);
 
     const content = `${JSON.stringify(hookData, null, 2)}\n`;
     writeFileWithBackup(targetPath, content, options);
@@ -275,70 +276,78 @@ function installSupportScripts(targetDir: string, options: CopilotSetupOptions) 
 }
 
 function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
-  // VS Code: ~/.copilot/instructions/automem.instructions.md (with frontmatter)
-  const vscodeTemplatePath = path.join(TEMPLATE_ROOT, 'automem.instructions.md');
-  const vscodeTargetPath = path.join(targetDir, 'instructions', 'automem.instructions.md');
+  const format = options.format ?? 'both';
+  const installVscode = format === 'vscode' || format === 'both';
+  const installCli = format === 'cli' || format === 'both';
 
-  if (fs.existsSync(vscodeTemplatePath)) {
-    const content = fs.readFileSync(vscodeTemplatePath, 'utf8');
-    writeFileWithBackup(vscodeTargetPath, content, options);
-    if (!options.dryRun) {
-      log('installed: instructions/automem.instructions.md (VS Code)', options.quiet);
+  // VS Code: ~/.copilot/instructions/automem.instructions.md (with frontmatter)
+  if (installVscode) {
+    const vscodeTemplatePath = path.join(TEMPLATE_ROOT, 'automem.instructions.md');
+    const vscodeTargetPath = path.join(targetDir, 'instructions', 'automem.instructions.md');
+
+    if (fs.existsSync(vscodeTemplatePath)) {
+      const content = fs.readFileSync(vscodeTemplatePath, 'utf8');
+      writeFileWithBackup(vscodeTargetPath, content, options);
+      if (!options.dryRun) {
+        log('installed: instructions/automem.instructions.md (VS Code)', options.quiet);
+      }
     }
   }
 
   // CLI: ~/.copilot/copilot-instructions.md (append AutoMem block using markers)
-  const cliTemplatePath = path.resolve(
-    fileURLToPath(new URL('../../templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md', import.meta.url))
-  );
-  const cliTargetPath = path.join(targetDir, 'copilot-instructions.md');
+  if (installCli) {
+    const cliTemplatePath = path.resolve(
+      fileURLToPath(new URL('../../templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md', import.meta.url))
+    );
+    const cliTargetPath = path.join(targetDir, 'copilot-instructions.md');
 
-  if (fs.existsSync(cliTemplatePath)) {
-    const templateContent = fs.readFileSync(cliTemplatePath, 'utf8');
-    // Extract just the memory rules block (between the markdown fence markers)
-    const blockStart = templateContent.indexOf('<memory_rules>');
-    const blockEnd = templateContent.indexOf('</memory_rules>');
-    if (blockStart === -1 || blockEnd === -1) {
-      console.error('Warning: Could not find <memory_rules> markers in template');
-      return;
+    if (fs.existsSync(cliTemplatePath)) {
+      const templateContent = fs.readFileSync(cliTemplatePath, 'utf8');
+      // Extract just the memory rules block (between the markdown fence markers)
+      const blockStart = templateContent.indexOf('<memory_rules>');
+      const blockEnd = templateContent.indexOf('</memory_rules>');
+      if (blockStart === -1 || blockEnd === -1) {
+        console.error('Warning: Could not find <memory_rules> markers in template');
+        return;
+      }
+      const rulesBlock = templateContent.slice(blockStart, blockEnd + '</memory_rules>'.length);
+
+      const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
+      const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
+      const markedBlock = `${startMarker}\n${rulesBlock}\n${endMarker}`;
+
+      if (options.dryRun) {
+        log(`dry-run: would update ${cliTargetPath} (memory rules block)`, options.quiet);
+        return;
+      }
+
+      const existing = fs.existsSync(cliTargetPath)
+        ? fs.readFileSync(cliTargetPath, 'utf8')
+        : '';
+
+      let updated: string;
+      const existingStart = existing.indexOf(startMarker);
+      const existingEnd = existing.indexOf(endMarker);
+
+      if (existingStart !== -1 && existingEnd !== -1) {
+        // Replace existing block
+        const before = existing.slice(0, existingStart);
+        const after = existing.slice(existingEnd + endMarker.length);
+        updated = `${before}${markedBlock}${after}`;
+      } else if (existing.length > 0) {
+        // Append to existing file
+        const sep = existing.endsWith('\n') ? '\n' : '\n\n';
+        updated = `${existing}${sep}${markedBlock}\n`;
+      } else {
+        // New file
+        updated = `${markedBlock}\n`;
+      }
+
+      if (updated !== existing) {
+        writeFileWithBackup(cliTargetPath, updated, options);
+      }
+      log('installed: copilot-instructions.md (CLI memory rules)', options.quiet);
     }
-    const rulesBlock = templateContent.slice(blockStart, blockEnd + '</memory_rules>'.length);
-
-    const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
-    const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
-    const markedBlock = `${startMarker}\n${rulesBlock}\n${endMarker}`;
-
-    if (options.dryRun) {
-      log(`dry-run: would update ${cliTargetPath} (memory rules block)`, options.quiet);
-      return;
-    }
-
-    const existing = fs.existsSync(cliTargetPath)
-      ? fs.readFileSync(cliTargetPath, 'utf8')
-      : '';
-
-    let updated: string;
-    const existingStart = existing.indexOf(startMarker);
-    const existingEnd = existing.indexOf(endMarker);
-
-    if (existingStart !== -1 && existingEnd !== -1) {
-      // Replace existing block
-      const before = existing.slice(0, existingStart);
-      const after = existing.slice(existingEnd + endMarker.length);
-      updated = `${before}${markedBlock}${after}`;
-    } else if (existing.length > 0) {
-      // Append to existing file
-      const sep = existing.endsWith('\n') ? '\n' : '\n\n';
-      updated = `${existing}${sep}${markedBlock}\n`;
-    } else {
-      // New file
-      updated = `${markedBlock}\n`;
-    }
-
-    if (updated !== existing) {
-      writeFileWithBackup(cliTargetPath, updated, options);
-    }
-    log('installed: copilot-instructions.md (CLI memory rules)', options.quiet);
   }
 }
 
@@ -348,7 +357,7 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
   const options: CopilotSetupOptions = {
     ...cliOptions,
     targetDir: cliOptions.targetDir ?? path.join(os.homedir(), '.copilot'),
-    format: cliOptions.format ?? 'cli',
+    format: cliOptions.format ?? 'both',
     profile: cliOptions.profile ?? 'lean',
   };
 
@@ -393,15 +402,17 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
   installHookFiles(targetDir, profile.hooks, options);
   installSupportScripts(targetDir, options);
 
-  // Install memory rules to both CLI and VS Code locations
+  // Install memory rules based on --format
   installMemoryRules(targetDir, options);
 
   // T021/T030: Post-installation summary (skip for dry-run - files listed inline already)
+  const format = options.format ?? 'both';
+  const rulesLabel = format === 'both' ? 'CLI and VS Code' : format === 'cli' ? 'CLI' : 'VS Code';
   if (!options.dryRun) {
     log('', options.quiet);
     log(`\u2713 Hook JSON files installed for '${profileName}' profile (${profile.hooks.length} hooks)`, options.quiet);
     log('\u2713 Support scripts installed for queue processing', options.quiet);
-    log('\u2713 Memory rules installed for CLI and VS Code', options.quiet);
+    log(`\u2713 Memory rules installed for ${rulesLabel}`, options.quiet);
     log('', options.quiet);
     log('Next steps:', options.quiet);
     log('1. Add the AutoMem MCP server to your Copilot config:', options.quiet);
@@ -426,7 +437,7 @@ function parseCopilotArgs(args: string[]): CopilotSetupOptions {
         i += 1;
         break;
       case '--format':
-        options.format = args[i + 1] as 'cli' | 'vscode';
+        options.format = args[i + 1] as 'cli' | 'vscode' | 'both';
         i += 1;
         break;
       case '--profile':
@@ -454,8 +465,8 @@ export async function runCopilotSetup(args: string[] = []): Promise<void> {
   const options = parseCopilotArgs(args);
 
   // T027: Validate --format
-  if (options.format !== undefined && options.format !== 'cli' && options.format !== 'vscode') {
-    console.error(`Error: Invalid format '${options.format}'. Valid options: cli, vscode`);
+  if (options.format !== undefined && options.format !== 'cli' && options.format !== 'vscode' && options.format !== 'both') {
+    console.error(`Error: Invalid format '${options.format}'. Valid options: cli, vscode, both`);
     process.exit(1);
   }
 

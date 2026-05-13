@@ -584,7 +584,7 @@ This installs:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--format cli\|vscode` | `cli` | Event name casing. Both work in both surfaces. See [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
+| `--format cli\|vscode\|both` | `both` | Which memory rules to install and hook event name casing. `cli` = camelCase hooks + CLI rules only. `vscode` = PascalCase hooks + VS Code rules only. `both` = camelCase hooks + both rule sets. Either casing works in both surfaces. |
 | `--profile lean\|extras` | `lean` | `lean` = session hooks only; `extras` = all hooks including build/test/deploy capture |
 | `--dir <path>` | `~/.copilot` | Target installation directory |
 | `--dry-run` | | Preview changes without writing files |
