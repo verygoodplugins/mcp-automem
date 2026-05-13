@@ -37,7 +37,7 @@ Add this to your instructions file (see location guidance above):
 
 ````markdown
 <memory_rules>
-# AutoMem Memory Rules
+# AutoMem Memory Rules (NON-NEGOTIABLE)
 
 TOOL NAMING:
 - Copilot CLI exposes MCP tools as `<server>-<tool>` (e.g. `automem-recall_memory`).

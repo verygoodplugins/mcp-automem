@@ -4,7 +4,7 @@ description: Memory recall and storage rules for AutoMem
 applyTo: "**"
 ---
 <memory_rules>
-# AutoMem Memory Rules
+# AutoMem Memory Rules (NON-NEGOTIABLE)
 
 TOOL NAMING:
 - Copilot CLI exposes MCP tools as `<server>-<tool>` (e.g. `automem-recall_memory`).
