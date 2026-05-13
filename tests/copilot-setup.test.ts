@@ -306,3 +306,84 @@ describe('support scripts installation', () => {
     expect(content).toHaveProperty('trivial_patterns');
   });
 });
+
+describe('session-start hook schema', () => {
+  it('automem-session-start.json uses type command with bash and powershell', () => {
+    const hookPath = path.resolve(__dirname, '../templates/copilot/hooks/automem-session-start.json');
+    const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+
+    expect(data.version).toBe(1);
+    const entries = data.hooks.sessionStart;
+    expect(entries).toHaveLength(1);
+    expect(entries[0].type).toBe('command');
+    expect(entries[0].bash).toBeTruthy();
+    expect(entries[0].powershell).toBeTruthy();
+    expect(entries[0].timeoutSec).toBeGreaterThan(0);
+  });
+
+  it('does NOT use type prompt', () => {
+    const hookPath = path.resolve(__dirname, '../templates/copilot/hooks/automem-session-start.json');
+    const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const entries = data.hooks.sessionStart;
+    for (const entry of entries) {
+      expect(entry.type).not.toBe('prompt');
+    }
+  });
+});
+
+describe('session-start bash script', () => {
+  // Convert Windows path to WSL path for bash on Windows
+  function toUnixPath(p: string): string {
+    return p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m, drive) => `/mnt/${drive.toLowerCase()}`);
+  }
+
+  it('outputs valid JSON with additionalContext', () => {
+    const { spawnSync } = require('child_process');
+    const scriptPath = toUnixPath(path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh'));
+    const result = spawnSync('bash', [scriptPath], {
+      encoding: 'utf8',
+      timeout: 5000,
+      cwd: process.cwd(),
+    });
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toHaveProperty('additionalContext');
+    expect(parsed.additionalContext).toContain('automem_session_context');
+  });
+
+  it('includes three-phase recall prompt', () => {
+    const { spawnSync } = require('child_process');
+    const scriptPath = toUnixPath(path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh'));
+    const result = spawnSync('bash', [scriptPath], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+
+    const parsed = JSON.parse(result.stdout);
+    const ctx = parsed.additionalContext;
+    expect(ctx).toContain('Phase 1');
+    expect(ctx).toContain('Phase 2');
+    expect(ctx).toContain('Phase 3');
+    expect(ctx).toMatch(/tags.*preference/);
+    expect(ctx).toMatch(/tags.*bugfix/);
+    expect(ctx).toContain('HARD GATE');
+  });
+
+  it('substitutes project slug from cwd', () => {
+    const { spawnSync } = require('child_process');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'my-test-project-'));
+    const scriptPath = toUnixPath(path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh'));
+    const result = spawnSync('bash', [scriptPath], {
+      encoding: 'utf8',
+      timeout: 5000,
+      cwd: tmpDir,
+    });
+
+    const parsed = JSON.parse(result.stdout);
+    const projectName = path.basename(tmpDir);
+    expect(parsed.additionalContext).toContain(projectName);
+
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+});
