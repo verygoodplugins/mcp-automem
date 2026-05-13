@@ -13,6 +13,12 @@
         "bash": "bash \"$HOME/.copilot/scripts/session-memory.sh\"",
         "powershell": "powershell -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/session-memory.ps1\"",
         "timeoutSec": 30
+      },
+      {
+        "type": "command",
+        "bash": "npx -y @verygoodplugins/mcp-automem queue --file \"$HOME/.copilot/scripts/memory-queue.jsonl\" --limit 5",
+        "powershell": "npx -y @verygoodplugins/mcp-automem queue --file \"$HOME/.copilot/scripts/memory-queue.jsonl\" --limit 5",
+        "timeoutSec": 30
       }
     ]
   }

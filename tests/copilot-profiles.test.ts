@@ -34,10 +34,10 @@ describe('loadProfile', () => {
     expect(profile.hooks).toHaveLength(2);
   });
 
-  // T007: loadProfile('extras') returns all 5 hook filenames
-  it('extras profile returns all 5 hook filenames', () => {
-    const profile = loadProfile('extras');
-    expect(profile.name).toBe('extras');
+  // T007: loadProfile('full') returns all 5 hook filenames
+  it('full profile returns all 5 hook filenames', () => {
+    const profile = loadProfile('full');
+    expect(profile.name).toBe('full');
     expect(profile.hooks).toEqual([
       'automem-session-start.json',
       'automem-build.json',
@@ -52,15 +52,15 @@ describe('loadProfile', () => {
   it('invalid profile throws with error listing valid profiles', () => {
     expect(() => loadProfile('invalid')).toThrow(/Invalid profile 'invalid'/);
     expect(() => loadProfile('invalid')).toThrow(/lean/);
-    expect(() => loadProfile('invalid')).toThrow(/extras/);
+    expect(() => loadProfile('invalid')).toThrow(/full/);
   });
 
-  // T009: default profile resolves to lean
-  it('VALID_PROFILES contains lean and extras', () => {
+  // T009: default profile resolves to full
+  it('VALID_PROFILES contains lean and full', () => {
     expect(VALID_PROFILES).toContain('lean');
-    expect(VALID_PROFILES).toContain('extras');
-    // Default is the first one: lean
-    expect(VALID_PROFILES[0]).toBe('lean');
+    expect(VALID_PROFILES).toContain('full');
+    // Default is full
+    expect(VALID_PROFILES[1]).toBe('full');
   });
 
   it('profile definition files have required fields', () => {
@@ -87,18 +87,18 @@ describe('profile switching (T010)', () => {
     cleanupDir(tempDir);
   });
 
-  it('extras to lean removes extra hooks', () => {
+  it('full to lean removes extra hooks', () => {
     const hooksDir = path.join(tempDir, 'hooks');
 
-    // Simulate extras profile installed (5 hook files)
-    const extrasHooks = [
+    // Simulate full profile installed (5 hook files)
+    const fullHooks = [
       'automem-session-start.json',
       'automem-build.json',
       'automem-test.json',
       'automem-deploy.json',
       'automem-session-end.json',
     ];
-    for (const hook of extrasHooks) {
+    for (const hook of fullHooks) {
       fs.writeFileSync(path.join(hooksDir, hook), '{}', 'utf8');
     }
 

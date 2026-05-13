@@ -36,7 +36,7 @@ export interface ProfileDefinition {
   hooks: string[];
 }
 
-export const VALID_PROFILES = ['lean', 'extras'] as const;
+export const VALID_PROFILES = ['lean', 'full'] as const;
 export type ProfileName = (typeof VALID_PROFILES)[number];
 
 export const EVENT_NAMES = {
@@ -358,7 +358,7 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
     ...cliOptions,
     targetDir: cliOptions.targetDir ?? path.join(os.homedir(), '.copilot'),
     format: cliOptions.format ?? 'both',
-    profile: cliOptions.profile ?? 'lean',
+    profile: cliOptions.profile ?? 'full',
   };
 
   const targetDir = options.targetDir!;

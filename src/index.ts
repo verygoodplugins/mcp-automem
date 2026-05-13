@@ -140,7 +140,7 @@ CLAUDE CODE SETUP:
   
   Options:
     --dir <path>           Target directory (default: ~/.claude)
-    --profile <lean|extras> Use a predefined profile
+    --profile <lean|full>  Use a predefined profile
     --dry-run             Show what would be changed
     --yes, -y             Skip confirmation prompts
 
@@ -148,9 +148,10 @@ COPILOT SETUP:
   npx @verygoodplugins/mcp-automem copilot [options]
   
   Options:
-    --format <cli|vscode>  Event name casing in hook JSON. cli = camelCase (default),
-                           vscode = PascalCase. Either format works for both surfaces.
-                           See https://docs.github.com/en/copilot/reference/hooks-reference
+    --format <cli|vscode|both>  Memory rules and hook event name casing. cli = camelCase
+                           hooks + CLI rules only. vscode = PascalCase hooks + VS Code
+                           rules only. both = camelCase hooks + both rule sets (default).
+    --profile <full|lean>  Hook profile. full = all hooks (default); lean = session only.
     --dir <path>           Target directory (default: ~/.copilot)
     --dry-run             Show what would be changed
     --yes, -y             Skip confirmation prompts

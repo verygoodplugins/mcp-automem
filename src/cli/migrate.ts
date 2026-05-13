@@ -108,7 +108,7 @@ function analyzeCopilotHooks(copilotDir: string, quiet?: boolean): void {
       hookFiles.includes('automem-session-end.json')) {
     log('\n  Profile: lean (session-start + session-end)', quiet);
   } else if (hookFiles.length === 5) {
-    log('\n  Profile: extras (all hooks)', quiet);
+    log('\n  Profile: full (all hooks)', quiet);
   } else {
     log('\n  Profile: custom (does not match a standard profile)', quiet);
   }

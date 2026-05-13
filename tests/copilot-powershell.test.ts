@@ -81,11 +81,14 @@ describe('Hook JSON dual-key verification (T021b)', () => {
           if (entry.type === 'command') {
             expect(entry.bash, `${hookFile} -> ${eventName}: missing bash key`).toBeTruthy();
             expect(entry.powershell, `${hookFile} -> ${eventName}: missing powershell key`).toBeTruthy();
-            // Verify PS key is a real script reference, not a warning stub
+            // Verify PS key is a real command, not a warning stub
+            const ps = String(entry.powershell);
+            const isScript = ps.includes('-File');
+            const isCrossPlat = ps.includes('npx');
             expect(
-              String(entry.powershell),
+              isScript || isCrossPlat,
               `${hookFile} -> ${eventName}: powershell is still a warning stub`
-            ).toContain('-File');
+            ).toBe(true);
           }
         }
       }
@@ -102,8 +105,13 @@ describe('Hook JSON dual-key verification (T021b)', () => {
         for (const entry of entries as Array<Record<string, unknown>>) {
           if (entry.type === 'command' && entry.powershell) {
             const ps = String(entry.powershell);
-            expect(ps).toContain('powershell -ExecutionPolicy Bypass -File');
-            expect(ps).toContain('.ps1');
+            // Either a PS1 script invocation or a cross-platform npx command
+            const isScript = ps.includes('powershell -ExecutionPolicy Bypass -File') && ps.includes('.ps1');
+            const isCrossPlat = ps.includes('npx');
+            expect(
+              isScript || isCrossPlat,
+              `${hookFile}: powershell entry is neither a .ps1 script nor an npx command: ${ps}`
+            ).toBe(true);
           }
         }
       }

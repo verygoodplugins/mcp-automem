@@ -178,7 +178,7 @@ describe('installHookFiles (event name remapping)', () => {
     await applyCopilotSetup({
       targetDir: tempDir,
       format: 'both',
-      profile: 'extras',
+      profile: 'full',
       yes: true,
       quiet: true,
     });

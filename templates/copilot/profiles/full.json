@@ -1,5 +1,5 @@
 {
-  "name": "extras",
+  "name": "full",
   "description": "Full hook set including build, test, and deploy capture",
   "hooks": [
     "automem-session-start.json",
