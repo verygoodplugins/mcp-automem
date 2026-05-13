@@ -66,6 +66,8 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [Claude Desktop](#claude-desktop) - Desktop AI assistant
 - [Cursor IDE](#cursor-ide) - AI-powered code editor
 - [Claude Code](#claude-code) - Terminal coding assistant with automation hooks
+- [GitHub Copilot coding agent](#github-copilot-coding-agent-githubcom) - Cloud-based coding agent on GitHub.com
+- [GitHub Copilot CLI and VS Code](#github-copilot-cli-and-vs-code) - Terminal and editor with hooks and memory rules
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
 - [Google Antigravity](#google-antigravity) - Desktop editor with MCP Store and raw config
 - [OpenClaw](#openclaw) - Personal AI assistant with multi-platform messaging (WhatsApp, Telegram, Slack, Discord, etc.)
@@ -515,6 +517,91 @@ Example (Streamable HTTP):
 ```
 
 Create a `COPILOT_MCP_AUTOMEM_AUTH_HEADER` environment secret with the full header value (for example: `Bearer <AUTOMEM_API_TOKEN>`).
+
+## GitHub Copilot CLI and VS Code
+
+GitHub Copilot CLI and VS Code Copilot both share the `~/.copilot/` config directory and the same hooks system. The `copilot` setup command installs hooks, support scripts, and memory rules that work in both surfaces.
+
+For details on how hooks work across both surfaces, see the [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference).
+
+### 1. Configure MCP Server
+
+The MCP server config lives in different places for CLI vs VS Code:
+
+**Copilot CLI** -- add to `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "automem": {
+      "type": "local",
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001",
+        "AUTOMEM_API_KEY": "your-api-key-if-required"
+      },
+      "tools": ["*"]
+    }
+  }
+}
+```
+
+**VS Code** -- add to `.vscode/mcp.json` (workspace) or VS Code user settings:
+
+```json
+{
+  "servers": {
+    "automem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001",
+        "AUTOMEM_API_KEY": "your-api-key-if-required"
+      }
+    }
+  }
+}
+```
+
+### 2. Install Hooks and Memory Rules
+
+```bash
+npx @verygoodplugins/mcp-automem copilot --yes
+```
+
+This installs:
+- **Hook JSON files** into `~/.copilot/hooks/` (session start recall, build/test/deploy capture, session end queue drain)
+- **Support scripts** (bash + PowerShell) into `~/.copilot/scripts/`
+- **Memory rules** into both `~/.copilot/copilot-instructions.md` (CLI) and `~/.copilot/instructions/automem.instructions.md` (VS Code)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--format cli\|vscode` | `cli` | Event name casing. Both work in both surfaces. See [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
+| `--profile lean\|extras` | `lean` | `lean` = session hooks only; `extras` = all hooks including build/test/deploy capture |
+| `--dir <path>` | `~/.copilot` | Target installation directory |
+| `--dry-run` | | Preview changes without writing files |
+| `--yes` | | Skip confirmation prompts |
+| `--quiet` | | Suppress output |
+
+### 3. Verify Installation
+
+In a Copilot CLI or VS Code Copilot session, ask:
+
+```
+Check the health of the AutoMem service
+```
+
+### 4. Uninstall
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall copilot --yes
+```
+
+Add `--clean-all` to also remove the MCP server entry from `~/.copilot/mcp-config.json`.
+
+---
 
 ## OpenAI Codex
 
