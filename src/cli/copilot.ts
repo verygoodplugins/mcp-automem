@@ -409,6 +409,9 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
     log('   VS Code: .vscode/mcp.json (workspace) or VS Code settings (user)', options.quiet);
     log('   See INSTALLATION.md for the server entry JSON', options.quiet);
     log('2. Restart Copilot', options.quiet);
+    log('', options.quiet);
+    log('Note: Copilot will prompt to approve AutoMem MCP tools on first use', options.quiet);
+    log('per project. Approvals are saved to ~/.copilot/permissions-config.json.', options.quiet);
   }
 }
 
