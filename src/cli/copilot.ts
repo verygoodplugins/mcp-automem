@@ -274,6 +274,74 @@ function installSupportScripts(targetDir: string, options: CopilotSetupOptions) 
   }
 }
 
+function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
+  // VS Code: ~/.copilot/instructions/automem.instructions.md (with frontmatter)
+  const vscodeTemplatePath = path.join(TEMPLATE_ROOT, 'automem.instructions.md');
+  const vscodeTargetPath = path.join(targetDir, 'instructions', 'automem.instructions.md');
+
+  if (fs.existsSync(vscodeTemplatePath)) {
+    const content = fs.readFileSync(vscodeTemplatePath, 'utf8');
+    writeFileWithBackup(vscodeTargetPath, content, options);
+    if (!options.dryRun) {
+      log('installed: instructions/automem.instructions.md (VS Code)', options.quiet);
+    }
+  }
+
+  // CLI: ~/.copilot/copilot-instructions.md (append AutoMem block using markers)
+  const cliTemplatePath = path.resolve(
+    fileURLToPath(new URL('../../templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md', import.meta.url))
+  );
+  const cliTargetPath = path.join(targetDir, 'copilot-instructions.md');
+
+  if (fs.existsSync(cliTemplatePath)) {
+    const templateContent = fs.readFileSync(cliTemplatePath, 'utf8');
+    // Extract just the memory rules block (between the markdown fence markers)
+    const blockStart = templateContent.indexOf('<memory_rules>');
+    const blockEnd = templateContent.indexOf('</memory_rules>');
+    if (blockStart === -1 || blockEnd === -1) {
+      console.error('Warning: Could not find <memory_rules> markers in template');
+      return;
+    }
+    const rulesBlock = templateContent.slice(blockStart, blockEnd + '</memory_rules>'.length);
+
+    const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
+    const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
+    const markedBlock = `${startMarker}\n${rulesBlock}\n${endMarker}`;
+
+    if (options.dryRun) {
+      log(`dry-run: would update ${cliTargetPath} (memory rules block)`, options.quiet);
+      return;
+    }
+
+    const existing = fs.existsSync(cliTargetPath)
+      ? fs.readFileSync(cliTargetPath, 'utf8')
+      : '';
+
+    let updated: string;
+    const existingStart = existing.indexOf(startMarker);
+    const existingEnd = existing.indexOf(endMarker);
+
+    if (existingStart !== -1 && existingEnd !== -1) {
+      // Replace existing block
+      const before = existing.slice(0, existingStart);
+      const after = existing.slice(existingEnd + endMarker.length);
+      updated = `${before}${markedBlock}${after}`;
+    } else if (existing.length > 0) {
+      // Append to existing file
+      const sep = existing.endsWith('\n') ? '\n' : '\n\n';
+      updated = `${existing}${sep}${markedBlock}\n`;
+    } else {
+      // New file
+      updated = `${markedBlock}\n`;
+    }
+
+    if (updated !== existing) {
+      writeFileWithBackup(cliTargetPath, updated, options);
+    }
+    log('installed: copilot-instructions.md (CLI memory rules)', options.quiet);
+  }
+}
+
 // --- Public API ---
 
 export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promise<void> {
@@ -309,6 +377,7 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
   if (!options.dryRun) {
     fs.mkdirSync(path.join(targetDir, 'hooks'), { recursive: true });
     fs.mkdirSync(path.join(targetDir, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(targetDir, 'instructions'), { recursive: true });
   }
 
   log('', options.quiet);
@@ -324,16 +393,22 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
   installHookFiles(targetDir, profile.hooks, options);
   installSupportScripts(targetDir, options);
 
+  // Install memory rules to both CLI and VS Code locations
+  installMemoryRules(targetDir, options);
+
   // T021/T030: Post-installation summary (skip for dry-run - files listed inline already)
   if (!options.dryRun) {
     log('', options.quiet);
     log(`\u2713 Hook JSON files installed for '${profileName}' profile (${profile.hooks.length} hooks)`, options.quiet);
     log('\u2713 Support scripts installed for queue processing', options.quiet);
+    log('\u2713 Memory rules installed for CLI and VS Code', options.quiet);
     log('', options.quiet);
     log('Next steps:', options.quiet);
-    log('1. Add MCP server to Copilot config (see INSTALLATION.md)', options.quiet);
-    log('2. Add memory rules: cat templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md >> ~/.copilot/copilot-instructions.md', options.quiet);
-    log('3. Restart Copilot', options.quiet);
+    log('1. Add the AutoMem MCP server to your Copilot config:', options.quiet);
+    log('   CLI:     ~/.copilot/mcp-config.json', options.quiet);
+    log('   VS Code: .vscode/mcp.json (workspace) or VS Code settings (user)', options.quiet);
+    log('   See INSTALLATION.md for the server entry JSON', options.quiet);
+    log('2. Restart Copilot', options.quiet);
   }
 }
 

@@ -1,41 +1,8 @@
-# AutoMem Memory Rules for Copilot
-
-<!-- automem-template-version: 0.14.0 -->
-
-## Where to add these rules
-
-- **Copilot CLI**: Append to `~/.copilot/copilot-instructions.md`
-- **VS Code Copilot**: Save as `~/.copilot/instructions/automem.instructions.md`
-  (add `applyTo: "**"` frontmatter so it applies to all files)
-
-See https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference
-and https://code.visualstudio.com/docs/copilot/customization/custom-instructions
-
-## Quick Installation (Copilot CLI)
-
-```bash
-cat templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md >> ~/.copilot/copilot-instructions.md
-```
-
-## Quick Installation (VS Code)
-
-```bash
-mkdir -p ~/.copilot/instructions
-# Copy the "Copilot Memory Rules Template" section below into:
-# ~/.copilot/instructions/automem.instructions.md
-# with the following frontmatter at the top:
-# ---
-# name: AutoMem Memory Rules
-# description: Memory recall and storage rules for AutoMem
-# applyTo: "**"
-# ---
-```
-
-## Copilot Memory Rules Template
-
-Add this to your instructions file (see location guidance above):
-
-````markdown
+---
+name: AutoMem Memory Rules
+description: Memory recall and storage rules for AutoMem
+applyTo: "**"
+---
 <memory_rules>
 # AutoMem Memory Rules
 
@@ -240,4 +207,3 @@ Store as `Pattern`, importance 0.8. Link to concrete examples with `EXEMPLIFIES`
 - Ephemeral state that changes every session.
 - Duplicate memories (recall first).
 </memory_rules>
-````
