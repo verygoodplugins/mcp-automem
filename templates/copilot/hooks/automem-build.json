@@ -5,7 +5,7 @@
       {
         "type": "command",
         "bash": "bash \"$HOME/.copilot/scripts/capture-build-result.sh\"",
-        "powershell": "powershell -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/capture-build-result.ps1\"",
+        "powershell": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/capture-build-result.ps1\"",
         "timeoutSec": 30
       }
     ]

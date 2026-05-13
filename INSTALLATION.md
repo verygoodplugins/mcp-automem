@@ -591,6 +591,8 @@ This installs:
 | `--yes` | | Skip confirmation prompts |
 | `--quiet` | | Suppress output |
 
+> **Windows note:** All hook templates invoke PowerShell with `-NoProfile` to prevent profile output from corrupting hook JSON payloads. This matches how bash hooks work (non-interactive `bash script.sh` skips `~/.bashrc`). If your hook scripts need something from your profile (custom PATH entries, modules), move that setup into the hook script itself or into environment variables.
+
 ### 3. Verify Installation
 
 In a Copilot CLI or VS Code Copilot session, ask:
@@ -1330,6 +1332,30 @@ npx @verygoodplugins/mcp-automem help
 - Test explicitly: "Check AutoMem database health"
 - Check Codex logs for MCP connection errors
 - Ensure environment variables are set correctly in `[mcp_servers.memory.env]` section
+
+#### Copilot CLI / VS Code: SessionStart hook not injecting context
+
+AutoMem's `sessionStart` hook outputs JSON via stdout (`{"additionalContext":"..."}`). If your PowerShell profile prints anything to the console during load -- `Write-Output`, `Write-Host`, `Import-Module` warnings, `Invoke-Expression` output, etc. -- that text appears before the JSON and corrupts the payload. The CLI silently fails to parse it, so the memory recall context never gets injected.
+
+**Symptoms:**
+- AutoMem recall doesn't run automatically at session start
+- Hook script works when tested manually but not in practice
+- No visible error (the hook "succeeds" but its output is ignored)
+
+**Fix:** All AutoMem hook templates use `powershell -NoProfile` to skip profile loading entirely, matching how bash hooks work (non-interactive `bash script.sh` does not source `~/.bashrc`). Hook scripts only use built-in PowerShell cmdlets and don't need profile setup.
+
+If you've installed hooks from an older version that doesn't include `-NoProfile`, update your `~/.copilot/hooks/*.json` files to add it:
+
+```diff
+- "powershell": "powershell -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/automem-session-start.ps1\""
++ "powershell": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/automem-session-start.ps1\""
+```
+
+Or re-run the installer to get the updated hook configs:
+
+```bash
+npx @verygoodplugins/mcp-automem copilot --yes
+```
 
 ---
 

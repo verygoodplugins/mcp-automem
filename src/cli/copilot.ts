@@ -424,6 +424,11 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
     log('', options.quiet);
     log('Note: Copilot will prompt to approve AutoMem MCP tools on first use', options.quiet);
     log('per project. Approvals are saved to ~/.copilot/permissions-config.json.', options.quiet);
+    log('', options.quiet);
+    log('Note: Hook scripts run with -NoProfile on Windows to prevent PowerShell', options.quiet);
+    log('profile output from corrupting hook JSON payloads. If a hook script needs', options.quiet);
+    log('custom PATH entries or modules from your profile, move that setup into the', options.quiet);
+    log('script itself or into environment variables.', options.quiet);
   }
 }
 

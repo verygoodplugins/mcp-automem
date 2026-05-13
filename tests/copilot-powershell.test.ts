@@ -106,7 +106,7 @@ describe('Hook JSON dual-key verification (T021b)', () => {
           if (entry.type === 'command' && entry.powershell) {
             const ps = String(entry.powershell);
             // Either a PS1 script invocation or a cross-platform npx command
-            const isScript = ps.includes('powershell -ExecutionPolicy Bypass -File') && ps.includes('.ps1');
+            const isScript = ps.includes('-ExecutionPolicy Bypass -File') && ps.includes('.ps1');
             const isCrossPlat = ps.includes('npx');
             expect(
               isScript || isCrossPlat,
