@@ -38,7 +38,7 @@ try {
 
     # Skip non-build commands
     if ([string]::IsNullOrEmpty($command)) { exit 0 }
-    $buildPattern = '(^|\s)(npm (run )?build|yarn build|pnpm build|vite build|webpack|rollup|parcel|go build|cargo build|dotnet build|msbuild|gradle|mvn|make|composer)'
+    $buildPattern = '(^|\s)(npm (run )?build|yarn build|pnpm build|vite build|webpack|rollup|parcel|go build|cargo build|dotnet build|msbuild|bicep build|az bicep build|gradle|mvn|make|composer)'
     if ($command -notmatch $buildPattern) { exit 0 }
 
     # Extract output
@@ -74,6 +74,7 @@ try {
         'mvn'     = 'mvn'
         'make'    = 'make'
         'dotnet'  = 'dotnet build|msbuild'
+        'bicep'   = 'bicep build|az bicep build'
         'composer' = 'composer'
     }
     foreach ($tool in $toolMap.GetEnumerator()) {
@@ -108,7 +109,7 @@ try {
     if ($content.Length -gt 1500) { $content = $content.Substring(0, 1497) + "..." }
 
     # Build tags
-    $toolToLang = @{ 'npm'='typescript'; 'yarn'='typescript'; 'pnpm'='typescript'; 'webpack'='typescript'; 'vite'='typescript'; 'cargo'='rust'; 'go'='go'; 'dotnet'='csharp'; 'gradle'='java'; 'mvn'='java'; 'make'='c'; 'composer'='php' }
+    $toolToLang = @{ 'npm'='typescript'; 'yarn'='typescript'; 'pnpm'='typescript'; 'webpack'='typescript'; 'vite'='typescript'; 'cargo'='rust'; 'go'='go'; 'dotnet'='csharp'; 'bicep'='bicep'; 'gradle'='java'; 'mvn'='java'; 'make'='c'; 'composer'='php' }
     $tags = @("build")
     if ($buildTool -ne "unknown") { $tags += $buildTool }
     $lang = $toolToLang[$buildTool]

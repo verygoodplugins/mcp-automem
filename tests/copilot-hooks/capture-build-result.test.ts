@@ -31,6 +31,8 @@ function buildCaptureSuite(shell: Shell) {
       ['make', 'make all'],
       ['dotnet build', 'dotnet build'],
       ['msbuild', 'msbuild /p:Configuration=Release'],
+      ['bicep build', 'bicep build main.bicep'],
+      ['az bicep build', 'az bicep build --file main.bicep'],
     ])('captures: %s', (_label, command) => {
       const result = run({ command, exitCode: 0, output: 'Built in 2.5s, size: 100 KB' });
       expect(result.queue).toHaveLength(1);

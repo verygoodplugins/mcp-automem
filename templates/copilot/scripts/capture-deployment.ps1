@@ -28,7 +28,7 @@ try {
 
     # Skip non-deploy commands
     if ([string]::IsNullOrEmpty($command)) { exit 0 }
-    $deployPattern = '(^|\s)(\./deploy[\w.-]*|kubectl apply|helm (install|upgrade)|docker push|az webapp deploy|aws (s3 sync|ecs|lambda)|gcloud (app deploy|run deploy)|terraform apply|pulumi up|cdk deploy|fly deploy|railway up|vercel deploy|vercel --prod|netlify deploy|firebase deploy|gh-pages)'
+    $deployPattern = '(^|\s)(\./deploy[\w.-]*|kubectl apply|helm (install|upgrade)|docker push|az (webapp deploy|deployment (group )?create)|dotnet publish|aws (s3 sync|ecs|lambda)|gcloud (app deploy|run deploy)|terraform apply|pulumi up|cdk deploy|fly deploy|railway up|vercel deploy|vercel --prod|netlify deploy|firebase deploy|gh-pages)'
     if ($command -notmatch $deployPattern) { exit 0 }
 
     # Extract output and exit code
@@ -50,7 +50,8 @@ try {
         'kubernetes' = 'kubectl apply'
         'helm'       = 'helm (install|upgrade)'
         'docker'     = 'docker push'
-        'azure'      = 'az webapp deploy'
+        'azure'      = 'az (webapp deploy|deployment)'
+        'dotnet'     = 'dotnet publish'
         'aws'        = 'aws (s3 sync|ecs|lambda)'
         'gcloud'     = 'gcloud (app deploy|run deploy)'
         'terraform'  = 'terraform apply'

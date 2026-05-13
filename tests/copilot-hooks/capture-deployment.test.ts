@@ -44,6 +44,8 @@ function deployCaptureSuite(shell: Shell) {
       ['vercel deploy --prod', 'vercel deploy --prod'],
       ['netlify deploy', 'netlify deploy --prod'],
       ['kubectl apply', 'kubectl apply -f deployment.yaml'],
+      ['az deployment create', 'az deployment group create --resource-group myRg --template-file main.bicep'],
+      ['dotnet publish', 'dotnet publish -c Release'],
     ])('captures: %s', (_label, command) => {
       const result = run({
         command,

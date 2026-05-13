@@ -70,7 +70,7 @@ esac
 # Require either explicit "deploy" word OR a platform+action combination that
 # actually deploys something (not just a status check or query).
 DEPLOY_REGEX='(^|[^[:alnum:]_])deploy(ed|ing|ment|s)?($|[^[:alnum:]_])'
-PLATFORM_ACTION_REGEX='(^|[[:space:]])(railway[[:space:]]+(up|redeploy|run)|vercel([[:space:]]+(--prod|deploy))?|netlify[[:space:]]+deploy|heroku[[:space:]]+(create|releases:create|run)|git[[:space:]]+push[[:space:]]+heroku|kubectl[[:space:]]+(apply|rollout|set[[:space:]]+image|create|replace)|docker[[:space:]]+(push|buildx[[:space:]]+build[[:space:]]+.*--push)|gcloud[[:space:]]+(run|app|builds|functions|compute)[[:space:]]+(deploy|submit)|firebase[[:space:]]+deploy|gh[[:space:]]+(pages|workflow[[:space:]]+run)|flyctl[[:space:]]+deploy|fly[[:space:]]+deploy)($|[[:space:]])'
+PLATFORM_ACTION_REGEX='(^|[[:space:]])(railway[[:space:]]+(up|redeploy|run)|vercel([[:space:]]+(--prod|deploy))?|netlify[[:space:]]+deploy|heroku[[:space:]]+(create|releases:create|run)|git[[:space:]]+push[[:space:]]+heroku|kubectl[[:space:]]+(apply|rollout|set[[:space:]]+image|create|replace)|docker[[:space:]]+(push|buildx[[:space:]]+build[[:space:]]+.*--push)|gcloud[[:space:]]+(run|app|builds|functions|compute)[[:space:]]+(deploy|submit)|firebase[[:space:]]+deploy|gh[[:space:]]+(pages|workflow[[:space:]]+run)|flyctl[[:space:]]+deploy|fly[[:space:]]+deploy|az[[:space:]]+(deployment|webapp[[:space:]]+deploy)|dotnet[[:space:]]+publish|terraform[[:space:]]+apply|pulumi[[:space:]]+up)($|[[:space:]])'
 
 if ! echo "$COMMAND" | grep -qiE "$DEPLOY_REGEX" && ! echo "$COMMAND" | grep -qiE "$PLATFORM_ACTION_REGEX"; then
     exit 0

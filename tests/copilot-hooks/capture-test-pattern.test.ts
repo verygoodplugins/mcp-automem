@@ -30,6 +30,7 @@ function testCaptureSuite(shell: Shell) {
       ['vitest', 'vitest run'],
       ['go test', 'go test ./...'],
       ['cargo test', 'cargo test --release'],
+      ['dotnet test', 'dotnet test'],
     ])('captures: %s', (_label, command) => {
       const result = run({ command, exitCode: 0, output: '42 passed in 1s' });
       expect(result.queue).toHaveLength(1);

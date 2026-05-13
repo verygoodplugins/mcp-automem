@@ -55,7 +55,7 @@ CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty' 2>/dev/null)
 PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 
 # Skip non-test commands
-if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(npm test|yarn test|pnpm test|vitest|jest|pytest|python .*test|go test|cargo test|phpunit)"; then
+if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(npm test|yarn test|pnpm test|vitest|jest|pytest|python .*test|go test|cargo test|dotnet test|phpunit)"; then
     exit 0
 fi
 
@@ -87,6 +87,12 @@ elif echo "$COMMAND" | grep -q "phpunit"; then
     TESTS_PASSED=$(echo "$OUTPUT" | grep -oE "OK \([0-9]+ test" | grep -oE "[0-9]+" | head -1)
     TESTS_PASSED="${TESTS_PASSED:-0}"
     TESTS_FAILED=$(echo "$OUTPUT" | grep -oE "FAILURES.*Tests: [0-9]+" | grep -oE "[0-9]+" | tail -1)
+    TESTS_FAILED="${TESTS_FAILED:-0}"
+elif echo "$COMMAND" | grep -q "dotnet test"; then
+    TEST_FRAMEWORK="dotnet"
+    TESTS_PASSED=$(echo "$OUTPUT" | grep -oE "Passed:[[:space:]]*[0-9]+" | grep -oE "[0-9]+" | head -1)
+    TESTS_PASSED="${TESTS_PASSED:-0}"
+    TESTS_FAILED=$(echo "$OUTPUT" | grep -oE "Failed:[[:space:]]*[0-9]+" | grep -oE "[0-9]+" | head -1)
     TESTS_FAILED="${TESTS_FAILED:-0}"
 fi
 
