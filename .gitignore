@@ -6,6 +6,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Local config (not part of upstream repo)
+.github/
+.specify/
+
 # Runtime data
 pids
 *.pid
