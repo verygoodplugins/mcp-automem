@@ -69,6 +69,7 @@ const SUPPORT_SCRIPTS = [
   'process-session-memory.py',
   'memory-filters.json',
   // PowerShell equivalents
+  'automem-session-start.ps1',
   'capture-build-result.ps1',
   'capture-test-pattern.ps1',
   'capture-deployment.ps1',
