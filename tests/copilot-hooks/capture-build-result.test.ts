@@ -29,6 +29,8 @@ function buildCaptureSuite(shell: Shell) {
       ['cargo build', 'cargo build --release'],
       ['go build', 'go build ./...'],
       ['make', 'make all'],
+      ['dotnet build', 'dotnet build'],
+      ['msbuild', 'msbuild /p:Configuration=Release'],
     ])('captures: %s', (_label, command) => {
       const result = run({ command, exitCode: 0, output: 'Built in 2.5s, size: 100 KB' });
       expect(result.queue).toHaveLength(1);
@@ -81,6 +83,18 @@ function buildCaptureSuite(shell: Shell) {
         cwd: '/tmp/go-service',
       });
       expect(result.queue[0].tags).toContain('go');
+    });
+
+    it('infers csharp from dotnet build', () => {
+      const result = run({
+        command: 'dotnet build',
+        exitCode: 0,
+        output: 'Build succeeded. 0 Warning(s) 0 Error(s)',
+        cwd: '/tmp/my-api',
+      });
+      expect(result.queue[0].tags).toContain('dotnet');
+      expect(result.queue[0].tags).toContain('csharp');
+      expect(result.queue[0].tags).toContain('my-api');
     });
 
     it('adds "failure" tag on non-zero exit', () => {

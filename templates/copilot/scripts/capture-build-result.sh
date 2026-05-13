@@ -56,7 +56,7 @@ PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
 BUILD_TOOL="unknown"
 
 # Skip non-build commands
-if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(npm (run )?build|yarn build|pnpm build|vite build|webpack|rollup|parcel|go build|cargo build|gradle|mvn|make|composer)"; then
+if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(npm (run )?build|yarn build|pnpm build|vite build|webpack|rollup|parcel|go build|cargo build|dotnet build|msbuild|gradle|mvn|make|composer)"; then
     exit 0
 fi
 
@@ -78,6 +78,8 @@ elif echo "$COMMAND" | grep -q "gradle\|mvn"; then
     BUILD_TOOL=$(echo "$COMMAND" | grep -oE "gradle|mvn" | head -1)
 elif echo "$COMMAND" | grep -q "make"; then
     BUILD_TOOL="make"
+elif echo "$COMMAND" | grep -q "dotnet build\|msbuild"; then
+    BUILD_TOOL="dotnet"
 elif echo "$COMMAND" | grep -q "composer"; then
     BUILD_TOOL="composer"
 fi
@@ -230,7 +232,7 @@ TOOL_TO_LANG = {
     "npm": "typescript", "yarn": "typescript", "pnpm": "typescript",
     "webpack": "typescript", "vite": "typescript", "rollup": "typescript", "parcel": "typescript",
     "go": "go", "cargo": "rust", "gradle": "java", "mvn": "java",
-    "make": "c", "composer": "php",
+    "dotnet": "csharp", "make": "c", "composer": "php",
 }
 lang = TOOL_TO_LANG.get(build_tool)
 
