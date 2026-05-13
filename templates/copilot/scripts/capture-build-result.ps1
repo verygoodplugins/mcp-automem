@@ -102,7 +102,7 @@ try {
     if ($exitCode -eq 0) {
         $content = "Build succeeded in $projectName using $buildTool"
     } else {
-        $content = "Build failed in $projectName using $buildTool: $errors errors"
+        $content = "Build failed in $projectName using ${buildTool}: $errors errors"
     }
     if ($content.Length -gt 1500) { $content = $content.Substring(0, 1497) + "..." }
 

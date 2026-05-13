@@ -49,7 +49,7 @@ COMMAND=$(echo "$INPUT_JSON" | jq -r '.toolArgs.command // .tool_input.command /
 COMMAND="${COMMAND:-${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}}"
 OUTPUT=$(echo "$INPUT_JSON" | jq -r '.toolResult.textResultForLlm // .toolResult // .tool_response // empty' 2>/dev/null)
 OUTPUT="${OUTPUT:-${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}}"
-EXIT_CODE=$(echo "$INPUT_JSON" | jq -r '.toolResult.textResultForLlm // .toolResult // .tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end' 2>/dev/null)
+EXIT_CODE=$(echo "$INPUT_JSON" | jq -r '(.toolResult.exit_code // .tool_response.exit_code // .tool_response.exitCode // 0)' 2>/dev/null)
 EXIT_CODE="${EXIT_CODE:-${CLAUDE_EXIT_CODE:-0}}"
 CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty' 2>/dev/null)
 PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
