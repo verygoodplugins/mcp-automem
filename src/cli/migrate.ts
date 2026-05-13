@@ -1,11 +1,13 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { applyCursorSetup } from './cursor.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
+import { applyCopilotSetup } from './copilot.js';
 
 interface MigrateOptions {
-  from: 'manual' | 'none';
-  to: 'cursor' | 'claude-code';
+  from: 'manual' | 'none' | 'copilot';
+  to: 'cursor' | 'claude-code' | 'copilot';
   projectDir?: string;
   dryRun?: boolean;
   yes?: boolean;
@@ -77,6 +79,43 @@ async function analyzeManualUsage(projectDir: string, quiet?: boolean): Promise<
   log('\n💡 After migration, these manual calls will be handled automatically by AutoMem agents', quiet);
 }
 
+function analyzeCopilotHooks(copilotDir: string, quiet?: boolean): void {
+  const hooksDir = path.join(copilotDir, 'hooks');
+
+  log('\n🔍 Analyzing existing Copilot AutoMem hooks...', quiet);
+
+  if (!fs.existsSync(hooksDir)) {
+    log('  ℹ️  No Copilot hooks directory found', quiet);
+    return;
+  }
+
+  const hookFiles = fs.readdirSync(hooksDir)
+    .filter(f => f.startsWith('automem-') && f.endsWith('.json'));
+
+  if (hookFiles.length === 0) {
+    log('  ℹ️  No AutoMem hook files found in Copilot hooks directory', quiet);
+    return;
+  }
+
+  log(`\n📝 Found ${hookFiles.length} AutoMem hook file(s):`, quiet);
+  for (const f of hookFiles) {
+    log(`  - ${f}`, quiet);
+  }
+
+  // Detect which profile they match
+  if (hookFiles.length === 2 &&
+      hookFiles.includes('automem-session-start.json') &&
+      hookFiles.includes('automem-session-end.json')) {
+    log('\n  Profile: lean (session-start + session-end)', quiet);
+  } else if (hookFiles.length === 5) {
+    log('\n  Profile: extras (all hooks)', quiet);
+  } else {
+    log('\n  Profile: custom (does not match a standard profile)', quiet);
+  }
+
+  log('\n💡 After migration, these hooks will be replaced by the target platform configuration', quiet);
+}
+
 export async function runMigration(options: MigrateOptions): Promise<void> {
   const projectDir = options.projectDir ?? process.cwd();
   
@@ -88,6 +127,9 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   // Analyze current state
   if (options.from === 'manual') {
     await analyzeManualUsage(projectDir, options.quiet);
+  } else if (options.from === 'copilot') {
+    const copilotDir = path.join(os.homedir(), '.copilot');
+    analyzeCopilotHooks(copilotDir, options.quiet);
   }
   
   // Perform migration
@@ -101,6 +143,12 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
     await applyClaudeCodeSetup({
       dryRun: options.dryRun,
       yes: options.yes,
+    });
+  } else if (options.to === 'copilot') {
+    await applyCopilotSetup({
+      dryRun: options.dryRun,
+      yes: options.yes,
+      quiet: options.quiet,
     });
   }
   
@@ -123,14 +171,14 @@ function parseMigrateArgs(args: string[]): MigrateOptions | null {
     switch (arg) {
       case '--from': {
         if (i + 1 >= args.length) {
-          console.error('Error: --from requires a value (manual|none)');
+          console.error('Error: --from requires a value (manual|none|copilot)');
           process.exit(1);
         }
         const fromValue = args[i + 1];
-        if (fromValue === 'manual' || fromValue === 'none') {
+        if (fromValue === 'manual' || fromValue === 'none' || fromValue === 'copilot') {
           options.from = fromValue;
         } else {
-          console.error(`Error: Invalid --from value "${fromValue}". Must be "manual" or "none"`);
+          console.error(`Error: Invalid --from value "${fromValue}". Must be "manual", "none", or "copilot"`);
           process.exit(1);
         }
         i += 1;
@@ -138,14 +186,14 @@ function parseMigrateArgs(args: string[]): MigrateOptions | null {
       }
       case '--to': {
         if (i + 1 >= args.length) {
-          console.error('Error: --to requires a value (cursor|claude-code)');
+          console.error('Error: --to requires a value (cursor|claude-code|copilot)');
           process.exit(1);
         }
         const toValue = args[i + 1];
-        if (toValue === 'cursor' || toValue === 'claude-code') {
+        if (toValue === 'cursor' || toValue === 'claude-code' || toValue === 'copilot') {
           options.to = toValue;
         } else {
-          console.error(`Error: Invalid --to value "${toValue}". Must be "cursor" or "claude-code"`);
+          console.error(`Error: Invalid --to value "${toValue}". Must be "cursor", "claude-code", or "copilot"`);
           process.exit(1);
         }
         i += 1;
@@ -176,7 +224,7 @@ function parseMigrateArgs(args: string[]): MigrateOptions | null {
   
   if (!options.from || !options.to) {
     console.error('❌ Error: Both --from and --to are required');
-    console.error('Usage: mcp-automem migrate --from <manual|none> --to <cursor|claude-code>');
+    console.error('Usage: mcp-automem migrate --from <manual|none|copilot> --to <cursor|claude-code|copilot>');
     return null;
   }
   

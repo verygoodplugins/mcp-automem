@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "bash \"$HOME/.copilot/scripts/capture-deployment.sh\"",
+        "powershell": "powershell -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/capture-deployment.ps1\"",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}

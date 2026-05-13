@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 export interface CopilotSetupOptions {
   targetDir?: string;
   format?: 'cli' | 'vscode';
+  profile?: string;
   dryRun?: boolean;
   yes?: boolean;
   quiet?: boolean;
@@ -29,6 +30,15 @@ export interface CopilotHookFile {
   hooks: Record<string, CopilotHookEntry[]>;
 }
 
+export interface ProfileDefinition {
+  name: string;
+  description: string;
+  hooks: string[];
+}
+
+export const VALID_PROFILES = ['lean', 'extras'] as const;
+export type ProfileName = (typeof VALID_PROFILES)[number];
+
 export const EVENT_NAMES = {
   cli: {
     sessionStart: 'sessionStart',
@@ -48,12 +58,6 @@ const TEMPLATE_ROOT = path.resolve(
   fileURLToPath(new URL('../../templates/copilot', import.meta.url))
 );
 
-const HOOK_FILES = [
-  'automem-session-start.json',
-  'automem-post-tool-use.json',
-  'automem-session-end.json',
-];
-
 const SUPPORT_SCRIPTS = [
   'automem-session-start.sh',
   'capture-build-result.sh',
@@ -64,6 +68,13 @@ const SUPPORT_SCRIPTS = [
   'queue-cleanup.sh',
   'process-session-memory.py',
   'memory-filters.json',
+  // PowerShell equivalents
+  'capture-build-result.ps1',
+  'capture-test-pattern.ps1',
+  'capture-deployment.ps1',
+  'session-memory.ps1',
+  'python-command.ps1',
+  'queue-cleanup.ps1',
 ];
 
 // Map from template event key (camelCase) to internal event name for remapping
@@ -72,6 +83,35 @@ const EVENT_KEY_MAP: Record<string, keyof typeof EVENT_NAMES.cli> = {
   postToolUse: 'postToolUse',
   sessionEnd: 'sessionEnd',
 };
+
+// --- Profile Loading (T004) ---
+
+export function loadProfile(name: string): ProfileDefinition {
+  if (!VALID_PROFILES.includes(name as ProfileName)) {
+    throw new Error(
+      `Invalid profile '${name}'. Valid profiles: ${VALID_PROFILES.join(', ')}`
+    );
+  }
+
+  const profilePath = path.join(TEMPLATE_ROOT, 'profiles', `${name}.json`);
+
+  if (!fs.existsSync(profilePath)) {
+    throw new Error(
+      `Profile file not found at ${profilePath} - package may be corrupted`
+    );
+  }
+
+  const raw = fs.readFileSync(profilePath, 'utf8');
+  const profile: ProfileDefinition = JSON.parse(raw);
+
+  if (!Array.isArray(profile.hooks) || profile.hooks.length === 0) {
+    throw new Error(
+      `Profile '${name}' has no hooks defined`
+    );
+  }
+
+  return profile;
+}
 
 // --- Helpers ---
 
@@ -136,12 +176,46 @@ function remapHookEventNames(hookData: CopilotHookFile, format: 'cli' | 'vscode'
 
 // --- Core Installer Logic (T017-T022) ---
 
-function installHookFiles(targetDir: string, options: CopilotSetupOptions) {
+function removeStaleHooks(targetDir: string, profileHooks: string[], options: CopilotSetupOptions): string[] {
+  const hookTargetDir = path.join(targetDir, 'hooks');
+  const removed: string[] = [];
+
+  if (!fs.existsSync(hookTargetDir)) {
+    return removed;
+  }
+
+  // Find all automem-*.json files currently installed
+  const existing = fs.readdirSync(hookTargetDir)
+    .filter(f => f.startsWith('automem-') && f.endsWith('.json'));
+
+  for (const hookFile of existing) {
+    if (!profileHooks.includes(hookFile)) {
+      const filePath = path.join(hookTargetDir, hookFile);
+      if (options.dryRun) {
+        log(`dry-run: would remove stale hook ${hookFile}`, options.quiet);
+      } else {
+        try {
+          const backup = backupPath(filePath);
+          fs.copyFileSync(filePath, backup);
+          fs.unlinkSync(filePath);
+          log(`removed stale hook: ${hookFile} (backup: ${backup})`, options.quiet);
+        } catch (err) {
+          log(`warning: failed to remove ${hookFile}: ${(err as Error).message}`, options.quiet);
+        }
+      }
+      removed.push(hookFile);
+    }
+  }
+
+  return removed;
+}
+
+function installHookFiles(targetDir: string, profileHooks: string[], options: CopilotSetupOptions) {
   const hookTemplateDir = path.join(TEMPLATE_ROOT, 'hooks');
   const hookTargetDir = path.join(targetDir, 'hooks');
   const format = options.format ?? 'cli';
 
-  for (const hookFileName of HOOK_FILES) {
+  for (const hookFileName of profileHooks) {
     const templatePath = path.join(hookTemplateDir, hookFileName);
     const targetPath = path.join(hookTargetDir, hookFileName);
 
@@ -187,7 +261,11 @@ function installSupportScripts(targetDir: string, options: CopilotSetupOptions) 
     writeFileWithBackup(targetPath, content, options);
 
     if (!options.dryRun && (scriptName.endsWith('.sh') || scriptName.endsWith('.py'))) {
-      fs.chmodSync(targetPath, 0o755);
+      try {
+        fs.chmodSync(targetPath, 0o755);
+      } catch {
+        // chmod may fail on Windows - that's OK for .sh/.py files
+      }
     }
 
     if (!options.dryRun) {
@@ -203,9 +281,20 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
     ...cliOptions,
     targetDir: cliOptions.targetDir ?? path.join(os.homedir(), '.copilot'),
     format: cliOptions.format ?? 'cli',
+    profile: cliOptions.profile ?? 'lean',
   };
 
   const targetDir = options.targetDir!;
+  const profileName = options.profile!;
+
+  // Load and validate profile
+  let profile: ProfileDefinition;
+  try {
+    profile = loadProfile(profileName);
+  } catch (err) {
+    console.error(`Error: ${(err as Error).message}`);
+    process.exit(1);
+  }
 
   // T019: Dry-run header
   if (options.dryRun) {
@@ -213,6 +302,8 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
   } else {
     log(`Configuring Copilot in ${targetDir}`, options.quiet);
   }
+
+  log(`Profile: ${profileName} (${profile.hooks.length} hooks)`, options.quiet);
 
   // T032: Create target directories (including when --dir points to non-existent path)
   if (!options.dryRun) {
@@ -222,14 +313,21 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
 
   log('', options.quiet);
 
-  // Install hook JSON files and support scripts
-  installHookFiles(targetDir, options);
+  // T012: Remove-first profile switching - remove hooks not in target profile
+  const removed = removeStaleHooks(targetDir, profile.hooks, options);
+  if (removed.length > 0) {
+    log(`Removed ${removed.length} hook(s) not in '${profileName}' profile`, options.quiet);
+    log('', options.quiet);
+  }
+
+  // Install hook JSON files for the selected profile and support scripts
+  installHookFiles(targetDir, profile.hooks, options);
   installSupportScripts(targetDir, options);
 
   // T021/T030: Post-installation summary (skip for dry-run - files listed inline already)
   if (!options.dryRun) {
     log('', options.quiet);
-    log('\u2713 Hook JSON files installed for automatic memory capture', options.quiet);
+    log(`\u2713 Hook JSON files installed for '${profileName}' profile (${profile.hooks.length} hooks)`, options.quiet);
     log('\u2713 Support scripts installed for queue processing', options.quiet);
     log('', options.quiet);
     log('Next steps:', options.quiet);
@@ -251,6 +349,10 @@ function parseCopilotArgs(args: string[]): CopilotSetupOptions {
         break;
       case '--format':
         options.format = args[i + 1] as 'cli' | 'vscode';
+        i += 1;
+        break;
+      case '--profile':
+        options.profile = args[i + 1];
         i += 1;
         break;
       case '--dry-run':
@@ -276,6 +378,12 @@ export async function runCopilotSetup(args: string[] = []): Promise<void> {
   // T027: Validate --format
   if (options.format !== undefined && options.format !== 'cli' && options.format !== 'vscode') {
     console.error(`Error: Invalid format '${options.format}'. Valid options: cli, vscode`);
+    process.exit(1);
+  }
+
+  // Validate --profile
+  if (options.profile !== undefined && !VALID_PROFILES.includes(options.profile as ProfileName)) {
+    console.error(`Error: Invalid profile '${options.profile}'. Valid profiles: ${VALID_PROFILES.join(', ')}`);
     process.exit(1);
   }
 

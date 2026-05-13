@@ -5,19 +5,19 @@
       {
         "type": "command",
         "bash": "bash \"$HOME/.copilot/scripts/capture-build-result.sh\"",
-        "powershell": "Write-Warning 'AutoMem hooks require bash; PowerShell not yet supported'; exit 0",
+        "powershell": "powershell -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/capture-build-result.ps1\"",
         "timeoutSec": 30
       },
       {
         "type": "command",
         "bash": "bash \"$HOME/.copilot/scripts/capture-test-pattern.sh\"",
-        "powershell": "Write-Warning 'AutoMem hooks require bash; PowerShell not yet supported'; exit 0",
+        "powershell": "powershell -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/capture-test-pattern.ps1\"",
         "timeoutSec": 30
       },
       {
         "type": "command",
         "bash": "bash \"$HOME/.copilot/scripts/capture-deployment.sh\"",
-        "powershell": "Write-Warning 'AutoMem hooks require bash; PowerShell not yet supported'; exit 0",
+        "powershell": "powershell -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/capture-deployment.ps1\"",
         "timeoutSec": 30
       }
     ]

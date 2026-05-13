@@ -1,0 +1,11 @@
+{
+  "name": "extras",
+  "description": "Full hook set including build, test, and deploy capture",
+  "hooks": [
+    "automem-session-start.json",
+    "automem-build.json",
+    "automem-test.json",
+    "automem-deploy.json",
+    "automem-session-end.json"
+  ]
+}

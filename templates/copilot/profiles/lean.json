@@ -1,0 +1,8 @@
+{
+  "name": "lean",
+  "description": "Minimal hooks - session start and end only",
+  "hooks": [
+    "automem-session-start.json",
+    "automem-session-end.json"
+  ]
+}

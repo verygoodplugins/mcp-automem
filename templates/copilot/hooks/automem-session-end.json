@@ -5,13 +5,13 @@
       {
         "type": "command",
         "bash": "bash \"$HOME/.copilot/scripts/queue-cleanup.sh\"",
-        "powershell": "Write-Warning 'AutoMem hooks require bash; PowerShell not yet supported'; exit 0",
+        "powershell": "powershell -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/queue-cleanup.ps1\"",
         "timeoutSec": 15
       },
       {
         "type": "command",
         "bash": "bash \"$HOME/.copilot/scripts/session-memory.sh\"",
-        "powershell": "Write-Warning 'AutoMem hooks require bash; PowerShell not yet supported'; exit 0",
+        "powershell": "powershell -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/session-memory.ps1\"",
         "timeoutSec": 30
       }
     ]

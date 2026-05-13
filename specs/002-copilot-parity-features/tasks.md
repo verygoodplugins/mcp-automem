@@ -29,9 +29,9 @@
 
 **Purpose**: Create profile template files and shared test utilities that all stories depend on.
 
-- [ ] T001 Create `templates/copilot/profiles/lean.json` with hooks list `["automem-session-start.json", "automem-session-end.json"]` per data-model.md profile definition
-- [ ] T002 [P] Create `templates/copilot/profiles/extras.json` with hooks list `["automem-session-start.json", "automem-build.json", "automem-test.json", "automem-deploy.json", "automem-session-end.json"]` per data-model.md profile definition
-- [ ] T003 [P] Verify `templates/copilot/profiles/` is included in the `files` array in `package.json` so profile JSON ships with the npm package
+- [X] T001 Create `templates/copilot/profiles/lean.json` with hooks list `["automem-session-start.json", "automem-session-end.json"]` per data-model.md profile definition
+- [X] T002 [P] Create `templates/copilot/profiles/extras.json` with hooks list `["automem-session-start.json", "automem-build.json", "automem-test.json", "automem-deploy.json", "automem-session-end.json"]` per data-model.md profile definition
+- [X] T003 [P] Verify `templates/copilot/profiles/` is included in the `files` array in `package.json` so profile JSON ships with the npm package
 
 ---
 
@@ -41,8 +41,8 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T004 Implement `loadProfile(name: string): ProfileDefinition` utility function in `src/cli/copilot.ts` (or a new `src/cli/copilot-profiles.ts`) that reads `templates/copilot/profiles/{name}.json`, validates the name is `lean` or `extras`, and returns the parsed profile definition. On invalid name, throw with a message listing valid profiles (FR-001, FR-004, acceptance scenario 5).
-- [ ] T005 [P] Add `--profile <lean|extras>` flag parsing to the copilot command's argument parser in `src/cli/copilot.ts` with default value `lean` (FR-001, FR-004). Wire the parsed value through to the installer.
+- [X] T004 Implement `loadProfile(name: string): ProfileDefinition` utility function in `src/cli/copilot.ts` (or a new `src/cli/copilot-profiles.ts`) that reads `templates/copilot/profiles/{name}.json`, validates the name is `lean` or `extras`, and returns the parsed profile definition. On invalid name, throw with a message listing valid profiles (FR-001, FR-004, acceptance scenario 5).
+- [X] T005 [P] Add `--profile <lean|extras>` flag parsing to the copilot command's argument parser in `src/cli/copilot.ts` with default value `lean` (FR-001, FR-004). Wire the parsed value through to the installer.
 
 **Checkpoint**: Profile infrastructure ready - user story implementation can now begin.
 
@@ -56,18 +56,18 @@
 
 ### Tests for User Story 1
 
-- [ ] T006 [P] [US1] Write unit test in `tests/copilot-profiles.test.ts`: `loadProfile('lean')` returns exactly `["automem-session-start.json", "automem-session-end.json"]`
-- [ ] T007 [P] [US1] Write unit test in `tests/copilot-profiles.test.ts`: `loadProfile('extras')` returns all 5 hook filenames
-- [ ] T008 [P] [US1] Write unit test in `tests/copilot-profiles.test.ts`: `loadProfile('invalid')` throws with error message listing valid profiles
-- [ ] T009 [P] [US1] Write unit test in `tests/copilot-profiles.test.ts`: default profile (no `--profile` flag) resolves to `lean`
-- [ ] T010 [P] [US1] Write unit test in `tests/copilot-profiles.test.ts`: profile switching from `extras` to `lean` removes extra hooks via remove-first strategy (FR-005)
+- [X] T006 [P] [US1] Write unit test in `tests/copilot-profiles.test.ts`: `loadProfile('lean')` returns exactly `["automem-session-start.json", "automem-session-end.json"]`
+- [X] T007 [P] [US1] Write unit test in `tests/copilot-profiles.test.ts`: `loadProfile('extras')` returns all 5 hook filenames
+- [X] T008 [P] [US1] Write unit test in `tests/copilot-profiles.test.ts`: `loadProfile('invalid')` throws with error message listing valid profiles
+- [X] T009 [P] [US1] Write unit test in `tests/copilot-profiles.test.ts`: default profile (no `--profile` flag) resolves to `lean`
+- [X] T010 [P] [US1] Write unit test in `tests/copilot-profiles.test.ts`: profile switching from `extras` to `lean` removes extra hooks via remove-first strategy (FR-005)
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Integrate profile selection into the copilot installer in `src/cli/copilot.ts`: filter the hooks to install based on the loaded profile's `hooks` array. Only copy hook JSON files listed in the profile to the target hooks directory (FR-002, FR-003).
-- [ ] T012 [US1] Implement remove-first profile switching in `src/cli/copilot.ts`: when hooks already exist, glob for `automem-*.json` in the hooks directory, delete any not in the target profile's list, then install the target set (FR-005). Ensure partial failure leaves fewer hooks (safe degradation).
-- [ ] T013 [US1] Update `--dry-run` output in `src/cli/copilot.ts` to show which profile is being applied, which hooks will be installed, and which hooks will be removed (if switching profiles).
-- [ ] T014 [US1] Verify `npm run build` and `npm test` pass with profile changes.
+- [X] T011 [US1] Integrate profile selection into the copilot installer in `src/cli/copilot.ts`: filter the hooks to install based on the loaded profile's `hooks` array. Only copy hook JSON files listed in the profile to the target hooks directory (FR-002, FR-003).
+- [X] T012 [US1] Implement remove-first profile switching in `src/cli/copilot.ts`: when hooks already exist, glob for `automem-*.json` in the hooks directory, delete any not in the target profile's list, then install the target set (FR-005). Ensure partial failure leaves fewer hooks (safe degradation).
+- [X] T013 [US1] Update `--dry-run` output in `src/cli/copilot.ts` to show which profile is being applied, which hooks will be installed, and which hooks will be removed (if switching profiles).
+- [X] T014 [US1] Verify `npm run build` and `npm test` pass with profile changes.
 
 **Checkpoint**: User Story 1 complete. `copilot --profile lean/extras --dry-run` works correctly.
 
@@ -81,18 +81,18 @@
 
 ### Implementation for User Story 2
 
-- [ ] T015 [P] [US2] Create `templates/copilot/scripts/python-command.ps1` - locates Python executable (`python3` or `python`) on PATH, outputs path to stdout, exits 0 with stderr warning if not found. Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a
-- [ ] T016 [P] [US2] Create `templates/copilot/scripts/capture-build-result.ps1` - reads hook context from stdin JSON, detects build commands (npm, make, cargo, etc.), captures build outcome (success/failure, tool, time), appends JSONL entry to `~/.copilot/scripts/memory-queue.jsonl` using `[System.IO.File]::Open()` with `FileShare.None` for atomic writes. Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a (FR-013, FR-014, contracts/cli-contract.md)
-- [ ] T017 [P] [US2] Create `templates/copilot/scripts/capture-test-pattern.ps1` - reads hook context from stdin JSON, detects test commands, captures test results (pass/fail count, patterns), appends JSONL entry to queue. Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a (FR-013, FR-014)
-- [ ] T018 [P] [US2] Create `templates/copilot/scripts/capture-deployment.ps1` - reads hook context from stdin JSON, detects deployment commands, captures deployment details, appends JSONL entry to queue. Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a (FR-013, FR-014)
-- [ ] T019 [P] [US2] Create `templates/copilot/scripts/session-memory.ps1` - processes session context at session end, builds summary memory entry, appends JSONL entry to queue. Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a (FR-013, FR-014)
-- [ ] T020 [P] [US2] Create `templates/copilot/scripts/queue-cleanup.ps1` - deduplicates and archives the JSONL queue file, uses native PS JSON handling (no Python dependency per R6). Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a (FR-013, FR-014)
-- [ ] T021 [US2] Verify all 6 PS scripts include `try/catch` error handling pattern per FR-013a - this is a verification-only task (error handling is embedded in T015-T020)
-- [ ] T021a [P] [US2] Write unit test in `tests/copilot-powershell.test.ts`: validate that each PS script's JSONL output matches the expected queue entry schema (content, tags, importance, metadata fields) per SC-006
-- [ ] T021b [P] [US2] Write unit test in `tests/copilot-powershell.test.ts`: validate that installed hook JSON files contain both `bash` and `powershell` keys with correct script paths per SC-004 and spec edge case (dual-key verification)
-- [ ] T022 [US2] Update hook JSON templates in `templates/copilot/hooks/` to replace PowerShell warning stubs with real `.ps1` script references using `powershell -ExecutionPolicy Bypass -File "$HOME/.copilot/scripts/<script>.ps1"` format (FR-015)
-- [ ] T023 [US2] Update the copilot installer in `src/cli/copilot.ts` to copy all `.ps1` scripts from `templates/copilot/scripts/` to the target scripts directory alongside the existing `.sh` scripts
-- [ ] T024 [US2] Verify `templates/copilot/scripts/` is included in the `files` array in `package.json` so PS scripts ship with the npm package
+- [X] T015 [P] [US2] Create `templates/copilot/scripts/python-command.ps1` - locates Python executable (`python3` or `python`) on PATH, outputs path to stdout, exits 0 with stderr warning if not found. Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a
+- [X] T016 [P] [US2] Create `templates/copilot/scripts/capture-build-result.ps1` - reads hook context from stdin JSON, detects build commands (npm, make, cargo, etc.), captures build outcome (success/failure, tool, time), appends JSONL entry to `~/.copilot/scripts/memory-queue.jsonl` using `[System.IO.File]::Open()` with `FileShare.None` for atomic writes. Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a (FR-013, FR-014, contracts/cli-contract.md)
+- [X] T017 [P] [US2] Create `templates/copilot/scripts/capture-test-pattern.ps1` - reads hook context from stdin JSON, detects test commands, captures test results (pass/fail count, patterns), appends JSONL entry to queue. Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a (FR-013, FR-014)
+- [X] T018 [P] [US2] Create `templates/copilot/scripts/capture-deployment.ps1` - reads hook context from stdin JSON, detects deployment commands, captures deployment details, appends JSONL entry to queue. Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a (FR-013, FR-014)
+- [X] T019 [P] [US2] Create `templates/copilot/scripts/session-memory.ps1` - processes session context at session end, builds summary memory entry, appends JSONL entry to queue. Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a (FR-013, FR-014)
+- [X] T020 [P] [US2] Create `templates/copilot/scripts/queue-cleanup.ps1` - deduplicates and archives the JSONL queue file, uses native PS JSON handling (no Python dependency per R6). Wrap body in `try { ... } catch { Write-Error "AutoMem hook error: $_"; exit 0 }` per FR-013a (FR-013, FR-014)
+- [X] T021 [US2] Verify all 6 PS scripts include `try/catch` error handling pattern per FR-013a - this is a verification-only task (error handling is embedded in T015-T020)
+- [X] T021a [P] [US2] Write unit test in `tests/copilot-powershell.test.ts`: validate that each PS script's JSONL output matches the expected queue entry schema (content, tags, importance, metadata fields) per SC-006
+- [X] T021b [P] [US2] Write unit test in `tests/copilot-powershell.test.ts`: validate that installed hook JSON files contain both `bash` and `powershell` keys with correct script paths per SC-004 and spec edge case (dual-key verification)
+- [X] T022 [US2] Update hook JSON templates in `templates/copilot/hooks/` to replace PowerShell warning stubs with real `.ps1` script references using `powershell -ExecutionPolicy Bypass -File "$HOME/.copilot/scripts/<script>.ps1"` format (FR-015)
+- [X] T023 [US2] Update the copilot installer in `src/cli/copilot.ts` to copy all `.ps1` scripts from `templates/copilot/scripts/` to the target scripts directory alongside the existing `.sh` scripts
+- [X] T024 [US2] Verify `templates/copilot/scripts/` is included in the `files` array in `package.json` so PS scripts ship with the npm package
 
 **Checkpoint**: User Story 2 complete. All 6 PS scripts installed, hook JSON references real scripts, JSONL queue format matches bash equivalents.
 
@@ -106,20 +106,20 @@
 
 ### Tests for User Story 3
 
-- [ ] T025 [P] [US3] Write unit test in `tests/copilot-uninstall.test.ts`: `uninstall copilot` removes all `automem-*.json` files from hooks directory
-- [ ] T026 [P] [US3] Write unit test in `tests/copilot-uninstall.test.ts`: `uninstall copilot` removes all AutoMem `.sh` and `.ps1` scripts from scripts directory
-- [ ] T027 [P] [US3] Write unit test in `tests/copilot-uninstall.test.ts`: `uninstall copilot --clean-all` also removes AutoMem entry from `mcp-config.json`
-- [ ] T028 [P] [US3] Write unit test in `tests/copilot-uninstall.test.ts`: `uninstall copilot --dry-run` lists files without removing them
-- [ ] T029 [P] [US3] Write unit test in `tests/copilot-uninstall.test.ts`: `uninstall copilot` when no hooks installed reports "no AutoMem files found" and exits 0
+- [X] T025 [P] [US3] Write unit test in `tests/copilot-uninstall.test.ts`: `uninstall copilot` removes all `automem-*.json` files from hooks directory
+- [X] T026 [P] [US3] Write unit test in `tests/copilot-uninstall.test.ts`: `uninstall copilot` removes all AutoMem `.sh` and `.ps1` scripts from scripts directory
+- [X] T027 [P] [US3] Write unit test in `tests/copilot-uninstall.test.ts`: `uninstall copilot --clean-all` also removes AutoMem entry from `mcp-config.json`
+- [X] T028 [P] [US3] Write unit test in `tests/copilot-uninstall.test.ts`: `uninstall copilot --dry-run` lists files without removing them
+- [X] T029 [P] [US3] Write unit test in `tests/copilot-uninstall.test.ts`: `uninstall copilot` when no hooks installed reports "no AutoMem files found" and exits 0
 
 ### Implementation for User Story 3
 
-- [ ] T030 [US3] Extend `UninstallOptions.platform` union type in `src/cli/uninstall.ts` from `'cursor' | 'claude-code'` to `'cursor' | 'claude-code' | 'copilot'` (data-model.md entity 2)
-- [ ] T031 [US3] Implement `uninstallCopilot(options: UninstallOptions)` function in `src/cli/uninstall.ts` following the pattern of existing `uninstallCursor()` and `uninstallClaudeCode()`: glob `automem-*.json` in hooks dir, glob AutoMem scripts in scripts dir, create backups, remove files (FR-006, FR-007, FR-008, FR-017)
-- [ ] T032 [US3] Add `--clean-all` handling to `uninstallCopilot()`: remove AutoMem server entry from `~/.copilot/mcp-config.json` (FR-009). Handle missing config file gracefully (edge case from spec).
-- [ ] T033 [US3] Wire `uninstallCopilot()` into the platform dispatch in `runUninstall()` in `src/cli/uninstall.ts` - add `else if (options.platform === 'copilot')` branch
-- [ ] T034 [US3] Update argument parser in `src/cli/uninstall.ts` (`parseUninstallArgs`) to accept `copilot` as a valid platform value and update the usage string from `<cursor|claude-code>` to `<cursor|claude-code|copilot>` (FR-016)
-- [ ] T035 [US3] Verify `npm run build` and `npm test` pass with uninstall changes.
+- [X] T030 [US3] Extend `UninstallOptions.platform` union type in `src/cli/uninstall.ts` from `'cursor' | 'claude-code'` to `'cursor' | 'claude-code' | 'copilot'` (data-model.md entity 2)
+- [X] T031 [US3] Implement `uninstallCopilot(options: UninstallOptions)` function in `src/cli/uninstall.ts` following the pattern of existing `uninstallCursor()` and `uninstallClaudeCode()`: glob `automem-*.json` in hooks dir, glob AutoMem scripts in scripts dir, create backups, remove files (FR-006, FR-007, FR-008, FR-017)
+- [X] T032 [US3] Add `--clean-all` handling to `uninstallCopilot()`: remove AutoMem server entry from `~/.copilot/mcp-config.json` (FR-009). Handle missing config file gracefully (edge case from spec).
+- [X] T033 [US3] Wire `uninstallCopilot()` into the platform dispatch in `runUninstall()` in `src/cli/uninstall.ts` - add `else if (options.platform === 'copilot')` branch
+- [X] T034 [US3] Update argument parser in `src/cli/uninstall.ts` (`parseUninstallArgs`) to accept `copilot` as a valid platform value and update the usage string from `<cursor|claude-code>` to `<cursor|claude-code|copilot>` (FR-016)
+- [X] T035 [US3] Verify `npm run build` and `npm test` pass with uninstall changes.
 
 **Checkpoint**: User Story 3 complete. `uninstall copilot` with all flag combinations works correctly.
 
@@ -133,19 +133,19 @@
 
 ### Tests for User Story 4
 
-- [ ] T036 [P] [US4] Write unit test in `tests/copilot-migrate.test.ts`: `migrate --from none --to copilot` delegates to copilot installer
-- [ ] T037 [P] [US4] Write unit test in `tests/copilot-migrate.test.ts`: `migrate --from manual --to copilot` analyzes manual usage then delegates to copilot installer
-- [ ] T038 [P] [US4] Write unit test in `tests/copilot-migrate.test.ts`: `migrate --from copilot --to claude-code` analyzes copilot hooks and installs claude-code
-- [ ] T039 [P] [US4] Write unit test in `tests/copilot-migrate.test.ts`: `migrate --to copilot --dry-run` shows planned changes without modifying files
+- [X] T036 [P] [US4] Write unit test in `tests/copilot-migrate.test.ts`: `migrate --from none --to copilot` delegates to copilot installer
+- [X] T037 [P] [US4] Write unit test in `tests/copilot-migrate.test.ts`: `migrate --from manual --to copilot` analyzes manual usage then delegates to copilot installer
+- [X] T038 [P] [US4] Write unit test in `tests/copilot-migrate.test.ts`: `migrate --from copilot --to claude-code` analyzes copilot hooks and installs claude-code
+- [X] T039 [P] [US4] Write unit test in `tests/copilot-migrate.test.ts`: `migrate --to copilot --dry-run` shows planned changes without modifying files
 
 ### Implementation for User Story 4
 
-- [ ] T040 [US4] Extend `MigrateOptions.to` union type in `src/cli/migrate.ts` from `'cursor' | 'claude-code'` to `'cursor' | 'claude-code' | 'copilot'` (data-model.md entity 3)
-- [ ] T041 [US4] Extend `MigrateOptions.from` union type in `src/cli/migrate.ts` from `'manual' | 'none'` to `'manual' | 'none' | 'copilot'` (data-model.md entity 3)
-- [ ] T042 [US4] Implement `--to copilot` branch in `runMigration()` in `src/cli/migrate.ts`: import and delegate to the copilot installer function (same code path per FR-012), forwarding `--dry-run`, `--yes`, `--quiet` flags
-- [ ] T043 [US4] Implement `--from copilot` branch in `runMigration()` in `src/cli/migrate.ts`: analyze existing copilot hooks (list installed `automem-*.json`), report findings, then install the target platform
-- [ ] T044 [US4] Update argument parser in `src/cli/migrate.ts` (`parseMigrateArgs`) to accept `copilot` for both `--from` and `--to` values, and update usage strings (FR-010, FR-011)
-- [ ] T045 [US4] Verify `npm run build` and `npm test` pass with migrate changes.
+- [X] T040 [US4] Extend `MigrateOptions.to` union type in `src/cli/migrate.ts` from `'cursor' | 'claude-code'` to `'cursor' | 'claude-code' | 'copilot'` (data-model.md entity 3)
+- [X] T041 [US4] Extend `MigrateOptions.from` union type in `src/cli/migrate.ts` from `'manual' | 'none'` to `'manual' | 'none' | 'copilot'` (data-model.md entity 3)
+- [X] T042 [US4] Implement `--to copilot` branch in `runMigration()` in `src/cli/migrate.ts`: import and delegate to the copilot installer function (same code path per FR-012), forwarding `--dry-run`, `--yes`, `--quiet` flags
+- [X] T043 [US4] Implement `--from copilot` branch in `runMigration()` in `src/cli/migrate.ts`: analyze existing copilot hooks (list installed `automem-*.json`), report findings, then install the target platform
+- [X] T044 [US4] Update argument parser in `src/cli/migrate.ts` (`parseMigrateArgs`) to accept `copilot` for both `--from` and `--to` values, and update usage strings (FR-010, FR-011)
+- [X] T045 [US4] Verify `npm run build` and `npm test` pass with migrate changes.
 
 **Checkpoint**: User Story 4 complete. Migration to/from copilot works with all flag combinations.
 
@@ -155,13 +155,13 @@
 
 **Purpose**: Final validation, documentation, and quality gates.
 
-- [ ] T046 [P] Ensure `templates/copilot/scripts/memory-filters.json` is reused from claude-code (symlink or copy) per plan.md structure
-- [ ] T047 [P] Verify all PS scripts produce JSONL output with the same schema as bash counterparts: `content`, `tags`, `importance`, `type`, `metadata`, `timestamp` fields (FR-014, SC-006)
-- [ ] T048 [P] Verify hook JSON files reference both `.sh` and `.ps1` scripts via their respective keys so the Copilot CLI runtime selects the correct one per shell (edge case from spec)
-- [ ] T049 Run full `npm run build` - must pass
-- [ ] T050 Run full `npm test` - must pass (includes all new test files)
-- [ ] T051 Run `npm run lint` - must pass
-- [ ] T052 Run quickstart.md verification scenarios end-to-end per `specs/002-copilot-parity-features/quickstart.md`
+- [X] T046 [P] Ensure `templates/copilot/scripts/memory-filters.json` is reused from claude-code (symlink or copy) per plan.md structure
+- [X] T047 [P] Verify all PS scripts produce JSONL output with the same schema as bash counterparts: `content`, `tags`, `importance`, `type`, `metadata`, `timestamp` fields (FR-014, SC-006)
+- [X] T048 [P] Verify hook JSON files reference both `.sh` and `.ps1` scripts via their respective keys so the Copilot CLI runtime selects the correct one per shell (edge case from spec)
+- [X] T049 Run full `npm run build` - must pass
+- [X] T050 Run full `npm test` - must pass (includes all new test files)
+- [X] T051 Run `npm run lint` - must pass
+- [X] T052 Run quickstart.md verification scenarios end-to-end per `specs/002-copilot-parity-features/quickstart.md`
 
 ---
 
