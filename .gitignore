@@ -9,6 +9,7 @@ lerna-debug.log*
 # Local config (not part of upstream repo)
 .github/
 .specify/
+specs/
 
 # Runtime data
 pids
