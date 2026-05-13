@@ -290,7 +290,7 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
       const content = fs.readFileSync(vscodeTemplatePath, 'utf8');
       writeFileWithBackup(vscodeTargetPath, content, options);
       if (!options.dryRun) {
-        log('installed: instructions/automem.instructions.md (VS Code)', options.quiet);
+        log(`installed: ${vscodeTargetPath} (VS Code)`, options.quiet);
       }
     }
   }
@@ -347,7 +347,7 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
       if (updated !== existing) {
         writeFileWithBackup(cliTargetPath, updated, options);
       }
-      log('installed: copilot-instructions.md (CLI memory rules)', options.quiet);
+      log(`installed: ${cliTargetPath} (CLI memory rules)`, options.quiet);
     }
   }
 }

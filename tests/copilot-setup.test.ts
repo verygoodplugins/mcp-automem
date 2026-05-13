@@ -332,9 +332,18 @@ describe('session-start hook schema', () => {
 });
 
 describe('session-start bash script', () => {
-  // Convert Windows path to WSL path for bash on Windows
+  // Convert Windows path for bash: try Git Bash (/c/...) first, fall back to WSL (/mnt/c/...)
   function toUnixPath(p: string): string {
-    return p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m, drive) => `/mnt/${drive.toLowerCase()}`);
+    if (process.platform !== 'win32') return p;
+    const forward = p.replace(/\\/g, '/');
+    // Try Git Bash style first (/c/...), fall back to WSL (/mnt/c/...)
+    const gitBash = forward.replace(/^([A-Za-z]):/, (_m, drive) => `/${drive.toLowerCase()}`);
+    try {
+      const { spawnSync } = require('child_process');
+      const check = spawnSync('bash', ['-c', `test -f "${gitBash}" && echo ok`], { encoding: 'utf8', timeout: 2000 });
+      if (check.stdout?.trim() === 'ok') return gitBash;
+    } catch { /* fall through */ }
+    return forward.replace(/^([A-Za-z]):/, (_m, drive) => `/mnt/${drive.toLowerCase()}`);
   }
 
   it('outputs valid JSON with additionalContext', () => {
