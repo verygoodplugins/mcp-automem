@@ -547,6 +547,12 @@ The MCP server config lives in different places for CLI vs VS Code:
 }
 ```
 
+> **Note:** Copilot CLI does not support `${env:...}` variable interpolation in
+> `mcp-config.json` -- that syntax is VS Code-only. Environment variables set in
+> your shell (e.g. `AUTOMEM_API_KEY`) are inherited by the MCP server process
+> automatically, so you can omit them from the `env` block. Only include values
+> that are not already in your shell environment.
+
 **VS Code** -- add to `.vscode/mcp.json` (workspace) or VS Code user settings:
 
 ```json
