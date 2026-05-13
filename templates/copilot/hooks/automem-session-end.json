@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "bash \"$HOME/.copilot/scripts/queue-cleanup.sh\"",
+        "powershell": "Write-Warning 'AutoMem hooks require bash; PowerShell not yet supported'; exit 0",
+        "timeoutSec": 15
+      },
+      {
+        "type": "command",
+        "bash": "bash \"$HOME/.copilot/scripts/session-memory.sh\"",
+        "powershell": "Write-Warning 'AutoMem hooks require bash; PowerShell not yet supported'; exit 0",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}

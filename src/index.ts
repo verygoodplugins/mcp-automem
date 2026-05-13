@@ -15,6 +15,7 @@ import { runClaudeCodeSetup } from "./cli/claude-code.js";
 import { runCursorSetup } from "./cli/cursor.js";
 import { runCodexSetup } from "./cli/codex.js";
 import { runOpenClawSetup } from "./cli/openclaw.js";
+import { runCopilotSetup } from "./cli/copilot.js";
 import { runMigrateCommand } from "./cli/migrate.js";
 import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
@@ -112,6 +113,7 @@ COMMANDS:
   setup              Interactive setup for .env configuration
   config             Show configuration snippets
   claude-code        Set up AutoMem for Claude Code
+  copilot            Set up AutoMem for GitHub Copilot
   cursor             Set up AutoMem for Cursor
   codex              Set up AutoMem for Codex
   openclaw           Set up AutoMem for OpenClaw
@@ -141,6 +143,18 @@ CLAUDE CODE SETUP:
     --profile <lean|extras> Use a predefined profile
     --dry-run             Show what would be changed
     --yes, -y             Skip confirmation prompts
+
+COPILOT SETUP:
+  npx @verygoodplugins/mcp-automem copilot [options]
+  
+  Options:
+    --format <cli|vscode>  Event name casing in hook JSON. cli = camelCase (default),
+                           vscode = PascalCase. Either format works for both surfaces.
+                           See https://docs.github.com/en/copilot/reference/hooks-reference
+    --dir <path>           Target directory (default: ~/.copilot)
+    --dry-run             Show what would be changed
+    --yes, -y             Skip confirmation prompts
+    --quiet               Suppress non-error output
 
 MIGRATION:
   npx @verygoodplugins/mcp-automem migrate --from <source> --to <target>
@@ -233,6 +247,11 @@ if (command === "config") {
 
 if (command === "claude-code") {
   await runClaudeCodeSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === "copilot") {
+  await runCopilotSetup(process.argv.slice(3));
   process.exit(0);
 }
 
