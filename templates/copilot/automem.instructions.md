@@ -236,6 +236,10 @@ if (related?.results?.length) {
 
 Step 4 is where the graph actually gets built. Skipping it is the #1 reason AutoMem degrades into a flat bag of notes.
 
+### Pre-commit checkpoint (NON-NEGOTIABLE)
+
+Before every `git commit`, scan the staged changes and ask: does this commit contain a bug fix, workaround, decision, or pattern discovery? If yes, run the atomic ritual BEFORE committing. The commit is the deadline -- do not defer to "after the push" or "when I have a moment." Rapid fix-commit-push cycles are where stores get skipped most often; the commit is the last natural pause point.
+
 ### Prefer `update_memory` over new-store-plus-invalidate
 
 When a fact changes - a price, a URL, a version, a name, a deployment state - update the existing memory in place. Use store + `INVALIDATED_BY` only when the old memory represents a genuinely different decision worth preserving for the record ("we considered $15/mo before landing on $9/mo" is archaeology; "the dev URL changed" is not).
