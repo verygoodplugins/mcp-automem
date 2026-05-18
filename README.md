@@ -228,7 +228,7 @@ npx @verygoodplugins/mcp-automem copilot --yes
 Options:
 | Flag | Default | Description |
 |---|---|---|
-| `--format cli\|vscode` | `cli` | Event name casing. `cli` = camelCase, `vscode` = PascalCase. See [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
+| `--format cli\|vscode\|both` | `both` | Controls event name casing and which memory-rules files are installed. `cli` = camelCase, `vscode` = PascalCase, `both` = install both variants. See [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
 | `--dir <path>` | `~/.copilot` | Target installation directory |
 | `--dry-run` | | Preview file operations without writing |
 | `--yes`, `-y` | | Skip confirmation prompts |
