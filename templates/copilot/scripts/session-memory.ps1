@@ -56,8 +56,8 @@ try {
             working_directory = $cwd
             git_branch        = $gitBranch
             git_repo          = $gitRepo
-            hook_type         = if ($env:CLAUDE_HOOK_TYPE) { $env:CLAUDE_HOOK_TYPE } else { "session_end" }
-            session_id        = if ($env:CLAUDE_SESSION_ID) { $env:CLAUDE_SESSION_ID } else { "unknown" }
+            hook_type         = if ($env:COPILOT_HOOK_TYPE) { $env:COPILOT_HOOK_TYPE } elseif ($env:CLAUDE_HOOK_TYPE) { $env:CLAUDE_HOOK_TYPE } else { "session_end" }
+            session_id        = if ($env:COPILOT_SESSION_ID) { $env:COPILOT_SESSION_ID } elseif ($env:CLAUDE_SESSION_ID) { $env:CLAUDE_SESSION_ID } else { "unknown" }
         }
         recent_commits = if ($recentCommits) { $recentCommits } else { "" }
         file_changes   = if ($fileChanges) { $fileChanges } else { "" }

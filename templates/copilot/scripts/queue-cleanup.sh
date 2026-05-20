@@ -2,10 +2,6 @@
 
 # Queue Cleanup Script for AutoMem
 # Deduplicates and archives processed memories
-if [ -z "${BASH_VERSION:-}" ]; then
-    exec /bin/bash "$0" "$@"
-fi
-
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,8 +44,8 @@ cleanup_validation() {
 trap cleanup_validation EXIT
 
 jq -c . "$QUEUE_FILE" | jq -s 'length' > "$VALIDATION_FILE"
-pipe_status=(${PIPESTATUS[@]})
-if [ ${pipe_status[0]} -ne 0 ] || [ ${pipe_status[1]} -ne 0 ] || [ ! -s "$VALIDATION_FILE" ]; then
+pipe_status=("${PIPESTATUS[@]}")
+if [ "${pipe_status[0]}" -ne 0 ] || [ "${pipe_status[1]}" -ne 0 ] || [ ! -s "$VALIDATION_FILE" ]; then
     log_message "Queue validation failed; aborting cleanup"
     exit 1
 fi

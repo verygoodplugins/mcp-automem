@@ -38,6 +38,7 @@ export interface ProfileDefinition {
 
 export const VALID_PROFILES = ['lean', 'full'] as const;
 export type ProfileName = (typeof VALID_PROFILES)[number];
+export const DEFAULT_PROFILE: ProfileName = 'full';
 
 export const EVENT_NAMES = {
   cli: {
@@ -78,12 +79,15 @@ const SUPPORT_SCRIPTS = [
   'queue-cleanup.ps1',
 ];
 
-// Map from template event key (camelCase) to internal event name for remapping
-const EVENT_KEY_MAP: Record<string, keyof typeof EVENT_NAMES.cli> = {
-  sessionStart: 'sessionStart',
-  postToolUse: 'postToolUse',
-  sessionEnd: 'sessionEnd',
-};
+/**
+ * Returns the base names of all AutoMem support scripts (with extensions stripped).
+ * Used by both the installer and uninstaller to stay in sync.
+ */
+export function getCopilotSupportScriptBaseNames(): string[] {
+  return [...new Set(SUPPORT_SCRIPTS.map(s => s.replace(/\.(sh|ps1|py|json)$/, '')))];
+}
+
+
 
 // --- Profile Loading (T004) ---
 
@@ -167,8 +171,9 @@ function remapHookEventNames(hookData: CopilotHookFile, format: 'cli' | 'vscode'
   const remapped: Record<string, CopilotHookEntry[]> = {};
 
   for (const [key, entries] of Object.entries(hookData.hooks)) {
-    const eventId = EVENT_KEY_MAP[key];
-    const newKey = eventId ? names[eventId] : key;
+    const newKey = (key in EVENT_NAMES.cli)
+      ? names[key as keyof typeof EVENT_NAMES.cli]
+      : key;
     remapped[newKey] = entries;
   }
 
@@ -308,7 +313,7 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
       const blockStart = templateContent.indexOf('<memory_rules>');
       const blockEnd = templateContent.indexOf('</memory_rules>');
       if (blockStart === -1 || blockEnd === -1) {
-        console.error('Warning: Could not find <memory_rules> markers in template');
+        console.error('Error: Could not find <memory_rules> markers in template - package may be corrupted');
         return;
       }
       const rulesBlock = templateContent.slice(blockStart, blockEnd + '</memory_rules>'.length);
@@ -359,7 +364,7 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
     ...cliOptions,
     targetDir: cliOptions.targetDir ?? path.join(os.homedir(), '.copilot'),
     format: cliOptions.format ?? 'both',
-    profile: cliOptions.profile ?? 'full',
+    profile: cliOptions.profile ?? DEFAULT_PROFILE,
   };
 
   const targetDir = options.targetDir!;

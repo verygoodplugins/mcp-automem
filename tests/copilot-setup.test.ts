@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -339,7 +340,6 @@ describe('session-start bash script', () => {
     // Try Git Bash style first (/c/...), fall back to WSL (/mnt/c/...)
     const gitBash = forward.replace(/^([A-Za-z]):/, (_m, drive) => `/${drive.toLowerCase()}`);
     try {
-      const { spawnSync } = require('child_process');
       const check = spawnSync('bash', ['-c', `test -f "${gitBash}" && echo ok`], { encoding: 'utf8', timeout: 2000 });
       if (check.stdout?.trim() === 'ok') return gitBash;
     } catch { /* fall through */ }
@@ -347,7 +347,6 @@ describe('session-start bash script', () => {
   }
 
   it('outputs valid JSON with additionalContext', () => {
-    const { spawnSync } = require('child_process');
     const scriptPath = toUnixPath(path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh'));
     const result = spawnSync('bash', [scriptPath], {
       encoding: 'utf8',
@@ -362,7 +361,6 @@ describe('session-start bash script', () => {
   });
 
   it('includes three-phase recall prompt', () => {
-    const { spawnSync } = require('child_process');
     const scriptPath = toUnixPath(path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh'));
     const result = spawnSync('bash', [scriptPath], {
       encoding: 'utf8',
@@ -380,7 +378,6 @@ describe('session-start bash script', () => {
   });
 
   it('substitutes project slug from cwd', () => {
-    const { spawnSync } = require('child_process');
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'my-test-project-'));
     const scriptPath = toUnixPath(path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh'));
     const result = spawnSync('bash', [scriptPath], {

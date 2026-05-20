@@ -4,8 +4,8 @@
     "postToolUse": [
       {
         "type": "command",
-        "bash": "bash \"$HOME/.copilot/scripts/capture-test-pattern.sh\"",
-        "powershell": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/capture-test-pattern.ps1\"",
+        "bash": "\"$HOME/.copilot/scripts/capture-test-pattern.sh\"",
+        "powershell": "& \"$HOME\\.copilot\\scripts\\capture-test-pattern.ps1\"",
         "timeoutSec": 30
       }
     ]

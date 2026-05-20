@@ -1342,13 +1342,13 @@ AutoMem's `sessionStart` hook outputs JSON via stdout (`{"additionalContext":"..
 - Hook script works when tested manually but not in practice
 - No visible error (the hook "succeeds" but its output is ignored)
 
-**Fix:** All AutoMem hook templates use `powershell -NoProfile` to skip profile loading entirely, matching how bash hooks work (non-interactive `bash script.sh` does not source `~/.bashrc`). Hook scripts only use built-in PowerShell cmdlets and don't need profile setup.
+**Fix:** Copilot CLI runs `"powershell"` values inside `pwsh` automatically - you should not invoke `powershell` or `pwsh` yourself. The `"powershell"` value should be raw PowerShell code (e.g. `& "$HOME\.copilot\scripts\script.ps1"`).
 
-If you've installed hooks from an older version that doesn't include `-NoProfile`, update your `~/.copilot/hooks/*.json` files to add it:
+If you've installed hooks from an older version that invoked the shell directly, update your `~/.copilot/hooks/*.json` files:
 
 ```diff
-- "powershell": "powershell -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/automem-session-start.ps1\""
-+ "powershell": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/automem-session-start.ps1\""
+- "powershell": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/automem-session-start.ps1\""
++ "powershell": "& \"$HOME\\.copilot\\scripts\\automem-session-start.ps1\""
 ```
 
 Or re-run the installer to get the updated hook configs:

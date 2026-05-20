@@ -121,9 +121,7 @@ export function runCaptureHook(
   }
 
   const home = fs.mkdtempSync(path.join(os.tmpdir(), `automem-${shell}-hook-test-`));
-  const queueDir = shell === 'bash'
-    ? path.join(home, '.copilot', 'scripts')
-    : path.join(home, '.copilot', 'scripts');
+  const queueDir = path.join(home, '.copilot', 'scripts');
   const queuePath = path.join(queueDir, 'memory-queue.jsonl');
 
   const cwd = input.cwd ?? process.cwd();

@@ -229,6 +229,7 @@ Options:
 | Flag | Default | Description |
 |---|---|---|
 | `--format cli\|vscode\|both` | `both` | Controls event name casing and which memory-rules files are installed. `cli` = camelCase, `vscode` = PascalCase, `both` = install both variants. See [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
+| `--profile <full\|lean>` | `full` | Hook profile to install. `full` installs all hooks; `lean` installs high-signal hooks only |
 | `--dir <path>` | `~/.copilot` | Target installation directory |
 | `--dry-run` | | Preview file operations without writing |
 | `--yes`, `-y` | | Skip confirmation prompts |

@@ -80,9 +80,9 @@ create_temp_file() {
     local temp_file=""
 
     if command -v mktemp >/dev/null 2>&1; then
-        temp_file=$(mktemp "${TMPDIR:-/tmp}/claude_session.XXXXXX") || return 1
+        temp_file=$(mktemp "${TMPDIR:-/tmp}/automem_session.XXXXXX") || return 1
     elif automem_resolve_python >/dev/null 2>&1; then
-        temp_file=$(automem_run_python -c 'import os, tempfile; fd, path = tempfile.mkstemp(prefix="claude_session.", dir=os.environ.get("TMPDIR", "/tmp")); os.close(fd); print(path)') || return 1
+        temp_file=$(automem_run_python -c 'import os, tempfile; fd, path = tempfile.mkstemp(prefix="automem_session.", dir=os.environ.get("TMPDIR", "/tmp")); os.close(fd); print(path)') || return 1
     else
         return 1
     fi
@@ -104,8 +104,8 @@ AUTOMEM_PROJECT_NAME="$PROJECT_NAME" \
 AUTOMEM_WORKING_DIR="$CURRENT_DIR" \
 AUTOMEM_GIT_BRANCH="$GIT_BRANCH" \
 AUTOMEM_GIT_REPO="$GIT_REPO" \
-AUTOMEM_HOOK_TYPE="${CLAUDE_HOOK_TYPE:-session_end}" \
-AUTOMEM_SESSION_ID="${CLAUDE_SESSION_ID:-unknown}" \
+AUTOMEM_HOOK_TYPE="${COPILOT_HOOK_TYPE:-${CLAUDE_HOOK_TYPE:-session_end}}" \
+AUTOMEM_SESSION_ID="${COPILOT_SESSION_ID:-${CLAUDE_SESSION_ID:-unknown}}" \
 AUTOMEM_RECENT_COMMITS="$RECENT_COMMITS" \
 AUTOMEM_FILE_CHANGES="$FILE_CHANGES" \
 AUTOMEM_DIFF_STATS="$DIFF_STATS" \

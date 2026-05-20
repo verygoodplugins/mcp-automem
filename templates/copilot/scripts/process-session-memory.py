@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 AutoMem-Enhanced Session Memory Processor
-Analyzes Claude Code session data with importance scoring, type classification,
-and relationship creation for the new AutoMem service.
-Canonical processor script; plugin wrapper delegates here.
+Analyzes Copilot session data with importance scoring, type classification,
+and relationship creation for the AutoMem service.
+Shared between Copilot and Claude Code integrations; canonical processor script.
 """
 
 import json

@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { getCopilotSupportScriptBaseNames } from './copilot.js';
 
 interface UninstallOptions {
   platform: 'cursor' | 'claude-code' | 'copilot';
@@ -306,11 +307,7 @@ async function uninstallCopilot(options: UninstallOptions): Promise<void> {
 
   // Remove AutoMem support scripts (.sh and .ps1)
   if (fs.existsSync(scriptsDir)) {
-    const automemScriptPatterns = [
-      'capture-build-result', 'capture-test-pattern', 'capture-deployment',
-      'session-memory', 'python-command', 'queue-cleanup',
-      'automem-session-start', 'process-session-memory',
-    ];
+    const automemScriptPatterns = getCopilotSupportScriptBaseNames();
 
     const scriptFiles = fs.readdirSync(scriptsDir)
       .filter(f => {

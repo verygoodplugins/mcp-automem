@@ -4,8 +4,8 @@
     "postToolUse": [
       {
         "type": "command",
-        "bash": "bash \"$HOME/.copilot/scripts/capture-build-result.sh\"",
-        "powershell": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/capture-build-result.ps1\"",
+        "bash": "\"$HOME/.copilot/scripts/capture-build-result.sh\"",
+        "powershell": "& \"$HOME\\.copilot\\scripts\\capture-build-result.ps1\"",
         "timeoutSec": 30
       }
     ]

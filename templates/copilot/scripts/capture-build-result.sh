@@ -96,7 +96,7 @@ ERRORS=0
 if [ "$BUILD_TOOL" = "npm" ] || [ "$BUILD_TOOL" = "yarn" ]; then
     BUILD_TIME=$(echo "$OUTPUT" | grep -oE "in [0-9.]+s" | grep -oE "[0-9.]+" | head -1)
     BUILD_SIZE=$(echo "$OUTPUT" | grep -oE "[0-9.]+ [KMG]B" | head -1)
-    WARNINGS=$(echo "$OUTPUT" | grep -c "warning" | head -1 || true)
+    WARNINGS=$(echo "$OUTPUT" | grep -c "warning" || true)
     WARNINGS="${WARNINGS:-0}"
 elif [ "$BUILD_TOOL" = "webpack" ] || [ "$BUILD_TOOL" = "vite" ]; then
     BUILD_TIME=$(echo "$OUTPUT" | grep -oE "built in [0-9.]+s" | grep -oE "[0-9.]+" | head -1)
@@ -104,7 +104,7 @@ elif [ "$BUILD_TOOL" = "webpack" ] || [ "$BUILD_TOOL" = "vite" ]; then
 fi
 
 # Count errors
-ERRORS=$(echo "$OUTPUT" | grep -c -E "ERROR|error:|Error:" | head -1 || true)
+ERRORS=$(echo "$OUTPUT" | grep -c -E "ERROR|error:|Error:" || true)
 ERRORS="${ERRORS:-0}"
 
 # Determine importance and type

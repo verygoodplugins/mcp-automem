@@ -4,8 +4,8 @@
     "sessionStart": [
       {
         "type": "command",
-        "bash": "bash \"$HOME/.copilot/scripts/automem-session-start.sh\"",
-        "powershell": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/automem-session-start.ps1\"",
+        "bash": "\"$HOME/.copilot/scripts/automem-session-start.sh\"",
+        "powershell": "& \"$HOME\\.copilot\\scripts\\automem-session-start.ps1\"",
         "timeoutSec": 10
       }
     ]

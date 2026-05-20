@@ -7,7 +7,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { loadProfile, VALID_PROFILES } from '../src/cli/copilot.js';
+import { loadProfile, VALID_PROFILES, DEFAULT_PROFILE } from '../src/cli/copilot.js';
 
 // Helper to create a temp directory for hook installation tests
 function createTempDir(): string {
@@ -60,7 +60,7 @@ describe('loadProfile', () => {
     expect(VALID_PROFILES).toContain('lean');
     expect(VALID_PROFILES).toContain('full');
     // Default is full
-    expect(VALID_PROFILES[1]).toBe('full');
+    expect(DEFAULT_PROFILE).toBe('full');
   });
 
   it('profile definition files have required fields', () => {
