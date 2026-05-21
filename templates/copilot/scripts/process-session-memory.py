@@ -13,11 +13,7 @@ import re
 import hashlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
-
-# Configuration for AutoMem integration
-AUTOMEM_QUEUE_FILE = Path.home() / '.copilot' / 'scripts' / 'memory-queue.jsonl'
-STORAGE_AVAILABLE = False  # We'll queue for MCP processing
+from typing import Dict, List, Any, Tuple
 
 try:
     import fcntl  # type: ignore[attr-defined]
@@ -66,7 +62,7 @@ def unlock_file(handle) -> None:
             pass
 
 class SessionMemoryProcessor:
-    """Processes Claude session data and stores significant memories"""
+    """Processes session data and stores significant memories"""
     
     def __init__(self):
         self.filters = self.load_filters()
@@ -403,7 +399,7 @@ class SessionMemoryProcessor:
         git_branch = session_info.get('git_branch', 'no-branch')
         
         # Build memory content
-        content_parts = [f"Claude session in {project_name}"]
+        content_parts = [f"Agent session in {project_name}"]
         
         if git_branch and git_branch != 'no-branch':
             content_parts.append(f"on branch {git_branch}")
@@ -428,8 +424,8 @@ class SessionMemoryProcessor:
         return ". ".join(content_parts)
     
     def store_memory(self, content: str, metadata: Dict[str, Any]) -> bool:
-        """Store memory using a file that Claude can pick up"""
-        # Write to a file that Claude will process when it has MCP access
+        """Queue memory record to JSONL for MCP processing"""
+        # Append to queue file; the MCP queue processor drains this at session end
         memory_queue_file = Path.home() / ".copilot" / "scripts" / "memory-queue.jsonl"
         
         memory_record = {

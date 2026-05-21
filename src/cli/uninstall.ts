@@ -332,8 +332,46 @@ async function uninstallCopilot(options: UninstallOptions): Promise<void> {
     }
   }
 
+  // Remove memory rules files
+  const vscodeRulesPath = path.join(copilotDir, 'instructions', 'automem.instructions.md');
+  if (removeFileWithBackup(vscodeRulesPath, options.dryRun ?? false, options.quiet)) {
+    removedCount++;
+  }
+
+  // Strip AutoMem marker block from copilot-instructions.md
+  const cliRulesPath = path.join(copilotDir, 'copilot-instructions.md');
+  if (fs.existsSync(cliRulesPath)) {
+    const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
+    const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
+    const content = fs.readFileSync(cliRulesPath, 'utf8');
+    const startIdx = content.indexOf(startMarker);
+    const endIdx = content.indexOf(endMarker);
+    if (startIdx !== -1 && endIdx !== -1) {
+      if (options.dryRun) {
+        log(`[DRY RUN] Would strip AutoMem block from: ${cliRulesPath}`, options.quiet);
+        removedCount++;
+      } else {
+        const before = content.slice(0, startIdx);
+        const after = content.slice(endIdx + endMarker.length);
+        const updated = (before + after).replace(/\n{3,}/g, '\n\n').trim();
+        if (updated.length === 0) {
+          // File is empty after removal - delete it
+          if (removeFileWithBackup(cliRulesPath, false, options.quiet)) {
+            removedCount++;
+          }
+        } else {
+          const backup = `${cliRulesPath}.removed.${Date.now()}`;
+          fs.copyFileSync(cliRulesPath, backup);
+          fs.writeFileSync(cliRulesPath, updated + '\n', 'utf8');
+          log(`🗑️  Stripped AutoMem block from: ${cliRulesPath}`, options.quiet);
+          removedCount++;
+        }
+      }
+    }
+  }
+
   if (removedCount > 0) {
-    log(`\n✅ Removed ${removedCount} AutoMem files from Copilot hooks directory`, options.quiet);
+    log(`\n\u2705 Removed ${removedCount} AutoMem files from Copilot directory`, options.quiet);
   } else {
     log('\nℹ️  No AutoMem files found to remove', options.quiet);
   }

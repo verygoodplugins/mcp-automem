@@ -13,6 +13,7 @@ const TEMPLATE_ROOT = path.resolve(
 );
 
 const PS_SCRIPTS = [
+  'automem-session-start.ps1',
   'capture-build-result.ps1',
   'capture-test-pattern.ps1',
   'capture-deployment.ps1',
@@ -26,11 +27,10 @@ const HOOK_FILES_WITH_COMMANDS = [
   'automem-test.json',
   'automem-deploy.json',
   'automem-session-end.json',
-  'automem-post-tool-use.json',
 ];
 
 describe('PowerShell scripts (T021a)', () => {
-  it('all 6 PS scripts exist in templates', () => {
+  it('all 7 PS scripts exist in templates', () => {
     for (const script of PS_SCRIPTS) {
       const scriptPath = path.join(TEMPLATE_ROOT, 'scripts', script);
       expect(fs.existsSync(scriptPath), `Missing PS script: ${script}`).toBe(true);
@@ -42,7 +42,10 @@ describe('PowerShell scripts (T021a)', () => {
       const content = fs.readFileSync(path.join(TEMPLATE_ROOT, 'scripts', script), 'utf8');
       expect(content, `${script} missing try block`).toContain('try {');
       expect(content, `${script} missing catch block`).toContain('} catch {');
-      expect(content, `${script} missing error handler`).toContain('Write-Error "AutoMem hook error: $_"');
+      // Session-start intentionally fails silently; all others log the error
+      if (script !== 'automem-session-start.ps1') {
+        expect(content, `${script} missing error handler`).toContain('Write-Error "AutoMem hook error: $_"');
+      }
       expect(content, `${script} missing exit 0`).toContain('exit 0');
     }
   });
@@ -83,7 +86,7 @@ describe('Hook JSON dual-key verification (T021b)', () => {
             expect(entry.powershell, `${hookFile} -> ${eventName}: missing powershell key`).toBeTruthy();
             // Verify PS key is a real command, not a warning stub
             const ps = String(entry.powershell);
-            const isScript = ps.includes('-File');
+            const isScript = ps.includes('.ps1');
             const isCrossPlat = ps.includes('npx');
             expect(
               isScript || isCrossPlat,
@@ -105,8 +108,8 @@ describe('Hook JSON dual-key verification (T021b)', () => {
         for (const entry of entries as Array<Record<string, unknown>>) {
           if (entry.type === 'command' && entry.powershell) {
             const ps = String(entry.powershell);
-            // Either a PS1 script invocation or a cross-platform npx command
-            const isScript = ps.includes('-ExecutionPolicy Bypass -File') && ps.includes('.ps1');
+            // Either a PS1 script invocation via & operator or a cross-platform npx command
+            const isScript = (ps.includes('& ') || ps.includes('& "')) && ps.includes('.ps1');
             const isCrossPlat = ps.includes('npx');
             expect(
               isScript || isCrossPlat,

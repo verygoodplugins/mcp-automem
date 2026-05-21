@@ -206,7 +206,8 @@ tests_failed = to_int(os.environ.get("AUTOMEM_TESTS_FAILED", "0"))
 # Map framework → bare language tag (covers the common cases).
 FRAMEWORK_TO_LANG = {
     "pytest": "python",
-    "jest/vitest": "typescript",
+    "jest": "typescript",
+    "vitest": "typescript",
     "go": "go",
     "phpunit": "php",
 }

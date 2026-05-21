@@ -146,6 +146,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
     });
   } else if (options.to === 'copilot') {
     await applyCopilotSetup({
+      targetDir: options.projectDir,
       dryRun: options.dryRun,
       yes: options.yes,
       quiet: options.quiet,
@@ -200,7 +201,7 @@ function parseMigrateArgs(args: string[]): MigrateOptions | null {
         break;
       }
       case '--dir':
-        if (i + 1 >= args.length) {
+        if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
           console.error('Error: --dir requires a path value');
           process.exit(1);
         }

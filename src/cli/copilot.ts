@@ -242,6 +242,23 @@ function installHookFiles(targetDir: string, profileHooks: string[], options: Co
     // Remap event names based on --format (T026)
     hookData = remapHookEventNames(hookData, hookFormat);
 
+    // Rewrite script paths if --dir points somewhere other than ~/.copilot
+    const defaultDir = path.join(os.homedir(), '.copilot');
+    if (targetDir !== defaultDir) {
+      const normalizedTarget = targetDir.replace(/\\/g, '/');
+      for (const entries of Object.values(hookData.hooks)) {
+        for (const entry of entries) {
+          if (entry.bash) {
+            entry.bash = entry.bash.replace(/\$HOME\/\.copilot/g, normalizedTarget);
+          }
+          if (entry.powershell) {
+            const psTarget = targetDir.replace(/\//g, '\\');
+            entry.powershell = entry.powershell.replace(/\$HOME\\\.copilot/g, psTarget);
+          }
+        }
+      }
+    }
+
     const content = `${JSON.stringify(hookData, null, 2)}\n`;
     writeFileWithBackup(targetPath, content, options);
 
@@ -444,14 +461,26 @@ function parseCopilotArgs(args: string[]): CopilotSetupOptions {
     const arg = args[i];
     switch (arg) {
       case '--dir':
+        if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+          console.error('Error: --dir requires a path value');
+          process.exit(1);
+        }
         options.targetDir = args[i + 1];
         i += 1;
         break;
       case '--format':
+        if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+          console.error('Error: --format requires a value (cli|vscode|both)');
+          process.exit(1);
+        }
         options.format = args[i + 1] as 'cli' | 'vscode' | 'both';
         i += 1;
         break;
       case '--profile':
+        if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+          console.error('Error: --profile requires a value (lean|full)');
+          process.exit(1);
+        }
         options.profile = args[i + 1];
         i += 1;
         break;

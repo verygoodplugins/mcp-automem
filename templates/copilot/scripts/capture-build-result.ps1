@@ -10,6 +10,23 @@ try {
     if (-not (Test-Path $queueDir)) { New-Item -ItemType Directory -Path $queueDir -Force | Out-Null }
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 
+    # Dedup: skip if identical content already queued recently
+    function Test-Duplicate($queuePath, $newContent) {
+        if (-not (Test-Path $queuePath)) { return $false }
+        $hash = [System.Security.Cryptography.MD5]::Create()
+        $newHash = [System.BitConverter]::ToString($hash.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($newContent))).Replace('-', '')
+        $lines = Get-Content $queuePath -Tail 20 -ErrorAction SilentlyContinue
+        foreach ($line in $lines) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try {
+                $existing = ($line | ConvertFrom-Json).content
+                $existingHash = [System.BitConverter]::ToString($hash.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($existing))).Replace('-', '')
+                if ($existingHash -eq $newHash) { return $true }
+            } catch { continue }
+        }
+        return $false
+    }
+
     # Read JSON from stdin
     $inputJson = $null
     $inputText = ""
@@ -135,6 +152,9 @@ try {
     }
 
     $jsonLine = $record | ConvertTo-Json -Compress -Depth 5
+
+    # Dedup check
+    if (Test-Duplicate $MEMORY_QUEUE $content) { exit 0 }
 
     # Atomic append with file locking
     $stream = [System.IO.File]::Open($MEMORY_QUEUE, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)

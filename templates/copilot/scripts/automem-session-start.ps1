@@ -33,6 +33,8 @@ Phase 3 - ON-DEMAND debugging (only if the user's message is a debugging/error-s
     limit: 20
   })
 
+Project slug: $project
+
 Notes:
 - Tags are a HARD GATE - they filter before scoring. For discovery/debugging across the full corpus, drop ``tags`` and rely on semantic ``query`` alone.
 - Do NOT use namespace-prefixed tags (``project/*``, ``lang/*``, etc.) - the corpus uses bare tags.

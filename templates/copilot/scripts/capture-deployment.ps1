@@ -10,6 +10,23 @@ try {
     if (-not (Test-Path $queueDir)) { New-Item -ItemType Directory -Path $queueDir -Force | Out-Null }
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 
+    # Dedup: skip if identical content already queued recently
+    function Test-Duplicate($queuePath, $newContent) {
+        if (-not (Test-Path $queuePath)) { return $false }
+        $hash = [System.Security.Cryptography.MD5]::Create()
+        $newHash = [System.BitConverter]::ToString($hash.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($newContent))).Replace('-', '')
+        $lines = Get-Content $queuePath -Tail 20 -ErrorAction SilentlyContinue
+        foreach ($line in $lines) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try {
+                $existing = ($line | ConvertFrom-Json).content
+                $existingHash = [System.BitConverter]::ToString($hash.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($existing))).Replace('-', '')
+                if ($existingHash -eq $newHash) { return $true }
+            } catch { continue }
+        }
+        return $false
+    }
+
     # Read JSON from stdin
     if (-not [Console]::IsInputRedirected) { exit 0 }
     $inputText = [Console]::In.ReadToEnd()
@@ -64,9 +81,19 @@ try {
         if ($command -match $t.Value) { $deployTarget = $t.Key; break }
     }
 
+    # Detect deploy environment
+    $deployEnv = "production"
+    if ($command -match 'staging|stage|stg') { $deployEnv = "staging" }
+    elseif ($command -match 'dev|develop') { $deployEnv = "development" }
+    elseif ($command -match 'preview|canary') { $deployEnv = "preview" }
+
     # Detect project name
     $cwd = if ($inputJson.cwd) { $inputJson.cwd } else { (Get-Location).Path }
     $projectName = Split-Path $cwd -Leaf
+
+    # Detect git commit
+    $gitCommit = ""
+    try { $gitCommit = (git rev-parse --short HEAD 2>$null) } catch { }
 
     # Determine importance
     $importance = 0.8
@@ -82,27 +109,39 @@ try {
     if ($content.Length -gt 1500) { $content = $content.Substring(0, 1497) + "..." }
 
     # Build tags
-    $tags = @("deploy")
+    $tags = @("deployment")
     if ($deployTarget -ne "unknown") { $tags += $deployTarget }
+    $tags += $deployEnv
     if ($projectName) { $tags += $projectName }
     if ($exitCode -ne 0) { $tags += "failure" }
 
     # Build JSONL record
+    $nowIso = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
     $record = @{
         content    = $content
         tags       = $tags
         importance = $importance
         type       = $memType
         metadata   = @{
-            deploy_target = $deployTarget
-            exit_code     = $exitCode
-            project       = $projectName
-            command       = if ($command.Length -gt 500) { $command.Substring(0, 497) + "..." } else { $command }
+            platform     = $deployTarget
+            environment  = $deployEnv
+            exit_code    = $exitCode
+            project      = $projectName
+            command      = if ($command.Length -gt 500) { $command.Substring(0, 497) + "..." } else { $command }
+            git_commit   = if ($gitCommit) { $gitCommit } else { $null }
         }
-        timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+        timestamp  = $nowIso
+    }
+
+    # Temporal validity: production deploys represent the currently live version
+    if ($deployEnv -eq "production" -and $exitCode -eq 0) {
+        $record["t_valid"] = $nowIso
     }
 
     $jsonLine = $record | ConvertTo-Json -Compress -Depth 5
+
+    # Dedup check
+    if (Test-Duplicate $MEMORY_QUEUE $content) { exit 0 }
 
     # Atomic append
     $stream = [System.IO.File]::Open($MEMORY_QUEUE, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)

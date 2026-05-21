@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Shared Python interpreter resolution for Claude Code hooks.
+# Shared Python interpreter resolution for AutoMem hooks.
 # Supports POSIX-shell environments on Windows (Git Bash/MSYS2/WSL) without
 # requiring the executable to be named exactly `python3`.
 
