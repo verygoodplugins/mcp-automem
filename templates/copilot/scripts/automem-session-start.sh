@@ -8,6 +8,7 @@
 #   {"additionalContext": "..."} on stdout (since v1.0.11)
 
 PROJECT=$(basename "$PWD")
+AUTOMEM_HOOK_SURFACE="${AUTOMEM_HOOK_SURFACE:-copilot-cli}"
 
 # Build the context prompt, substituting the project slug
 read -r -d '' CONTEXT << PROMPT_END
@@ -43,7 +44,7 @@ Project slug: $PROJECT
 Notes:
 - Tags are a HARD GATE - they filter before scoring. For discovery/debugging across the full corpus, drop \`tags\` and rely on semantic \`query\` alone.
 - Do NOT use namespace-prefixed tags (\`project/*\`, \`lang/*\`, etc.) - the corpus uses bare tags.
-- Phase 2 uses ONE targeted query, not \`queries[]\` + \`auto_decompose\`. Sub-queries converge and dedup drops results; a single query built from the real nouns in the user's message wins empirically.
+- Phase 2 uses ONE targeted query, not \`queries[]\` + \`auto_decompose\`. Sub-queries converge and dedup drops results; a single query built from the real nouns in the user's message wins empirically. Only switch to \`queries[]\` for genuinely multi-topic questions.
 - If the project slug collides with a common topic word, drop the Phase 2 tag gate and rely on semantic \`query\` alone.
 - Do not re-recall every turn. After turn 1, recall again only for topic shifts, new proper nouns, or active debugging.
 - If recall fails or returns nothing, continue without memory - do not mention the failure to the user.
@@ -54,13 +55,21 @@ PROMPT_END
 # Output JSON with additionalContext for Copilot CLI context injection
 # Use jq if available for safe escaping, fall back to python, then manual
 if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$CONTEXT" | jq -Rs '{additionalContext: .}'
+    if [ "$AUTOMEM_HOOK_SURFACE" = "vscode-copilot" ]; then
+        printf '%s' "$CONTEXT" | jq -Rs '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: .}}'
+    else
+        printf '%s' "$CONTEXT" | jq -Rs '{additionalContext: .}'
+    fi
 elif command -v python3 >/dev/null 2>&1; then
-    printf '%s' "$CONTEXT" | python3 -c 'import sys,json; print(json.dumps({"additionalContext": sys.stdin.read()}))'
+    printf '%s' "$CONTEXT" | AUTOMEM_HOOK_SURFACE="$AUTOMEM_HOOK_SURFACE" python3 -c 'import os,sys,json; ctx=sys.stdin.read(); print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":ctx}} if os.environ.get("AUTOMEM_HOOK_SURFACE") == "vscode-copilot" else {"additionalContext":ctx}))'
 elif command -v python >/dev/null 2>&1; then
-    printf '%s' "$CONTEXT" | python -c 'import sys,json; print(json.dumps({"additionalContext": sys.stdin.read()}))'
+    printf '%s' "$CONTEXT" | AUTOMEM_HOOK_SURFACE="$AUTOMEM_HOOK_SURFACE" python -c 'import os,sys,json; ctx=sys.stdin.read(); print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":ctx}} if os.environ.get("AUTOMEM_HOOK_SURFACE") == "vscode-copilot" else {"additionalContext":ctx}))'
 else
     # Manual escape as last resort
     ESCAPED=$(printf '%s' "$CONTEXT" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{printf "%s\\n", $0}' | sed 's/\\n$//')
-    printf '{"additionalContext":"%s"}\n' "$ESCAPED"
+    if [ "$AUTOMEM_HOOK_SURFACE" = "vscode-copilot" ]; then
+        printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$ESCAPED"
+    else
+        printf '{"additionalContext":"%s"}\n' "$ESCAPED"
+    fi
 fi

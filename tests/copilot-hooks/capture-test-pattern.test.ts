@@ -36,6 +36,32 @@ function testCaptureSuite(shell: Shell) {
       expect(result.queue).toHaveLength(1);
     });
 
+    it('captures VS Code-style PostToolUse payloads without Copilot CLI fields', () => {
+      const result = run({
+        command: 'pytest tests/',
+        exitCode: 1,
+        output: '3 failed, 10 passed',
+        payloadShape: 'vscode-copilot',
+      });
+
+      expect(result.queue).toHaveLength(1);
+      expect(result.queue[0].tags).toContain('failure');
+      expect(result.queue[0].metadata?.exit_code).toBe(1);
+    });
+
+    it('captures Copilot CLI camelCase exitCode payloads', () => {
+      const result = run({
+        command: 'pytest tests/',
+        exitCode: 1,
+        output: '3 failed, 10 passed',
+        payloadShape: 'copilot-cli',
+      });
+
+      expect(result.queue).toHaveLength(1);
+      expect(result.queue[0].tags).toContain('failure');
+      expect(result.queue[0].metadata?.exit_code).toBe(1);
+    });
+
     it.each([
       ['npm run build (not a test)', 'npm run build'],
       ['ls (unrelated)', 'ls'],

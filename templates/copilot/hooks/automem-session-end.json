@@ -4,15 +4,15 @@
     "sessionEnd": [
       {
         "type": "command",
-        "bash": "\"$HOME/.copilot/scripts/queue-cleanup.sh\"",
-        "powershell": "& \"$HOME\\.copilot\\scripts\\queue-cleanup.ps1\"",
-        "timeoutSec": 15
-      },
-      {
-        "type": "command",
         "bash": "\"$HOME/.copilot/scripts/session-memory.sh\"",
         "powershell": "& \"$HOME\\.copilot\\scripts\\session-memory.ps1\"",
         "timeoutSec": 30
+      },
+      {
+        "type": "command",
+        "bash": "\"$HOME/.copilot/scripts/queue-cleanup.sh\"",
+        "powershell": "& \"$HOME\\.copilot\\scripts\\queue-cleanup.ps1\"",
+        "timeoutSec": 15
       },
       {
         "type": "command",

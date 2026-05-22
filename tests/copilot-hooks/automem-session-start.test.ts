@@ -28,6 +28,27 @@ function sessionStartSuite(shell: Shell) {
     expect(parsed.additionalContext).toContain('automem_session_context');
   });
 
+  it('emits the Copilot CLI top-level additionalContext envelope by default', () => {
+    const result = runSessionStart(shell);
+    const parsed = JSON.parse(result.stdout);
+
+    expect(parsed.additionalContext).toContain('automem_session_context');
+    expect(parsed.hookSpecificOutput).toBeUndefined();
+  });
+
+  it('emits the VS Code hookSpecificOutput envelope when requested', () => {
+    const result = runSessionStart(shell, {
+      env: { AUTOMEM_HOOK_SURFACE: 'vscode-copilot' },
+    });
+    const parsed = JSON.parse(result.stdout);
+
+    expect(parsed.additionalContext).toBeUndefined();
+    expect(parsed.hookSpecificOutput).toMatchObject({
+      hookEventName: 'SessionStart',
+    });
+    expect(parsed.hookSpecificOutput.additionalContext).toContain('automem_session_context');
+  });
+
   it('injects a Phase 1 preference recall using the bare "preference" tag', () => {
     const { additionalContext: ctx } = runSessionStart(shell);
     expect(ctx).toMatch(/Phase 1/);

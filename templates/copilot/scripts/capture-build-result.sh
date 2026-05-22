@@ -45,11 +45,11 @@ fi
 INPUT_JSON=$(cat)
 
 # Parse JSON fields, fall back to env vars for backward compat
-COMMAND=$(echo "$INPUT_JSON" | jq -r '.toolArgs.command // .tool_input.command // empty' 2>/dev/null)
+COMMAND=$(echo "$INPUT_JSON" | jq -r '.toolArgs.command // .toolInput.command // .tool_args.command // .tool_input.command // empty' 2>/dev/null)
 COMMAND="${COMMAND:-${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}}"
-OUTPUT=$(echo "$INPUT_JSON" | jq -r '.toolResult.textResultForLlm // .toolResult // .tool_response // empty' 2>/dev/null)
+OUTPUT=$(echo "$INPUT_JSON" | jq -r '(.toolResult.textResultForLlm // .toolResult.output // .tool_result.text_result_for_llm // .tool_response.textResultForLlm // .tool_response.output // .toolResponse.textResultForLlm // .toolResponse.output // .tool_response // .toolResult // empty) | if type == "object" then tostring else . end' 2>/dev/null)
 OUTPUT="${OUTPUT:-${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}}"
-EXIT_CODE=$(echo "$INPUT_JSON" | jq -r '(.toolResult.exit_code // .tool_response.exit_code // .tool_response.exitCode // 0)' 2>/dev/null)
+EXIT_CODE=$(echo "$INPUT_JSON" | jq -r '(.toolResult.exitCode // .toolResult.exit_code // .tool_result.exit_code // .tool_response.exitCode // .tool_response.exit_code // .toolResponse.exitCode // .toolResponse.exit_code // 0)' 2>/dev/null)
 EXIT_CODE="${EXIT_CODE:-${CLAUDE_EXIT_CODE:-0}}"
 CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty' 2>/dev/null)
 PROJECT_NAME=$(basename "${CWD:-$(pwd)}")

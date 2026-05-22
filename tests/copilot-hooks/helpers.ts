@@ -51,6 +51,7 @@ export type HookInput = {
   exitCode?: number;
   output?: string;
   cwd?: string;
+  payloadShape?: 'mixed' | 'copilot-cli' | 'vscode-copilot';
 };
 
 export type HookResult = {
@@ -125,19 +126,42 @@ export function runCaptureHook(
   const queuePath = path.join(queueDir, 'memory-queue.jsonl');
 
   const cwd = input.cwd ?? process.cwd();
-  const payload = JSON.stringify({
-    tool_input: { command: input.command },
-    tool_response: {
-      exit_code: input.exitCode ?? 0,
-      output: input.output ?? '',
-    },
-    toolArgs: { command: input.command },
-    toolResult: {
-      exit_code: input.exitCode ?? 0,
-      textResultForLlm: input.output ?? '',
-    },
-    cwd,
-  });
+  const payloadShape = input.payloadShape ?? 'mixed';
+  const payload = JSON.stringify(
+    payloadShape === 'copilot-cli'
+      ? {
+          toolArgs: { command: input.command },
+          toolResult: {
+            exitCode: input.exitCode ?? 0,
+            textResultForLlm: input.output ?? '',
+          },
+          cwd,
+        }
+      : payloadShape === 'vscode-copilot'
+        ? {
+            hookEventName: 'PostToolUse',
+            tool_name: 'bash',
+            tool_input: { command: input.command },
+            tool_response: {
+              exit_code: input.exitCode ?? 0,
+              output: input.output ?? '',
+            },
+            cwd,
+          }
+        : {
+            tool_input: { command: input.command },
+            tool_response: {
+              exit_code: input.exitCode ?? 0,
+              output: input.output ?? '',
+            },
+            toolArgs: { command: input.command },
+            toolResult: {
+              exit_code: input.exitCode ?? 0,
+              textResultForLlm: input.output ?? '',
+            },
+            cwd,
+          }
+  );
 
   let result;
   if (shell === 'bash') {
@@ -192,7 +216,7 @@ export function runCaptureHook(
  */
 export function runSessionStart(
   shell: Shell,
-  options: { cwd?: string } = {}
+  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
 ): {
   stdout: string;
   stderr: string;
@@ -212,6 +236,7 @@ export function runSessionStart(
       {
         encoding: 'utf8',
         timeout: 10000,
+        env: { ...process.env, ...options.env },
       }
     );
   } else {
@@ -222,15 +247,17 @@ export function runSessionStart(
         encoding: 'utf8',
         timeout: 10000,
         cwd: options.cwd ?? process.cwd(),
+        env: { ...process.env, ...options.env },
       }
     );
   }
 
   const stdout = result.stdout ?? '';
-  let additionalContext = '';
+  let additionalContext: string;
   try {
     const parsed = JSON.parse(stdout);
-    additionalContext = parsed.additionalContext ?? '';
+    additionalContext =
+      parsed.additionalContext ?? parsed.hookSpecificOutput?.additionalContext ?? '';
   } catch {
     // For bash scripts that output raw text (not JSON), use stdout directly
     additionalContext = stdout;

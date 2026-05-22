@@ -153,14 +153,28 @@ describe('installHookFiles (event name remapping)', () => {
     expect(keys).not.toContain('sessionStart');
   });
 
-  it('--format both uses camelCase event names', async () => {
+  it('--format both installs CLI and VS Code event names', async () => {
     await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
 
     const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
     const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
     const keys = Object.keys(hookData.hooks);
     expect(keys).toContain('sessionStart');
-    expect(keys).not.toContain('SessionStart');
+    expect(keys).toContain('SessionStart');
+  });
+
+  it('--format both marks each session-start surface correctly', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+
+    expect(hookData.hooks.sessionStart[0].env).toMatchObject({
+      AUTOMEM_HOOK_SURFACE: 'copilot-cli',
+    });
+    expect(hookData.hooks.SessionStart[0].env).toMatchObject({
+      AUTOMEM_HOOK_SURFACE: 'vscode-copilot',
+    });
   });
 
   it('--format vscode remaps session-end hook correctly', async () => {
@@ -173,6 +187,26 @@ describe('installHookFiles (event name remapping)', () => {
     const keys = Object.keys(hookData.hooks);
     expect(keys).toContain('SessionEnd');
     expect(keys).not.toContain('sessionEnd');
+  });
+
+  it('--format vscode marks command hooks for VS Code output envelopes', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const entry = hookData.hooks.SessionStart[0];
+
+    expect(entry.env).toMatchObject({ AUTOMEM_HOOK_SURFACE: 'vscode-copilot' });
+  });
+
+  it('--format cli marks command hooks for Copilot CLI output envelopes', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const entry = hookData.hooks.sessionStart[0];
+
+    expect(entry.env).toMatchObject({ AUTOMEM_HOOK_SURFACE: 'copilot-cli' });
   });
 
   it('all hooks are valid JSON with version 1', async () => {
@@ -297,6 +331,16 @@ describe('support scripts installation', () => {
     expect(scripts.some(s => s.endsWith('.ps1'))).toBe(true);
   });
 
+  it('default profile installs only lean hook files', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, yes: true, quiet: true });
+
+    const hookFiles = fs.readdirSync(path.join(tempDir, 'hooks')).sort();
+    expect(hookFiles).toEqual([
+      'automem-session-end.json',
+      'automem-session-start.json',
+    ]);
+  });
+
   it('installs memory-filters.json', async () => {
     await applyCopilotSetup({ targetDir: tempDir, yes: true, quiet: true });
 
@@ -305,6 +349,55 @@ describe('support scripts installation', () => {
 
     const content = JSON.parse(fs.readFileSync(filtersPath, 'utf8'));
     expect(content).toHaveProperty('trivial_patterns');
+  });
+});
+
+describe('target directory resolution', () => {
+  let tempDir: string;
+  let previousCopilotHome: string | undefined;
+
+  beforeEach(() => {
+    tempDir = createTempDir();
+    previousCopilotHome = process.env.COPILOT_HOME;
+    process.env.COPILOT_HOME = tempDir;
+  });
+
+  afterEach(() => {
+    if (previousCopilotHome === undefined) {
+      delete process.env.COPILOT_HOME;
+    } else {
+      process.env.COPILOT_HOME = previousCopilotHome;
+    }
+    cleanupDir(tempDir);
+  });
+
+  it('uses COPILOT_HOME when targetDir is omitted', async () => {
+    await applyCopilotSetup({ yes: true, quiet: true });
+
+    expect(fs.existsSync(path.join(tempDir, 'hooks', 'automem-session-start.json'))).toBe(true);
+    expect(fs.existsSync(path.join(tempDir, 'scripts', 'automem-session-start.sh'))).toBe(true);
+  });
+
+  it('rewrites hook command paths to COPILOT_HOME when targetDir is omitted', async () => {
+    await applyCopilotSetup({ yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+
+    expect(hookData.hooks.sessionStart[0].bash).toContain(tempDir);
+    expect(hookData.hooks.sessionStart[0].bash).not.toContain('$HOME/.copilot');
+  });
+});
+
+describe('session-end hook ordering', () => {
+  it('captures the session before cleanup and queue drain', () => {
+    const hookPath = path.resolve(__dirname, '../templates/copilot/hooks/automem-session-end.json');
+    const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const commands = data.hooks.sessionEnd.map((entry: { bash: string }) => entry.bash);
+
+    expect(commands[0]).toContain('session-memory.sh');
+    expect(commands[1]).toContain('queue-cleanup.sh');
+    expect(commands[2]).toContain('mcp-automem queue');
   });
 });
 

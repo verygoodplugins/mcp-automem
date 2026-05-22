@@ -54,6 +54,32 @@ function deployCaptureSuite(shell: Shell) {
       });
       expect(result.queue).toHaveLength(1);
     });
+
+    it('captures VS Code-style PostToolUse payloads without Copilot CLI fields', () => {
+      const result = run({
+        command: 'railway up --service api',
+        exitCode: 1,
+        output: 'ERROR: build failed',
+        payloadShape: 'vscode-copilot',
+      });
+
+      expect(result.queue).toHaveLength(1);
+      expect(result.queue[0].tags).toContain('failure');
+      expect(result.queue[0].metadata?.exit_code).toBe(1);
+    });
+
+    it('captures Copilot CLI camelCase exitCode payloads', () => {
+      const result = run({
+        command: 'railway up --service api',
+        exitCode: 1,
+        output: 'ERROR: build failed',
+        payloadShape: 'copilot-cli',
+      });
+
+      expect(result.queue).toHaveLength(1);
+      expect(result.queue[0].tags).toContain('failure');
+      expect(result.queue[0].metadata?.exit_code).toBe(1);
+    });
   });
 
   describe('tag emission -- bare convention', () => {

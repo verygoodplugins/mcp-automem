@@ -1,13 +1,19 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  COPILOT_HOOK_EVENT_NAMES,
+  resolveCopilotHome,
+  resolveCopilotHookSurfaces,
+  type CopilotInstallFormat,
+  type CopilotHookSurface,
+} from './hook-model.js';
 
 // --- Type Definitions (T002, T003) ---
 
 export interface CopilotSetupOptions {
   targetDir?: string;
-  format?: 'cli' | 'vscode' | 'both';
+  format?: CopilotInstallFormat;
   profile?: string;
   dryRun?: boolean;
   yes?: boolean;
@@ -38,19 +44,11 @@ export interface ProfileDefinition {
 
 export const VALID_PROFILES = ['lean', 'full'] as const;
 export type ProfileName = (typeof VALID_PROFILES)[number];
-export const DEFAULT_PROFILE: ProfileName = 'full';
+export const DEFAULT_PROFILE: ProfileName = 'lean';
 
 export const EVENT_NAMES = {
-  cli: {
-    sessionStart: 'sessionStart',
-    postToolUse: 'postToolUse',
-    sessionEnd: 'sessionEnd',
-  },
-  vscode: {
-    sessionStart: 'SessionStart',
-    postToolUse: 'PostToolUse',
-    sessionEnd: 'SessionEnd',
-  },
+  cli: COPILOT_HOOK_EVENT_NAMES['copilot-cli'],
+  vscode: COPILOT_HOOK_EVENT_NAMES['vscode-copilot'],
 } as const;
 
 // --- Constants ---
@@ -158,23 +156,48 @@ function writeFileWithBackup(targetPath: string, content: string, options: Copil
   fs.writeFileSync(targetPath, content, 'utf8');
 }
 
+function hookEventName(
+  key: string,
+  format: 'cli' | 'vscode'
+): string {
+  return (key in EVENT_NAMES.cli)
+    ? EVENT_NAMES[format][key as keyof typeof EVENT_NAMES.cli]
+    : key;
+}
+
+function hookEventFormat(surface: CopilotHookSurface): 'cli' | 'vscode' {
+  return surface === 'vscode-copilot' ? 'vscode' : 'cli';
+}
+
+function cloneHookEntriesForSurface(
+  entries: CopilotHookEntry[],
+  surface: CopilotHookSurface
+): CopilotHookEntry[] {
+  return entries.map(entry => ({
+    ...entry,
+    env: {
+      ...(entry.env ?? {}),
+      AUTOMEM_HOOK_SURFACE: surface,
+    },
+  }));
+}
+
 /**
  * Remap event name keys in a hook JSON object based on the selected format.
- * Templates use camelCase keys; when --format vscode is chosen, remap to PascalCase.
+ * Templates use CLI camelCase keys; --format vscode remaps to PascalCase, while
+ * --format both writes both event spellings with surface-specific output env.
  */
-function remapHookEventNames(hookData: CopilotHookFile, format: 'cli' | 'vscode' | 'both'): CopilotHookFile {
-  if (format === 'cli' || format === 'both') {
-    return hookData;
-  }
-
-  const names = EVENT_NAMES[format];
+function remapHookEventNames(hookData: CopilotHookFile, format: CopilotInstallFormat): CopilotHookFile {
   const remapped: Record<string, CopilotHookEntry[]> = {};
 
   for (const [key, entries] of Object.entries(hookData.hooks)) {
-    const newKey = (key in EVENT_NAMES.cli)
-      ? names[key as keyof typeof EVENT_NAMES.cli]
-      : key;
-    remapped[newKey] = entries;
+    for (const surface of resolveCopilotHookSurfaces(format)) {
+      const eventKey = hookEventName(key, hookEventFormat(surface));
+      remapped[eventKey] = [
+        ...(remapped[eventKey] ?? []),
+        ...cloneHookEntriesForSurface(entries, surface),
+      ];
+    }
   }
 
   return { ...hookData, hooks: remapped };
@@ -220,7 +243,6 @@ function installHookFiles(targetDir: string, profileHooks: string[], options: Co
   const hookTemplateDir = path.join(TEMPLATE_ROOT, 'hooks');
   const hookTargetDir = path.join(targetDir, 'hooks');
   const format = options.format ?? 'both';
-  const hookFormat: 'cli' | 'vscode' = (format === 'both' || format === 'cli') ? 'cli' : 'vscode';
 
   for (const hookFileName of profileHooks) {
     const templatePath = path.join(hookTemplateDir, hookFileName);
@@ -239,12 +261,13 @@ function installHookFiles(targetDir: string, profileHooks: string[], options: Co
       process.exit(1);
     }
 
-    // Remap event names based on --format (T026)
-    hookData = remapHookEventNames(hookData, hookFormat);
+    // Remap event names and output envelopes based on --format.
+    hookData = remapHookEventNames(hookData, format);
 
-    // Rewrite script paths if --dir points somewhere other than ~/.copilot
-    const defaultDir = path.join(os.homedir(), '.copilot');
-    if (targetDir !== defaultDir) {
+    // Templates are authored against the fallback path; rewrite whenever the
+    // actual install target differs, including when COPILOT_HOME is set.
+    const templateDefaultDir = resolveCopilotHome({});
+    if (targetDir !== templateDefaultDir) {
       const normalizedTarget = targetDir.replace(/\\/g, '/');
       for (const entries of Object.values(hookData.hooks)) {
         for (const entry of entries) {
@@ -303,7 +326,7 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
   const installVscode = format === 'vscode' || format === 'both';
   const installCli = format === 'cli' || format === 'both';
 
-  // VS Code: ~/.copilot/instructions/automem.instructions.md (with frontmatter)
+  // VS Code: <targetDir>/instructions/automem.instructions.md (with frontmatter)
   if (installVscode) {
     const vscodeTemplatePath = path.join(TEMPLATE_ROOT, 'automem.instructions.md');
     const vscodeTargetPath = path.join(targetDir, 'instructions', 'automem.instructions.md');
@@ -317,7 +340,7 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
     }
   }
 
-  // CLI: ~/.copilot/copilot-instructions.md (append AutoMem block using markers)
+  // CLI: <targetDir>/copilot-instructions.md (append AutoMem block using markers)
   if (installCli) {
     const cliTemplatePath = path.resolve(
       fileURLToPath(new URL('../../templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md', import.meta.url))
@@ -379,7 +402,7 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
 export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promise<void> {
   const options: CopilotSetupOptions = {
     ...cliOptions,
-    targetDir: cliOptions.targetDir ?? path.join(os.homedir(), '.copilot'),
+    targetDir: cliOptions.targetDir ?? resolveCopilotHome(),
     format: cliOptions.format ?? 'both',
     profile: cliOptions.profile ?? DEFAULT_PROFILE,
   };
@@ -439,13 +462,13 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
     log('', options.quiet);
     log('Next steps:', options.quiet);
     log('1. Add the AutoMem MCP server to your Copilot config:', options.quiet);
-    log('   CLI:     ~/.copilot/mcp-config.json', options.quiet);
+    log(`   CLI:     ${path.join(targetDir, 'mcp-config.json')}`, options.quiet);
     log('   VS Code: .vscode/mcp.json (workspace) or VS Code settings (user)', options.quiet);
     log('   See INSTALLATION.md for the server entry JSON', options.quiet);
     log('2. Restart Copilot', options.quiet);
     log('', options.quiet);
     log('Note: Copilot will prompt to approve AutoMem MCP tools on first use', options.quiet);
-    log('per project. Approvals are saved to ~/.copilot/permissions-config.json.', options.quiet);
+    log(`per project. Approvals are saved to ${path.join(targetDir, 'permissions-config.json')}.`, options.quiet);
     log('', options.quiet);
     log('Note: Hook scripts run with -NoProfile on Windows to prevent PowerShell', options.quiet);
     log('profile output from corrupting hook JSON payloads. If a hook script needs', options.quiet);
@@ -473,7 +496,7 @@ function parseCopilotArgs(args: string[]): CopilotSetupOptions {
           console.error('Error: --format requires a value (cli|vscode|both)');
           process.exit(1);
         }
-        options.format = args[i + 1] as 'cli' | 'vscode' | 'both';
+        options.format = args[i + 1] as CopilotInstallFormat;
         i += 1;
         break;
       case '--profile':

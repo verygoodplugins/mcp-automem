@@ -520,7 +520,7 @@ Create a `COPILOT_MCP_AUTOMEM_AUTH_HEADER` environment secret with the full head
 
 ## GitHub Copilot CLI and VS Code
 
-GitHub Copilot CLI and VS Code Copilot both share the `~/.copilot/` config directory and the same hooks system. The `copilot` setup command installs hooks, support scripts, and memory rules that work in both surfaces.
+GitHub Copilot CLI and VS Code Copilot both use the Copilot config directory (`$COPILOT_HOME` when set, otherwise `~/.copilot/`) and the same hooks system. The `copilot` setup command installs hooks, support scripts, and memory rules that work in both surfaces.
 
 For details on how hooks work across both surfaces, see the [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference).
 
@@ -528,7 +528,7 @@ For details on how hooks work across both surfaces, see the [hooks reference](ht
 
 The MCP server config lives in different places for CLI vs VS Code:
 
-**Copilot CLI** -- add to `~/.copilot/mcp-config.json`:
+**Copilot CLI** -- add to `$COPILOT_HOME/mcp-config.json` or `~/.copilot/mcp-config.json`:
 
 ```json
 {
@@ -578,15 +578,15 @@ npx @verygoodplugins/mcp-automem copilot --yes
 ```
 
 This installs:
-- **Hook JSON files** into `~/.copilot/hooks/` (session start recall, build/test/deploy capture, session end queue drain)
-- **Support scripts** (bash + PowerShell) into `~/.copilot/scripts/`
-- **Memory rules** into both `~/.copilot/copilot-instructions.md` (CLI) and `~/.copilot/instructions/automem.instructions.md` (VS Code)
+- **Hook JSON files** into `$COPILOT_HOME/hooks/` or `~/.copilot/hooks/` (session start recall, build/test/deploy capture, session end queue drain)
+- **Support scripts** (bash + PowerShell) into `$COPILOT_HOME/scripts/` or `~/.copilot/scripts/`
+- **Memory rules** into both `copilot-instructions.md` (CLI) and `instructions/automem.instructions.md` (VS Code) inside the target Copilot directory
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--format cli\|vscode\|both` | `both` | Which memory rules to install and hook event name casing. `cli` = camelCase hooks + CLI rules only. `vscode` = PascalCase hooks + VS Code rules only. `both` = camelCase hooks + both rule sets. Either casing works in both surfaces. |
-| `--profile full\|lean` | `full` | `full` = all hooks including build/test/deploy capture; `lean` = session hooks only |
-| `--dir <path>` | `~/.copilot` | Target installation directory |
+| `--format cli\|vscode\|both` | `both` | Which memory rules and hook event names to install. `cli` = camelCase hooks + CLI rules only. `vscode` = PascalCase hooks + VS Code rules only. `both` = both hook event spellings + both rule sets. |
+| `--profile full\|lean` | `lean` | `lean` = session hooks only; `full` = all hooks including build/test/deploy capture |
+| `--dir <path>` | `$COPILOT_HOME` or `~/.copilot` | Target installation directory |
 | `--dry-run` | | Preview changes without writing files |
 | `--yes` | | Skip confirmation prompts |
 | `--quiet` | | Suppress output |
@@ -607,7 +607,7 @@ Check the health of the AutoMem service
 npx @verygoodplugins/mcp-automem uninstall copilot --yes
 ```
 
-Add `--clean-all` to also remove the MCP server entry from `~/.copilot/mcp-config.json`.
+Add `--clean-all` to also remove the MCP server entry from the target Copilot `mcp-config.json`.
 
 ---
 

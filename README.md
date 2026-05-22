@@ -229,8 +229,8 @@ Options:
 | Flag | Default | Description |
 |---|---|---|
 | `--format cli\|vscode\|both` | `both` | Controls event name casing and which memory-rules files are installed. `cli` = camelCase, `vscode` = PascalCase, `both` = install both variants. See [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
-| `--profile <full\|lean>` | `full` | Hook profile to install. `full` installs all hooks; `lean` installs high-signal hooks only |
-| `--dir <path>` | `~/.copilot` | Target installation directory |
+| `--profile <full\|lean>` | `lean` | Hook profile to install. `lean` installs session hooks only; `full` also installs build/test/deploy capture |
+| `--dir <path>` | `$COPILOT_HOME` or `~/.copilot` | Target installation directory |
 | `--dry-run` | | Preview file operations without writing |
 | `--yes`, `-y` | | Skip confirmation prompts |
 | `--quiet` | | Suppress non-error output |
@@ -384,7 +384,7 @@ mcp__memory__recall_memory({
 
 #### GitHub Copilot
 
-- ✅ **Standalone hook JSON files** installed into `~/.copilot/hooks/`
+- ✅ **Standalone hook JSON files** installed into `$COPILOT_HOME/hooks/` or `~/.copilot/hooks/`
 - ✅ **Memory rules** template for `copilot-instructions.md`
 - ✅ **Format flag** - `--format cli` (camelCase) or `--format vscode` (PascalCase)
 - ✅ **Setup**: `npx @verygoodplugins/mcp-automem copilot --yes`

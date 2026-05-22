@@ -4,6 +4,7 @@
 #   {"additionalContext": "..."} on stdout (since v1.0.11)
 try {
     $project = Split-Path (Get-Location).Path -Leaf
+    $surface = if ($env:AUTOMEM_HOOK_SURFACE) { $env:AUTOMEM_HOOK_SURFACE } else { "copilot-cli" }
 
     $context = @"
 <automem_session_context>
@@ -38,7 +39,7 @@ Project slug: $project
 Notes:
 - Tags are a HARD GATE - they filter before scoring. For discovery/debugging across the full corpus, drop ``tags`` and rely on semantic ``query`` alone.
 - Do NOT use namespace-prefixed tags (``project/*``, ``lang/*``, etc.) - the corpus uses bare tags.
-- Phase 2 uses ONE targeted query, not ``queries[]`` + ``auto_decompose``. Sub-queries converge and dedup drops results; a single query built from the real nouns in the user's message wins empirically.
+- Phase 2 uses ONE targeted query, not ``queries[]`` + ``auto_decompose``. Sub-queries converge and dedup drops results; a single query built from the real nouns in the user's message wins empirically. Only switch to ``queries[]`` for genuinely multi-topic questions.
 - If the project slug collides with a common topic word, drop the Phase 2 tag gate and rely on semantic ``query`` alone.
 - Do not re-recall every turn. After turn 1, recall again only for topic shifts, new proper nouns, or active debugging.
 - If recall fails or returns nothing, continue without memory - do not mention the failure to the user.
@@ -46,8 +47,17 @@ Notes:
 </automem_session_context>
 "@
 
-    # Output JSON with additionalContext for Copilot CLI context injection
-    $result = @{ additionalContext = $context } | ConvertTo-Json -Compress
+    # Output JSON with the envelope expected by the configured hook surface.
+    if ($surface -eq "vscode-copilot") {
+        $result = @{
+            hookSpecificOutput = @{
+                hookEventName = "SessionStart"
+                additionalContext = $context
+            }
+        } | ConvertTo-Json -Compress -Depth 4
+    } else {
+        $result = @{ additionalContext = $context } | ConvertTo-Json -Compress
+    }
     Write-Output $result
 } catch {
     # Fail silently - do not block session start

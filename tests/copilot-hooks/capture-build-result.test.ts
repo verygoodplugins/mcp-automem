@@ -38,6 +38,33 @@ function buildCaptureSuite(shell: Shell) {
       expect(result.queue).toHaveLength(1);
     });
 
+    it('captures VS Code-style PostToolUse payloads without Copilot CLI fields', () => {
+      const result = run({
+        command: 'npm run build',
+        exitCode: 1,
+        output: 'ERROR: Cannot find module',
+        payloadShape: 'vscode-copilot',
+      });
+
+      expect(result.queue).toHaveLength(1);
+      expect(result.queue[0].tags).toContain('failure');
+      expect(result.queue[0].metadata?.exit_code).toBe(1);
+      expect(result.queue[0].metadata?.errors).toBe(1);
+    });
+
+    it('captures Copilot CLI camelCase exitCode payloads', () => {
+      const result = run({
+        command: 'npm run build',
+        exitCode: 1,
+        output: 'ERROR: Cannot find module',
+        payloadShape: 'copilot-cli',
+      });
+
+      expect(result.queue).toHaveLength(1);
+      expect(result.queue[0].tags).toContain('failure');
+      expect(result.queue[0].metadata?.exit_code).toBe(1);
+    });
+
     it.each([
       ['npm test (not build)', 'npm test'],
       ['npm install (not build)', 'npm install'],

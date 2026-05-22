@@ -55,12 +55,11 @@ describe('loadProfile', () => {
     expect(() => loadProfile('invalid')).toThrow(/full/);
   });
 
-  // T009: default profile resolves to full
+  // T009: default profile resolves to lean for low-blast-radius first install
   it('VALID_PROFILES contains lean and full', () => {
     expect(VALID_PROFILES).toContain('lean');
     expect(VALID_PROFILES).toContain('full');
-    // Default is full
-    expect(DEFAULT_PROFILE).toBe('full');
+    expect(DEFAULT_PROFILE).toBe('lean');
   });
 
   it('profile definition files have required fields', () => {

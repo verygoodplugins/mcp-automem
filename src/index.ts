@@ -151,8 +151,8 @@ COPILOT SETUP:
     --format <cli|vscode|both>  Memory rules and hook event name casing. cli = camelCase
                            hooks + CLI rules only. vscode = PascalCase hooks + VS Code
                            rules only. both = camelCase hooks + both rule sets (default).
-    --profile <full|lean>  Hook profile. full = all hooks (default); lean = session only.
-    --dir <path>           Target directory (default: ~/.copilot)
+    --profile <full|lean>  Hook profile. lean = session only (default); full = all hooks.
+    --dir <path>           Target directory (default: $COPILOT_HOME or ~/.copilot)
     --dry-run             Show what would be changed
     --yes, -y             Skip confirmation prompts
     --quiet               Suppress non-error output
