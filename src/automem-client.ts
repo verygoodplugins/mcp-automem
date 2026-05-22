@@ -11,6 +11,7 @@ import type {
   UpdateMemoryArgs,
   DeleteMemoryArgs,
   DeleteMemoryResult,
+  SupersedeRelationType,
 } from './types.js';
 
 const BATCH_DISALLOWED_FIELDS = ['id', 'embedding', 't_valid', 't_invalid'] as const;
@@ -28,8 +29,15 @@ const BATCH_TOP_LEVEL_SINGLE_FIELDS = [
   't_invalid',
   'updated_at',
   'last_accessed',
+  'supersedes_memory_id',
+  'supersede_relation',
+  'supersede_reason',
 ] as const;
 const BATCH_MAX_ITEMS = 500;
+const SUPERSEDE_RELATIONS: readonly SupersedeRelationType[] = [
+  'INVALIDATED_BY',
+  'EVOLVED_INTO',
+];
 
 function nonEmptyTags(tags: unknown): string[] {
   if (!Array.isArray(tags)) return [];
@@ -176,6 +184,20 @@ export class AutoMemClient {
       throw new Error('store_memory: `content` is required (or pass `memories` for batch mode)');
     }
 
+    const supersedesMemoryId =
+      typeof args.supersedes_memory_id === 'string'
+        ? args.supersedes_memory_id.trim()
+        : '';
+    const supersedeRelation = args.supersede_relation || 'INVALIDATED_BY';
+    if (
+      supersedesMemoryId &&
+      !SUPERSEDE_RELATIONS.includes(supersedeRelation)
+    ) {
+      throw new Error(
+        `store_memory: supersede_relation must be one of ${SUPERSEDE_RELATIONS.join(', ')}`
+      );
+    }
+
     const body: MemoryRecord = {
       content: args.content,
       ...(args.type && { type: args.type }),
@@ -193,11 +215,53 @@ export class AutoMemClient {
     };
 
     const response = await this.makeRequest('POST', 'memory', body);
+    const memoryId =
+      response.memory_id ??
+      response.id ??
+      response.response?.memory_id;
+
+    if (!supersedesMemoryId) {
+      return {
+        memory_id: memoryId,
+        message: response.message || 'Memory stored successfully',
+      };
+    }
+
+    if (!memoryId) {
+      throw new Error('store_memory: replacement memory response did not include a memory_id');
+    }
+
+    const oldMemory = await this.fetchMemoryById(supersedesMemoryId);
+    if (!oldMemory) {
+      throw new Error(`store_memory: superseded memory not found: ${supersedesMemoryId}`);
+    }
+
+    const oldMetadata =
+      oldMemory.metadata && typeof oldMemory.metadata === 'object' && !Array.isArray(oldMemory.metadata)
+        ? oldMemory.metadata
+        : {};
+    await this.updateMemory({
+      memory_id: supersedesMemoryId,
+      t_invalid: new Date().toISOString(),
+      metadata: {
+        ...oldMetadata,
+        deprecated: true,
+        superseded_by: memoryId,
+        supersede_relation: supersedeRelation,
+        ...(args.supersede_reason && { supersede_reason: args.supersede_reason }),
+      },
+    });
+    await this.associateMemories({
+      memory1_id: supersedesMemoryId,
+      memory2_id: memoryId,
+      type: supersedeRelation,
+      strength: 0.9,
+    });
+
     return {
-      memory_id:
-        response.memory_id ??
-        response.id ??
-        response.response?.memory_id,
+      memory_id: memoryId,
+      superseded_memory_id: supersedesMemoryId,
+      association_created: true,
       message: response.message || 'Memory stored successfully',
     };
   }
@@ -297,6 +361,8 @@ export class AutoMemClient {
         'relation_limit',
         'expand_min_importance',
         'expand_min_strength',
+        'current_only',
+        'state_debug',
         'sort',
       ];
       const conflicting = rankedOnlyParams.filter((key) => {
@@ -391,6 +457,14 @@ export class AutoMemClient {
       params.set('expand_min_strength', String(args.expand_min_strength));
     }
 
+    if (typeof args.current_only === 'boolean') {
+      params.set('current_only', String(args.current_only));
+    }
+
+    if (typeof args.state_debug === 'boolean') {
+      params.set('state_debug', String(args.state_debug));
+    }
+
     // Context hints for smarter recall
     if (args.context) {
       params.set('context', args.context);
@@ -472,6 +546,7 @@ export class AutoMemClient {
       expansion: response.expansion,
       entity_expansion: response.entity_expansion,
       context_priority: response.context_priority,
+      state_filter: response.state_filter,
     };
   }
 
