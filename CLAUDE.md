@@ -133,19 +133,23 @@ templates/
 
 ## MCP Tools
 
-The server exposes these tools to AI assistants:
+The server exposes 6 tools to AI assistants. Several are mode-multiplexed — the mode is selected by which params you pass, so the tool count stays small while the surface area covers all of AutoMem's memory CRUD endpoints.
 
-1. **store_memory** - Store memory with content, tags, importance, metadata, type, confidence, timestamps, embedding
-2. **recall_memory** - Hybrid search (vector + keyword + tags + recency)
-   - Supports `query`, `embedding`, `limit`, `time_query`, `tags`, `tag_mode`, `tag_match`
-   - Pagination/output: `per_query_limit`, `sort`, `format`, `offset`
-   - When `tags` provided: merges results from `/recall` and `/memory/by-tag` for better coverage
-3. **associate_memories** - Create relationships (11 public authorable types only)
-4. **update_memory** - Update existing memory fields (supports MEMORY_TYPES enum for `type`)
-5. **delete_memory** - Delete memory and embedding
-6. **check_database_health** - Check FalkorDB/Qdrant connection status
+1. **store_memory** — Two modes:
+   - **Single (default):** `content` plus optional `tags`, `importance`, `metadata`, `type`, `confidence`, `embedding`, `t_valid`, `t_invalid`, `id`.
+   - **Batch:** `memories: [...]` (≤500 items) for bulk ingestion. Per-item `id`, `embedding`, `t_valid`, `t_invalid` are NOT supported in batch mode — use single-mode for those.
+2. **recall_memory** — Three modes:
+   - **ID fetch:** `memory_id` → routes to `GET /memory/{id}` and ignores other params.
+   - **Tag enumeration:** `tags` + `exhaustive: true` → routes to `GET /memory/by-tag` for paginated exact-match listing. Pair with `limit` (≤200) and `offset`. Returns `has_more`/`limit`/`offset`. Use this for cleanup/audit workflows where ranked recall undercounts.
+   - **Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency, and graph expansion. Supports `query`/`queries`, `embedding`, `limit`, `time_query`, `tags`, `tag_mode`, `tag_match`, `exclude_tags`, expansion options, context hints, and pagination (`offset`, `sort`, `format`).
+3. **associate_memories** — Create relationships (11 public authorable types only).
+4. **update_memory** — Update existing memory fields (supports `MEMORY_TYPES` enum for `type`).
+5. **delete_memory** — Two modes:
+   - **Single (default):** `memory_id` → deletes one memory + its embedding.
+   - **Bulk-by-tag:** `tags: [...]` → bulk-deletes ALL memories matching ANY tag (exact, case-insensitive). No dry-run; verify with `recall_memory({ tags, exhaustive: true })` first.
+6. **check_database_health** — Check FalkorDB/Qdrant connection status.
 
-**Note:** `search_by_tag` tool removed in v0.2.0; use `recall_memory` with `tags` parameter instead.
+**Note:** `search_by_tag` tool removed in v0.2.0; use `recall_memory` with `tags` parameter instead. The `get_memory`, `list_memories_by_tag`, `delete_memories_by_tag`, and `store_memories_batch` capabilities ship as parameter-extended modes on the tools above (per the global "Resist Tool Bloat" guidance) rather than as separate tools.
 
 ## Claude Code Integration
 

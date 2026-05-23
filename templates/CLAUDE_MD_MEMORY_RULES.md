@@ -114,11 +114,14 @@ Don't re-recall mid-conversation unless the topic genuinely shifts. With 1M cont
 
 ## MCP Tools Available
 
-- `store_memory` — save content with tags, importance (0.0–1.0), type, metadata, optional `t_valid` / `t_invalid`
-- `recall_memory` — hybrid search (semantic + keyword + tags + time filters)
+- `store_memory` — save content with tags, importance (0.0–1.0), type, metadata, optional `t_valid` / `t_invalid`. Supports **batch mode** via `memories: [...]` (≤500 items, no per-item `id`/`embedding`/`t_valid`/`t_invalid`).
+- `recall_memory` — three modes:
+  - **ID fetch:** `memory_id` (ignores other params)
+  - **Tag enumeration:** `tags` + `exhaustive: true` (paginated, exact-match, returns `has_more`)
+  - **Ranked retrieval (default):** hybrid search; supports `exclude_tags` to scope out tag namespaces
 - `associate_memories` — create typed relationships between memories
 - `update_memory` — modify existing memories without duplication
-- `delete_memory` — remove by ID
+- `delete_memory` — remove by ID, or **bulk-by-tag** with `tags: [...]` (exact, case-insensitive, no dry-run)
 - `check_database_health` — FalkorDB + Qdrant status
 
 ### Memory schema

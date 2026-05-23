@@ -20,6 +20,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Features
+
+- parity with AutoMem service v0.15.2 — exposed via mode-multiplexed parameters on existing tools (no new tools, surface stays at 6):
+  - `recall_memory` gains three modes: ID fetch (`memory_id`), tag enumeration (`exhaustive: true` + `tags`, paginated via `limit`/`offset`, returns `has_more`), and ranked retrieval (default, now also supports `exclude_tags`).
+  - `store_memory` gains batch mode (`memories: [...]`, ≤500 items) routed to `POST /memory/batch`. Per-item `id`/`embedding`/`t_valid`/`t_invalid` are not supported in batch mode by design.
+  - `delete_memory` gains bulk-by-tag mode (`tags: [...]`) routed to `DELETE /memory/by-tag`. Exact-match, case-insensitive, no dry-run.
+- the OpenClaw plugin's six `automem_*` tools mirror the new modes via extended schemas; batch store applies the configured `defaultTags` per item, while bulk-delete-by-tag never injects defaults.
+
+
 ### Bug Fixes
 
 - wrap hook commands in `bash -c '…'` so they execute correctly on Windows Git Bash. Claude Code on Windows invokes hook commands via `CreateProcess` (no parent shell), which couldn't parse the previous inline `CLAUDE_HOOK_TYPE=… bash …` prefix and broke `PostToolUse:Bash` and `Stop` hooks with `bash: CLAUDE_HOOK_TYPE=…: No such file or directory` ([#108](https://github.com/verygoodplugins/mcp-automem/issues/108)). Affects `templates/claude-code/settings.json` and `plugins/automem/hooks/hooks.json`. The wrapped form is a no-op on macOS/Linux. Adds a `windows-latest` CI job that exercises the wrapped commands via Node `child_process` to catch future regressions.

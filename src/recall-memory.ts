@@ -55,6 +55,12 @@ function buildStructuredRecallOutput(
       };
     }),
     count: recallResult.count ?? results.length,
+    ...(recallResult.mode ? { mode: recallResult.mode } : {}),
+    ...(typeof recallResult.has_more === 'boolean'
+      ? { has_more: recallResult.has_more }
+      : {}),
+    ...(typeof recallResult.limit === 'number' ? { limit: recallResult.limit } : {}),
+    ...(typeof recallResult.offset === 'number' ? { offset: recallResult.offset } : {}),
     ...(typeof recallResult.dedup_removed === 'number'
       ? { dedup_removed: recallResult.dedup_removed }
       : {}),
@@ -141,6 +147,12 @@ export async function buildRecallMemoryResponse(
   }
   if (recallResult.expansion?.enabled && recallResult.expansion.expanded_count > 0) {
     notes.push(`${recallResult.expansion.expanded_count} via relation expansion`);
+  }
+  if (recallResult.mode === 'enumeration') {
+    const offset = recallResult.offset ?? 0;
+    const limit = recallResult.limit ?? results.length;
+    const pageSuffix = recallResult.has_more ? ' — more pages available' : '';
+    notes.push(`enumeration page: offset ${offset}, limit ${limit}${pageSuffix}`);
   }
   const notesSuffix = notes.length > 0 ? ` (${notes.join('; ')})` : '';
   const format = recallArgs.format || 'text';

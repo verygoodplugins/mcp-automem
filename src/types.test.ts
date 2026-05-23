@@ -83,7 +83,7 @@ describe('Type Definitions', () => {
   });
 
   describe('StoreMemoryArgs', () => {
-    it('should require content', () => {
+    it('should accept single-mode content', () => {
       const args: StoreMemoryArgs = { content: 'test' };
       expect(args.content).toBe('test');
     });
@@ -99,6 +99,17 @@ describe('Type Definitions', () => {
       };
       expect(args.tags).toHaveLength(2);
       expect(args.importance).toBe(0.8);
+    });
+
+    it('should accept batch-mode memories[] without content', () => {
+      const args: StoreMemoryArgs = {
+        memories: [
+          { content: 'one' },
+          { content: 'two', tags: ['x'] },
+        ],
+      };
+      expect(args.memories).toHaveLength(2);
+      expect(args.content).toBeUndefined();
     });
   });
 
@@ -208,9 +219,15 @@ describe('Type Definitions', () => {
   });
 
   describe('DeleteMemoryArgs', () => {
-    it('should require memory_id', () => {
+    it('should accept single-mode memory_id', () => {
       const args: DeleteMemoryArgs = { memory_id: 'mem-to-delete' };
       expect(args.memory_id).toBe('mem-to-delete');
+    });
+
+    it('should accept bulk-by-tag mode', () => {
+      const args: DeleteMemoryArgs = { tags: ['benchmark'] };
+      expect(args.tags).toEqual(['benchmark']);
+      expect(args.memory_id).toBeUndefined();
     });
   });
 

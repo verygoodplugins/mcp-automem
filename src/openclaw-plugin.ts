@@ -15,6 +15,7 @@ import {
 } from './memory-policy/shared.js';
 import type {
   AssociateMemoryArgs,
+  BatchMemoryInput,
   DeleteMemoryArgs,
   RecallMemoryArgs,
   StoreMemoryArgs,
@@ -312,9 +313,27 @@ const emptyToolSchema = {
 const storeMemorySchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['content'],
   properties: {
-    content: { type: 'string', description: 'Memory content to store.' },
+    content: { type: 'string', description: 'Single-mode (XOR with `memories`). Memory content to store.' },
+    memories: {
+      type: 'array',
+      maxItems: 500,
+      description:
+        'Batch mode (XOR with `content`). Up to 500 memories per call. Per-item `id`/`embedding`/`t_valid`/`t_invalid` are not supported in batch mode.',
+      items: {
+        type: 'object',
+        required: ['content'],
+        properties: {
+          content: { type: 'string' },
+          tags: { type: 'array', items: { type: 'string' } },
+          importance: { type: 'number' },
+          metadata: { type: 'object' },
+          timestamp: { type: 'string' },
+          type: { type: 'string' },
+          confidence: { type: 'number' },
+        },
+      },
+    },
     type: { type: 'string', description: 'Memory classification.' },
     confidence: { type: 'number' },
     id: { type: 'string' },
@@ -334,6 +353,9 @@ const recallMemorySchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    memory_id: { type: 'string', description: 'Mode 1: ID fetch. When set, ignores all other params.' },
+    exhaustive: { type: 'boolean', description: 'Mode 2: tag enumeration. When true with `tags`, paginated exact-match listing.' },
+    exclude_tags: { type: 'array', items: { type: 'string' }, description: 'Ranked-mode only. Tags to exclude.' },
     query: { type: 'string' },
     queries: { type: 'array', items: { type: 'string' } },
     embedding: { type: 'array', items: { type: 'number' } },
@@ -385,9 +407,13 @@ const updateMemorySchema = {
 const deleteMemorySchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['memory_id'],
   properties: {
-    memory_id: { type: 'string' },
+    memory_id: { type: 'string', description: 'Single-delete mode (XOR with `tags`).' },
+    tags: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Bulk-delete mode (XOR with `memory_id`). Deletes all memories tagged with ANY of these (exact, case-insensitive). No dry-run.',
+    },
   },
 };
 
@@ -506,10 +532,28 @@ const openClawPlugin = {
     api.registerTool({
       name: 'automem_store_memory',
       label: 'AutoMem Store Memory',
-      description: 'Store a durable memory in AutoMem.',
+      description:
+        'Store a durable memory in AutoMem. Single-mode (set `content`) or batch mode (set `memories: [...]`, up to 500). Batch mode does not accept per-item id/embedding/t_valid/t_invalid.',
       parameters: storeMemorySchema,
       async execute(_toolCallId, params) {
         const request = params as StoreMemoryArgs;
+        if (Array.isArray(request.memories)) {
+          const mergedMemories = request.memories.map((item) => {
+            const merged = mergeTags(config.defaultTags, item.tags);
+            const next: BatchMemoryInput = { ...item };
+            if (merged !== undefined) {
+              next.tags = merged;
+            } else {
+              delete next.tags;
+            }
+            return next;
+          });
+          const result = await client.storeMemory({
+            ...request,
+            memories: mergedMemories,
+          });
+          return jsonResult(result);
+        }
         const result = await client.storeMemory({
           ...request,
           tags: mergeTags(config.defaultTags, request.tags),
@@ -521,7 +565,8 @@ const openClawPlugin = {
     api.registerTool({
       name: 'automem_recall_memory',
       label: 'AutoMem Recall Memory',
-      description: 'Recall relevant memories from AutoMem.',
+      description:
+        'Recall memories in one of three modes. (1) ID fetch: pass `memory_id`. (2) Tag enumeration: pass `tags` + `exhaustive: true` for paginated exact-match listing. (3) Ranked retrieval (default): hybrid search across vector/keyword/tags/recency.',
       parameters: recallMemorySchema,
       async execute(_toolCallId, params) {
         const request = params as RecallMemoryArgs;
@@ -551,7 +596,8 @@ const openClawPlugin = {
     api.registerTool({
       name: 'automem_delete_memory',
       label: 'AutoMem Delete Memory',
-      description: 'Delete a stored AutoMem memory by id.',
+      description:
+        'Delete a stored AutoMem memory. Single-mode (set `memory_id`) or bulk-by-tag (set `tags`). Bulk-by-tag has no dry-run; verify with `automem_recall_memory({ tags, exhaustive: true })` first.',
       parameters: deleteMemorySchema,
       async execute(_toolCallId, params) {
         const result = await client.deleteMemory(params as DeleteMemoryArgs);
