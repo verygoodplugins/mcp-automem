@@ -54,3 +54,29 @@ jobs:
       - name: Test coverage
         run: npm run test:coverage
         continue-on-error: true
+
+  hooks-windows:
+    name: Hook commands (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # Regression guard for #108: hook commands shipped in templates/plugins
+      # must execute via Node child_process (cmd.exe /d /s /c on Windows), the
+      # same model Claude Code uses to launch hooks. On Windows there is no
+      # parent shell to parse `VAR=value command` prefixes, so the wrapped
+      # `bash -c '…'` form is the only one that works. This test fails loudly
+      # if the wrap regresses.
+      - name: Verify wrapped hook commands run on Windows
+        run: npx vitest run tests/installer/hook-commands.test.ts
