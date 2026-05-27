@@ -3,9 +3,10 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { removeMcpServerEntry, resolveHermesPaths } from './hermes-config.js';
 
 interface UninstallOptions {
-  platform: 'cursor' | 'claude-code';
+  platform: 'cursor' | 'claude-code' | 'hermes';
   projectDir?: string;
   cleanAll?: boolean;
   dryRun?: boolean;
@@ -222,6 +223,52 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
   }
 }
 
+async function uninstallHermes(options: UninstallOptions): Promise<void> {
+  const paths = resolveHermesPaths({ dir: options.projectDir });
+
+  log('\n🗑️  Uninstalling Hermes AutoMem...', options.quiet);
+
+  let didChange = false;
+  if (fs.existsSync(paths.configPath)) {
+    didChange = removeMcpServerEntry(paths.configPath, 'memory', {
+      dryRun: options.dryRun,
+      quiet: options.quiet,
+    }) || didChange;
+  } else {
+    log(`ℹ️  No Hermes config at ${paths.configPath}`, options.quiet);
+  }
+
+  if (fs.existsSync(paths.agentsPath)) {
+    const start = '<!-- BEGIN AUTOMEM CODEX RULES -->';
+    const end = '<!-- END AUTOMEM CODEX RULES -->';
+    const raw = fs.readFileSync(paths.agentsPath, 'utf8');
+    const startIdx = raw.indexOf(start);
+    const endIdx = raw.indexOf(end);
+
+    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+      log(`ℹ️  No AutoMem rule block in ${paths.agentsPath}`, options.quiet);
+    } else if (options.dryRun) {
+      log(`[DRY RUN] Would strip AutoMem block from: ${paths.agentsPath}`, options.quiet);
+    } else {
+      const before = raw.slice(0, startIdx).replace(/\s+$/, '');
+      const after = raw.slice(endIdx + end.length).replace(/^\s+/, '');
+      const next = before && after ? `${before}\n\n${after}\n` : `${before}${after}`.replace(/\n+$/, '') + '\n';
+      const backupPath = `${paths.agentsPath}.backup.${Date.now()}`;
+      fs.copyFileSync(paths.agentsPath, backupPath);
+      fs.writeFileSync(paths.agentsPath, next, 'utf8');
+      log(`🗑️  Stripped AutoMem block from ${paths.agentsPath}`, options.quiet);
+      log(`   Backup: ${backupPath}`, options.quiet);
+      didChange = true;
+    }
+  }
+
+  if (didChange) {
+    log('\n✅ Hermes AutoMem configuration removed', options.quiet);
+  } else if (!options.dryRun) {
+    log('\nℹ️  Nothing to remove for Hermes AutoMem', options.quiet);
+  }
+}
+
 async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
   const claudeDir = path.join(os.homedir(), '.claude');
   const settingsPath = path.join(claudeDir, 'settings.json');
@@ -300,6 +347,8 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
     await uninstallCursor(options);
   } else if (options.platform === 'claude-code') {
     await uninstallClaudeCode(options);
+  } else if (options.platform === 'hermes') {
+    await uninstallHermes(options);
   }
   
   // Clean up external changes (Claude Desktop config) if requested
@@ -323,14 +372,15 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
 }
 
 function parseUninstallArgs(args: string[]): UninstallOptions | null {
-  if (args.length === 0 || (args[0] !== 'cursor' && args[0] !== 'claude-code')) {
-    console.error('❌ Error: Platform required (cursor or claude-code)');
-    console.error('Usage: mcp-automem uninstall <cursor|claude-code> [options]');
+  const allowed = ['cursor', 'claude-code', 'hermes'] as const;
+  if (args.length === 0 || !allowed.includes(args[0] as typeof allowed[number])) {
+    console.error('❌ Error: Platform required (cursor, claude-code, or hermes)');
+    console.error('Usage: mcp-automem uninstall <cursor|claude-code|hermes> [options]');
     return null;
   }
-  
+
   const options: UninstallOptions = {
-    platform: args[0] as 'cursor' | 'claude-code',
+    platform: args[0] as UninstallOptions['platform'],
   };
   
   for (let i = 1; i < args.length; i += 1) {

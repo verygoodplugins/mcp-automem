@@ -55,7 +55,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^17.4.2",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.4.1",

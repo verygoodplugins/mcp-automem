@@ -219,6 +219,15 @@ npx @verygoodplugins/mcp-automem config --format=json
 npx @verygoodplugins/mcp-automem codex
 ```
 
+**For Hermes Agent (Nous Research):**
+
+```bash
+# Registers `memory` MCP server under ~/.hermes/config.yaml
+# and installs AGENTS.md rules. Prefers `hermes mcp add` if installed,
+# otherwise edits config.yaml directly (preserves comments).
+npx @verygoodplugins/mcp-automem hermes
+```
+
 **For Google Antigravity:**
 
 1. Open the MCP Store from the `...` menu at the top of the editor's agent panel

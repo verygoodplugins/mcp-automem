@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildMcpConfigJson, buildSummaryInstructions, DEFAULT_AUTOMEM_API_URL } from './templates.js';
+import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildHermesSnippet, buildMcpConfigJson, buildSummaryInstructions, DEFAULT_AUTOMEM_API_URL } from './templates.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
 
 interface SetupOptions {
@@ -227,6 +227,9 @@ export async function runSetup(args: string[] = []): Promise<void> {
   console.log(buildClaudeDesktopSnippet());
   console.log('\nClaude Code setup:\n');
   console.log(buildClaudeCodeExport(endpoint, 'your-auto-mem-api-key'));
+  console.log('\nHermes Agent snippet (~/.hermes/config.yaml):\n');
+  console.log(buildHermesSnippet(endpoint, apiKey || '${AUTOMEM_API_KEY}'));
+  console.log('\nOr run: npx @verygoodplugins/mcp-automem hermes');
   console.log('\nUse `npx @verygoodplugins/mcp-automem config --format=json` to print this snippet again later.');
 
   if (options.claudeCode) {
@@ -254,4 +257,6 @@ export async function runConfig(args: string[] = []): Promise<void> {
   console.log(buildClaudeDesktopSnippet());
   console.log('\nClaude Code setup:\n');
   console.log(buildClaudeCodeExport(endpoint, 'your-auto-mem-api-key'));
+  console.log('\nHermes Agent snippet (~/.hermes/config.yaml):\n');
+  console.log(buildHermesSnippet(endpoint, apiKey));
 }
