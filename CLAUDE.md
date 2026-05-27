@@ -273,6 +273,7 @@ npx @verygoodplugins/mcp-automem queue --file /tmp/test-queue.jsonl
 - Use `memory-filters.json` to avoid storing trivial changes
 - Queue format: JSONL (one JSON object per line)
 - Template hook scripts in `templates/` are duplicated in `plugins/` for distribution; update both when changing hook behavior.
+- Follow-up: `plugins/automem/scripts/` and `templates/claude-code/{hooks,scripts}/` are still hand-synced byte copies. A `scripts/sync-claude-plugin-scripts.mjs` prebuild (precedent: `scripts/sync-template-versions.mjs`, `scripts/build-openclaw-plugin-package.mjs`) would eliminate the drift risk.
 
 **Settings Merge Strategy:**
 - `mergeSettings()` in `claude-code.ts` preserves existing configs
