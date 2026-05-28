@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CLAUDE_HOOK_TYPE=session_end ${CLAUDE_PLUGIN_ROOT}/scripts/session-memory.sh"
+            "command": "bash -c 'CLAUDE_HOOK_TYPE=session_end \"${CLAUDE_PLUGIN_ROOT}/scripts/session-memory.sh\"'"
           },
           {
             "type": "command",
