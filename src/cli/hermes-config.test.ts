@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { execSync } from 'child_process';
 import { parse as parseYaml } from 'yaml';
 import {
   buildAutoMemServerEntry,
@@ -10,6 +11,12 @@ import {
   resolveHermesPaths,
   upsertMcpServer,
 } from './hermes-config.js';
+import {
+  createTempHome,
+  expectOutsideRealHermesHome,
+  listBackups,
+  readMcpServerSummary,
+} from '../../tests/cli/integration-helpers.js';
 
 vi.mock('child_process', async () => {
   const actual = await vi.importActual<typeof import('child_process')>('child_process');
@@ -26,7 +33,7 @@ describe('hermes-config', () => {
   let originalHermesHome: string | undefined;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-config-'));
+    tmpDir = createTempHome('hermes-config-').home;
     originalHermesHome = process.env.HERMES_HOME;
   });
 
@@ -84,6 +91,30 @@ describe('hermes-config', () => {
   });
 
   describe('upsertMcpServer (YAML fallback path)', () => {
+    it('uses deterministic YAML upsert even when Hermes CLI is available', async () => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      expectOutsideRealHermesHome([configPath]);
+      vi.mocked(execSync)
+        .mockReturnValueOnce('usage: hermes mcp add\n' as never)
+        .mockReturnValueOnce('registered memory\n' as never);
+
+      const result = await upsertMcpServer(
+        { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
+        'memory',
+        buildAutoMemServerEntry('http://127.0.0.1:8001', 'sk-x'),
+        { quiet: true }
+      );
+
+      expect(result).toEqual({ method: 'yaml-fallback', changed: true });
+      expect(readMcpServerSummary(configPath)).toMatchObject({
+        memory: {
+          command: 'npx',
+          args: ['-y', '@verygoodplugins/mcp-automem'],
+          envKeys: ['AUTOMEM_API_KEY', 'AUTOMEM_API_URL'],
+        },
+      });
+    });
+
     it('creates a fresh config.yaml when none exists', async () => {
       const configPath = path.join(tmpDir, 'config.yaml');
       const result = await upsertMcpServer(
@@ -135,6 +166,36 @@ describe('hermes-config', () => {
       expect(parsed.model).toBe('claude-opus');
       expect(parsed.mcp_servers.other).toBeDefined();
       expect(parsed.mcp_servers.memory).toBeDefined();
+    });
+
+    it.each([
+      ['null', 'mcp_servers: null\nmodel: claude-opus\n'],
+      ['list', 'mcp_servers:\n  - old-server\nmodel: claude-opus\n'],
+      ['scalar', 'mcp_servers: disabled\nmodel: claude-opus\n'],
+    ])('replaces invalid mcp_servers %s values with a map', async (_label, configText) => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      fs.writeFileSync(configPath, configText);
+
+      const result = await upsertMcpServer(
+        { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
+        'memory',
+        buildAutoMemServerEntry('http://127.0.0.1:8001'),
+        { quiet: true }
+      );
+
+      expect(result).toEqual({ method: 'yaml-fallback', changed: true });
+      expect(readMcpServerSummary(configPath)).toMatchObject({
+        memory: {
+          command: 'npx',
+          args: ['-y', '@verygoodplugins/mcp-automem'],
+          envKeys: ['AUTOMEM_API_URL'],
+        },
+      });
+      const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
+        model: string;
+      };
+      expect(parsed.model).toBe('claude-opus');
+      expect(listBackups(configPath)).toHaveLength(1);
     });
 
     it('is idempotent — re-running returns changed: false', async () => {

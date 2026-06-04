@@ -1,9 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { parse as parseYaml } from 'yaml';
 import { applyHermesSetup } from './hermes.js';
+import {
+  createTempHome,
+  expectFilesUnchanged,
+  expectNoFiles,
+  expectOutsideRealHermesHome,
+  listBackups,
+  readFiles,
+  readMcpServerSummary,
+} from '../../tests/cli/integration-helpers.js';
 
 vi.mock('child_process', async () => {
   const actual = await vi.importActual<typeof import('child_process')>('child_process');
@@ -22,7 +30,7 @@ describe('hermes setup handler', () => {
   let originalApiKey: string | undefined;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-handler-'));
+    tmpDir = createTempHome('hermes-handler-').home;
     originalHermesHome = process.env.HERMES_HOME;
     originalApiUrl = process.env.AUTOMEM_API_URL;
     originalApiKey = process.env.AUTOMEM_API_KEY;
@@ -54,6 +62,7 @@ describe('hermes setup handler', () => {
 
     const configPath = path.join(tmpDir, 'config.yaml');
     const agentsPath = path.join(tmpDir, 'AGENTS.md');
+    expectOutsideRealHermesHome([configPath, agentsPath]);
 
     expect(fs.existsSync(configPath)).toBe(true);
     expect(fs.existsSync(agentsPath)).toBe(true);
@@ -83,12 +92,12 @@ describe('hermes setup handler', () => {
     await applyHermesSetup(opts);
     const configPath = path.join(tmpDir, 'config.yaml');
     const agentsPath = path.join(tmpDir, 'AGENTS.md');
-    const configAfterFirst = fs.readFileSync(configPath, 'utf8');
-    const agentsAfterFirst = fs.readFileSync(agentsPath, 'utf8');
+    const afterFirst = readFiles([configPath, agentsPath]);
 
     await applyHermesSetup(opts);
-    expect(fs.readFileSync(configPath, 'utf8')).toBe(configAfterFirst);
-    expect(fs.readFileSync(agentsPath, 'utf8')).toBe(agentsAfterFirst);
+    expectFilesUnchanged(afterFirst);
+    expect(listBackups(configPath)).toEqual([]);
+    expect(listBackups(agentsPath)).toEqual([]);
   });
 
   it('--dry-run writes nothing', async () => {
@@ -101,8 +110,9 @@ describe('hermes setup handler', () => {
       quiet: true,
     });
 
-    expect(fs.existsSync(path.join(tmpDir, 'config.yaml'))).toBe(false);
-    expect(fs.existsSync(path.join(tmpDir, 'AGENTS.md'))).toBe(false);
+    const paths = [path.join(tmpDir, 'config.yaml'), path.join(tmpDir, 'AGENTS.md')];
+    expectOutsideRealHermesHome(paths);
+    expectNoFiles(paths);
   });
 
   it('HERMES_HOME env var resolves the install location', async () => {
@@ -113,8 +123,10 @@ describe('hermes setup handler', () => {
       quiet: true,
     });
 
-    expect(fs.existsSync(path.join(tmpDir, 'config.yaml'))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, 'AGENTS.md'))).toBe(true);
+    const paths = [path.join(tmpDir, 'config.yaml'), path.join(tmpDir, 'AGENTS.md')];
+    expectOutsideRealHermesHome(paths);
+    expect(fs.existsSync(paths[0])).toBe(true);
+    expect(fs.existsSync(paths[1])).toBe(true);
   });
 
   it('YAML fallback path is exercised when Hermes CLI is unavailable', async () => {
@@ -128,10 +140,13 @@ describe('hermes setup handler', () => {
       quiet: true,
     });
 
-    const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
-      mcp_servers: Record<string, unknown>;
-    };
-    expect(parsed.mcp_servers.memory).toBeDefined();
+    expect(readMcpServerSummary(path.join(tmpDir, 'config.yaml'))).toMatchObject({
+      memory: {
+        command: 'npx',
+        args: ['-y', '@verygoodplugins/mcp-automem'],
+        envKeys: ['AUTOMEM_API_URL'],
+      },
+    });
   });
 
   it('honors $AUTOMEM_API_URL and $AUTOMEM_API_KEY when no flags are passed', async () => {

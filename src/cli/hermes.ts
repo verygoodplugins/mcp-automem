@@ -75,9 +75,7 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
     quiet: cliOptions.quiet,
   });
 
-  if (result.method === 'hermes-cli') {
-    log('✅ Registered memory server via Hermes CLI (`hermes mcp add`)', cliOptions.quiet);
-  } else if (result.method === 'yaml-fallback') {
+  if (result.method === 'yaml-fallback') {
     log('✅ Registered memory server via direct YAML edit', cliOptions.quiet);
   }
 

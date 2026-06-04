@@ -16,6 +16,7 @@ import { runCursorSetup } from "./cli/cursor.js";
 import { runCodexSetup } from "./cli/codex.js";
 import { runOpenClawSetup } from "./cli/openclaw.js";
 import { runHermesSetup } from "./cli/hermes.js";
+import { runInstallCommand } from "./cli/install.js";
 import { runMigrateCommand } from "./cli/migrate.js";
 import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
@@ -37,15 +38,17 @@ function isInteractiveTerminal(): boolean {
 }
 
 const command = (process.argv[2] || "").toLowerCase();
+const commandArgs = process.argv.slice(3);
 const isServerMode = command.length === 0;
 const isMachineReadableCommand =
-  command === "config" && process.argv.slice(3).some(
+  command === "config" && commandArgs.some(
     (arg) => arg === "--json" || arg === "--format=json" || arg === "--format"
   );
-const shouldSilenceDotenv = isServerMode || isMachineReadableCommand;
+const isQuietCommand = commandArgs.includes("--quiet");
+const shouldSilenceDotenv = isServerMode || isMachineReadableCommand || command === "install" || isQuietCommand;
 
 // Prevent dotenv from writing its banner to stdout when the caller expects clean
-// machine-readable output (stdio server mode, or `config --format=json`).
+// machine-readable output or curated/quiet installer output.
 process.env.DOTENV_CONFIG_QUIET = shouldSilenceDotenv ? "true" : process.env.DOTENV_CONFIG_QUIET ?? "false";
 process.env.DOTENV_CONFIG_DEBUG = "false";
 
@@ -111,6 +114,7 @@ USAGE:
 
 COMMANDS:
   setup              Interactive setup for .env configuration
+  install            Guided installer for local/cloud AutoMem + agent setup
   config             Show configuration snippets
   claude-code        Set up AutoMem for Claude Code
   cursor             Set up AutoMem for Cursor
@@ -211,6 +215,19 @@ HERMES SETUP:
     --dry-run             Show what would be changed
     --quiet               Suppress output
 
+GUIDED INSTALL:
+  npx @verygoodplugins/mcp-automem install [options]
+
+  Options:
+    --target <local|cloud|existing>  Choose where AutoMem runs
+    --clients <list>                 Comma-separated agents: codex,claude-code,cursor,openclaw,hermes
+    --endpoint <url>                 Existing or hosted AutoMem endpoint
+    --api-key <key>                  API key for authenticated endpoints
+    --local-dir <path>               Local server directory (default: ~/.automem/server)
+    --dry-run                        Show the review plan without writing files
+    --yes, -y                        Apply without confirmation
+    --no-agent-install               Configure endpoint only; skip agent writes
+
 OPENCLAW SETUP:
   npx @verygoodplugins/mcp-automem openclaw [options]
 
@@ -237,6 +254,11 @@ https://github.com/verygoodplugins/mcp-automem
 
 if (command === "setup") {
   await runSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === "install") {
+  await runInstallCommand(process.argv.slice(3));
   process.exit(0);
 }
 

@@ -4,10 +4,12 @@
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
-import { execFileSync, execSync } from 'child_process';
+import { execFile, execFileSync, execSync } from 'child_process';
 import fs from 'fs';
+import { createServer } from 'http';
 import os from 'os';
 import path from 'path';
+import { readMcpServerSummary } from './integration-helpers.js';
 
 const CLI_PATH = path.resolve(__dirname, '../../dist/index.js');
 
@@ -56,6 +58,74 @@ function runCliExpectSuccess(
     );
   }
   return result.stdout;
+}
+
+function runCliAsync(
+  args: string[],
+  options: { timeout?: number; cwd?: string; env?: NodeJS.ProcessEnv } = {}
+): Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}> {
+  return new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      [CLI_PATH, ...args],
+      {
+        encoding: 'utf8',
+        timeout: options.timeout || 10000,
+        cwd: options.cwd || process.cwd(),
+        env: {
+          ...process.env,
+          AUTOMEM_API_URL: 'http://localhost:9999',
+          ...options.env,
+        },
+      },
+      (error, stdout, stderr) => {
+        const execError = error as { code?: number } | null;
+        resolve({
+          stdout,
+          stderr,
+          exitCode: execError?.code ?? 0,
+        });
+      }
+    );
+  });
+}
+
+async function withAutoMemProbeServer<T>(run: (endpoint: string) => Promise<T>): Promise<T> {
+  const server = createServer((request, response) => {
+    if (request.url?.startsWith('/health')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ status: 'healthy' }));
+      return;
+    }
+    if (request.url?.startsWith('/recall')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ memories: [] }));
+      return;
+    }
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('AutoMem probe server did not bind to a TCP port');
+  }
+
+  try {
+    return await run(`http://127.0.0.1:${address.port}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+  }
 }
 
 describe('CLI Smoke Tests', () => {
@@ -160,6 +230,112 @@ describe('CLI Smoke Tests', () => {
     it('should show config with --yes flag (non-interactive)', () => {
       const result = runCli(['setup', '--yes', '--endpoint', 'http://test:8001']);
       expect((result.stdout + result.stderr).length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('install command', () => {
+    it('default dry-run plan does not include Hermes writes', () => {
+      const cwd = path.join(tempDir, 'install-default-cwd');
+      const homeDir = path.join(tempDir, 'install-default-home');
+      const hermesHome = path.join(tempDir, 'install-default-hermes');
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.mkdirSync(homeDir, { recursive: true });
+
+      const output = runCliExpectSuccess(
+        [
+          'install',
+          '--dry-run',
+          '--target',
+          'existing',
+          '--endpoint',
+          'http://127.0.0.1:8001',
+        ],
+        {
+          cwd,
+          env: {
+            HOME: homeDir,
+            HERMES_HOME: hermesHome,
+          },
+        }
+      );
+
+      expect(output).not.toContain('Hermes');
+      expect(output).not.toContain(path.join(hermesHome, 'config.yaml'));
+      expect(fs.existsSync(path.join(hermesHome, 'config.yaml'))).toBe(false);
+      expect(fs.existsSync(path.join(hermesHome, 'AGENTS.md'))).toBe(false);
+    });
+
+    it('explicit Hermes install writes only under temp HERMES_HOME', async () => {
+      await withAutoMemProbeServer(async (endpoint) => {
+        const cwd = path.join(tempDir, 'install-hermes-cwd');
+        const homeDir = path.join(tempDir, 'install-hermes-home');
+        const hermesHome = path.join(tempDir, 'install-hermes-explicit-home');
+        fs.mkdirSync(cwd, { recursive: true });
+        fs.mkdirSync(homeDir, { recursive: true });
+
+        const result = await runCliAsync(
+          [
+            'install',
+            '--target',
+            'existing',
+            '--endpoint',
+            endpoint,
+            '--api-key',
+            'sk-e2e-secret',
+            '--clients',
+            'hermes',
+            '--yes',
+          ],
+          {
+            cwd,
+            env: {
+              HOME: homeDir,
+              HERMES_HOME: hermesHome,
+            },
+            timeout: 20000,
+          }
+        );
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toContain(path.join(hermesHome, 'config.yaml'));
+        expect(result.stdout).not.toContain('sk-e2e-secret');
+        expect(readMcpServerSummary(path.join(hermesHome, 'config.yaml'))).toMatchObject({
+          memory: {
+            command: 'npx',
+            args: ['-y', '@verygoodplugins/mcp-automem'],
+            envKeys: ['AUTOMEM_API_KEY', 'AUTOMEM_API_URL'],
+          },
+        });
+        expect(fs.existsSync(path.join(hermesHome, 'AGENTS.md'))).toBe(true);
+        expect(fs.existsSync(path.join(homeDir, '.hermes', 'config.yaml'))).toBe(false);
+      });
+    });
+  });
+
+  describe('hermes command', () => {
+    it('keeps --quiet output free of dotenv banners', () => {
+      const cwd = path.join(tempDir, 'hermes-quiet-cwd');
+      const hermesHome = path.join(tempDir, 'hermes-quiet-home');
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.writeFileSync(path.join(cwd, '.env'), 'AUTOMEM_API_URL=http://127.0.0.1:8001\n');
+
+      const output = runCliExpectSuccess(
+        [
+          'hermes',
+          '--dry-run',
+          '--quiet',
+          '--dir',
+          hermesHome,
+          '--name',
+          'quiet-test',
+          '--endpoint',
+          'http://127.0.0.1:8001',
+        ],
+        { cwd }
+      );
+
+      expect(output).toBe('');
+      expect(fs.existsSync(path.join(hermesHome, 'config.yaml'))).toBe(false);
     });
   });
 

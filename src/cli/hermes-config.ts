@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execSync } from 'child_process';
-import { parse as parseYaml, stringify as stringifyYaml, parseDocument } from 'yaml';
+import { isMap, parse as parseYaml, parseDocument } from 'yaml';
 import { backupPath, log } from './host-toolkit.js';
 
 export interface HermesPaths {
@@ -22,7 +22,7 @@ export interface UpsertOptions {
   quiet?: boolean;
 }
 
-export type UpsertMethod = 'hermes-cli' | 'yaml-fallback' | 'dry-run';
+export type UpsertMethod = 'yaml-fallback' | 'dry-run';
 
 export interface UpsertResult {
   method: UpsertMethod;
@@ -107,7 +107,7 @@ function upsertViaYaml(
   const raw = existed ? fs.readFileSync(configPath, 'utf8') : '';
 
   // Read existing entry (if any) to short-circuit no-op writes.
-  let existing: unknown = null;
+  let existing: unknown;
   try {
     const parsed = parseYaml(raw || '{}') as Record<string, unknown> | null;
     existing = parsed?.mcp_servers && typeof parsed.mcp_servers === 'object'
@@ -126,6 +126,9 @@ function upsertViaYaml(
   // has a real Map node to traverse into. parseDocument preserves comments on
   // round-trip when the input is non-empty.
   const doc = raw.trim().length > 0 ? parseDocument(raw) : parseDocument('mcp_servers: {}\n');
+  if (!isMap(doc.get('mcp_servers', true))) {
+    doc.set('mcp_servers', doc.createNode({}));
+  }
   doc.setIn(['mcp_servers', name], doc.createNode(entry));
   // Force block-style serialization (`key:\n  value`) — Hermes' YAML loader
   // and most human readers expect block, not flow (`{key: value}`).
@@ -150,30 +153,6 @@ function upsertViaYaml(
   return true;
 }
 
-function upsertViaHermesCli(
-  name: string,
-  entry: AutoMemServerEntry,
-  opts: UpsertOptions,
-): boolean {
-  // Build the Hermes command. The exact flag shape is conservative — we pass
-  // env vars as repeated `--env KEY=VALUE` and args as repeated `--arg VALUE`.
-  // If a user's Hermes version uses different flags, the call will fail and
-  // the caller will fall back to YAML.
-  const envFlags = Object.entries(entry.env)
-    .map(([k, v]) => `--env ${JSON.stringify(`${k}=${v}`)}`)
-    .join(' ');
-  const argFlags = entry.args.map((a) => `--arg ${JSON.stringify(a)}`).join(' ');
-  const cmd = `hermes mcp add ${JSON.stringify(name)} --command ${JSON.stringify(entry.command)} ${argFlags} ${envFlags}`;
-
-  if (opts.dryRun) {
-    log(`[DRY RUN] Would run: ${cmd}`, opts.quiet);
-    return false;
-  }
-
-  execSync(cmd, { stdio: opts.quiet ? 'ignore' : 'inherit' });
-  return true;
-}
-
 export async function upsertMcpServer(
   paths: HermesPaths,
   name: string,
@@ -183,19 +162,6 @@ export async function upsertMcpServer(
   if (opts.dryRun) {
     log(`[DRY RUN] Would upsert mcp_servers.${name} in: ${paths.configPath}`, opts.quiet);
     return { method: 'dry-run', changed: false };
-  }
-
-  if (detectHermesCliMcpAdd()) {
-    try {
-      const changed = upsertViaHermesCli(name, entry, opts);
-      log(`✅ Registered mcp_servers.${name} via hermes CLI`, opts.quiet);
-      return { method: 'hermes-cli', changed };
-    } catch (error) {
-      log(
-        `⚠️  hermes mcp add failed (${(error as Error).message}); falling back to direct YAML edit`,
-        opts.quiet,
-      );
-    }
   }
 
   const changed = upsertViaYaml(paths.configPath, name, entry, opts);
