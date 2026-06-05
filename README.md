@@ -72,9 +72,9 @@ _Cursor uses automem.mdc rule to automatically recall and store memories_
 ![Claude Code Memory Capture](screenshots/claude-code-1.jpg)
 _Git commits, builds, and deployments automatically stored to memory_
 
-### OpenAI Codex with Memory Rules
+### OpenAI Codex with Memory Rules and Hooks
 
-OpenAI Codex uses config.toml to automatically recall and store memories
+OpenAI Codex uses `AGENTS.md`, `~/.codex/hooks.json`, and hook scripts to recall memory at session start and queue high-signal build, test, and deployment events.
 
 ### Your AI Learns Your Code Style
 
@@ -215,9 +215,14 @@ Migration details: [DEPRECATION.md](DEPRECATION.md)
 # Add to your Codex MCP configuration
 npx @verygoodplugins/mcp-automem config --format=json
 
-# Optional: add memory-first rules to this repo
+# Add memory-first rules plus user-level Codex hooks
 npx @verygoodplugins/mcp-automem codex
+
+# Rules-only install, without hooks
+npx @verygoodplugins/mcp-automem codex --no-hooks
 ```
+
+After installing hooks, open `/hooks` in Codex and trust the new AutoMem hook definitions. Codex skips non-managed hooks until their current definitions are reviewed.
 
 **For Hermes Agent (Nous Research):**
 

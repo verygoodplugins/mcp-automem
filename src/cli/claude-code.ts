@@ -2,6 +2,10 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  mergeHookEntries,
+  mergeUniqueStrings,
+} from './host-toolkit.js';
 
 interface ClaudeCodeSetupOptions {
   targetDir?: string;
@@ -64,57 +68,6 @@ function writeFileWithBackup(targetPath: string, content: string, options: Claud
   }
 
   fs.writeFileSync(targetPath, content, 'utf8');
-}
-
-function mergeUniqueStrings(target: string[] = [], additions: string[]): string[] {
-  const set = new Set(target);
-  for (const value of additions) {
-    if (!set.has(value)) {
-      target.push(value);
-      set.add(value);
-    }
-  }
-  return target;
-}
-
-function mergeHookEntries(existingHooks: any[] = [], templateHooks: any[]): any[] {
-  const merged = existingHooks.map((entry) => ({
-    ...entry,
-    hooks: Array.isArray(entry?.hooks) ? [...entry.hooks] : [],
-  }));
-
-  for (const templateEntry of templateHooks) {
-    const matcher = templateEntry?.matcher ?? '';
-    const index = merged.findIndex((entry) => (entry?.matcher ?? '') === matcher);
-
-    if (index === -1) {
-      merged.push(templateEntry);
-      continue;
-    }
-
-    const mergedEntry = merged[index];
-    const existingHookList = Array.isArray(mergedEntry?.hooks) ? mergedEntry.hooks : [];
-    const templateHookList = Array.isArray(templateEntry?.hooks) ? templateEntry.hooks : [];
-
-    for (const hook of templateHookList) {
-      const command = hook?.command;
-      const alreadyExists = command
-        ? existingHookList.some((existing: any) => existing?.command === command)
-        : existingHookList.includes(hook);
-
-      if (!alreadyExists) {
-        existingHookList.push(hook);
-      }
-    }
-
-    merged[index] = {
-      ...mergedEntry,
-      matcher: mergedEntry?.matcher ?? templateEntry?.matcher,
-      hooks: existingHookList,
-    };
-  }
-
-  return merged;
 }
 
 function mergeSettings(targetSettings: any, templateSettings: any): any {

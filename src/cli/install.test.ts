@@ -119,9 +119,15 @@ describe('guided install helpers', () => {
       'install-agent',
       'install-agent',
     ]);
-    expect(plan.actions.find((action) => action.client === 'codex')?.paths).toContain(
-      path.join(cwd, 'AGENTS.md')
-    );
+    // F2: the codex action must promise ONLY AGENTS.md. The MCP server registration
+    // in ~/.codex/config.toml is advice-only (codex.ts logs a pointer at
+    // templates/codex/config.toml, it never writes the file), so listing config.toml
+    // here would make the plan over-promise a write the executor never performs.
+    // Assert exact equality — a plain `.toContain(AGENTS.md)` would not catch a
+    // reintroduced config.toml path.
+    const codexPaths = plan.actions.find((action) => action.client === 'codex')?.paths;
+    expect(codexPaths).toEqual([path.join(cwd, 'AGENTS.md')]);
+    expect(codexPaths).not.toContain(path.join(homeDir, '.codex', 'config.toml'));
     expect(plan.actions.find((action) => action.client === 'claude-code')?.paths).toContain(
       path.join(homeDir, '.claude', 'settings.json')
     );
@@ -281,6 +287,7 @@ describe('guided install helpers', () => {
       return {
         ok: attempts === 3,
         status: attempts === 3 ? 200 : 503,
+        json: async () => ({ status: 'healthy' }),
       };
     };
 

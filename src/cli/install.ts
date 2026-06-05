@@ -279,10 +279,11 @@ function defaultLocalDir(homeDir: string): string {
 function agentPaths(client: AgentClient, environment: InstallEnvironment): string[] {
   switch (client) {
     case 'codex':
-      return [
-        path.join(environment.cwd, 'AGENTS.md'),
-        path.join(environment.homeDir, '.codex', 'config.toml'),
-      ];
+      // Only AGENTS.md is written by the codex installer. The MCP server
+      // registration in ~/.codex/config.toml is advice-only (codex.ts logs a
+      // pointer at templates/codex/config.toml, it never writes the file), so
+      // listing it here would make the plan promise a write that never happens.
+      return [path.join(environment.cwd, 'AGENTS.md')];
     case 'claude-code':
       return [
         path.join(environment.homeDir, '.claude', 'settings.json'),
@@ -424,6 +425,28 @@ export async function verifyAutoMemEndpoint(options: VerifyEndpointOptions): Pro
     const health = await fetchFn(`${endpoint}/health`);
     if (!health.ok) {
       return { ok: false, message: `Health check failed with HTTP ${health.status}.` };
+    }
+
+    // A 200 alone is not proof this is AutoMem — a reverse-proxy login wall,
+    // captive portal, or unrelated service can return 200 with an HTML body.
+    // Require a JSON body carrying a string `status` field. AutoMem returns
+    // "healthy" or "degraded" (when Qdrant is down); accept any status string,
+    // reject non-JSON bodies and JSON without a status.
+    let healthBody: unknown;
+    try {
+      healthBody = typeof health.json === 'function' ? await health.json() : undefined;
+    } catch {
+      return {
+        ok: false,
+        message: `Health check returned HTTP ${health.status} but the body was not JSON — is ${endpoint} really an AutoMem endpoint?`,
+      };
+    }
+    const status = (healthBody as { status?: unknown } | null | undefined)?.status;
+    if (typeof status !== 'string') {
+      return {
+        ok: false,
+        message: `Health check returned HTTP ${health.status} without an AutoMem status field — is ${endpoint} really an AutoMem endpoint?`,
+      };
     }
 
     if (options.apiKey) {

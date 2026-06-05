@@ -1,0 +1,286 @@
+#!/bin/bash
+
+# Sanitized Capture Build Result Hook for AutoMem with explicit storage fields.
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+RELATIVE_PYTHON_HELPER="$(cd "$HOOK_DIR/../scripts" 2>/dev/null && pwd)/python-command.sh"
+PYTHON_HELPER="$CODEX_HOME/scripts/python-command.sh"
+LOG_FILE="$CODEX_HOME/logs/build-results.log"
+MEMORY_QUEUE="$CODEX_HOME/scripts/memory-queue.jsonl"
+
+if [ -f "$RELATIVE_PYTHON_HELPER" ]; then
+    PYTHON_HELPER="$RELATIVE_PYTHON_HELPER"
+fi
+
+if [ -f "$PYTHON_HELPER" ]; then
+    # shellcheck disable=SC1090
+    . "$PYTHON_HELPER"
+else
+    echo "Warning: python resolver not found - capture disabled" >&2
+    exit 0
+fi
+
+mkdir -p "$(dirname "$LOG_FILE")"
+mkdir -p "$(dirname "$MEMORY_QUEUE")"
+
+log_message() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+}
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Warning: jq not installed - capture disabled" >&2
+    exit 0
+fi
+
+if ! automem_resolve_python >/dev/null 2>&1; then
+    echo "Warning: Python not installed (tried python3, python, py -3) - capture disabled" >&2
+    exit 0
+fi
+
+INPUT_JSON=$(cat)
+
+COMMAND=$(echo "$INPUT_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null)
+COMMAND="${COMMAND:-${CODEX_LAST_COMMAND:-${CLAUDE_LAST_COMMAND:-${CLAUDE_CONTEXT:-${TOOL_NAME:-}}}}}"
+OUTPUT=$(echo "$INPUT_JSON" | jq -r '.tool_response | if type == "object" then [(.stdout // ""), (.stderr // "")] | map(select(. != "")) | join("\n") else (. // "") end' 2>/dev/null)
+OUTPUT="${OUTPUT:-${CODEX_COMMAND_OUTPUT:-${CLAUDE_COMMAND_OUTPUT:-${TOOL_RESULT:-}}}}"
+EXIT_CODE=$(echo "$INPUT_JSON" | jq -r '.tool_response | if type == "object" then (.exit_code // .exitCode // 0) else 0 end' 2>/dev/null)
+EXIT_CODE="${EXIT_CODE:-${CODEX_EXIT_CODE:-${CLAUDE_EXIT_CODE:-0}}}"
+CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty' 2>/dev/null)
+SESSION_ID=$(echo "$INPUT_JSON" | jq -r '.session_id // .sessionId // empty' 2>/dev/null)
+SESSION_ID="${SESSION_ID:-${CODEX_SESSION_ID:-${CLAUDE_SESSION_ID:-}}}"
+PROJECT_NAME=$(basename "${CWD:-$(pwd)}")
+BUILD_TOOL="unknown"
+
+if [ -z "$COMMAND" ] || ! echo "$COMMAND" | grep -qiE "(^|\\s)(npm (run )?build|yarn build|pnpm build|vite build|webpack|rollup|parcel|go build|cargo build|gradle|mvn|make|composer)"; then
+    exit 0
+fi
+
+if echo "$COMMAND" | grep -q "npm run build\|npm build"; then
+    BUILD_TOOL="npm"
+elif echo "$COMMAND" | grep -q "yarn build"; then
+    BUILD_TOOL="yarn"
+elif echo "$COMMAND" | grep -q "pnpm build"; then
+    BUILD_TOOL="pnpm"
+elif echo "$COMMAND" | grep -q "webpack\|vite\|rollup\|parcel"; then
+    BUILD_TOOL=$(echo "$COMMAND" | grep -oE "webpack|vite|rollup|parcel" | head -1)
+elif echo "$COMMAND" | grep -q "cargo build"; then
+    BUILD_TOOL="cargo"
+elif echo "$COMMAND" | grep -qE "(^|[[:space:]])go build"; then
+    BUILD_TOOL="go"
+elif echo "$COMMAND" | grep -q "gradle\|mvn"; then
+    BUILD_TOOL=$(echo "$COMMAND" | grep -oE "gradle|mvn" | head -1)
+elif echo "$COMMAND" | grep -q "make"; then
+    BUILD_TOOL="make"
+elif echo "$COMMAND" | grep -q "composer"; then
+    BUILD_TOOL="composer"
+fi
+
+BUILD_TIME=""
+BUILD_SIZE=""
+WARNINGS=0
+ERRORS=0
+DIAGNOSTIC_PATTERN="error:|Error:|ERROR|error [A-Z][A-Z0-9]*[0-9]+|TS[0-9]{4,}|Cannot find|cannot find|not found|failed|Failed|FAIL"
+
+if [ "$BUILD_TOOL" = "npm" ] || [ "$BUILD_TOOL" = "yarn" ]; then
+    BUILD_TIME=$(echo "$OUTPUT" | grep -oE "in [0-9.]+s" | grep -oE "[0-9.]+" | head -1)
+    BUILD_SIZE=$(echo "$OUTPUT" | grep -oE "[0-9.]+ [KMG]B" | head -1)
+    WARNINGS=$(echo "$OUTPUT" | grep -c "warning" | head -1 || true)
+    WARNINGS="${WARNINGS:-0}"
+elif [ "$BUILD_TOOL" = "webpack" ] || [ "$BUILD_TOOL" = "vite" ]; then
+    BUILD_TIME=$(echo "$OUTPUT" | grep -oE "built in [0-9.]+s" | grep -oE "[0-9.]+" | head -1)
+    BUILD_SIZE=$(echo "$OUTPUT" | grep -oE "dist.*[0-9.]+ [KMG]B" | grep -oE "[0-9.]+ [KMG]B" | head -1)
+fi
+
+ERRORS=$(echo "$OUTPUT" | grep -c -E "$DIAGNOSTIC_PATTERN" | head -1 || true)
+ERRORS="${ERRORS:-0}"
+
+IMPORTANCE=0.5
+MEMORY_TYPE="Context"
+MEMORY_CONFIDENCE=0.85
+
+if [ "$EXIT_CODE" -ne 0 ]; then
+    IMPORTANCE=0.9
+    MEMORY_TYPE="Insight"
+    MEMORY_CONFIDENCE=0.90
+elif [ "$ERRORS" -gt 0 ]; then
+    IMPORTANCE=0.8
+    MEMORY_TYPE="Insight"
+    MEMORY_CONFIDENCE=0.90
+elif [ "$WARNINGS" -gt 5 ]; then
+    IMPORTANCE=0.6
+    MEMORY_TYPE="Pattern"
+    MEMORY_CONFIDENCE=0.80
+fi
+
+ERROR_DETAILS=""
+if [ "$EXIT_CODE" -ne 0 ] || [ "$ERRORS" -gt 0 ]; then
+    ERROR_DETAILS=$(echo "$OUTPUT" | grep -A 2 -E "$DIAGNOSTIC_PATTERN" | head -10)
+    if [ -z "$ERROR_DETAILS" ]; then
+        ERROR_DETAILS=$(echo "$OUTPUT" | sed '/^[[:space:]]*$/d' | head -10)
+    fi
+fi
+
+if [ "$EXIT_CODE" -eq 0 ]; then
+    METRICS=""
+    [ -n "$BUILD_TIME" ] && METRICS="time: ${BUILD_TIME}s"
+    [ -n "$BUILD_SIZE" ] && METRICS="$METRICS, size: $BUILD_SIZE"
+    [ "$WARNINGS" -gt 0 ] && METRICS="$METRICS, warnings: $WARNINGS"
+    CONTENT="Build succeeded in $PROJECT_NAME using $BUILD_TOOL${METRICS:+ ($METRICS)}"
+else
+    CONTENT="Build failed in $PROJECT_NAME using $BUILD_TOOL: $ERRORS errors. $ERROR_DETAILS"
+fi
+
+AUTOMEM_QUEUE="$MEMORY_QUEUE" \
+AUTOMEM_CONTENT="$CONTENT" \
+AUTOMEM_BUILD_TOOL="$BUILD_TOOL" \
+AUTOMEM_PROJECT="$PROJECT_NAME" \
+AUTOMEM_IMPORTANCE="$IMPORTANCE" \
+AUTOMEM_TYPE="$MEMORY_TYPE" \
+AUTOMEM_CONFIDENCE="$MEMORY_CONFIDENCE" \
+AUTOMEM_BUILD_TIME="$BUILD_TIME" \
+AUTOMEM_BUILD_SIZE="$BUILD_SIZE" \
+AUTOMEM_WARNINGS="$WARNINGS" \
+AUTOMEM_ERRORS="$ERRORS" \
+AUTOMEM_EXIT_CODE="$EXIT_CODE" \
+AUTOMEM_COMMAND="$COMMAND" \
+AUTOMEM_ERROR_DETAILS="$ERROR_DETAILS" \
+AUTOMEM_ORIGIN_SESSION_ID="$SESSION_ID" \
+automem_run_python - <<'PY'
+import hashlib
+import json
+import os
+import re
+from datetime import datetime, timezone
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
+
+HEREDOC_RE = re.compile(r'git commit -m .*\$\(cat <<[\'"]?EOF[\'"]?.*?(?:\nEOF\n|\Z)', re.DOTALL)
+LINE_NOISE_RE = re.compile(r"^\s*(cat <<'?EOF'?|EOF|\)\"?)\s*$")
+
+def lock_file(handle):
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        return
+    if msvcrt is not None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+
+def unlock_file(handle):
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return
+    if msvcrt is not None:
+        try:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+
+def optional_text(value):
+    return value if value else None
+
+def to_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+def sanitize(text, max_len=300):
+    text = text or ""
+    text = HEREDOC_RE.sub("[shell paste omitted]", text)
+    lines = [line for line in text.splitlines() if not LINE_NOISE_RE.match(line)]
+    text = " ".join(" ".join(lines).split())
+    if len(text) > max_len:
+        return text[: max_len - 3].rstrip() + "..."
+    return text
+
+def content_hash(text):
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+def is_duplicate(queue_path, new_content, lookback=20):
+    new_hash = content_hash(new_content)
+    try:
+        with open(queue_path, "r", encoding="utf-8") as f:
+            for line in f.readlines()[-lookback:]:
+                try:
+                    if content_hash(json.loads(line.strip()).get("content", "")) == new_hash:
+                        return True
+                except (json.JSONDecodeError, KeyError):
+                    continue
+    except FileNotFoundError:
+        pass
+    return False
+
+project = os.environ.get("AUTOMEM_PROJECT", "")
+build_tool = os.environ.get("AUTOMEM_BUILD_TOOL", "unknown")
+exit_code = to_int(os.environ.get("AUTOMEM_EXIT_CODE", "0"))
+
+TOOL_TO_LANG = {
+    "npm": "typescript", "yarn": "typescript", "pnpm": "typescript",
+    "webpack": "typescript", "vite": "typescript", "rollup": "typescript", "parcel": "typescript",
+    "go": "go", "cargo": "rust", "gradle": "java", "mvn": "java",
+    "make": "c", "composer": "php",
+}
+lang = TOOL_TO_LANG.get(build_tool)
+
+tags = ["build"]
+if build_tool and build_tool != "unknown":
+    tags.append(build_tool)
+if lang:
+    tags.append(lang)
+if project:
+    tags.append(project)
+if exit_code != 0:
+    tags.append("failure")
+
+now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+metadata = {
+    "build_tool": build_tool,
+    "build_time": optional_text(os.environ.get("AUTOMEM_BUILD_TIME", "")),
+    "build_size": optional_text(os.environ.get("AUTOMEM_BUILD_SIZE", "")),
+    "warnings": to_int(os.environ.get("AUTOMEM_WARNINGS", "0")),
+    "errors": to_int(os.environ.get("AUTOMEM_ERRORS", "0")),
+    "exit_code": exit_code,
+    "command": sanitize(os.environ.get("AUTOMEM_COMMAND", ""), 500),
+    "project": project,
+    "error_details": sanitize(os.environ.get("AUTOMEM_ERROR_DETAILS", "")),
+}
+origin_session_id = optional_text(os.environ.get("AUTOMEM_ORIGIN_SESSION_ID", ""))
+if origin_session_id:
+    metadata["originSessionId"] = origin_session_id
+
+record = {
+    "content": sanitize(os.environ.get("AUTOMEM_CONTENT", "")),
+    "tags": tags,
+    "importance": float(os.environ.get("AUTOMEM_IMPORTANCE", "0.5")),
+    "type": os.environ.get("AUTOMEM_TYPE", "Context"),
+    "confidence": float(os.environ.get("AUTOMEM_CONFIDENCE", "0.85")),
+    "metadata": metadata,
+    "timestamp": now_iso,
+    "t_valid": now_iso,
+}
+
+queue_path = os.environ.get("AUTOMEM_QUEUE", "")
+if queue_path:
+    if is_duplicate(queue_path, record["content"]):
+        raise SystemExit(0)
+    os.makedirs(os.path.dirname(queue_path), exist_ok=True)
+    with open(queue_path, "a", encoding="utf-8") as handle:
+        lock_file(handle)
+        try:
+            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+        finally:
+            unlock_file(handle)
+PY
+
+log_message "Build result captured: exit_code=$EXIT_CODE, errors=$ERRORS, warnings=$WARNINGS"
+exit 0

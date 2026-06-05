@@ -4,9 +4,10 @@ import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { removeMcpServerEntry, resolveHermesPaths } from './hermes-config.js';
+import type { HookMatcherConfig, HooksConfig } from './host-toolkit.js';
 
 interface UninstallOptions {
-  platform: 'cursor' | 'claude-code' | 'hermes';
+  platform: 'cursor' | 'claude-code' | 'codex' | 'hermes';
   projectDir?: string;
   cleanAll?: boolean;
   dryRun?: boolean;
@@ -223,6 +224,169 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
   }
 }
 
+// Mirror of codex.ts HOOK_SCRIPTS / SUPPORT_SCRIPTS. Kept local so uninstall does
+// not import from the codex installer module (and so removal stays explicit).
+const CODEX_HOOK_SCRIPTS = [
+  'automem-session-start.sh',
+  'capture-build-result.sh',
+  'capture-test-pattern.sh',
+  'capture-deployment.sh',
+] as const;
+const CODEX_SUPPORT_SCRIPTS = [
+  'python-command.sh',
+  'queue-cleanup.sh',
+  'drain-queue.sh',
+  'memory-filters.json',
+] as const;
+
+function pruneEmptyDir(dirPath: string, quiet?: boolean): void {
+  try {
+    if (fs.existsSync(dirPath) && fs.readdirSync(dirPath).length === 0) {
+      fs.rmdirSync(dirPath);
+      log(`🗑️  Removed empty directory: ${dirPath}`, quiet);
+    }
+  } catch {
+    // best effort — leave the directory if anything else lives in it
+  }
+}
+
+/**
+ * Strip AutoMem's hook entries from ~/.codex/hooks.json without disturbing any
+ * user-authored hooks. AutoMem commands embed the absolute path to a script
+ * under <codexHome>/hooks or <codexHome>/scripts (see codex.ts buildCodexHooks),
+ * so we match on those paths rather than guessing by matcher.
+ */
+function stripCodexHooksJson(codexHome: string, dryRun: boolean, quiet?: boolean): boolean {
+  const targetPath = path.join(codexHome, 'hooks.json');
+  if (!fs.existsSync(targetPath)) {
+    return false;
+  }
+  if (dryRun) {
+    log(`[DRY RUN] Would strip AutoMem hooks from: ${targetPath}`, quiet);
+    return true;
+  }
+
+  let config: { hooks?: HooksConfig } & Record<string, unknown>;
+  try {
+    config = JSON.parse(fs.readFileSync(targetPath, 'utf8')) as { hooks?: HooksConfig } & Record<string, unknown>;
+  } catch (error) {
+    log(`❌ Cannot parse ${targetPath}: ${(error as Error).message}`, quiet);
+    return false;
+  }
+
+  const ownScriptPaths = [
+    ...CODEX_HOOK_SCRIPTS.map((name) => path.join(codexHome, 'hooks', name)),
+    path.join(codexHome, 'scripts', 'drain-queue.sh'),
+  ];
+  const isAutomemCommand = (command?: string): boolean =>
+    Boolean(command) && ownScriptPaths.some((scriptPath) => command!.includes(scriptPath));
+
+  const hooks: HooksConfig = config.hooks ?? {};
+  let changed = false;
+
+  for (const [event, entries] of Object.entries(hooks)) {
+    const keptEntries: HookMatcherConfig[] = [];
+    for (const entry of entries) {
+      const originalHooks = Array.isArray(entry.hooks) ? entry.hooks : [];
+      const keptHooks = originalHooks.filter((hook) => !isAutomemCommand(hook.command));
+      if (keptHooks.length !== originalHooks.length) {
+        changed = true;
+      }
+      if (keptHooks.length > 0) {
+        keptEntries.push({ ...entry, hooks: keptHooks });
+      } else if (originalHooks.length === 0) {
+        keptEntries.push(entry); // entry never had hooks; leave it untouched
+      }
+      // else: every hook in this entry was AutoMem's → drop the now-empty entry
+    }
+    if (keptEntries.length > 0) {
+      hooks[event] = keptEntries;
+    } else {
+      delete hooks[event];
+    }
+  }
+
+  if (!changed) {
+    log(`ℹ️  No AutoMem hooks found in ${targetPath}`, quiet);
+    return false;
+  }
+
+  if (Object.keys(hooks).length > 0) {
+    config.hooks = hooks;
+  } else {
+    delete config.hooks;
+  }
+
+  const backupPath = `${targetPath}.backup.${Date.now()}`;
+  fs.copyFileSync(targetPath, backupPath);
+  if (Object.keys(config).length === 0) {
+    fs.unlinkSync(targetPath);
+    log(`🗑️  Removed AutoMem-only Codex hooks.json: ${targetPath}`, quiet);
+  } else {
+    fs.writeFileSync(targetPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    log(`🗑️  Stripped AutoMem hooks from ${targetPath}`, quiet);
+  }
+  log(`   Backup: ${backupPath}`, quiet);
+  return true;
+}
+
+async function uninstallCodex(options: UninstallOptions): Promise<void> {
+  const codexHome = path.join(os.homedir(), '.codex');
+  const rulesPath = path.join(options.projectDir ?? process.cwd(), 'AGENTS.md');
+  const dryRun = options.dryRun ?? false;
+
+  log('\n🗑️  Uninstalling Codex AutoMem...', options.quiet);
+
+  let didChange = false;
+
+  // 1. Strip AutoMem entries from hooks.json (leave any user hooks intact).
+  didChange = stripCodexHooksJson(codexHome, dryRun, options.quiet) || didChange;
+
+  // 2. Remove AutoMem hook + support scripts (with backups).
+  for (const name of CODEX_HOOK_SCRIPTS) {
+    didChange = removeFileWithBackup(path.join(codexHome, 'hooks', name), dryRun, options.quiet) || didChange;
+  }
+  for (const name of CODEX_SUPPORT_SCRIPTS) {
+    didChange = removeFileWithBackup(path.join(codexHome, 'scripts', name), dryRun, options.quiet) || didChange;
+  }
+  if (!dryRun) {
+    pruneEmptyDir(path.join(codexHome, 'hooks'), options.quiet);
+    pruneEmptyDir(path.join(codexHome, 'scripts'), options.quiet);
+  }
+
+  // 3. Strip the AutoMem rules block from AGENTS.md (same markers codex.ts writes).
+  if (fs.existsSync(rulesPath)) {
+    const start = '<!-- BEGIN AUTOMEM CODEX RULES -->';
+    const end = '<!-- END AUTOMEM CODEX RULES -->';
+    const raw = fs.readFileSync(rulesPath, 'utf8');
+    const startIdx = raw.indexOf(start);
+    const endIdx = raw.indexOf(end);
+
+    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+      log(`ℹ️  No AutoMem rule block in ${rulesPath}`, options.quiet);
+    } else if (dryRun) {
+      log(`[DRY RUN] Would strip AutoMem block from: ${rulesPath}`, options.quiet);
+      didChange = true;
+    } else {
+      const before = raw.slice(0, startIdx).replace(/\s+$/, '');
+      const after = raw.slice(endIdx + end.length).replace(/^\s+/, '');
+      const next = before && after ? `${before}\n\n${after}\n` : `${before}${after}`.replace(/\n+$/, '') + '\n';
+      const backupPath = `${rulesPath}.backup.${Date.now()}`;
+      fs.copyFileSync(rulesPath, backupPath);
+      fs.writeFileSync(rulesPath, next, 'utf8');
+      log(`🗑️  Stripped AutoMem block from ${rulesPath}`, options.quiet);
+      log(`   Backup: ${backupPath}`, options.quiet);
+      didChange = true;
+    }
+  }
+
+  if (didChange) {
+    log('\n✅ Codex AutoMem configuration removed', options.quiet);
+  } else if (!dryRun) {
+    log('\nℹ️  Nothing to remove for Codex AutoMem', options.quiet);
+  }
+}
+
 async function uninstallHermes(options: UninstallOptions): Promise<void> {
   const paths = resolveHermesPaths({ dir: options.projectDir });
 
@@ -347,6 +511,8 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
     await uninstallCursor(options);
   } else if (options.platform === 'claude-code') {
     await uninstallClaudeCode(options);
+  } else if (options.platform === 'codex') {
+    await uninstallCodex(options);
   } else if (options.platform === 'hermes') {
     await uninstallHermes(options);
   }
@@ -372,10 +538,10 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
 }
 
 function parseUninstallArgs(args: string[]): UninstallOptions | null {
-  const allowed = ['cursor', 'claude-code', 'hermes'] as const;
+  const allowed = ['cursor', 'claude-code', 'codex', 'hermes'] as const;
   if (args.length === 0 || !allowed.includes(args[0] as typeof allowed[number])) {
-    console.error('❌ Error: Platform required (cursor, claude-code, or hermes)');
-    console.error('Usage: mcp-automem uninstall <cursor|claude-code|hermes> [options]');
+    console.error('❌ Error: Platform required (cursor, claude-code, codex, or hermes)');
+    console.error('Usage: mcp-automem uninstall <cursor|claude-code|codex|hermes> [options]');
     return null;
   }
 

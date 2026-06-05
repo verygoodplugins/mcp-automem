@@ -55,7 +55,79 @@ function ensureObject(value: unknown): Record<string, unknown> {
   return {};
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
 type AutoMemConfig = { endpoint: string; apiKey?: string };
+
+function parseTomlString(value: string): string | undefined {
+  const trimmed = value.trim();
+  const quoted = trimmed.match(/^(['"])([\s\S]*)\1$/);
+  if (quoted) {
+    return quoted[2]
+      .replace(/\\"/g, '"')
+      .replace(/\\'/g, "'")
+      .replace(/\\\\/g, '\\');
+  }
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readCodexAutoMemConfig(): AutoMemConfig | null {
+  const codexHome = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex');
+  const configPath = path.join(codexHome, 'config.toml');
+  if (!fs.existsSync(configPath)) {
+    return null;
+  }
+
+  try {
+    const lines = fs.readFileSync(configPath, 'utf8').split(/\r?\n/);
+    let inMcpEnvSection = false;
+    let endpoint: string | undefined;
+    let apiKey: string | undefined;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) {
+        continue;
+      }
+
+      const section = line.match(/^\[([^\]]+)\]$/);
+      if (section) {
+        inMcpEnvSection = /^mcp_servers\.[^.]+\.env$/.test(section[1]);
+        continue;
+      }
+
+      if (!inMcpEnvSection) {
+        continue;
+      }
+
+      const assignment = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+      if (!assignment) {
+        continue;
+      }
+
+      const key = assignment[1];
+      const value = parseTomlString(assignment[2]);
+      if (key === 'AUTOMEM_API_URL' || key === 'AUTOMEM_ENDPOINT') {
+        endpoint = value;
+      } else if (key === 'AUTOMEM_API_KEY' || key === 'AUTOMEM_API_TOKEN') {
+        apiKey = value;
+      }
+    }
+
+    if (endpoint || apiKey) {
+      return {
+        endpoint: endpoint ?? 'http://127.0.0.1:8001',
+        apiKey,
+      };
+    }
+  } catch {
+    // Ignore read/parse errors and use the next config source.
+  }
+
+  return null;
+}
 
 function resolveAutoMemConfig(): AutoMemConfig {
   const envEndpoint = process.env.AUTOMEM_API_URL ?? process.env.AUTOMEM_ENDPOINT;
@@ -68,13 +140,20 @@ function resolveAutoMemConfig(): AutoMemConfig {
     };
   }
 
+  const codexConfig = readCodexAutoMemConfig();
+  if (codexConfig) {
+    return codexConfig;
+  }
+
   try {
     const configPath = path.join(os.homedir(), '.claude.json');
     if (!fs.existsSync(configPath)) {
       return { endpoint: 'http://127.0.0.1:8001' };
     }
     const raw = fs.readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(raw) as { mcpServers?: Record<string, any> };
+    const parsed = JSON.parse(raw) as {
+      mcpServers?: Record<string, { env?: NodeJS.ProcessEnv }>;
+    };
     const servers = parsed?.mcpServers ?? {};
     for (const server of Object.values(servers)) {
       const env = server?.env ?? {};
@@ -148,9 +227,15 @@ export async function runQueueCommand(args: string[] = []): Promise<void> {
   let skippedCount = 0;
 
   for (const line of lines.slice(0, options.limit ?? lines.length)) {
-    let parsed: any;
+    let parsed: Record<string, unknown>;
     try {
-      parsed = JSON.parse(line);
+      const rawParsed = JSON.parse(line) as unknown;
+      if (!isRecord(rawParsed)) {
+        console.warn('Skipping queue entry that is not an object');
+        skippedCount += 1;
+        continue;
+      }
+      parsed = rawParsed;
     } catch (error) {
       console.warn('Skipping invalid queue entry:', error);
       skippedCount += 1;
@@ -164,18 +249,19 @@ export async function runQueueCommand(args: string[] = []): Promise<void> {
       continue;
     }
 
+    const metadata = ensureObject(parsed.metadata);
     const record: StoreMemoryArgs = {
       content,
-      tags: normalizeTags(parsed.tags ?? parsed.metadata?.tags),
+      type: typeof parsed.type === 'string' ? parsed.type as StoreMemoryArgs['type'] : undefined,
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : undefined,
+      tags: normalizeTags(parsed.tags ?? metadata.tags),
       importance: typeof parsed.importance === 'number' ? parsed.importance : undefined,
-      metadata: ensureObject(parsed.metadata),
+      metadata,
       timestamp: typeof parsed.timestamp === 'string' ? parsed.timestamp : undefined,
+      t_valid: typeof parsed.t_valid === 'string' ? parsed.t_valid : undefined,
+      t_invalid: typeof parsed.t_invalid === 'string' ? parsed.t_invalid : undefined,
       embedding: Array.isArray(parsed.embedding) ? parsed.embedding : undefined,
     };
-
-    if (parsed.type && !record.metadata?.type) {
-      (record.metadata as Record<string, unknown>).type = parsed.type;
-    }
 
     if (options.dryRun) {
       console.log(`[dry-run] would store memory: ${content.slice(0, 80)}...`);
@@ -188,12 +274,12 @@ export async function runQueueCommand(args: string[] = []): Promise<void> {
       console.log(`Stored memory ${result.memory_id ?? ''}`);
       storedCount += 1;
 
-      if (parsed.relatesTo) {
+      if (typeof parsed.relatesTo === 'string') {
         associations.push({
           source: parsed.relatesTo,
           target: result.memory_id ?? '',
-          type: parsed.relationshipType,
-          strength: parsed.relationshipStrength,
+          type: typeof parsed.relationshipType === 'string' ? parsed.relationshipType : undefined,
+          strength: typeof parsed.relationshipStrength === 'number' ? parsed.relationshipStrength : undefined,
         });
       }
     } catch (error) {

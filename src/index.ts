@@ -198,8 +198,10 @@ CODEX SETUP:
   npx @verygoodplugins/mcp-automem codex [options]
   
   Options:
+    --dir <path>          Codex home directory (default: ~/.codex)
     --name <name>         Project name (auto-detected if not provided)
     --rules <path>        Target rules file (default: ./AGENTS.md)
+    --no-hooks            Install rules only; skip ~/.codex/hooks.json and scripts
     --dry-run             Show what would be changed
     --quiet               Suppress output
 

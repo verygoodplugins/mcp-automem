@@ -77,6 +77,96 @@ export function replaceTemplateVars(content: string, vars: Record<string, string
   return result;
 }
 
+export function mergeUniqueStrings(target: string[] = [], additions: string[]): string[] {
+  const set = new Set(target);
+  for (const value of additions) {
+    if (!set.has(value)) {
+      target.push(value);
+      set.add(value);
+    }
+  }
+  return target;
+}
+
+export type CommandHookConfig = {
+  type?: string;
+  command?: string;
+  statusMessage?: string;
+  timeout?: number;
+  [key: string]: unknown;
+};
+
+export type HookMatcherConfig = {
+  matcher?: string;
+  hooks?: CommandHookConfig[];
+  [key: string]: unknown;
+};
+
+export type HooksConfig = Record<string, HookMatcherConfig[]>;
+type NormalizedHookMatcherConfig = HookMatcherConfig & { hooks: CommandHookConfig[] };
+
+function normalizeHookMatcherConfig(entry: HookMatcherConfig): NormalizedHookMatcherConfig {
+  return {
+    ...entry,
+    hooks: Array.isArray(entry?.hooks) ? [...entry.hooks] : [],
+  };
+}
+
+export function mergeHookEntries(
+  existingHooks: HookMatcherConfig[] = [],
+  templateHooks: HookMatcherConfig[],
+): HookMatcherConfig[] {
+  const merged = existingHooks.map(normalizeHookMatcherConfig);
+
+  for (const templateEntry of templateHooks) {
+    const matcher = templateEntry?.matcher ?? '';
+    const index = merged.findIndex((entry) => (entry?.matcher ?? '') === matcher);
+
+    if (index === -1) {
+      merged.push(normalizeHookMatcherConfig(templateEntry));
+      continue;
+    }
+
+    const mergedEntry = merged[index];
+    const existingHookList = Array.isArray(mergedEntry?.hooks) ? mergedEntry.hooks : [];
+    const templateHookList = Array.isArray(templateEntry?.hooks) ? templateEntry.hooks : [];
+
+    for (const hook of templateHookList) {
+      const command = hook?.command;
+      const alreadyExists = command
+        ? existingHookList.some((existing) => existing?.command === command)
+        : existingHookList.includes(hook);
+
+      if (!alreadyExists) {
+        existingHookList.push(hook);
+      }
+    }
+
+    merged[index] = {
+      ...mergedEntry,
+      matcher: mergedEntry?.matcher ?? templateEntry?.matcher,
+      hooks: existingHookList,
+    };
+  }
+
+  return merged;
+}
+
+export function mergeHooksConfig(
+  targetHooks: HooksConfig = {},
+  templateHooks: HooksConfig = {},
+): HooksConfig {
+  const merged = { ...targetHooks };
+  for (const [hookName, hookConfigs] of Object.entries(templateHooks)) {
+    if (!merged[hookName]) {
+      merged[hookName] = hookConfigs;
+    } else {
+      merged[hookName] = mergeHookEntries(merged[hookName], hookConfigs);
+    }
+  }
+  return merged;
+}
+
 export function detectProjectName(cwd: string = process.cwd()): string {
   // 1) package.json name
   const pkgPath = path.join(cwd, 'package.json');
