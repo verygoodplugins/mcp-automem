@@ -250,6 +250,7 @@ async function inspectHermesProviderContract(home: string): Promise<{
   available: boolean;
   prefetch: string;
   toolNames: string[];
+  systemPrompt: string;
 }> {
   if (!HERMES_PYTHON) {
     throw new Error('Hermes Python is not available');
@@ -273,6 +274,7 @@ if not provider:
 provider.initialize("provider-contract", hermes_home=os.environ.get("HERMES_HOME"), platform="cli", agent_context="primary")
 prefetch = provider.prefetch("known query context", session_id="provider-contract")
 tools = [schema.get("name") for schema in provider.get_tool_schemas()]
+system_prompt = provider.system_prompt_block()
 provider.sync_turn(
     "user message long enough to pass the capture length threshold",
     "assistant message long enough to pass the capture length threshold",
@@ -283,6 +285,7 @@ print(json.dumps({
     "available": provider.is_available(),
     "prefetch": prefetch,
     "toolNames": tools,
+    "systemPrompt": system_prompt,
 }))
 `;
 
@@ -541,7 +544,29 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     expect(contract.available).toBe(true);
     expect(contract.prefetch).toContain('remembered host smoke detail');
     expect(contract.toolNames).toEqual([]);
+    // Regression: with provider tools disabled (both mode), the system prompt
+    // must not direct the agent to the now-unregistered automem_* provider
+    // tools — it should point at the MCP surface instead.
+    expect(contract.systemPrompt).not.toContain('automem_* tools for intentional');
+    expect(contract.systemPrompt).toContain('mcp_automem_*');
     expect(fakeApi.requests.some((request) => request.method === 'POST' && request.path === '/memory')).toBe(false);
+  }, 45_000);
+
+  it('provider system prompt advertises automem_* tools only when they are registered', async () => {
+    await applyHermesSetup({
+      mode: 'provider',
+      targetDir: tmpDir,
+      endpoint: fakeApi.url,
+      apiKey: 'test-key',
+      projectName: 'host-smoke',
+      quiet: true,
+    });
+
+    const contract = await inspectHermesProviderContract(tmpDir);
+
+    // Provider-only mode keeps the explicit tools, so advertising them is correct.
+    expect(contract.toolNames).toContain('automem_recall_memory');
+    expect(contract.systemPrompt).toContain('automem_* tools for intentional');
   }, 45_000);
 
   it('provider prefetch follows the shared compact recall blueprint', async () => {

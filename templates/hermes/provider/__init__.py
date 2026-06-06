@@ -325,6 +325,18 @@ class AutoMemMemoryProvider(MemoryProvider):
     def system_prompt_block(self) -> str:
         if not self._active:
             return ""
+        if not _provider_tools_enabled():
+            # Both mode (AUTOMEM_HERMES_PROVIDER_TOOLS=false): the provider
+            # registers no explicit tools (see get_tool_schemas), so durable
+            # writes go through the AutoMem MCP server instead. Advertising the
+            # disabled automem_* tools here would tell the agent to call tools
+            # that aren't registered.
+            return (
+                "# AutoMem\n"
+                "AutoMem is active as the Hermes memory provider. Ambient recall is "
+                "injected before each turn; use it when relevant. Durable memory writes "
+                "go through the AutoMem MCP server's mcp_automem_* tools."
+            )
         return (
             "# AutoMem\n"
             "AutoMem is active as the Hermes memory provider. Use ambient recall when relevant "
