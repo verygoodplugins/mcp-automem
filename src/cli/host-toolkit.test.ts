@@ -107,6 +107,14 @@ describe('host-toolkit', () => {
     it('leaves untouched variables in place', () => {
       expect(replaceTemplateVars('{{A}} {{B}}', { A: 'a' })).toBe('a {{B}}');
     });
+
+    it('treats replacement values as literal strings', () => {
+      expect(replaceTemplateVars('value={{A}}', { A: '$& $$ $1' })).toBe('value=$& $$ $1');
+    });
+
+    it('escapes variable names before building the matcher', () => {
+      expect(replaceTemplateVars('{{A.B}} {{ACB}}', { 'A.B': 'x' })).toBe('x {{ACB}}');
+    });
   });
 
   describe('detectProjectName', () => {
@@ -170,6 +178,11 @@ describe('host-toolkit', () => {
     it('silently ignores unknown flags (matches existing handler behavior)', () => {
       const opts = parseCommonFlags(['--unknown', '--dry-run']);
       expect(opts.dryRun).toBe(true);
+    });
+
+    it('ignores unknown flags that match inherited object properties', () => {
+      expect(() => parseCommonFlags(['toString', '--dry-run'])).not.toThrow();
+      expect(parseCommonFlags(['toString', '--dry-run']).dryRun).toBe(true);
     });
   });
 });

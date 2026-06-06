@@ -72,7 +72,8 @@ export function readJsonFile<T = unknown>(filePath: string): T | null {
 export function replaceTemplateVars(content: string, vars: Record<string, string>): string {
   let result = content;
   for (const [key, value] of Object.entries(vars)) {
-    result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp(`{{${escapedKey}}}`, 'g'), () => value);
   }
   return result;
 }
@@ -155,7 +156,7 @@ export function parseCommonFlags(
         options.yes = true;
         break;
       default: {
-        const handler = extra[arg];
+        const handler = Object.prototype.hasOwnProperty.call(extra, arg) ? extra[arg] : undefined;
         if (!handler) break;
         if (handler.kind === 'boolean') {
           handler.set();
