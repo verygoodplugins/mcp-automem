@@ -158,7 +158,17 @@ describe('CLI Smoke Tests', () => {
 
   describe('setup command', () => {
     it('should show config with --yes flag (non-interactive)', () => {
-      const result = runCli(['setup', '--yes', '--endpoint', 'http://test:8001']);
+      // Sandbox cwd + HOME so `setup` writes its .env into the temp workspace,
+      // not the developer's real project-root .env (setup resolves .env against cwd).
+      const cwd = path.join(tempDir, 'setup-cwd');
+      const homeDir = path.join(tempDir, 'setup-home');
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.mkdirSync(homeDir, { recursive: true });
+
+      const result = runCli(['setup', '--yes', '--endpoint', 'http://test:8001'], {
+        cwd,
+        env: { HOME: homeDir },
+      });
       expect((result.stdout + result.stderr).length).toBeGreaterThan(0);
     });
   });
