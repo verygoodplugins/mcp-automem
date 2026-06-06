@@ -1,0 +1,4 @@
+name: automem
+kind: exclusive
+version: 1.0.0
+description: "AutoMem persistent memory provider with ambient recall and explicit memory tools."

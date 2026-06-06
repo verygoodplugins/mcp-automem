@@ -59,15 +59,38 @@ describe('hermes setup handler', () => {
     expect(fs.existsSync(agentsPath)).toBe(true);
 
     const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
-      mcp_servers: Record<string, { command: string; env: Record<string, string> }>;
+      mcp_servers: Record<
+        string,
+        {
+          command: string;
+          env: Record<string, string>;
+          tools: { include: string[]; resources: boolean; prompts: boolean };
+          sampling: { enabled: boolean };
+        }
+      >;
     };
-    expect(parsed.mcp_servers.memory.command).toBe('npx');
-    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('http://127.0.0.1:8001');
-    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('sk-test');
+    expect(parsed.mcp_servers.automem.command).toBe('npx');
+    expect(parsed.mcp_servers.automem.env.AUTOMEM_API_URL).toBe('http://127.0.0.1:8001');
+    expect(parsed.mcp_servers.automem.env.AUTOMEM_API_KEY).toBe('sk-test');
+    expect(parsed.mcp_servers.automem.tools.include).toEqual([
+      'recall_memory',
+      'store_memory',
+      'associate_memories',
+      'update_memory',
+      'check_database_health',
+    ]);
+    expect(parsed.mcp_servers.automem.tools.resources).toBe(false);
+    expect(parsed.mcp_servers.automem.tools.prompts).toBe(false);
+    expect(parsed.mcp_servers.automem.sampling.enabled).toBe(false);
+    expect(parsed.mcp_servers.memory).toBeUndefined();
 
     const agents = fs.readFileSync(agentsPath, 'utf8');
-    expect(agents).toContain('<!-- BEGIN AUTOMEM CODEX RULES -->');
-    expect(agents).toContain('<!-- END AUTOMEM CODEX RULES -->');
+    expect(agents).toContain('<!-- BEGIN AUTOMEM HERMES RULES -->');
+    expect(agents).toContain('<!-- END AUTOMEM HERMES RULES -->');
+    expect(agents).toContain('MCP-only mode');
+    expect(agents).toContain('mcp_automem_recall_memory');
+    expect(agents).not.toMatch(/`automem_recall_memory`/);
+    expect(agents).not.toContain('mcp__memory__recall_memory');
     expect(agents).toContain('test-project');
   });
 
@@ -117,7 +140,7 @@ describe('hermes setup handler', () => {
     expect(fs.existsSync(path.join(tmpDir, 'AGENTS.md'))).toBe(true);
   });
 
-  it('YAML fallback path is exercised when Hermes CLI is unavailable', async () => {
+  it('direct YAML path is exercised when Hermes CLI is unavailable', async () => {
     // The child_process mock at the top of this file makes every execSync throw,
     // which simulates a missing Hermes binary. A successful write to config.yaml
     // here means the YAML fallback was exercised.
@@ -131,7 +154,8 @@ describe('hermes setup handler', () => {
     const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
       mcp_servers: Record<string, unknown>;
     };
-    expect(parsed.mcp_servers.memory).toBeDefined();
+    expect(parsed.mcp_servers.automem).toBeDefined();
+    expect(parsed.mcp_servers.memory).toBeUndefined();
   });
 
   it('honors $AUTOMEM_API_URL and $AUTOMEM_API_KEY when no flags are passed', async () => {
@@ -147,7 +171,176 @@ describe('hermes setup handler', () => {
     const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
       mcp_servers: Record<string, { env: Record<string, string> }>;
     };
-    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('https://example.automem.test');
-    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('sk-from-env');
+    expect(parsed.mcp_servers.automem.env.AUTOMEM_API_URL).toBe('https://example.automem.test');
+    expect(parsed.mcp_servers.automem.env.AUTOMEM_API_KEY).toBe('sk-from-env');
+  });
+
+  it('provider mode installs the Hermes memory provider without MCP tools', async () => {
+    await applyHermesSetup({
+      mode: 'provider',
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://example.automem.test',
+      apiKey: 'sk-provider',
+      quiet: true,
+    });
+
+    const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
+      memory: { provider: string };
+      mcp_servers?: Record<string, unknown>;
+    };
+    expect(parsed.memory.provider).toBe('automem');
+    expect(parsed.mcp_servers?.automem).toBeUndefined();
+
+    const pluginRoot = path.join(tmpDir, 'plugins', 'automem');
+    expect(fs.readFileSync(path.join(pluginRoot, '__init__.py'), 'utf8')).toContain(
+      'class AutoMemMemoryProvider'
+    );
+    expect(fs.readFileSync(path.join(pluginRoot, 'plugin.yaml'), 'utf8')).toContain(
+      'name: automem'
+    );
+    expect(fs.readFileSync(path.join(pluginRoot, 'plugin.yaml'), 'utf8')).toContain(
+      'kind: exclusive'
+    );
+    expect(fs.readFileSync(path.join(pluginRoot, 'cli.py'), 'utf8')).toContain(
+      'def register_cli'
+    );
+    expect(fs.readFileSync(path.join(pluginRoot, 'cli.py'), 'utf8')).toContain(
+      'doctor'
+    );
+    expect(fs.readFileSync(path.join(tmpDir, '.env'), 'utf8')).toContain(
+      'AUTOMEM_API_URL=https://example.automem.test'
+    );
+    expect(fs.readFileSync(path.join(tmpDir, '.env'), 'utf8')).toContain(
+      'AUTOMEM_API_KEY=sk-provider'
+    );
+    expect(fs.readFileSync(path.join(tmpDir, '.env'), 'utf8')).not.toContain(
+      'AUTOMEM_HERMES_PROVIDER_TOOLS=false'
+    );
+
+    const agents = fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8');
+    expect(agents).toContain('Provider-only mode');
+    expect(agents).toContain('automem_recall_memory');
+    expect(agents).not.toContain('mcp_automem_recall_memory');
+  });
+
+  it('mcp mode removes AutoMem provider state from a prior provider install', async () => {
+    await applyHermesSetup({
+      mode: 'provider',
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://example.automem.test',
+      apiKey: 'sk-provider',
+      quiet: true,
+    });
+
+    await applyHermesSetup({
+      mode: 'mcp',
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://example.automem.test',
+      apiKey: 'sk-mcp',
+      quiet: true,
+    });
+
+    const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
+      memory?: { provider?: string };
+      mcp_servers: Record<string, unknown>;
+    };
+    expect(parsed.memory?.provider).not.toBe('automem');
+    expect(parsed.mcp_servers.automem).toBeDefined();
+    expect(parsed.mcp_servers.memory).toBeUndefined();
+    expect(fs.readFileSync(path.join(tmpDir, '.env'), 'utf8')).not.toContain(
+      'AUTOMEM_HERMES_PROVIDER_TOOLS=true'
+    );
+  });
+
+  it('provider mode removes AutoMem MCP state from a prior MCP install', async () => {
+    await applyHermesSetup({
+      mode: 'mcp',
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://example.automem.test',
+      apiKey: 'sk-mcp',
+      quiet: true,
+    });
+
+    await applyHermesSetup({
+      mode: 'provider',
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://example.automem.test',
+      apiKey: 'sk-provider',
+      quiet: true,
+    });
+
+    const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
+      memory: { provider: string };
+      mcp_servers?: Record<string, unknown>;
+    };
+    expect(parsed.memory.provider).toBe('automem');
+    expect(parsed.mcp_servers?.automem).toBeUndefined();
+    expect(parsed.mcp_servers?.memory).toBeUndefined();
+  });
+
+  it('both mode installs the provider and MCP entry', async () => {
+    await applyHermesSetup({
+      mode: 'both',
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'http://127.0.0.1:8001',
+      quiet: true,
+    });
+
+    const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
+      memory: { provider: string };
+      mcp_servers: Record<string, unknown>;
+    };
+    expect(parsed.memory.provider).toBe('automem');
+    expect(parsed.mcp_servers.automem).toBeDefined();
+    expect(fs.readFileSync(path.join(tmpDir, '.env'), 'utf8')).toContain(
+      'AUTOMEM_HERMES_PROVIDER_TOOLS=false'
+    );
+    expect(fs.readFileSync(path.join(tmpDir, 'plugins', 'automem', '__init__.py'), 'utf8')).toContain(
+      'AUTOMEM_HERMES_PROVIDER_TOOLS'
+    );
+
+    const agents = fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8');
+    expect(agents).toContain('Both mode');
+    expect(agents).toContain('mcp_automem_recall_memory');
+    expect(agents).toContain('provider explicit tools are disabled');
+    expect(agents).not.toMatch(/`automem_recall_memory`/);
+  });
+
+  it('removes stale AutoMem Codex rules from Hermes AGENTS.md', async () => {
+    const agentsPath = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(
+      agentsPath,
+      [
+        '# Existing Hermes Rules',
+        '',
+        '<!-- BEGIN AUTOMEM CODEX RULES -->',
+        'Stale Codex guidance says use mcp__memory__recall_memory.',
+        '<!-- END AUTOMEM CODEX RULES -->',
+        '',
+        'Keep this unrelated Hermes rule.',
+      ].join('\n'),
+    );
+
+    await applyHermesSetup({
+      mode: 'provider',
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://example.automem.test',
+      quiet: true,
+    });
+
+    const agents = fs.readFileSync(agentsPath, 'utf8');
+    expect(agents).toContain('# Existing Hermes Rules');
+    expect(agents).toContain('Keep this unrelated Hermes rule.');
+    expect(agents).toContain('<!-- BEGIN AUTOMEM HERMES RULES -->');
+    expect(agents).toContain('Provider-only mode');
+    expect(agents).not.toContain('<!-- BEGIN AUTOMEM CODEX RULES -->');
+    expect(agents).not.toContain('mcp__memory__recall_memory');
   });
 });

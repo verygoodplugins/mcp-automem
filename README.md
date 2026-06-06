@@ -76,6 +76,18 @@ _Git commits, builds, and deployments automatically stored to memory_
 
 OpenAI Codex uses config.toml to automatically recall and store memories
 
+### Hermes Agent Recalling Memory
+
+Hermes is a terminal agent, so AutoMem's per-turn recall is invisible by design — it's injected into the model payload before each turn and never printed. `hermes automem debug-recall` surfaces the exact block:
+
+![Hermes injected memory-context block](screenshots/hermes-injected-context.png)
+_The `<memory-context>` block AutoMem injects ahead of every Hermes turn — normally never shown in the terminal. Captured against a synthetic demo dataset._
+
+A live one-shot turn then answers from that recalled memory alone. The staging port exists only in the seeded memories, so a correct answer proves recall fired:
+
+![Hermes answering from recalled memory](screenshots/hermes-live-session.gif)
+_`hermes -z` recalls the seeded Project Nimbus memory and answers `Port 7341` — concisely, honoring the recalled output preference._
+
 ### Your AI Learns Your Code Style
 
 ```javascript
@@ -222,10 +234,15 @@ npx @verygoodplugins/mcp-automem codex
 **For Hermes Agent (Nous Research):**
 
 ```bash
-# Registers `memory` MCP server under ~/.hermes/config.yaml
-# and installs AGENTS.md rules. Prefers `hermes mcp add` if installed,
-# otherwise edits config.yaml directly (preserves comments).
+# Registers `automem` MCP server under ~/.hermes/config.yaml
+# and installs Hermes-specific AGENTS.md rules.
 npx @verygoodplugins/mcp-automem hermes
+
+# Optional: replace Hermes' built-in memory provider with AutoMem
+npx @verygoodplugins/mcp-automem hermes --mode provider
+
+# Advanced: ambient provider recall plus MCP write/recall tools
+npx @verygoodplugins/mcp-automem hermes --mode both
 ```
 
 **For Google Antigravity:**

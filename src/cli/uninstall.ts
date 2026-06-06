@@ -3,7 +3,11 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { removeMcpServerEntry, resolveHermesPaths } from './hermes-config.js';
+import {
+  removeHermesMemoryProvider,
+  removeMcpServerEntry,
+  resolveHermesPaths,
+} from './hermes-config.js';
 
 interface UninstallOptions {
   platform: 'cursor' | 'claude-code' | 'hermes';
@@ -83,6 +87,40 @@ function removeDirectory(dirPath: string, dryRun: boolean, quiet?: boolean): boo
     log(`❌ Failed to remove ${dirPath}: ${(error as Error).message}`, quiet);
     return false;
   }
+}
+
+function removeEnvKeysWithBackup(
+  envPath: string,
+  keys: string[],
+  dryRun: boolean,
+  quiet?: boolean,
+): boolean {
+  if (!fs.existsSync(envPath)) return false;
+  const keySet = new Set(keys);
+  const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+  const filtered = lines.filter((line) => {
+    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
+    return !match || !keySet.has(match[1]);
+  });
+  if (filtered.join('\n') === lines.join('\n')) return false;
+
+  if (dryRun) {
+    log(`[DRY RUN] Would remove AutoMem environment keys from: ${envPath}`, quiet);
+    return true;
+  }
+
+  const backupPath = `${envPath}.backup.${Date.now()}`;
+  fs.copyFileSync(envPath, backupPath);
+  const content = filtered.join('\n').replace(/\s+$/, '');
+  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', { encoding: 'utf8', mode: 0o600 });
+  try {
+    fs.chmodSync(envPath, 0o600);
+  } catch {
+    // Best effort on platforms that do not support POSIX chmod.
+  }
+  log(`🗑️  Removed AutoMem environment keys from ${envPath}`, quiet);
+  log(`   Backup: ${backupPath}`, quiet);
+  return true;
 }
 
 function getClaudeDesktopConfigPath(): string {
@@ -230,7 +268,16 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
 
   let didChange = false;
   if (fs.existsSync(paths.configPath)) {
+    didChange = removeMcpServerEntry(paths.configPath, 'automem', {
+      dryRun: options.dryRun,
+      quiet: options.quiet,
+    }) || didChange;
     didChange = removeMcpServerEntry(paths.configPath, 'memory', {
+      dryRun: options.dryRun,
+      quiet: options.quiet,
+      onlyIfAutoMem: true,
+    }) || didChange;
+    didChange = removeHermesMemoryProvider(paths.configPath, 'automem', {
       dryRun: options.dryRun,
       quiet: options.quiet,
     }) || didChange;
@@ -239,8 +286,8 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
   }
 
   if (fs.existsSync(paths.agentsPath)) {
-    const start = '<!-- BEGIN AUTOMEM CODEX RULES -->';
-    const end = '<!-- END AUTOMEM CODEX RULES -->';
+    const start = '<!-- BEGIN AUTOMEM HERMES RULES -->';
+    const end = '<!-- END AUTOMEM HERMES RULES -->';
     const raw = fs.readFileSync(paths.agentsPath, 'utf8');
     const startIdx = raw.indexOf(start);
     const endIdx = raw.indexOf(end);
@@ -261,6 +308,23 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
       didChange = true;
     }
   }
+
+  const providerDir = path.join(paths.home, 'plugins', 'automem');
+  if (fs.existsSync(providerDir)) {
+    didChange = removeDirectory(providerDir, options.dryRun ?? false, options.quiet) || didChange;
+  }
+
+  didChange = removeEnvKeysWithBackup(
+    path.join(paths.home, '.env'),
+    [
+      'AUTOMEM_API_URL',
+      'AUTOMEM_API_KEY',
+      'AUTOMEM_API_TOKEN',
+      'AUTOMEM_HERMES_PROVIDER_TOOLS',
+    ],
+    options.dryRun ?? false,
+    options.quiet,
+  ) || didChange;
 
   if (didChange) {
     log('\n✅ Hermes AutoMem configuration removed', options.quiet);

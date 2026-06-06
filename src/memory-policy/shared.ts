@@ -1,11 +1,29 @@
 import { AUTHORABLE_RELATION_TYPES } from '../types.js';
 
-export const AUTOMEM_POLICY_DEFAULTS = {
-  preferenceRecallLimit: 20,
-  contextRecallLimit: 30,
-  debugRecallLimit: 20,
-  contextRecallWindowDays: 90,
+export const AUTOMEM_POLICY_PROFILES = {
+  rules: {
+    preferenceRecallLimit: 20,
+    contextRecallLimit: 30,
+    debugRecallLimit: 20,
+    contextRecallWindowDays: 90,
+  },
+  provider: {
+    preferenceRecallLimit: 5,
+    contextRecallLimit: 10,
+    debugRecallLimit: 10,
+    contextRecallWindowDays: 90,
+  },
 } as const;
+
+export const AUTOMEM_POLICY_DEFAULTS = AUTOMEM_POLICY_PROFILES.rules;
+
+export const AUTOMEM_PROVIDER_POLICY_DEFAULTS = AUTOMEM_POLICY_PROFILES.provider;
+
+export const AUTOMEM_RULES_POLICY_DEFAULTS = AUTOMEM_POLICY_PROFILES.rules;
+
+export type AutoMemPolicyProfile = keyof typeof AUTOMEM_POLICY_PROFILES;
+
+export type AutoMemPolicyDefaults = typeof AUTOMEM_POLICY_PROFILES[AutoMemPolicyProfile];
 
 export const AUTOMEM_POLICY_TRIGGER_HEADINGS = [
   '1. User correction or override.',

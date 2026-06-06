@@ -28,14 +28,25 @@ export function buildClaudeCodeExport(endpoint = DEFAULT_AUTOMEM_API_URL, apiKey
 export function buildHermesSnippet(endpoint = '${AUTOMEM_API_URL}', apiKey = '${AUTOMEM_API_KEY}') {
   // YAML form for ~/.hermes/config.yaml under the `mcp_servers` key.
   return `mcp_servers:
-  memory:
+  automem:
     command: npx
     args:
       - -y
       - "@verygoodplugins/mcp-automem"
     env:
       AUTOMEM_API_URL: "${endpoint}"
-      AUTOMEM_API_KEY: "${apiKey}"`;
+      AUTOMEM_API_KEY: "${apiKey}"
+    tools:
+      include:
+        - recall_memory
+        - store_memory
+        - associate_memories
+        - update_memory
+        - check_database_health
+      resources: false
+      prompts: false
+    sampling:
+      enabled: false`;
 }
 
 export function buildMcpConfigJson(endpoint: string, apiKey: string) {

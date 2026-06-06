@@ -208,6 +208,7 @@ HERMES SETUP:
     --name <name>         Project name (auto-detected if not provided)
     --endpoint <url>      AutoMem endpoint (default: $AUTOMEM_API_URL or http://127.0.0.1:8001)
     --api-key <key>       AutoMem API key (optional)
+    --mode <mode>         Install mode: mcp, provider, or both (default: mcp)
     --rules <path>        Target rules file (default: <hermes-home>/AGENTS.md)
     --dry-run             Show what would be changed
     --quiet               Suppress output

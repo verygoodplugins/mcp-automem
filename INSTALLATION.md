@@ -67,6 +67,7 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [Cursor IDE](#cursor-ide) - AI-powered code editor
 - [Claude Code](#claude-code) - Terminal coding assistant with automation hooks
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
+- [Hermes Agent](#hermes-agent) - Nous Research terminal agent with MCP and native memory provider support
 - [Google Antigravity](#google-antigravity) - Desktop editor with MCP Store and raw config
 - [OpenClaw](#openclaw) - Personal AI assistant with multi-platform messaging (WhatsApp, Telegram, Slack, Discord, etc.)
 
@@ -702,6 +703,98 @@ Use consistent **bare** project slugs and category tags across platforms; avoid 
 
 ---
 
+## Hermes Agent
+
+Hermes can use AutoMem either as normal MCP tools, as Hermes' native memory provider, or as both. The default is MCP-only because it exposes one explicit tool path and avoids collisions with Hermes' built-in memory tools.
+
+Hermes memory providers are **exclusive plugins**. That means they are activated through `memory.provider`, not through `plugins.enabled`. If `hermes plugins list` shows AutoMem as `not enabled` or `exclusive plugin`, that is expected for provider mode. Use `hermes memory status` as the source of truth.
+
+AutoMem integrations use one shared AutoMem recall blueprint across hosts: preference recall first, one semantic task-context recall with a 90-day window, and debug/topic-shift recall only when triggered. Instruction-driven hosts use the **rules profile** (`20 / 30 / 20` for preference/context/debug limits). Runtime provider hosts use the **provider profile** (`5 / 10 / 10`) so injected context stays compact while preserving the same recall semantics.
+
+### 1. Choose an install mode
+
+```bash
+# MCP tools only: exposes mcp_automem_recall_memory, mcp_automem_store_memory, etc.
+npx @verygoodplugins/mcp-automem hermes --mode mcp
+
+# Native memory provider: activates AutoMem through memory.provider.
+npx @verygoodplugins/mcp-automem hermes --mode provider
+
+# Advanced: native ambient recall plus MCP write/recall tools.
+npx @verygoodplugins/mcp-automem hermes --mode both
+```
+
+`--mode both` keeps explicit tools on the MCP path only and writes `AUTOMEM_HERMES_PROVIDER_TOOLS=false` so Hermes does not expose duplicate `automem_*` provider tools.
+
+### 2. Verify
+
+```bash
+# MCP mode
+hermes mcp test automem
+
+# Provider or both mode
+hermes memory status
+hermes automem doctor
+```
+
+Then restart Hermes and ask it to check AutoMem health. In MCP mode, Hermes should expose `mcp_automem_check_database_health` and should not expose `delete_memory` by default.
+
+In provider mode, `hermes memory status` should show `Provider: automem` and `Status: available`. `hermes automem doctor` checks the configured AutoMem `/health` endpoint and runs a small recall-prefetch probe. Recall context is injected into the model payload before a turn; Hermes does not print that context in the terminal UI by default.
+
+Provider explicit recall is capped at 10 results in Hermes provider mode to keep accidental broad recalls from flooding a model turn. Ambient provider prefetch uses the provider profile: up to 5 preference memories, 10 task-context memories, and 10 debug memories, with the same 90-day task-context window used by the rules profile.
+
+### 3. See what recall injects
+
+Provider recall is injected into the model payload before each turn and is **not printed** in the terminal. To see the exact block AutoMem sends, run `debug-recall` with any prompt:
+
+```bash
+hermes automem debug-recall "what do you remember about my setup?"
+```
+
+![Hermes injected memory-context block](screenshots/hermes-injected-context.png)
+_The real `<memory-context>` block — preferences first, then task context — that ambient recall injects ahead of the turn. Add `--raw` for the unfenced text. (Shown against a synthetic demo dataset.)_
+
+Once recall is wired up, a one-shot turn answers straight from it. Here the staging port exists only in the recalled memory, so a correct answer is proof that recall fired:
+
+![Hermes answering from recalled memory](screenshots/hermes-live-session.gif)
+_`hermes -z` pulls the seeded fact out of recall and answers `Port 7341`._
+
+> Maintainers: both visuals are regenerated against an isolated, freshly seeded demo stack with `npm run docs:hermes` (see `scripts/build-hermes-demos.mjs`). They never capture a personal corpus.
+
+### 4. Uninstall
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall hermes
+
+# Preview without changing files
+npx @verygoodplugins/mcp-automem uninstall hermes --dry-run
+```
+
+The Hermes uninstaller removes AutoMem's current config and known pre-release install targets, including `mcp_servers.automem`, AutoMem-owned `mcp_servers.memory`, `memory.provider: automem`, `$HERMES_HOME/plugins/automem`, AutoMem Hermes rules, and AutoMem keys in `$HERMES_HOME/.env`.
+
+Hermes setup also removes a stale AutoMem Codex rules block from `$HERMES_HOME/AGENTS.md`. That pre-release block mentioned Codex/Claude-style `mcp__memory__*` tool names and can steer provider-only Hermes sessions toward the wrong namespace.
+
+### Troubleshooting
+
+If Anthropic returns `tools: Tool names must be unique`, Hermes is seeing two explicit AutoMem tool surfaces. The usual pre-release cause is a stale `mcp_servers.memory` AutoMem entry combined with `mcp_servers.automem` or provider tools. Run:
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall hermes
+npx @verygoodplugins/mcp-automem hermes --mode mcp
+```
+
+For advanced `both` mode, confirm `$HERMES_HOME/.env` contains `AUTOMEM_HERMES_PROVIDER_TOOLS=false`.
+
+If provider mode appears active but recall still seems absent, run:
+
+```bash
+AUTOMEM_HERMES_DEBUG=true hermes
+```
+
+Then check the Hermes logs for AutoMem prefetch diagnostics. The debug path reports counts and endpoint status only; it does not dump memory content or secrets.
+
+---
+
 ## Google Antigravity
 
 Google Antigravity supports MCP servers through its built-in MCP Store and a raw config file. AutoMem fits Antigravity's local stdio MCP flow directly, so the primary path is to add the `memory` server to Antigravity's custom MCP server config.
@@ -1157,6 +1250,9 @@ npx @verygoodplugins/mcp-automem uninstall cursor
 # Uninstall Claude Code setup
 npx @verygoodplugins/mcp-automem uninstall claude-code
 
+# Uninstall Hermes setup
+npx @verygoodplugins/mcp-automem uninstall hermes
+
 # Also clean Claude Desktop config
 npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
 
@@ -1237,6 +1333,14 @@ npx @verygoodplugins/mcp-automem help
 - Test explicitly: "Check AutoMem database health"
 - Check Codex logs for MCP connection errors
 - Ensure environment variables are set correctly in `[mcp_servers.memory.env]` section
+
+#### Hermes: Tool names must be unique
+
+- Run `npx @verygoodplugins/mcp-automem uninstall hermes --dry-run` to see stale AutoMem surfaces.
+- Remove the stale setup with `npx @verygoodplugins/mcp-automem uninstall hermes`.
+- Reinstall one mode, usually `npx @verygoodplugins/mcp-automem hermes --mode mcp`.
+- If using `--mode both`, verify `$HERMES_HOME/.env` has `AUTOMEM_HERMES_PROVIDER_TOOLS=false`.
+- Check `config.yaml` for stale AutoMem-owned `mcp_servers.memory`; non-AutoMem memory servers are preserved by the uninstaller.
 
 ---
 

@@ -531,6 +531,45 @@ describe('Template Generation', () => {
     expect(installationGuide).not.toContain('### Optional GPT-5.4 Overlay');
   });
 
+  it('installation guide should document Hermes install modes and duplicate-tool recovery', () => {
+    const installationGuide = fs.readFileSync(
+      path.resolve(__dirname, '../../INSTALLATION.md'),
+      'utf8'
+    );
+
+    expect(installationGuide).toContain('## Hermes Agent');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode mcp');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode provider');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode both');
+    expect(installationGuide).toContain('hermes mcp test automem');
+    expect(installationGuide).toContain('hermes memory status');
+    expect(installationGuide).toContain('hermes automem doctor');
+    expect(installationGuide).toContain('exclusive plugin');
+    expect(installationGuide).toContain('Recall context is injected into the model payload');
+    expect(installationGuide).toContain('shared AutoMem recall blueprint');
+    expect(installationGuide).toContain('rules profile');
+    expect(installationGuide).toContain('provider profile');
+    expect(installationGuide).toContain('5 / 10 / 10');
+    expect(installationGuide).toContain('20 / 30 / 20');
+    expect(installationGuide).toContain('Provider explicit recall is capped at 10 results');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem uninstall hermes');
+    expect(installationGuide).toContain('tools: Tool names must be unique');
+    expect(installationGuide).toContain('mcp_servers.memory');
+    expect(installationGuide).toContain('stale AutoMem Codex rules block');
+    expect(installationGuide).toContain('AUTOMEM_HERMES_PROVIDER_TOOLS=false');
+  });
+
+  it('repo agent guidance should require real host integration smoke tests', () => {
+    const guidance = fs.readFileSync(path.resolve(__dirname, '../../AGENTS.md'), 'utf8');
+
+    expect(guidance).toContain('Host integration smoke tests');
+    expect(guidance).toContain('temp home');
+    expect(guidance).toContain('fake AutoMem API');
+    expect(guidance).toContain('real stdio MCP');
+    expect(guidance).toContain('provider-visible tool names');
+    expect(guidance).toContain('tests/helpers/host-specs.ts');
+  });
+
   it('Claude Code docs should prefer the CLI installer and mark the plugin deprecated', () => {
     const readme = fs.readFileSync(path.resolve(__dirname, '../../README.md'), 'utf8');
     const pluginReadme = fs.readFileSync(path.resolve(__dirname, '../../plugins/automem/README.md'), 'utf8');
