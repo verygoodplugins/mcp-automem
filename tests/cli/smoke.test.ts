@@ -3,11 +3,18 @@
  * explicitly targets generated files in a temp workspace/home.
  */
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { execFileSync, execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+
+// These tests spawn the built CLI as a child process (runCli allows the
+// subprocess up to 10s). The default 5s vitest timeout fires before that
+// budget is spent, so the heavier commands (e.g. the openclaw plugin dry-run)
+// flake under load. Give every test in this file headroom over the subprocess
+// timeout; a genuine hang still fails fast via execFileSync's own 10s limit.
+vi.setConfig({ testTimeout: 15000 });
 
 const CLI_PATH = path.resolve(__dirname, '../../dist/index.js');
 
