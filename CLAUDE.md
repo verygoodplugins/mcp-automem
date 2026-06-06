@@ -187,6 +187,14 @@ AUTOMEM_API_URL=https://your-automem-instance.railway.app
 
 # Optional: API key for authenticated AutoMem instances
 AUTOMEM_API_KEY=your_api_key_here
+
+# Optional (advanced): parent-liveness watchdog poll interval, in milliseconds.
+# The stdio server self-terminates when its launching client dies; this controls
+# how often it polls (default 30000). POSIX only — no effect on Windows, which
+# does not reparent orphans. Zero, negative, or non-numeric values fall back to
+# the 30000 default; the watchdog cannot be disabled (it is the fix for an
+# orphaned-process memory leak — see src/lifecycle.ts).
+AUTOMEM_PARENT_WATCHDOG_MS=30000
 ```
 
 ## Common Tasks
