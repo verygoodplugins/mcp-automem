@@ -19,6 +19,7 @@ import { runMigrateCommand } from "./cli/migrate.js";
 import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
 import { AutoMemClient } from "./automem-client.js";
+import { parseWatchdogIntervalMs, startParentWatchdog } from "./lifecycle.js";
 import { readAutoMemApiKeyFromEnv } from "./env.js";
 import { buildRecallMemoryResponse } from "./recall-memory.js";
 import { AUTHORABLE_RELATION_TYPES, MEMORY_TYPES, RELATION_TYPE_METADATA } from "./types.js";
@@ -1287,8 +1288,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 async function main() {
+  // Capture the parent pid synchronously, before any await, so the watchdog
+  // can later detect a reparent (orphaning). process.ppid is dynamic on
+  // modern Node, so reading it here pins the original parent.
+  const parentPid = process.ppid;
+
   installStdioErrorGuards();
   const transport = new StdioServerTransport();
+
+  // Defense-in-depth self-termination. The stdio server has no built-in path
+  // to exit when its client disconnects while idle; without these it lingers
+  // as an orphaned ~108 MB process. Each trigger is idempotent via shutdown().
+  let shuttingDown = false;
+  const shutdown = (code = 0) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try {
+      void transport.close?.();
+    } catch {
+      /* best effort — we're exiting anyway */
+    }
+    process.exit(code);
+  };
+
+  // Layer 1 — stdin EOF (clean client disconnect). Node already drains the
+  // event loop and exits on EOF; this makes the intent explicit.
+  process.stdin.on("end", () => shutdown(0));
+  process.stdin.on("close", () => shutdown(0));
+
+  // Layer 2 — transport/protocol closed by the SDK.
+  server.onclose = () => shutdown(0);
+
+  // Layer 3 — supervisor signals (graceful termination).
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    process.on(sig, () => shutdown(0));
+  }
+
+  // Layer 4 — parent-liveness watchdog (load-bearing on POSIX). Catches the
+  // orphan case Layers 1-3 miss: an intermediate wrapper holds stdin open so
+  // no EOF arrives, yet the client is gone. Relies on orphan reparenting, so
+  // it is a no-op on Windows (process.ppid never changes there). Interval is
+  // env-tunable via AUTOMEM_PARENT_WATCHDOG_MS; invalid/zero/negative values
+  // fall back to the 30 s default (see parseWatchdogIntervalMs).
+  const watchdogMs = parseWatchdogIntervalMs(process.env.AUTOMEM_PARENT_WATCHDOG_MS);
+  startParentWatchdog(parentPid, watchdogMs, () => shutdown(0));
+
   await server.connect(transport);
   if (process.env.AUTOMEM_LOG_LEVEL === "debug") {
     console.error("AutoMem MCP server running");
