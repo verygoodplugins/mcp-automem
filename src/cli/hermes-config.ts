@@ -1,8 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execSync } from 'child_process';
-import { parse as parseYaml, stringify as stringifyYaml, parseDocument } from 'yaml';
+import { parse as parseYaml, parseDocument } from 'yaml';
 import { backupPath, log } from './host-toolkit.js';
 
 export interface HermesPaths {
@@ -15,14 +14,23 @@ export interface AutoMemServerEntry {
   command: string;
   args: string[];
   env: Record<string, string>;
+  tools: {
+    include: string[];
+    resources: boolean;
+    prompts: boolean;
+  };
+  sampling: {
+    enabled: boolean;
+  };
 }
 
 export interface UpsertOptions {
   dryRun?: boolean;
   quiet?: boolean;
+  onlyIfAutoMem?: boolean;
 }
 
-export type UpsertMethod = 'hermes-cli' | 'yaml-fallback' | 'dry-run';
+export type UpsertMethod = 'yaml' | 'dry-run';
 
 export interface UpsertResult {
   method: UpsertMethod;
@@ -55,24 +63,21 @@ export function buildAutoMemServerEntry(
     command: 'npx',
     args: ['-y', '@verygoodplugins/mcp-automem'],
     env,
+    tools: {
+      include: [
+        'recall_memory',
+        'store_memory',
+        'associate_memories',
+        'update_memory',
+        'check_database_health',
+      ],
+      resources: false,
+      prompts: false,
+    },
+    sampling: {
+      enabled: false,
+    },
   };
-}
-
-/**
- * Probe whether the local Hermes CLI exposes an `mcp add` subcommand we can drive.
- * Returns false on any failure (binary missing, non-zero exit, missing verb in help).
- */
-export function detectHermesCliMcpAdd(): boolean {
-  try {
-    const help = execSync('hermes mcp --help', {
-      encoding: 'utf8',
-      timeout: 2000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    return /\badd\b/i.test(help);
-  } catch {
-    return false;
-  }
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -92,6 +97,20 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return true;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isAutoMemMcpEntry(entry: unknown): boolean {
+  if (!isRecord(entry)) return false;
+  const haystack = JSON.stringify({
+    command: entry.command,
+    args: entry.args,
+    env: entry.env,
+  });
+  return haystack.includes('@verygoodplugins/mcp-automem') || haystack.includes('mcp-automem');
+}
+
 /**
  * Merge an MCP server entry into ~/.hermes/config.yaml under `mcp_servers.<name>`,
  * preserving comments and any other servers present. Returns true if the file
@@ -107,7 +126,7 @@ function upsertViaYaml(
   const raw = existed ? fs.readFileSync(configPath, 'utf8') : '';
 
   // Read existing entry (if any) to short-circuit no-op writes.
-  let existing: unknown = null;
+  let existing: unknown;
   try {
     const parsed = parseYaml(raw || '{}') as Record<string, unknown> | null;
     existing = parsed?.mcp_servers && typeof parsed.mcp_servers === 'object'
@@ -150,30 +169,14 @@ function upsertViaYaml(
   return true;
 }
 
-function upsertViaHermesCli(
-  name: string,
-  entry: AutoMemServerEntry,
-  opts: UpsertOptions,
-): boolean {
-  // Build the Hermes command. The exact flag shape is conservative — we pass
-  // env vars as repeated `--env KEY=VALUE` and args as repeated `--arg VALUE`.
-  // If a user's Hermes version uses different flags, the call will fail and
-  // the caller will fall back to YAML.
-  const envFlags = Object.entries(entry.env)
-    .map(([k, v]) => `--env ${JSON.stringify(`${k}=${v}`)}`)
-    .join(' ');
-  const argFlags = entry.args.map((a) => `--arg ${JSON.stringify(a)}`).join(' ');
-  const cmd = `hermes mcp add ${JSON.stringify(name)} --command ${JSON.stringify(entry.command)} ${argFlags} ${envFlags}`;
-
-  if (opts.dryRun) {
-    log(`[DRY RUN] Would run: ${cmd}`, opts.quiet);
-    return false;
-  }
-
-  execSync(cmd, { stdio: opts.quiet ? 'ignore' : 'inherit' });
-  return true;
-}
-
+/**
+ * Register an MCP server into ~/.hermes/config.yaml. We write the YAML directly
+ * rather than shelling out to `hermes mcp add`: the CLI's argparse `--args`
+ * (nargs='*') cannot accept a value beginning with `-` (our entry needs
+ * `npx -y @verygoodplugins/mcp-automem`), and driving it via execSync would also
+ * echo the API key to the terminal. Direct YAML editing is comment-preserving,
+ * idempotent, and is exactly what `hermes mcp list` reads back.
+ */
 export async function upsertMcpServer(
   paths: HermesPaths,
   name: string,
@@ -185,21 +188,51 @@ export async function upsertMcpServer(
     return { method: 'dry-run', changed: false };
   }
 
-  if (detectHermesCliMcpAdd()) {
-    try {
-      const changed = upsertViaHermesCli(name, entry, opts);
-      log(`✅ Registered mcp_servers.${name} via hermes CLI`, opts.quiet);
-      return { method: 'hermes-cli', changed };
-    } catch (error) {
-      log(
-        `⚠️  hermes mcp add failed (${(error as Error).message}); falling back to direct YAML edit`,
-        opts.quiet,
-      );
-    }
+  const changed = upsertViaYaml(paths.configPath, name, entry, opts);
+  return { method: 'yaml', changed };
+}
+
+export function upsertHermesMemoryProvider(
+  configPath: string,
+  provider: string,
+  opts: UpsertOptions = {},
+): boolean {
+  const existed = fs.existsSync(configPath);
+  const raw = existed ? fs.readFileSync(configPath, 'utf8') : '';
+
+  let existing: unknown;
+  try {
+    const parsed = parseYaml(raw || '{}') as Record<string, unknown> | null;
+    existing = parsed?.memory && typeof parsed.memory === 'object'
+      ? (parsed.memory as Record<string, unknown>).provider ?? null
+      : null;
+  } catch {
+    existing = null;
   }
 
-  const changed = upsertViaYaml(paths.configPath, name, entry, opts);
-  return { method: 'yaml-fallback', changed };
+  if (existing === provider) {
+    log(`✓ Unchanged: ${path.basename(configPath)} (memory.provider)`, opts.quiet);
+    return false;
+  }
+
+  const doc = raw.trim().length > 0 ? parseDocument(raw) : parseDocument('memory: {}\n');
+  doc.setIn(['memory', 'provider'], provider);
+  const serialized = doc.toString({ collectionStyle: 'block' });
+
+  if (opts.dryRun) {
+    log(`[DRY RUN] Would write memory.provider=${provider} in: ${configPath}`, opts.quiet);
+    return false;
+  }
+
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  if (existed) {
+    const backup = backupPath(configPath);
+    fs.copyFileSync(configPath, backup);
+    log(`📦 Backup created: ${backup}`, opts.quiet);
+  }
+  fs.writeFileSync(configPath, serialized, 'utf8');
+  log(`✅ ${existed ? 'Updated' : 'Created'}: ${path.basename(configPath)}`, opts.quiet);
+  return true;
 }
 
 /**
@@ -218,6 +251,13 @@ export function removeMcpServerEntry(
   if (!servers || !doc.hasIn(['mcp_servers', name])) {
     return false;
   }
+  const parsed = parseYaml(raw || '{}') as Record<string, unknown> | null;
+  const entry = parsed?.mcp_servers && typeof parsed.mcp_servers === 'object'
+    ? (parsed.mcp_servers as Record<string, unknown>)[name]
+    : undefined;
+  if (opts.onlyIfAutoMem && !isAutoMemMcpEntry(entry)) {
+    return false;
+  }
 
   if (opts.dryRun) {
     log(`[DRY RUN] Would remove mcp_servers.${name} from: ${configPath}`, opts.quiet);
@@ -229,6 +269,33 @@ export function removeMcpServerEntry(
   fs.copyFileSync(configPath, backup);
   fs.writeFileSync(configPath, doc.toString({ collectionStyle: 'block' }), 'utf8');
   log(`🗑️  Removed mcp_servers.${name} from ${path.basename(configPath)}`, opts.quiet);
+  log(`   Backup: ${backup}`, opts.quiet);
+  return true;
+}
+
+export function removeHermesMemoryProvider(
+  configPath: string,
+  provider: string,
+  opts: UpsertOptions = {},
+): boolean {
+  if (!fs.existsSync(configPath)) return false;
+  const raw = fs.readFileSync(configPath, 'utf8');
+  const doc = parseDocument(raw);
+  const current = doc.getIn(['memory', 'provider']);
+  if (current !== provider) {
+    return false;
+  }
+
+  if (opts.dryRun) {
+    log(`[DRY RUN] Would clear memory.provider=${provider} from: ${configPath}`, opts.quiet);
+    return false;
+  }
+
+  doc.setIn(['memory', 'provider'], '');
+  const backup = backupPath(configPath);
+  fs.copyFileSync(configPath, backup);
+  fs.writeFileSync(configPath, doc.toString({ collectionStyle: 'block' }), 'utf8');
+  log(`🗑️  Cleared memory.provider=${provider} from ${path.basename(configPath)}`, opts.quiet);
   log(`   Backup: ${backup}`, opts.quiet);
   return true;
 }

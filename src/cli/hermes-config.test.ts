@@ -1,25 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { parse as parseYaml } from 'yaml';
 import {
   buildAutoMemServerEntry,
-  detectHermesCliMcpAdd,
+  removeHermesMemoryProvider,
   removeMcpServerEntry,
   resolveHermesPaths,
+  upsertHermesMemoryProvider,
   upsertMcpServer,
 } from './hermes-config.js';
-
-vi.mock('child_process', async () => {
-  const actual = await vi.importActual<typeof import('child_process')>('child_process');
-  return {
-    ...actual,
-    execSync: vi.fn(() => {
-      throw new Error('mocked: hermes binary not available');
-    }),
-  };
-});
 
 describe('hermes-config', () => {
   let tmpDir: string;
@@ -34,7 +25,6 @@ describe('hermes-config', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     if (originalHermesHome === undefined) delete process.env.HERMES_HOME;
     else process.env.HERMES_HOME = originalHermesHome;
-    vi.clearAllMocks();
   });
 
   describe('resolveHermesPaths', () => {
@@ -68,6 +58,20 @@ describe('hermes-config', () => {
           AUTOMEM_API_URL: 'https://api.example.com',
           AUTOMEM_API_KEY: 'sk-test',
         },
+        tools: {
+          include: [
+            'recall_memory',
+            'store_memory',
+            'associate_memories',
+            'update_memory',
+            'check_database_health',
+          ],
+          resources: false,
+          prompts: false,
+        },
+        sampling: {
+          enabled: false,
+        },
       });
     });
 
@@ -77,32 +81,27 @@ describe('hermes-config', () => {
     });
   });
 
-  describe('detectHermesCliMcpAdd', () => {
-    it('returns false when the binary is unavailable (mocked)', () => {
-      expect(detectHermesCliMcpAdd()).toBe(false);
-    });
-  });
-
-  describe('upsertMcpServer (YAML fallback path)', () => {
+  describe('upsertMcpServer', () => {
     it('creates a fresh config.yaml when none exists', async () => {
       const configPath = path.join(tmpDir, 'config.yaml');
       const result = await upsertMcpServer(
         { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
-        'memory',
+        'automem',
         buildAutoMemServerEntry('http://127.0.0.1:8001', 'sk-x'),
         { quiet: true },
       );
-      expect(result.method).toBe('yaml-fallback');
+      expect(result.method).toBe('yaml');
       expect(result.changed).toBe(true);
 
       const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
         mcp_servers: Record<string, { command: string; env: Record<string, string> }>;
       };
-      expect(parsed.mcp_servers.memory.command).toBe('npx');
-      expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('http://127.0.0.1:8001');
+      expect(parsed.mcp_servers.automem.command).toBe('npx');
+      expect(parsed.mcp_servers.automem.env.AUTOMEM_API_URL).toBe('http://127.0.0.1:8001');
+      expect(parsed.mcp_servers.memory).toBeUndefined();
     });
 
-    it('preserves other servers and top-level keys when adding memory', async () => {
+    it('preserves other servers and top-level keys when adding automem', async () => {
       const configPath = path.join(tmpDir, 'config.yaml');
       fs.writeFileSync(
         configPath,
@@ -121,7 +120,7 @@ describe('hermes-config', () => {
 
       await upsertMcpServer(
         { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
-        'memory',
+        'automem',
         buildAutoMemServerEntry('http://127.0.0.1:8001'),
         { quiet: true },
       );
@@ -134,7 +133,8 @@ describe('hermes-config', () => {
       };
       expect(parsed.model).toBe('claude-opus');
       expect(parsed.mcp_servers.other).toBeDefined();
-      expect(parsed.mcp_servers.memory).toBeDefined();
+      expect(parsed.mcp_servers.automem).toBeDefined();
+      expect(parsed.mcp_servers.memory).toBeUndefined();
     });
 
     it('is idempotent — re-running returns changed: false', async () => {
@@ -142,10 +142,10 @@ describe('hermes-config', () => {
       const entry = buildAutoMemServerEntry('http://127.0.0.1:8001', 'sk-x');
       const paths = { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') };
 
-      const first = await upsertMcpServer(paths, 'memory', entry, { quiet: true });
+      const first = await upsertMcpServer(paths, 'automem', entry, { quiet: true });
       expect(first.changed).toBe(true);
 
-      const second = await upsertMcpServer(paths, 'memory', entry, { quiet: true });
+      const second = await upsertMcpServer(paths, 'automem', entry, { quiet: true });
       expect(second.changed).toBe(false);
     });
 
@@ -153,7 +153,7 @@ describe('hermes-config', () => {
       const configPath = path.join(tmpDir, 'config.yaml');
       const result = await upsertMcpServer(
         { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
-        'memory',
+        'automem',
         buildAutoMemServerEntry('http://127.0.0.1:8001'),
         { dryRun: true, quiet: true },
       );
@@ -169,7 +169,7 @@ describe('hermes-config', () => {
         configPath,
         [
           'mcp_servers:',
-          '  memory:',
+          '  automem:',
           '    command: npx',
           '    args: ["-y", "@verygoodplugins/mcp-automem"]',
           '  other:',
@@ -177,8 +177,43 @@ describe('hermes-config', () => {
           '',
         ].join('\n'),
       );
-      const changed = removeMcpServerEntry(configPath, 'memory', { quiet: true });
+      const changed = removeMcpServerEntry(configPath, 'automem', { quiet: true });
       expect(changed).toBe(true);
+      const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
+        mcp_servers: Record<string, unknown>;
+      };
+      expect(parsed.mcp_servers.automem).toBeUndefined();
+      expect(parsed.mcp_servers.other).toBeDefined();
+    });
+
+    it('returns false when the entry does not exist', () => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      fs.writeFileSync(configPath, 'mcp_servers:\n  other:\n    command: bash\n');
+      expect(removeMcpServerEntry(configPath, 'automem', { quiet: true })).toBe(false);
+    });
+
+    it('can remove the pre-release memory entry when it points at AutoMem', () => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      fs.writeFileSync(
+        configPath,
+        [
+          'mcp_servers:',
+          '  memory:',
+          '    command: npx',
+          '    args:',
+          '      - -y',
+          '      - "@verygoodplugins/mcp-automem"',
+          '  other:',
+          '    command: bash',
+          '',
+        ].join('\n'),
+      );
+
+      expect(removeMcpServerEntry(configPath, 'memory', {
+        quiet: true,
+        onlyIfAutoMem: true,
+      })).toBe(true);
+
       const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
         mcp_servers: Record<string, unknown>;
       };
@@ -186,10 +221,77 @@ describe('hermes-config', () => {
       expect(parsed.mcp_servers.other).toBeDefined();
     });
 
-    it('returns false when the entry does not exist', () => {
+    it('does not remove a non-AutoMem memory MCP entry when guarded', () => {
       const configPath = path.join(tmpDir, 'config.yaml');
-      fs.writeFileSync(configPath, 'mcp_servers:\n  other:\n    command: bash\n');
-      expect(removeMcpServerEntry(configPath, 'memory', { quiet: true })).toBe(false);
+      fs.writeFileSync(
+        configPath,
+        [
+          'mcp_servers:',
+          '  memory:',
+          '    command: python',
+          '    args:',
+          '      - other-memory-server.py',
+          '',
+        ].join('\n'),
+      );
+
+      expect(removeMcpServerEntry(configPath, 'memory', {
+        quiet: true,
+        onlyIfAutoMem: true,
+      })).toBe(false);
+
+      const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
+        mcp_servers: Record<string, unknown>;
+      };
+      expect(parsed.mcp_servers.memory).toBeDefined();
+    });
+  });
+
+  describe('Hermes memory provider config', () => {
+    it('sets memory.provider without disturbing other config', () => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      fs.writeFileSync(
+        configPath,
+        [
+          'model: claude-opus',
+          'memory:',
+          '  provider: ""',
+          '',
+        ].join('\n'),
+      );
+
+      expect(upsertHermesMemoryProvider(configPath, 'automem', { quiet: true })).toBe(true);
+
+      const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
+        model: string;
+        memory: { provider: string };
+      };
+      expect(parsed.model).toBe('claude-opus');
+      expect(parsed.memory.provider).toBe('automem');
+    });
+
+    it('clears memory.provider only when AutoMem owns it', () => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      fs.writeFileSync(configPath, 'memory:\n  provider: automem\n');
+
+      expect(removeHermesMemoryProvider(configPath, 'automem', { quiet: true })).toBe(true);
+
+      const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
+        memory: { provider: string };
+      };
+      expect(parsed.memory.provider).toBe('');
+    });
+
+    it('does not clear another Hermes memory provider', () => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      fs.writeFileSync(configPath, 'memory:\n  provider: supermemory\n');
+
+      expect(removeHermesMemoryProvider(configPath, 'automem', { quiet: true })).toBe(false);
+
+      const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
+        memory: { provider: string };
+      };
+      expect(parsed.memory.provider).toBe('supermemory');
     });
   });
 });
