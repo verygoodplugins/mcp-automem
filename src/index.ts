@@ -1167,6 +1167,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Single-store mode response
         let responseText = `Memory stored successfully!\n\nMemory ID: ${result.memory_id}`;
+        if (result.superseded_memory_id) {
+          responseText += `\nSuperseded memory ID: ${result.superseded_memory_id}`;
+        }
+        if (typeof result.association_created === "boolean") {
+          responseText += `\nAssociation created: ${result.association_created ? "yes" : "no"}`;
+        }
         if (result.message) {
           responseText += `\nMessage: ${result.message}`;
         }
@@ -1184,6 +1190,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const output = {
           memory_id: result.memory_id,
           message: result.message,
+          ...(result.superseded_memory_id && {
+            superseded_memory_id: result.superseded_memory_id,
+          }),
+          ...(typeof result.association_created === "boolean" && {
+            association_created: result.association_created,
+          }),
           ...(summarized && {
             summarized,
             original_length: originalLength,

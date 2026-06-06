@@ -91,10 +91,6 @@ describe('AutoMemClient', () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory_id: 'new-memory-id', message: 'Memory stored' }),
-        } as any)
-        .mockResolvedValueOnce({
-          ok: true,
           json: async () => ({
             memory: {
               id: 'old-memory-id',
@@ -102,6 +98,10 @@ describe('AutoMemClient', () => {
               metadata: { source: 'test', existing: true },
             },
           }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'new-memory-id', message: 'Memory stored' }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
@@ -124,17 +124,17 @@ describe('AutoMemClient', () => {
       expect(result.superseded_memory_id).toBe('old-memory-id');
       expect(result.association_created).toBe(true);
 
-      const storeCall = mockFetch.mock.calls[0];
+      const fetchOldCall = mockFetch.mock.calls[0];
+      expect(fetchOldCall[0]).toBe('http://localhost:8001/memory/old-memory-id');
+      expect(fetchOldCall[1]?.method).toBe('GET');
+
+      const storeCall = mockFetch.mock.calls[1];
       expect(storeCall[0]).toBe('http://localhost:8001/memory');
       expect(JSON.parse(storeCall[1]?.body as string)).toMatchObject({
         content: 'Corrected memory',
         tags: ['project-x', 'correction'],
         metadata: { source: 'replacement' },
       });
-
-      const fetchOldCall = mockFetch.mock.calls[1];
-      expect(fetchOldCall[0]).toBe('http://localhost:8001/memory/old-memory-id');
-      expect(fetchOldCall[1]?.method).toBe('GET');
 
       const patchCall = mockFetch.mock.calls[2];
       expect(patchCall[0]).toBe('http://localhost:8001/memory/old-memory-id');
@@ -164,11 +164,11 @@ describe('AutoMemClient', () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory_id: 'new-memory-id' }),
+          json: async () => ({ memory: { id: 'old-memory-id', metadata: {} } }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory: { id: 'old-memory-id', metadata: {} } }),
+          json: async () => ({ memory_id: 'new-memory-id' }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
@@ -187,6 +187,91 @@ describe('AutoMemClient', () => {
 
       const associateBody = JSON.parse(mockFetch.mock.calls[3][1]?.body as string);
       expect(associateBody.type).toBe('EVOLVED_INTO');
+    });
+
+    it('should prevalidate superseded memory before storing a replacement', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ message: 'Not found' }),
+      } as any);
+
+      await expect(
+        client.storeMemory({
+          content: 'Corrected memory',
+          supersedes_memory_id: 'missing-memory-id',
+        })
+      ).rejects.toThrow('store_memory: superseded memory not found: missing-memory-id');
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][0]).toBe('http://localhost:8001/memory/missing-memory-id');
+    });
+
+    it('should report patch failures and clean up the replacement before old memory is updated', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory: { id: 'old-memory-id', metadata: {} } }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'new-memory-id' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 400,
+          json: async () => ({ message: 'Patch failed' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'new-memory-id', message: 'Deleted' }),
+        } as any);
+
+      await expect(
+        client.storeMemory({
+          content: 'Corrected memory',
+          supersedes_memory_id: 'old-memory-id',
+        })
+      ).rejects.toThrow(
+        /old_memory_updated=false, association_created=false; replacement cleanup succeeded.*Patch failed/
+      );
+
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+      expect(mockFetch.mock.calls[3][0]).toBe('http://localhost:8001/memory/new-memory-id');
+      expect(mockFetch.mock.calls[3][1]?.method).toBe('DELETE');
+    });
+
+    it('should report association failures without deleting a replacement linked from the old memory', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory: { id: 'old-memory-id', metadata: {} } }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'new-memory-id' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'old-memory-id', message: 'Updated' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 400,
+          json: async () => ({ message: 'Association failed' }),
+        } as any);
+
+      await expect(
+        client.storeMemory({
+          content: 'Corrected memory',
+          supersedes_memory_id: 'old-memory-id',
+        })
+      ).rejects.toThrow(
+        /old_memory_updated=true, association_created=false; replacement cleanup not attempted.*Association failed/
+      );
+
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+      expect(mockFetch.mock.calls.map((call) => call[1]?.method)).not.toContain('DELETE');
     });
   });
 
@@ -614,6 +699,24 @@ describe('AutoMemClient', () => {
       expect(result.memory_id).toBe('mem-123');
       expect(mockFetch).toHaveBeenCalledWith(
         'http://localhost:8001/memory/mem-123',
+        expect.objectContaining({ method: 'PATCH' })
+      );
+    });
+
+    it('should URL-encode custom memory IDs when patching', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ memory_id: 'custom/id?#', message: 'Updated' }),
+      } as any);
+
+      const result = await client.updateMemory({
+        memory_id: 'custom/id?#',
+        importance: 0.95,
+      });
+
+      expect(result.memory_id).toBe('custom/id?#');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8001/memory/custom%2Fid%3F%23',
         expect.objectContaining({ method: 'PATCH' })
       );
     });

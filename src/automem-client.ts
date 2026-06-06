@@ -46,6 +46,10 @@ function nonEmptyTags(tags: unknown): string[] {
     .filter((t) => t.length > 0);
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function mapStoredMemory(raw: any) {
   return {
     memory_id: raw?.id || raw?.memory_id || '',
@@ -214,6 +218,15 @@ export class AutoMemClient {
       ...(args.last_accessed && { last_accessed: args.last_accessed }),
     };
 
+    let supersededMemory: any | undefined;
+    if (supersedesMemoryId) {
+      const oldMemory = await this.fetchMemoryById(supersedesMemoryId);
+      if (!oldMemory) {
+        throw new Error(`store_memory: superseded memory not found: ${supersedesMemoryId}`);
+      }
+      supersededMemory = oldMemory;
+    }
+
     const response = await this.makeRequest('POST', 'memory', body);
     const memoryId =
       response.memory_id ??
@@ -231,32 +244,51 @@ export class AutoMemClient {
       throw new Error('store_memory: replacement memory response did not include a memory_id');
     }
 
-    const oldMemory = await this.fetchMemoryById(supersedesMemoryId);
-    if (!oldMemory) {
-      throw new Error(`store_memory: superseded memory not found: ${supersedesMemoryId}`);
-    }
-
     const oldMetadata =
-      oldMemory.metadata && typeof oldMemory.metadata === 'object' && !Array.isArray(oldMemory.metadata)
-        ? oldMemory.metadata
+      supersededMemory?.metadata &&
+      typeof supersededMemory.metadata === 'object' &&
+      !Array.isArray(supersededMemory.metadata)
+        ? supersededMemory.metadata
         : {};
-    await this.updateMemory({
-      memory_id: supersedesMemoryId,
-      t_invalid: new Date().toISOString(),
-      metadata: {
-        ...oldMetadata,
-        deprecated: true,
-        superseded_by: memoryId,
-        supersede_relation: supersedeRelation,
-        ...(args.supersede_reason && { supersede_reason: args.supersede_reason }),
-      },
-    });
-    await this.associateMemories({
-      memory1_id: supersedesMemoryId,
-      memory2_id: memoryId,
-      type: supersedeRelation,
-      strength: 0.9,
-    });
+    let oldMemoryUpdated = false;
+    let associationCreated = false;
+    try {
+      await this.updateMemory({
+        memory_id: supersedesMemoryId,
+        t_invalid: new Date().toISOString(),
+        metadata: {
+          ...oldMetadata,
+          deprecated: true,
+          superseded_by: memoryId,
+          supersede_relation: supersedeRelation,
+          ...(args.supersede_reason && { supersede_reason: args.supersede_reason }),
+        },
+      });
+      oldMemoryUpdated = true;
+
+      await this.associateMemories({
+        memory1_id: supersedesMemoryId,
+        memory2_id: memoryId,
+        type: supersedeRelation,
+        strength: 0.9,
+      });
+      associationCreated = true;
+    } catch (error) {
+      let cleanupStatus = 'replacement cleanup not attempted';
+      if (!oldMemoryUpdated) {
+        try {
+          await this.deleteMemory({ memory_id: memoryId });
+          cleanupStatus = 'replacement cleanup succeeded';
+        } catch (cleanupError) {
+          cleanupStatus = `replacement cleanup failed: ${errorMessage(cleanupError)}`;
+        }
+      }
+
+      throw new Error(
+        `store_memory: supersede failed after creating replacement memory ${memoryId} (old_memory_updated=${oldMemoryUpdated}, association_created=${associationCreated}; ${cleanupStatus}): ${errorMessage(error)}`,
+        { cause: error }
+      );
+    }
 
     return {
       memory_id: memoryId,
@@ -631,13 +663,14 @@ export class AutoMemClient {
 
   async updateMemory(args: UpdateMemoryArgs): Promise<{ memory_id: string; message: string }> {
     const { memory_id, ...updates } = args;
-    if (!memory_id) {
+    const memoryId = typeof memory_id === 'string' ? memory_id.trim() : '';
+    if (!memoryId) {
       throw new Error('memory_id is required');
     }
 
-    const response = await this.makeRequest('PATCH', `memory/${memory_id}`, updates);
+    const response = await this.makeRequest('PATCH', `memory/${encodeURIComponent(memoryId)}`, updates);
     return {
-      memory_id: response.memory_id || memory_id,
+      memory_id: response.memory_id || memoryId,
       message: response.message || 'Memory updated successfully',
     };
   }
