@@ -125,6 +125,28 @@ describe('buildRecallMemoryResponse', () => {
     });
   });
 
+  it('surfaces state-filter diagnostics in structured content and text notes', async () => {
+    const stateFilter = {
+      current_only: true,
+      suppressed_count: 2,
+      replacement_count: 1,
+      suppressed: [{ memory_id: 'old-1', reason: 'invalidated' }],
+      replacements: [{ old_id: 'old-1', new_id: 'new-1' }],
+    };
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue(makeRecallResult({ state_filter: stateFilter })),
+    };
+
+    const response = await buildRecallMemoryResponse(client, { query: 'corrections' });
+
+    expect(response.structuredContent).toMatchObject({
+      state_filter: stateFilter,
+    });
+    expect(response.content[0].text).toContain(
+      'state filter suppressed 2, replacements 1'
+    );
+  });
+
   it('surfaces enumeration metadata (mode/has_more/limit/offset) when present', async () => {
     const recallResult = makeRecallResult({
       mode: 'enumeration',

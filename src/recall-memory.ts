@@ -76,6 +76,7 @@ function buildStructuredRecallOutput(
     ...(recallResult.context_priority
       ? { context_priority: recallResult.context_priority }
       : {}),
+    ...(recallResult.state_filter ? { state_filter: recallResult.state_filter } : {}),
   };
 }
 
@@ -147,6 +148,11 @@ export async function buildRecallMemoryResponse(
   }
   if (recallResult.expansion?.enabled && recallResult.expansion.expanded_count > 0) {
     notes.push(`${recallResult.expansion.expanded_count} via relation expansion`);
+  }
+  if (recallResult.state_filter) {
+    notes.push(
+      `state filter suppressed ${recallResult.state_filter.suppressed_count}, replacements ${recallResult.state_filter.replacement_count}`
+    );
   }
   if (recallResult.mode === 'enumeration') {
     const offset = recallResult.offset ?? 0;

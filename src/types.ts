@@ -34,6 +34,7 @@ export const MEMORY_TYPES = [
 export type AuthorableRelationType = (typeof AUTHORABLE_RELATION_TYPES)[number];
 /** @deprecated Use AuthorableRelationType. */
 export type RelationType = AuthorableRelationType;
+export type SupersedeRelationType = Extract<AuthorableRelationType, 'INVALIDATED_BY' | 'EVOLVED_INTO'>;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
 
 export interface AutoMemConfig {
@@ -115,6 +116,13 @@ export interface RecallResult {
     priority_types?: string[];
     injected?: boolean;
   };
+  state_filter?: {
+    current_only?: boolean;
+    suppressed_count: number;
+    replacement_count: number;
+    suppressed?: Array<Record<string, any>>;
+    replacements?: Array<Record<string, any>>;
+  };
 }
 
 export interface HealthStatus {
@@ -158,6 +166,9 @@ export interface StoreMemoryArgs {
   t_invalid?: string;
   updated_at?: string;
   last_accessed?: string;
+  supersedes_memory_id?: string;
+  supersede_relation?: SupersedeRelationType;
+  supersede_reason?: string;
   // Batch mode (XOR with `content`): up to 500 memories in one request.
   memories?: BatchMemoryInput[];
 }
@@ -165,6 +176,9 @@ export interface StoreMemoryArgs {
 export interface StoreMemoryResult {
   // Single-store mode populates these:
   memory_id?: string;
+  // Supersede mode populates these:
+  superseded_memory_id?: string;
+  association_created?: boolean;
   // Batch-store mode populates these:
   memory_ids?: string[];
   stored?: number;
@@ -202,6 +216,9 @@ export interface RecallMemoryArgs {
   // Expansion filtering (reduces noise in expanded results)
   expand_min_importance?: number;
   expand_min_strength?: number;
+  // Current-state filtering
+  current_only?: boolean;
+  state_debug?: boolean;
   // Context hints for smarter recall
   context?: string;
   language?: string;
@@ -230,6 +247,8 @@ export interface UpdateMemoryArgs {
   importance?: number;
   metadata?: Record<string, any>;
   timestamp?: string;
+  t_valid?: string;
+  t_invalid?: string;
   updated_at?: string;
   last_accessed?: string;
   type?: MemoryType;

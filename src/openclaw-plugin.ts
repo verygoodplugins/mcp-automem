@@ -346,6 +346,19 @@ const storeMemorySchema = {
     t_invalid: { type: 'string' },
     updated_at: { type: 'string' },
     last_accessed: { type: 'string' },
+    supersedes_memory_id: {
+      type: 'string',
+      description: 'Single-mode supersede/correction workflow. Existing memory ID replaced by this new memory.',
+    },
+    supersede_relation: {
+      type: 'string',
+      enum: ['INVALIDATED_BY', 'EVOLVED_INTO'],
+      description: 'Relationship created old → new in supersede mode. Defaults to INVALIDATED_BY.',
+    },
+    supersede_reason: {
+      type: 'string',
+      description: 'Optional reason stored in old memory metadata during supersede mode.',
+    },
   },
 };
 
@@ -373,6 +386,14 @@ const recallMemorySchema = {
     relation_limit: { type: 'number' },
     expand_min_importance: { type: 'number' },
     expand_min_strength: { type: 'number' },
+    current_only: {
+      type: 'boolean',
+      description: 'Ranked-mode only. Suppress archived, expired, not-yet-valid, invalidated, or superseded memories. Defaults to true server-side.',
+    },
+    state_debug: {
+      type: 'boolean',
+      description: 'Ranked-mode only. Include state-filter IDs/reasons in server diagnostics.',
+    },
     context: { type: 'string' },
     language: { type: 'string' },
     active_path: { type: 'string' },
@@ -397,6 +418,8 @@ const updateMemorySchema = {
     importance: { type: 'number' },
     metadata: { type: 'object' },
     timestamp: { type: 'string' },
+    t_valid: { type: 'string' },
+    t_invalid: { type: 'string' },
     updated_at: { type: 'string' },
     last_accessed: { type: 'string' },
     type: { type: 'string' },
@@ -533,7 +556,7 @@ const openClawPlugin = {
       name: 'automem_store_memory',
       label: 'AutoMem Store Memory',
       description:
-        'Store a durable memory in AutoMem. Single-mode (set `content`) or batch mode (set `memories: [...]`, up to 500). Batch mode does not accept per-item id/embedding/t_valid/t_invalid.',
+        'Store a durable memory in AutoMem. Single-mode (set `content`), supersede/correction mode (set `content` + `supersedes_memory_id`), or batch mode (set `memories: [...]`, up to 500). Batch mode does not accept per-item id/embedding/t_valid/t_invalid.',
       parameters: storeMemorySchema,
       async execute(_toolCallId, params) {
         const request = params as StoreMemoryArgs;
@@ -566,7 +589,7 @@ const openClawPlugin = {
       name: 'automem_recall_memory',
       label: 'AutoMem Recall Memory',
       description:
-        'Recall memories in one of three modes. (1) ID fetch: pass `memory_id`. (2) Tag enumeration: pass `tags` + `exhaustive: true` for paginated exact-match listing. (3) Ranked retrieval (default): hybrid search across vector/keyword/tags/recency.',
+        'Recall memories in one of three modes. (1) ID fetch: pass `memory_id`. (2) Tag enumeration: pass `tags` + `exhaustive: true` for paginated exact-match listing. (3) Ranked retrieval (default): hybrid search across vector/keyword/tags/recency, current-only by default server-side.',
       parameters: recallMemorySchema,
       async execute(_toolCallId, params) {
         const request = params as RecallMemoryArgs;
