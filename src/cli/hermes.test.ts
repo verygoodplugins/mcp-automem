@@ -20,15 +20,20 @@ describe('hermes setup handler', () => {
   let originalHermesHome: string | undefined;
   let originalApiUrl: string | undefined;
   let originalApiKey: string | undefined;
+  let originalEndpoint: string | undefined;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-handler-'));
     originalHermesHome = process.env.HERMES_HOME;
     originalApiUrl = process.env.AUTOMEM_API_URL;
     originalApiKey = process.env.AUTOMEM_API_KEY;
+    originalEndpoint = process.env.AUTOMEM_ENDPOINT;
     delete process.env.HERMES_HOME;
     delete process.env.AUTOMEM_API_URL;
     delete process.env.AUTOMEM_API_KEY;
+    // Clear the legacy alias too — a developer shell exporting it would
+    // otherwise win over recovered credentials and make these tests flaky.
+    delete process.env.AUTOMEM_ENDPOINT;
   });
 
   afterEach(() => {
@@ -40,6 +45,7 @@ describe('hermes setup handler', () => {
     restore('HERMES_HOME', originalHermesHome);
     restore('AUTOMEM_API_URL', originalApiUrl);
     restore('AUTOMEM_API_KEY', originalApiKey);
+    restore('AUTOMEM_ENDPOINT', originalEndpoint);
     vi.clearAllMocks();
   });
 
@@ -173,6 +179,82 @@ describe('hermes setup handler', () => {
     };
     expect(parsed.mcp_servers.automem.env.AUTOMEM_API_URL).toBe('https://example.automem.test');
     expect(parsed.mcp_servers.automem.env.AUTOMEM_API_KEY).toBe('sk-from-env');
+  });
+
+  it('preserves installed credentials on a re-run with no flags or env', async () => {
+    // First install with an explicit remote endpoint + key.
+    await applyHermesSetup({
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://remote.automem.test',
+      apiKey: 'sk-remote',
+      quiet: true,
+    });
+
+    // Re-run with zero flags. beforeEach already cleared AUTOMEM_API_URL/KEY,
+    // so without preservation the endpoint would collapse to the local default
+    // and the key would be dropped.
+    await applyHermesSetup({
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      quiet: true,
+    });
+
+    const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
+      mcp_servers: Record<string, { env: Record<string, string> }>;
+    };
+    expect(parsed.mcp_servers.automem.env.AUTOMEM_API_URL).toBe('https://remote.automem.test');
+    expect(parsed.mcp_servers.automem.env.AUTOMEM_API_KEY).toBe('sk-remote');
+  });
+
+  it('explicit flags override previously installed credentials', async () => {
+    await applyHermesSetup({
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://old.automem.test',
+      apiKey: 'sk-old',
+      quiet: true,
+    });
+
+    await applyHermesSetup({
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://new.automem.test',
+      apiKey: 'sk-new',
+      quiet: true,
+    });
+
+    const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
+      mcp_servers: Record<string, { env: Record<string, string> }>;
+    };
+    expect(parsed.mcp_servers.automem.env.AUTOMEM_API_URL).toBe('https://new.automem.test');
+    expect(parsed.mcp_servers.automem.env.AUTOMEM_API_KEY).toBe('sk-new');
+  });
+
+  it('mcp re-run after a provider install recovers credentials from .env', async () => {
+    // Provider mode writes credentials only to ~/.hermes/.env (no mcp_servers
+    // entry), so the recovery path here exercises the .env reader.
+    await applyHermesSetup({
+      mode: 'provider',
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://remote.automem.test',
+      apiKey: 'sk-remote',
+      quiet: true,
+    });
+
+    await applyHermesSetup({
+      mode: 'mcp',
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      quiet: true,
+    });
+
+    const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
+      mcp_servers: Record<string, { env: Record<string, string> }>;
+    };
+    expect(parsed.mcp_servers.automem.env.AUTOMEM_API_URL).toBe('https://remote.automem.test');
+    expect(parsed.mcp_servers.automem.env.AUTOMEM_API_KEY).toBe('sk-remote');
   });
 
   it('provider mode installs the Hermes memory provider without MCP tools', async () => {

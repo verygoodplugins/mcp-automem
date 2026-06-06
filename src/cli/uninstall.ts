@@ -12,6 +12,7 @@ import {
 interface UninstallOptions {
   platform: 'cursor' | 'claude-code' | 'hermes';
   projectDir?: string;
+  rulesPath?: string;
   cleanAll?: boolean;
   dryRun?: boolean;
   yes?: boolean;
@@ -263,6 +264,9 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
 
 async function uninstallHermes(options: UninstallOptions): Promise<void> {
   const paths = resolveHermesPaths({ dir: options.projectDir });
+  // Mirror `hermes` setup's --rules: strip the AutoMem block from the same
+  // rules file it was installed into (defaults to <hermes-home>/AGENTS.md).
+  const rulesFile = options.rulesPath ?? paths.agentsPath;
 
   log('\n🗑️  Uninstalling Hermes AutoMem...', options.quiet);
 
@@ -285,25 +289,25 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
     log(`ℹ️  No Hermes config at ${paths.configPath}`, options.quiet);
   }
 
-  if (fs.existsSync(paths.agentsPath)) {
+  if (fs.existsSync(rulesFile)) {
     const start = '<!-- BEGIN AUTOMEM HERMES RULES -->';
     const end = '<!-- END AUTOMEM HERMES RULES -->';
-    const raw = fs.readFileSync(paths.agentsPath, 'utf8');
+    const raw = fs.readFileSync(rulesFile, 'utf8');
     const startIdx = raw.indexOf(start);
     const endIdx = raw.indexOf(end);
 
     if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-      log(`ℹ️  No AutoMem rule block in ${paths.agentsPath}`, options.quiet);
+      log(`ℹ️  No AutoMem rule block in ${rulesFile}`, options.quiet);
     } else if (options.dryRun) {
-      log(`[DRY RUN] Would strip AutoMem block from: ${paths.agentsPath}`, options.quiet);
+      log(`[DRY RUN] Would strip AutoMem block from: ${rulesFile}`, options.quiet);
     } else {
       const before = raw.slice(0, startIdx).replace(/\s+$/, '');
       const after = raw.slice(endIdx + end.length).replace(/^\s+/, '');
       const next = before && after ? `${before}\n\n${after}\n` : `${before}${after}`.replace(/\n+$/, '') + '\n';
-      const backupPath = `${paths.agentsPath}.backup.${Date.now()}`;
-      fs.copyFileSync(paths.agentsPath, backupPath);
-      fs.writeFileSync(paths.agentsPath, next, 'utf8');
-      log(`🗑️  Stripped AutoMem block from ${paths.agentsPath}`, options.quiet);
+      const backupPath = `${rulesFile}.backup.${Date.now()}`;
+      fs.copyFileSync(rulesFile, backupPath);
+      fs.writeFileSync(rulesFile, next, 'utf8');
+      log(`🗑️  Stripped AutoMem block from ${rulesFile}`, options.quiet);
       log(`   Backup: ${backupPath}`, options.quiet);
       didChange = true;
     }
@@ -456,6 +460,14 @@ function parseUninstallArgs(args: string[]): UninstallOptions | null {
           process.exit(1);
         }
         options.projectDir = args[i + 1];
+        i += 1;
+        break;
+      case '--rules':
+        if (i + 1 >= args.length) {
+          console.error('Error: --rules requires a path value');
+          process.exit(1);
+        }
+        options.rulesPath = args[i + 1];
         i += 1;
         break;
       case '--clean-all':

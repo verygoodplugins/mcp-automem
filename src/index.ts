@@ -160,6 +160,7 @@ UNINSTALL:
 
   Options:
     --dir <path>          Project / hermes-home directory
+    --rules <path>        Hermes rules file to strip (default: <hermes-home>/AGENTS.md)
     --clean-all          Also remove MCP server config (Cursor/Claude Desktop)
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation

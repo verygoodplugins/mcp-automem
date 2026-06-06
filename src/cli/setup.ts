@@ -228,7 +228,9 @@ export async function runSetup(args: string[] = []): Promise<void> {
   console.log('\nClaude Code setup:\n');
   console.log(buildClaudeCodeExport(endpoint, 'your-auto-mem-api-key'));
   console.log('\nHermes Agent snippet (~/.hermes/config.yaml):\n');
-  console.log(buildHermesSnippet(endpoint, apiKey || '${AUTOMEM_API_KEY}'));
+  // Always render the key as a placeholder — this snippet is meant to be
+  // copy-pasted and shared; the real key lives in ~/.hermes/.env / config.yaml.
+  console.log(buildHermesSnippet(endpoint, '${AUTOMEM_API_KEY}'));
   console.log('\nOr run: npx @verygoodplugins/mcp-automem hermes');
   console.log('\nUse `npx @verygoodplugins/mcp-automem config --format=json` to print this snippet again later.');
 
@@ -258,5 +260,7 @@ export async function runConfig(args: string[] = []): Promise<void> {
   console.log('\nClaude Code setup:\n');
   console.log(buildClaudeCodeExport(endpoint, 'your-auto-mem-api-key'));
   console.log('\nHermes Agent snippet (~/.hermes/config.yaml):\n');
-  console.log(buildHermesSnippet(endpoint, apiKey));
+  // Placeholder key only — the JSON dump above (config --format=json) is the
+  // single surface that intentionally echoes the resolved key.
+  console.log(buildHermesSnippet(endpoint, '${AUTOMEM_API_KEY}'));
 }

@@ -11,6 +11,7 @@ import {
 } from './host-toolkit.js';
 import {
   buildAutoMemServerEntry,
+  readExistingHermesCredentials,
   removeHermesMemoryProvider,
   removeMcpServerEntry,
   resolveHermesPaths,
@@ -244,12 +245,17 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
   const paths = resolveHermesPaths({ dir: cliOptions.targetDir });
   const projectName = cliOptions.projectName ?? detectProjectName();
   const mode = cliOptions.mode ?? 'mcp';
+  // Preserve credentials already installed for Hermes so a re-run (e.g. to
+  // switch --mode) without flags or env vars does not clobber a remote
+  // endpoint/key with the local default. Explicit flags and env still win.
+  const existing = readExistingHermesCredentials(paths);
   const endpoint =
     cliOptions.endpoint ??
     process.env.AUTOMEM_API_URL ??
     process.env.AUTOMEM_ENDPOINT ??
+    existing.endpoint ??
     DEFAULT_AUTOMEM_API_URL;
-  const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv();
+  const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? existing.apiKey;
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
 
   log(`\n🔧 Setting up Hermes AutoMem for: ${projectName}`, cliOptions.quiet);

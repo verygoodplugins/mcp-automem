@@ -5,6 +5,7 @@ import path from 'path';
 import { parse as parseYaml } from 'yaml';
 import {
   buildAutoMemServerEntry,
+  readExistingHermesCredentials,
   removeHermesMemoryProvider,
   removeMcpServerEntry,
   resolveHermesPaths,
@@ -244,6 +245,116 @@ describe('hermes-config', () => {
         mcp_servers: Record<string, unknown>;
       };
       expect(parsed.mcp_servers.memory).toBeDefined();
+    });
+  });
+
+  describe('malformed config handling', () => {
+    // An unterminated flow map — parseDocument collects this in doc.errors
+    // rather than throwing, so the guard must inspect doc.errors.
+    const MALFORMED = 'mcp_servers: {automem: \n';
+
+    it('upsertMcpServer throws a file-scoped, fix-and-re-run error', async () => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      fs.writeFileSync(configPath, MALFORMED);
+      await expect(
+        upsertMcpServer(
+          { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
+          'automem',
+          buildAutoMemServerEntry('http://127.0.0.1:8001'),
+          { quiet: true },
+        ),
+      ).rejects.toThrow(/Failed to parse Hermes config at .*config\.yaml.*Fix the YAML syntax and re-run/s);
+    });
+
+    it('removeMcpServerEntry throws on malformed YAML instead of corrupting it', () => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      fs.writeFileSync(configPath, MALFORMED);
+      expect(() => removeMcpServerEntry(configPath, 'automem', { quiet: true })).toThrow(
+        /Fix the YAML syntax and re-run/,
+      );
+    });
+  });
+
+  describe('readExistingHermesCredentials', () => {
+    const paths = (dir: string) => ({
+      home: dir,
+      configPath: path.join(dir, 'config.yaml'),
+      agentsPath: path.join(dir, 'AGENTS.md'),
+    });
+
+    it('reads endpoint + key from the mcp_servers.automem entry', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'config.yaml'),
+        [
+          'mcp_servers:',
+          '  automem:',
+          '    command: npx',
+          '    env:',
+          '      AUTOMEM_API_URL: https://remote.automem.test',
+          '      AUTOMEM_API_KEY: sk-remote',
+          '',
+        ].join('\n'),
+      );
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBe('https://remote.automem.test');
+      expect(creds.apiKey).toBe('sk-remote');
+    });
+
+    it('falls back to ~/.hermes/.env and strips quotes', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.env'),
+        'AUTOMEM_API_URL=https://env.automem.test\nAUTOMEM_API_KEY="sk-env"\n',
+      );
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBe('https://env.automem.test');
+      expect(creds.apiKey).toBe('sk-env');
+    });
+
+    it('prefers the config entry over .env when both are present', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'config.yaml'),
+        [
+          'mcp_servers:',
+          '  automem:',
+          '    env:',
+          '      AUTOMEM_API_URL: https://config.automem.test',
+          '      AUTOMEM_API_KEY: sk-config',
+          '',
+        ].join('\n'),
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, '.env'),
+        'AUTOMEM_API_URL=https://env.automem.test\nAUTOMEM_API_KEY=sk-env\n',
+      );
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBe('https://config.automem.test');
+      expect(creds.apiKey).toBe('sk-config');
+    });
+
+    it('normalizes blank values to undefined so a ?? fallback fires', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'config.yaml'),
+        [
+          'mcp_servers:',
+          '  automem:',
+          '    env:',
+          '      AUTOMEM_API_URL: ""',
+          '      AUTOMEM_API_KEY: ""',
+          '',
+        ].join('\n'),
+      );
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBeUndefined();
+      expect(creds.apiKey).toBeUndefined();
+    });
+
+    it('returns an empty object when nothing is installed', () => {
+      expect(readExistingHermesCredentials(paths(tmpDir))).toEqual({});
+    });
+
+    it('does not throw on a malformed config — returns {}', () => {
+      fs.writeFileSync(path.join(tmpDir, 'config.yaml'), 'mcp_servers: {automem: \n');
+      expect(readExistingHermesCredentials(paths(tmpDir))).toEqual({});
     });
   });
 

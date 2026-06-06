@@ -122,6 +122,48 @@ describe('uninstall hermes', () => {
     expect(parsed.mcp_servers.memory).toBeDefined();
   });
 
+  it('strips the AutoMem block from a custom --rules file and leaves AGENTS.md alone', async () => {
+    const customRules = path.join(tmpDir, 'CUSTOM_RULES.md');
+    fs.writeFileSync(
+      customRules,
+      [
+        '# Custom',
+        '',
+        '<!-- BEGIN AUTOMEM HERMES RULES -->',
+        'AutoMem managed rules',
+        '<!-- END AUTOMEM HERMES RULES -->',
+        '',
+        'keep this custom',
+        '',
+      ].join('\n'),
+    );
+    // A default AGENTS.md with its own block must be untouched when --rules redirects.
+    fs.writeFileSync(
+      path.join(tmpDir, 'AGENTS.md'),
+      [
+        '<!-- BEGIN AUTOMEM HERMES RULES -->',
+        'should NOT be touched',
+        '<!-- END AUTOMEM HERMES RULES -->',
+        '',
+      ].join('\n'),
+    );
+
+    await runUninstall({
+      platform: 'hermes',
+      projectDir: tmpDir,
+      rulesPath: customRules,
+      yes: true,
+      quiet: true,
+    });
+
+    const custom = fs.readFileSync(customRules, 'utf8');
+    expect(custom).toContain('keep this custom');
+    expect(custom).not.toContain('BEGIN AUTOMEM HERMES RULES');
+    expect(fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8')).toContain(
+      'should NOT be touched'
+    );
+  });
+
   it('honors dry-run without changing Hermes files', async () => {
     writePreReleaseHermesState();
     const beforeConfig = fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8');

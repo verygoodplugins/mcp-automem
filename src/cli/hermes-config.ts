@@ -37,6 +37,31 @@ export interface UpsertResult {
   changed: boolean;
 }
 
+/**
+ * Parse a Hermes config document, turning malformed user YAML into an
+ * actionable, file-scoped error instead of a corrupted round-trip. `yaml`'s
+ * `parseDocument` does not throw — it collects problems in `doc.errors` — so we
+ * surface those (and any thrown error, defensively) with a fix-and-re-run hint.
+ */
+function parseHermesDocument(raw: string, configPath: string) {
+  let doc;
+  try {
+    doc = parseDocument(raw);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to parse Hermes config at ${configPath}: ${reason}. Fix the YAML syntax and re-run.`,
+    );
+  }
+  if (doc.errors.length > 0) {
+    const reason = doc.errors.map((err) => err.message).join('; ');
+    throw new Error(
+      `Failed to parse Hermes config at ${configPath}: ${reason}. Fix the YAML syntax and re-run.`,
+    );
+  }
+  return doc;
+}
+
 export function resolveHermesPaths(opts: { dir?: string } = {}): HermesPaths {
   const home =
     opts.dir ??
@@ -77,6 +102,81 @@ export function buildAutoMemServerEntry(
     sampling: {
       enabled: false,
     },
+  };
+}
+
+export interface HermesCredentials {
+  endpoint?: string;
+  apiKey?: string;
+}
+
+/**
+ * Normalize an env/config value to `undefined` when it is missing or blank.
+ * Critical for the `??` fallback chain in hermes setup: `??` only falls
+ * through on null/undefined, so an empty string would otherwise pin a blank
+ * endpoint/key and defeat the default.
+ */
+function normalizeCred(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function unquoteEnvValue(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  }
+  return trimmed;
+}
+
+function readCredentialsFromConfig(configPath: string): HermesCredentials {
+  if (!fs.existsSync(configPath)) return {};
+  let parsed: Record<string, unknown> | null;
+  try {
+    parsed = parseYaml(fs.readFileSync(configPath, 'utf8') || '{}') as Record<string, unknown> | null;
+  } catch {
+    return {};
+  }
+  const servers = isRecord(parsed?.mcp_servers) ? (parsed!.mcp_servers as Record<string, unknown>) : null;
+  // The AutoMem MCP server is always registered under the `automem` key.
+  const entry = servers && isRecord(servers.automem) ? (servers.automem as Record<string, unknown>) : null;
+  const env = entry && isRecord(entry.env) ? (entry.env as Record<string, unknown>) : null;
+  if (!env) return {};
+  return {
+    endpoint: normalizeCred(env.AUTOMEM_API_URL),
+    apiKey: normalizeCred(env.AUTOMEM_API_KEY),
+  };
+}
+
+function readCredentialsFromEnvFile(envPath: string): HermesCredentials {
+  if (!fs.existsSync(envPath)) return {};
+  let endpoint: string | undefined;
+  let apiKey: string | undefined;
+  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
+    if (!match) continue;
+    const value = normalizeCred(unquoteEnvValue(match[2]));
+    if (match[1] === 'AUTOMEM_API_URL') endpoint = value;
+    else if (match[1] === 'AUTOMEM_API_KEY') apiKey = value;
+  }
+  return { endpoint, apiKey };
+}
+
+/**
+ * Read AutoMem credentials already installed for Hermes so a re-run with no
+ * explicit flags or env vars preserves them rather than overwriting with the
+ * built-in default endpoint and a blank key. Reads the MCP server entry
+ * (config.yaml `mcp_servers.automem.env`) first, then the provider `.env`;
+ * both are written with identical values in `both` mode. Empty strings
+ * normalize to `undefined` so they never satisfy a `??` fallback.
+ */
+export function readExistingHermesCredentials(paths: HermesPaths): HermesCredentials {
+  const fromConfig = readCredentialsFromConfig(paths.configPath);
+  const fromEnv = readCredentialsFromEnvFile(path.join(paths.home, '.env'));
+  return {
+    endpoint: fromConfig.endpoint ?? fromEnv.endpoint,
+    apiKey: fromConfig.apiKey ?? fromEnv.apiKey,
   };
 }
 
@@ -144,7 +244,7 @@ function upsertViaYaml(
   // Seed an empty mcp_servers map when starting from scratch so setIn always
   // has a real Map node to traverse into. parseDocument preserves comments on
   // round-trip when the input is non-empty.
-  const doc = raw.trim().length > 0 ? parseDocument(raw) : parseDocument('mcp_servers: {}\n');
+  const doc = raw.trim().length > 0 ? parseHermesDocument(raw, configPath) : parseDocument('mcp_servers: {}\n');
   doc.setIn(['mcp_servers', name], doc.createNode(entry));
   // Force block-style serialization (`key:\n  value`) — Hermes' YAML loader
   // and most human readers expect block, not flow (`{key: value}`).
@@ -215,7 +315,7 @@ export function upsertHermesMemoryProvider(
     return false;
   }
 
-  const doc = raw.trim().length > 0 ? parseDocument(raw) : parseDocument('memory: {}\n');
+  const doc = raw.trim().length > 0 ? parseHermesDocument(raw, configPath) : parseDocument('memory: {}\n');
   doc.setIn(['memory', 'provider'], provider);
   const serialized = doc.toString({ collectionStyle: 'block' });
 
@@ -246,7 +346,7 @@ export function removeMcpServerEntry(
 ): boolean {
   if (!fs.existsSync(configPath)) return false;
   const raw = fs.readFileSync(configPath, 'utf8');
-  const doc = parseDocument(raw);
+  const doc = parseHermesDocument(raw, configPath);
   const servers = doc.getIn(['mcp_servers']);
   if (!servers || !doc.hasIn(['mcp_servers', name])) {
     return false;
@@ -280,7 +380,7 @@ export function removeHermesMemoryProvider(
 ): boolean {
   if (!fs.existsSync(configPath)) return false;
   const raw = fs.readFileSync(configPath, 'utf8');
-  const doc = parseDocument(raw);
+  const doc = parseHermesDocument(raw, configPath);
   const current = doc.getIn(['memory', 'provider']);
   if (current !== provider) {
     return false;

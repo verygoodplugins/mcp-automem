@@ -179,31 +179,41 @@ def cmd_debug_recall(args) -> int:
     session_id = getattr(args, "session_id", None) or "debug-recall"
     provider = _load_provider()
     try:
-        provider.initialize(session_id, agent_context="primary")
-    except Exception as exc:
-        print(f"Provider initialization failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        try:
+            provider.initialize(session_id, agent_context="primary")
+        except Exception as exc:
+            print(f"Provider initialization failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
 
-    try:
-        raw_context = provider.prefetch(prompt, session_id=session_id)
-    except Exception as exc:
-        print(f"Recall failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        try:
+            raw_context = provider.prefetch(prompt, session_id=session_id)
+        except Exception as exc:
+            print(f"Recall failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
 
-    if not raw_context or not raw_context.strip():
-        print(
-            "No recall context returned. Recall may be disabled "
-            "(AUTOMEM_HERMES_DISABLE_RECALL), the prompt may be non-substantive, "
-            "or the dataset may be empty.",
-            file=sys.stderr,
-        )
-        return 1
+        if not raw_context or not raw_context.strip():
+            print(
+                "No recall context returned. Recall may be disabled "
+                "(AUTOMEM_HERMES_DISABLE_RECALL), the prompt may be non-substantive, "
+                "or the dataset may be empty.",
+                file=sys.stderr,
+            )
+            return 1
 
-    if getattr(args, "raw", False):
-        print(raw_context)
-    else:
-        print(_fence(raw_context))
-    return 0
+        if getattr(args, "raw", False):
+            print(raw_context)
+        else:
+            print(_fence(raw_context))
+        return 0
+    finally:
+        # Tear down the provider's background sync thread so the CLI exits
+        # promptly instead of lingering on a daemon thread.
+        shutdown = getattr(provider, "shutdown", None)
+        if callable(shutdown):
+            try:
+                shutdown()
+            except Exception:
+                pass
 
 
 def automem_command(args) -> None:

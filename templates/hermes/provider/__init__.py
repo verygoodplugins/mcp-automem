@@ -486,6 +486,15 @@ class AutoMemMemoryProvider(MemoryProvider):
 
         if self._sync_thread and self._sync_thread.is_alive():
             self._sync_thread.join(timeout=2.0)
+            if self._sync_thread.is_alive():
+                # Previous write is still in flight after the join budget; skip
+                # this turn rather than spawning a second thread and letting
+                # daemon threads accumulate under sustained back-pressure.
+                _debug(
+                    "previous auto-capture still in flight; skipping turn for session=%s",
+                    session_id,
+                )
+                return
         self._sync_thread = threading.Thread(target=_run, daemon=True, name="automem-sync")
         self._sync_thread.start()
 
