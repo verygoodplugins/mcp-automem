@@ -2,6 +2,8 @@
 
 This file provides guidance to coding agents (Claude Code, Cursor, Codex, etc.) when working with code in this repository. It is the single source of truth; `CLAUDE.md` imports it via `@AGENTS.md`.
 
+Migration note: if you previously had a local, gitignored `AGENTS.md`, delete it before pulling (or run `git clean -f AGENTS.md`) to avoid checkout/merge errors.
+
 ## Project Overview
 
 **MCP AutoMem** is an MCP (Model Context Protocol) server that bridges AI assistants like Claude with the AutoMem memory service. It enables AI to store, recall, and associate memories using FalkorDB (graph database) and Qdrant (vector search).
