@@ -66,6 +66,8 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [Claude Desktop](#claude-desktop) - Desktop AI assistant
 - [Cursor IDE](#cursor-ide) - AI-powered code editor
 - [Claude Code](#claude-code) - Terminal coding assistant with automation hooks
+- [GitHub Copilot coding agent](#github-copilot-coding-agent-githubcom) - Cloud-based coding agent on GitHub.com
+- [GitHub Copilot CLI and VS Code](#github-copilot-cli-and-vs-code) - Terminal and editor with hooks and memory rules
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
 - [Google Antigravity](#google-antigravity) - Desktop editor with MCP Store and raw config
 - [OpenClaw](#openclaw) - Personal AI assistant with multi-platform messaging (WhatsApp, Telegram, Slack, Discord, etc.)
@@ -515,6 +517,99 @@ Example (Streamable HTTP):
 ```
 
 Create a `COPILOT_MCP_AUTOMEM_AUTH_HEADER` environment secret with the full header value (for example: `Bearer <AUTOMEM_API_TOKEN>`).
+
+## GitHub Copilot CLI and VS Code
+
+GitHub Copilot CLI and VS Code Copilot both use the Copilot config directory (`$COPILOT_HOME` when set, otherwise `~/.copilot/`) and the same hooks system. The `copilot` setup command installs hooks, support scripts, and memory rules that work in both surfaces.
+
+For details on how hooks work across both surfaces, see the [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference).
+
+### 1. Configure MCP Server
+
+The MCP server config lives in different places for CLI vs VS Code:
+
+**Copilot CLI** -- add to `$COPILOT_HOME/mcp-config.json` or `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "automem": {
+      "type": "local",
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001",
+        "AUTOMEM_API_KEY": "your-api-key-if-required"
+      },
+      "tools": ["*"]
+    }
+  }
+}
+```
+
+> **Note:** Copilot CLI does not support `${env:...}` variable interpolation in
+> `mcp-config.json` -- that syntax is VS Code-only. Environment variables set in
+> your shell (e.g. `AUTOMEM_API_KEY`) are inherited by the MCP server process
+> automatically, so you can omit them from the `env` block. Only include values
+> that are not already in your shell environment.
+
+**VS Code** -- add to `.vscode/mcp.json` (workspace) or VS Code user settings:
+
+```json
+{
+  "servers": {
+    "automem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001",
+        "AUTOMEM_API_KEY": "your-api-key-if-required"
+      }
+    }
+  }
+}
+```
+
+### 2. Install Hooks and Memory Rules
+
+```bash
+npx @verygoodplugins/mcp-automem copilot --yes
+```
+
+This installs:
+- **Hook JSON files** into `$COPILOT_HOME/hooks/` or `~/.copilot/hooks/` (session start recall, build/test/deploy capture, session end queue drain)
+- **Support scripts** (bash + PowerShell) into `$COPILOT_HOME/scripts/` or `~/.copilot/scripts/`
+- **Memory rules** into both `copilot-instructions.md` (CLI) and `instructions/automem.instructions.md` (VS Code) inside the target Copilot directory
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--format cli\|vscode\|both` | `both` | Which memory rules and hook event names to install. `cli` = camelCase hooks + CLI rules only. `vscode` = PascalCase hooks + VS Code rules only. `both` = both hook event spellings + both rule sets. |
+| `--profile full\|lean` | `lean` | `lean` = session hooks only; `full` = all hooks including build/test/deploy capture |
+| `--dir <path>` | `$COPILOT_HOME` or `~/.copilot` | Target installation directory |
+| `--dry-run` | | Preview changes without writing files |
+| `--yes` | | Skip confirmation prompts |
+| `--quiet` | | Suppress output |
+
+> **Windows note:** All hook templates invoke PowerShell with `-NoProfile` to prevent profile output from corrupting hook JSON payloads. This matches how bash hooks work (non-interactive `bash script.sh` skips `~/.bashrc`). If your hook scripts need something from your profile (custom PATH entries, modules), move that setup into the hook script itself or into environment variables.
+
+### 3. Verify Installation
+
+In a Copilot CLI or VS Code Copilot session, ask:
+
+```
+Check the health of the AutoMem service
+```
+
+### 4. Uninstall
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall copilot --yes
+```
+
+Add `--clean-all` to also remove the MCP server entry from the target Copilot `mcp-config.json`.
+
+---
 
 ## OpenAI Codex
 
@@ -1237,6 +1332,30 @@ npx @verygoodplugins/mcp-automem help
 - Test explicitly: "Check AutoMem database health"
 - Check Codex logs for MCP connection errors
 - Ensure environment variables are set correctly in `[mcp_servers.memory.env]` section
+
+#### Copilot CLI / VS Code: SessionStart hook not injecting context
+
+AutoMem's `sessionStart` hook outputs JSON via stdout (`{"additionalContext":"..."}`). If your PowerShell profile prints anything to the console during load -- `Write-Output`, `Write-Host`, `Import-Module` warnings, `Invoke-Expression` output, etc. -- that text appears before the JSON and corrupts the payload. The CLI silently fails to parse it, so the memory recall context never gets injected.
+
+**Symptoms:**
+- AutoMem recall doesn't run automatically at session start
+- Hook script works when tested manually but not in practice
+- No visible error (the hook "succeeds" but its output is ignored)
+
+**Fix:** Copilot CLI runs `"powershell"` values inside `pwsh` automatically - you should not invoke `powershell` or `pwsh` yourself. The `"powershell"` value should be raw PowerShell code (e.g. `& "$HOME\.copilot\scripts\script.ps1"`).
+
+If you've installed hooks from an older version that invoked the shell directly, update your `~/.copilot/hooks/*.json` files:
+
+```diff
+- "powershell": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/automem-session-start.ps1\""
++ "powershell": "& \"$HOME\\.copilot\\scripts\\automem-session-start.ps1\""
+```
+
+Or re-run the installer to get the updated hook configs:
+
+```bash
+npx @verygoodplugins/mcp-automem copilot --yes
+```
 
 ---
 

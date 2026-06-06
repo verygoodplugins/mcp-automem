@@ -219,6 +219,22 @@ npx @verygoodplugins/mcp-automem config --format=json
 npx @verygoodplugins/mcp-automem codex
 ```
 
+**For GitHub Copilot (CLI and VS Code):**
+
+```bash
+npx @verygoodplugins/mcp-automem copilot --yes
+```
+
+Options:
+| Flag | Default | Description |
+|---|---|---|
+| `--format cli\|vscode\|both` | `both` | Controls event name casing and which memory-rules files are installed. `cli` = camelCase, `vscode` = PascalCase, `both` = install both variants. See [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
+| `--profile <full\|lean>` | `lean` | Hook profile to install. `lean` installs session hooks only; `full` also installs build/test/deploy capture |
+| `--dir <path>` | `$COPILOT_HOME` or `~/.copilot` | Target installation directory |
+| `--dry-run` | | Preview file operations without writing |
+| `--yes`, `-y` | | Skip confirmation prompts |
+| `--quiet` | | Suppress non-error output |
+
 **For Google Antigravity:**
 
 1. Open the MCP Store from the `...` menu at the top of the editor's agent panel
@@ -365,6 +381,13 @@ mcp__memory__recall_memory({
 - ✅ **MCP permissions** for memory tools
 - ✅ **Memory rules** in CLAUDE.md guide Claude's memory usage
 - ✅ **Simple setup** - just permissions, Claude decides what to store
+
+#### GitHub Copilot
+
+- ✅ **Standalone hook JSON files** installed into `$COPILOT_HOME/hooks/` or `~/.copilot/hooks/`
+- ✅ **Memory rules** template for `copilot-instructions.md`
+- ✅ **Format flag** - `--format cli` (camelCase) or `--format vscode` (PascalCase)
+- ✅ **Setup**: `npx @verygoodplugins/mcp-automem copilot --yes`
 
 #### Claude Desktop
 

@@ -34,6 +34,14 @@ type ToolNames = {
   associate: string;
 };
 
+type SessionStartPromptOptions = {
+  projectExpression: string;
+  recallToolName: string;
+  includeProjectTagComment?: boolean;
+  includeProjectSlugExamples?: boolean;
+  includeFirstToolCallGuard?: boolean;
+};
+
 function normalizeProjectTag(tag: string): string {
   return tag
     .trim()
@@ -86,13 +94,32 @@ export function looksLikeExplicitRecallPrompt(prompt: string): boolean {
   return EXPLICIT_RECALL_PROMPT_PATTERN.test(String(prompt || ''));
 }
 
-export function renderClaudeCodeSessionStartPrompt(projectExpression: string): string {
+function renderSessionStartPrompt(options: SessionStartPromptOptions): string {
+  const projectTagLine = options.includeProjectTagComment
+    ? `    tags: ["${options.projectExpression}"],    // drop if slug collides with a common word`
+    : `    tags: ["${options.projectExpression}"],`;
+  const projectSlugCollisionLine = options.includeProjectSlugExamples
+    ? '- If the project slug collides with a common topic word (for example `video` or `test`), drop the Phase 2 tag gate and rely on semantic `query` alone.'
+    : '- If the project slug collides with a common topic word, drop the Phase 2 tag gate and rely on semantic `query` alone.';
+  const notes = [
+    '- Tags are a HARD GATE - they filter before scoring. For discovery/debugging across the full corpus, drop `tags` and rely on semantic `query` alone.',
+    '- Do NOT use namespace-prefixed tags (`project/*`, `lang/*`, etc.) - the corpus uses bare tags.',
+    '- Phase 2 uses ONE targeted query, not `queries[]` + `auto_decompose`. Sub-queries converge and dedup drops results; a single query built from the real nouns in the user\'s message wins empirically. Only switch to `queries[]` for genuinely multi-topic questions.',
+    projectSlugCollisionLine,
+    '- Do not re-recall every turn. After turn 1, recall again only for topic shifts, new proper nouns, or active debugging.',
+    '- If recall fails or returns nothing, continue without memory - do not mention the failure to the user.',
+  ];
+
+  if (options.includeFirstToolCallGuard) {
+    notes.push('- Do not make your first tool call for the user\'s task until both recall phases are processed.');
+  }
+
   return [
     '<automem_session_context>',
     'MEMORY RECALL - run these phases in order before your first substantive response.',
     '',
     'Phase 1 - Preferences (tag-only, no time filter, no query):',
-    '  mcp__memory__recall_memory({',
+    `  ${options.recallToolName}({`,
     '    tags: ["preference"],',
     `    limit: ${AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit},`,
     '    sort: "updated_desc",',
@@ -100,32 +127,44 @@ export function renderClaudeCodeSessionStartPrompt(projectExpression: string): s
     '  })',
     '',
     'Phase 2 - Task context (ONE semantic query from the user\'s actual nouns; project-slug gate when unambiguous; 90-day window):',
-    '  mcp__memory__recall_memory({',
+    `  ${options.recallToolName}({`,
     '    query: "<proper nouns, product names, tools, specific topics from the user\'s message>",',
-    `    tags: ["${projectExpression}"],    // drop if slug collides with a common word`,
+    projectTagLine,
     `    time_query: "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days",`,
     `    limit: ${AUTOMEM_POLICY_DEFAULTS.contextRecallLimit},`,
     '    format: "detailed"',
     '  })',
     '',
     'Phase 3 - ON-DEMAND debugging (only if the user\'s message is a debugging/error-symptom question; skip otherwise):',
-    '  mcp__memory__recall_memory({',
+    `  ${options.recallToolName}({`,
     '    query: "<error symptom>",',
     '    tags: ["bugfix", "solution"],',
     `    limit: ${AUTOMEM_POLICY_DEFAULTS.debugRecallLimit}`,
     '  })',
     '',
-    `Project slug: ${projectExpression}`,
+    `Project slug: ${options.projectExpression}`,
     '',
     'Notes:',
-    '- Tags are a HARD GATE - they filter before scoring. For discovery/debugging across the full corpus, drop `tags` and rely on semantic `query` alone.',
-    '- Do NOT use namespace-prefixed tags (`project/*`, `lang/*`, etc.) - the corpus uses bare tags.',
-    '- Phase 2 uses ONE targeted query, not `queries[]` + `auto_decompose`. Sub-queries converge and dedup drops results; a single query built from the real nouns in the user\'s message wins empirically. Only switch to `queries[]` for genuinely multi-topic questions.',
-    '- If the project slug collides with a common topic word (for example `video` or `test`), drop the Phase 2 tag gate and rely on semantic `query` alone.',
-    '- Do not re-recall every turn. After turn 1, recall again only for topic shifts, new proper nouns, or active debugging.',
-    '- If recall fails or returns nothing, continue without memory - do not mention the failure to the user.',
+    ...notes,
     '</automem_session_context>',
   ].join('\n');
+}
+
+export function renderClaudeCodeSessionStartPrompt(projectExpression: string): string {
+  return renderSessionStartPrompt({
+    projectExpression,
+    recallToolName: 'mcp__memory__recall_memory',
+    includeProjectTagComment: true,
+    includeProjectSlugExamples: true,
+  });
+}
+
+export function renderCopilotSessionStartPrompt(projectExpression: string): string {
+  return renderSessionStartPrompt({
+    projectExpression,
+    recallToolName: 'automem-recall_memory',
+    includeFirstToolCallGuard: true,
+  });
 }
 
 export type OpenClawPolicyLimits = {

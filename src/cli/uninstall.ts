@@ -3,9 +3,10 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { getCopilotSupportScriptBaseNames } from './copilot.js';
 
 interface UninstallOptions {
-  platform: 'cursor' | 'claude-code';
+  platform: 'cursor' | 'claude-code' | 'copilot';
   projectDir?: string;
   cleanAll?: boolean;
   dryRun?: boolean;
@@ -283,6 +284,142 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
   }
 }
 
+async function uninstallCopilot(options: UninstallOptions): Promise<void> {
+  const copilotDir = options.projectDir ?? path.join(os.homedir(), '.copilot');
+  const hooksDir = path.join(copilotDir, 'hooks');
+  const scriptsDir = path.join(copilotDir, 'scripts');
+
+  log('\n🗑️  Uninstalling Copilot AutoMem...', options.quiet);
+
+  let removedCount = 0;
+
+  // Remove automem-*.json hook files
+  if (fs.existsSync(hooksDir)) {
+    const hookFiles = fs.readdirSync(hooksDir)
+      .filter(f => f.startsWith('automem-') && f.endsWith('.json'));
+
+    for (const hookFile of hookFiles) {
+      if (removeFileWithBackup(path.join(hooksDir, hookFile), options.dryRun ?? false, options.quiet)) {
+        removedCount++;
+      }
+    }
+  }
+
+  // Remove AutoMem support scripts (.sh and .ps1)
+  if (fs.existsSync(scriptsDir)) {
+    const automemScriptPatterns = getCopilotSupportScriptBaseNames();
+
+    const scriptFiles = fs.readdirSync(scriptsDir)
+      .filter(f => {
+        const base = f.replace(/\.(sh|ps1|py)$/, '');
+        return automemScriptPatterns.includes(base);
+      });
+
+    for (const script of scriptFiles) {
+      if (removeFileWithBackup(path.join(scriptsDir, script), options.dryRun ?? false, options.quiet)) {
+        removedCount++;
+      }
+    }
+
+    // Also remove memory-filters.json and memory-queue.jsonl
+    for (const extra of ['memory-filters.json', 'memory-queue.jsonl']) {
+      const extraPath = path.join(scriptsDir, extra);
+      if (fs.existsSync(extraPath)) {
+        if (removeFileWithBackup(extraPath, options.dryRun ?? false, options.quiet)) {
+          removedCount++;
+        }
+      }
+    }
+  }
+
+  // Remove memory rules files
+  const vscodeRulesPath = path.join(copilotDir, 'instructions', 'automem.instructions.md');
+  if (removeFileWithBackup(vscodeRulesPath, options.dryRun ?? false, options.quiet)) {
+    removedCount++;
+  }
+
+  // Strip AutoMem marker block from copilot-instructions.md
+  const cliRulesPath = path.join(copilotDir, 'copilot-instructions.md');
+  if (fs.existsSync(cliRulesPath)) {
+    const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
+    const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
+    const content = fs.readFileSync(cliRulesPath, 'utf8');
+    const startIdx = content.indexOf(startMarker);
+    const endIdx = content.indexOf(endMarker);
+    if (startIdx !== -1 && endIdx !== -1) {
+      if (options.dryRun) {
+        log(`[DRY RUN] Would strip AutoMem block from: ${cliRulesPath}`, options.quiet);
+        removedCount++;
+      } else {
+        const before = content.slice(0, startIdx);
+        const after = content.slice(endIdx + endMarker.length);
+        const updated = (before + after).replace(/\n{3,}/g, '\n\n').trim();
+        if (updated.length === 0) {
+          // File is empty after removal - delete it
+          if (removeFileWithBackup(cliRulesPath, false, options.quiet)) {
+            removedCount++;
+          }
+        } else {
+          const backup = `${cliRulesPath}.removed.${Date.now()}`;
+          fs.copyFileSync(cliRulesPath, backup);
+          fs.writeFileSync(cliRulesPath, updated + '\n', 'utf8');
+          log(`🗑️  Stripped AutoMem block from: ${cliRulesPath}`, options.quiet);
+          removedCount++;
+        }
+      }
+    }
+  }
+
+  if (removedCount > 0) {
+    log(`\n\u2705 Removed ${removedCount} AutoMem files from Copilot directory`, options.quiet);
+  } else {
+    log('\nℹ️  No AutoMem files found to remove', options.quiet);
+  }
+}
+
+function removeCopilotMcpServer(copilotDir: string, dryRun: boolean, quiet?: boolean): boolean {
+  const configPath = path.join(copilotDir, 'mcp-config.json');
+
+  if (!fs.existsSync(configPath)) {
+    log('ℹ️  Copilot MCP config not found', quiet);
+    return false;
+  }
+
+  if (dryRun) {
+    log(`[DRY RUN] Would remove memory server from: ${configPath}`, quiet);
+    return true;
+  }
+
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(raw);
+
+    const hadMemory = config?.mcpServers?.memory;
+    const hadAutomem = config?.mcpServers?.automem;
+
+    if (!hadMemory && !hadAutomem) {
+      log('ℹ️  No memory server configured in Copilot MCP config', quiet);
+      return false;
+    }
+
+    if (config?.mcpServers) {
+      delete config.mcpServers.memory;
+      delete config.mcpServers.automem;
+    }
+
+    const backupFile = `${configPath}.backup.${Date.now()}`;
+    fs.copyFileSync(configPath, backupFile);
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    log('🗑️  Removed memory server from Copilot MCP config', quiet);
+    log(`   Backup: ${backupFile}`, quiet);
+    return true;
+  } catch (error) {
+    log(`❌ Failed to update Copilot MCP config: ${(error as Error).message}`, quiet);
+    return false;
+  }
+}
+
 export async function runUninstall(options: UninstallOptions): Promise<void> {
   log(`\n🚮 AutoMem Uninstaller`, options.quiet);
   log(`   Platform: ${options.platform}`, options.quiet);
@@ -300,15 +437,22 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
     await uninstallCursor(options);
   } else if (options.platform === 'claude-code') {
     await uninstallClaudeCode(options);
+  } else if (options.platform === 'copilot') {
+    await uninstallCopilot(options);
   }
   
   // Clean up external changes (Claude Desktop config) if requested
   if (options.cleanAll) {
     log('\n🧹 Cleaning external configurations...', options.quiet);
-    // Remove from Claude Desktop config (if present)
-    removeClaudeDesktopMemoryServer(options.dryRun ?? false, options.quiet);
-    // Remove from Cursor MCP config (if present)
-    removeCursorMcpServer(options.dryRun ?? false, options.quiet);
+    if (options.platform === 'copilot') {
+      const copilotDir = options.projectDir ?? path.join(os.homedir(), '.copilot');
+      removeCopilotMcpServer(copilotDir, options.dryRun ?? false, options.quiet);
+    } else {
+      // Remove from Claude Desktop config (if present)
+      removeClaudeDesktopMemoryServer(options.dryRun ?? false, options.quiet);
+      // Remove from Cursor MCP config (if present)
+      removeCursorMcpServer(options.dryRun ?? false, options.quiet);
+    }
   }
   
   log('\n✨ Uninstall complete!', options.quiet);
@@ -319,18 +463,21 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
   } else if (options.platform === 'claude-code' && !options.cleanAll && !options.dryRun) {
     log('\nNote: To also remove the memory server from Claude Desktop config, run:', options.quiet);
     log(`  npx @verygoodplugins/mcp-automem uninstall ${options.platform} --clean-all`, options.quiet);
+  } else if (options.platform === 'copilot' && !options.cleanAll && !options.dryRun) {
+    log('\nNote: To also remove the MCP server config from Copilot, run:', options.quiet);
+    log(`  npx @verygoodplugins/mcp-automem uninstall copilot --clean-all`, options.quiet);
   }
 }
 
 function parseUninstallArgs(args: string[]): UninstallOptions | null {
-  if (args.length === 0 || (args[0] !== 'cursor' && args[0] !== 'claude-code')) {
-    console.error('❌ Error: Platform required (cursor or claude-code)');
-    console.error('Usage: mcp-automem uninstall <cursor|claude-code> [options]');
+  if (args.length === 0 || (args[0] !== 'cursor' && args[0] !== 'claude-code' && args[0] !== 'copilot')) {
+    console.error('❌ Error: Platform required (cursor, claude-code, or copilot)');
+    console.error('Usage: mcp-automem uninstall <cursor|claude-code|copilot> [options]');
     return null;
   }
   
   const options: UninstallOptions = {
-    platform: args[0] as 'cursor' | 'claude-code',
+    platform: args[0] as 'cursor' | 'claude-code' | 'copilot',
   };
   
   for (let i = 1; i < args.length; i += 1) {
