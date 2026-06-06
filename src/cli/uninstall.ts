@@ -439,7 +439,7 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
   }
 }
 
-function parseUninstallArgs(args: string[]): UninstallOptions | null {
+export function parseUninstallArgs(args: string[]): UninstallOptions | null {
   const allowed = ['cursor', 'claude-code', 'hermes'] as const;
   if (args.length === 0 || !allowed.includes(args[0] as typeof allowed[number])) {
     console.error('❌ Error: Platform required (cursor, claude-code, or hermes)');

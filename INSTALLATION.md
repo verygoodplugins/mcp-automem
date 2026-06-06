@@ -768,9 +768,13 @@ npx @verygoodplugins/mcp-automem uninstall hermes
 
 # Preview without changing files
 npx @verygoodplugins/mcp-automem uninstall hermes --dry-run
+
+# Strip the AutoMem rules block from a custom rules file
+# (mirrors `hermes --rules <path>` at install time; defaults to $HERMES_HOME/AGENTS.md)
+npx @verygoodplugins/mcp-automem uninstall hermes --rules /path/to/AGENTS.md
 ```
 
-The Hermes uninstaller removes AutoMem's current config and known pre-release install targets, including `mcp_servers.automem`, AutoMem-owned `mcp_servers.memory`, `memory.provider: automem`, `$HERMES_HOME/plugins/automem`, AutoMem Hermes rules, and AutoMem keys in `$HERMES_HOME/.env`.
+The Hermes uninstaller removes AutoMem's current config and known pre-release install targets, including `mcp_servers.automem`, AutoMem-owned `mcp_servers.memory`, `memory.provider: automem`, `$HERMES_HOME/plugins/automem`, AutoMem Hermes rules, and AutoMem keys in `$HERMES_HOME/.env`. Pass `--rules <path>` if you installed the rules block into a non-default file so the uninstaller strips that file instead of `$HERMES_HOME/AGENTS.md`.
 
 Hermes setup also removes a stale AutoMem Codex rules block from `$HERMES_HOME/AGENTS.md`. That pre-release block mentioned Codex/Claude-style `mcp__memory__*` tool names and can steer provider-only Hermes sessions toward the wrong namespace.
 

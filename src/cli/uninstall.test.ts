@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { runUninstall } from './uninstall.js';
+import { parseUninstallArgs, runUninstall } from './uninstall.js';
 
 describe('uninstall hermes', () => {
   let tmpDir: string;
@@ -162,6 +162,25 @@ describe('uninstall hermes', () => {
     expect(fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8')).toContain(
       'should NOT be touched'
     );
+  });
+
+  it('maps --rules <path> to options.rulesPath', () => {
+    const options = parseUninstallArgs(['hermes', '--rules', '/custom/AGENTS.md']);
+    expect(options).toMatchObject({ platform: 'hermes', rulesPath: '/custom/AGENTS.md' });
+  });
+
+  it('exits when --rules has no path value', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as never);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(() => parseUninstallArgs(['hermes', '--rules'])).toThrow('process.exit(1)');
+      expect(errSpy).toHaveBeenCalledWith('Error: --rules requires a path value');
+    } finally {
+      exitSpy.mockRestore();
+      errSpy.mockRestore();
+    }
   });
 
   it('honors dry-run without changing Hermes files', async () => {
