@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 
-try:
+if __package__:
     from .automem_policy import (
         AMBIGUOUS_PROJECT_TAGS,
         CASUAL_OPENING_PATTERN,
@@ -35,7 +35,7 @@ try:
         MAX_EXPLICIT_RECALL_LIMIT,
         PREFERENCE_RECALL_LIMIT,
     )
-except ImportError:
+else:
     from automem_policy import (
         AMBIGUOUS_PROJECT_TAGS,
         CASUAL_OPENING_PATTERN,
