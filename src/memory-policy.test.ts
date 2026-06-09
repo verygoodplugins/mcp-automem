@@ -82,8 +82,8 @@ describe('shared AutoMem memory policy', () => {
   });
 
   it('recognizes general opinion prompts as explicit recall prompts', () => {
-    expect(looksLikeExplicitRecallPrompt('do we like Katie Keith?')).toBe(true);
-    expect(looksLikeExplicitRecallPrompt('how do we feel about Barn2?')).toBe(true);
+    expect(looksLikeExplicitRecallPrompt('do we like Example Contact?')).toBe(true);
+    expect(looksLikeExplicitRecallPrompt('how do we feel about Example Org?')).toBe(true);
     expect(looksLikeExplicitRecallPrompt('what do we think of Hermes provider mode?')).toBe(true);
   });
 

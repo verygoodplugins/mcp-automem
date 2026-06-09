@@ -670,11 +670,11 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
       quiet: true,
     });
 
-    await runHermesProviderPrefetchSequence(tmpDir, ['do we like Katie Keith?']);
+    await runHermesProviderPrefetchSequence(tmpDir, ['do we like Example Contact?']);
     await runHermesProviderPrefetchSequence(tmpDir, ['what do we know about mcp-automem Hermes?']);
 
     const generalContext = recallRequests(fakeApi).find(
-      (url) => url.searchParams.get('query') === 'do we like Katie Keith?',
+      (url) => url.searchParams.get('query') === 'do we like Example Contact?',
     );
     expect(generalContext?.searchParams.get('limit')).toBe('10');
     expect(generalContext?.searchParams.getAll('tags')).toEqual([]);
