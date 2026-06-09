@@ -6,6 +6,7 @@ import {
   AUTOMEM_POLICY_ASSOCIATION_MAPPINGS,
   AUTOMEM_POLICY_DEFAULTS,
   AUTOMEM_POLICY_PROFILES,
+  looksLikeExplicitRecallPrompt,
   renderClaudeCodeSessionStartPrompt,
   renderOpenClawPolicyContext,
   renderRelationTypesInline,
@@ -78,6 +79,12 @@ describe('shared AutoMem memory policy', () => {
       contextRecallWindowDays: 90,
     });
     expect(AUTOMEM_POLICY_DEFAULTS).toBe(AUTOMEM_POLICY_PROFILES.rules);
+  });
+
+  it('recognizes general opinion prompts as explicit recall prompts', () => {
+    expect(looksLikeExplicitRecallPrompt('do we like Katie Keith?')).toBe(true);
+    expect(looksLikeExplicitRecallPrompt('how do we feel about Barn2?')).toBe(true);
+    expect(looksLikeExplicitRecallPrompt('what do we think of Hermes provider mode?')).toBe(true);
   });
 
   it('renders the Claude Code session-start prompt from shared defaults', () => {

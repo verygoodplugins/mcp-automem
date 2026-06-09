@@ -660,6 +660,32 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     expect(context?.searchParams.getAll('tags')).toEqual([]);
   }, 45_000);
 
+  it('provider prefetch drops the project gate for general explicit memory asks', async () => {
+    await applyHermesSetup({
+      mode: 'provider',
+      targetDir: tmpDir,
+      endpoint: fakeApi.url,
+      apiKey: 'test-key',
+      projectName: 'host-smoke',
+      quiet: true,
+    });
+
+    await runHermesProviderPrefetchSequence(tmpDir, ['do we like Katie Keith?']);
+    await runHermesProviderPrefetchSequence(tmpDir, ['what do we know about mcp-automem Hermes?']);
+
+    const generalContext = recallRequests(fakeApi).find(
+      (url) => url.searchParams.get('query') === 'do we like Katie Keith?',
+    );
+    expect(generalContext?.searchParams.get('limit')).toBe('10');
+    expect(generalContext?.searchParams.getAll('tags')).toEqual([]);
+
+    const projectContext = recallRequests(fakeApi).find(
+      (url) => url.searchParams.get('query') === 'what do we know about mcp-automem Hermes?',
+    );
+    expect(projectContext?.searchParams.get('limit')).toBe('10');
+    expect(projectContext?.searchParams.getAll('tags')).toContain('mcp-automem');
+  }, 45_000);
+
   it('provider explicit recall clamps large limits before calling AutoMem', async () => {
     await applyHermesSetup({
       mode: 'provider',

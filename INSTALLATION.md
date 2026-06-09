@@ -751,6 +751,8 @@ Provider recall is injected into the model payload before each turn and is **not
 hermes automem debug-recall "what do you remember about my setup?"
 ```
 
+Hermes debug logs intentionally report only section counts and recall status, not memory content. `debug-recall` is the supported way to inspect the actual `<memory-context>` block. First-turn task-context recall uses the cwd project tag only when the prompt is not an explicit/general memory ask, or when that prompt names the cwd project. For general questions like `do we like Katie Keith?`, Hermes drops the cwd tag and relies on semantic recall instead of hard-gating to the current repo.
+
 ![Hermes injected memory-context block](screenshots/hermes-injected-context.png)
 _The real `<memory-context>` block — preferences first, then task context — that ambient recall injects ahead of the turn. Add `--raw` for the unfenced text. (Shown against a synthetic demo dataset.)_
 

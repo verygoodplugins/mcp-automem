@@ -43,7 +43,7 @@ const CASUAL_OPENING_PATTERN =
 const DEBUG_PROMPT_PATTERN =
   /(error|exception|traceback|stack trace|stacktrace|failing|fails|failed|failure|bug|regression|crash|broken|debug|investigat|not work|doesn't work|does not work|cannot|can't|fix)/i;
 const EXPLICIT_RECALL_PROMPT_PATTERN =
-  /(what do (you|we) (have|know) about|what do you remember about|tell me about|who is|who's|do you remember|remember when|recall|search memory|check memory|look in memory|have we spoken about|what do you have on)/i;
+  /(what do (you|we) (have|know) about|what do you remember about|tell me about|who is|who's|do you remember|remember when|recall|search memory|check memory|look in memory|have we spoken about|what do you have on|do we like|how do we feel about|what do we think (of|about))/i;
 
 type ToolNames = {
   recall: string;

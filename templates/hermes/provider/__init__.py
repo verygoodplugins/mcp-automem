@@ -58,7 +58,7 @@ DEBUG_PROMPT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 EXPLICIT_RECALL_PROMPT_PATTERN = re.compile(
-    r"(what do (you|we) (have|know) about|what do you remember about|tell me about|who is|who's|do you remember|remember when|recall|search memory|check memory|look in memory|have we spoken about|what do you have on)",
+    r"(what do (you|we) (have|know) about|what do you remember about|tell me about|who is|who's|do you remember|remember when|recall|search memory|check memory|look in memory|have we spoken about|what do you have on|do we like|how do we feel about|what do we think (of|about))",
     re.IGNORECASE,
 )
 ENTITY_PATTERN = re.compile(r"\b(?:[A-Z][A-Za-z0-9_-]{2,}|[a-z0-9]+(?:-[a-z0-9]+)+)\b")
@@ -109,6 +109,27 @@ def _default_project_tags() -> List[str]:
     if not slug or slug in AMBIGUOUS_PROJECT_TAGS:
         return []
     return [slug]
+
+
+def _prompt_targets_project(prompt: str, project_tag: str) -> bool:
+    tag = _normalize_project_tag(project_tag)
+    if not tag:
+        return False
+    prompt_slug = re.sub(r"[^a-z0-9]+", "-", (prompt or "").strip().lower()).strip("-")
+    if not prompt_slug:
+        return False
+    if f"-{tag}-" in f"-{prompt_slug}-":
+        return True
+    tag_tokens = [token for token in tag.split("-") if token]
+    prompt_tokens = {token for token in prompt_slug.split("-") if token}
+    return bool(tag_tokens) and all(token in prompt_tokens for token in tag_tokens)
+
+
+def _project_tags_for_task_context(prompt: str, *, is_explicit: bool) -> List[str]:
+    tags = _default_project_tags()
+    if tags and is_explicit and not _prompt_targets_project(prompt, tags[0]):
+        return []
+    return tags
 
 
 def _is_substantive_prompt(prompt: str) -> bool:
@@ -391,7 +412,7 @@ class AutoMemMemoryProvider(MemoryProvider):
                 "limit": CONTEXT_RECALL_LIMIT,
                 "format": "detailed",
             }
-            project_tags = _default_project_tags()
+            project_tags = _project_tags_for_task_context(prompt, is_explicit=is_explicit)
             if project_tags:
                 context_args["tags"] = project_tags
             recall_plan.append(("Task context", context_args, CONTEXT_RECALL_LIMIT))
