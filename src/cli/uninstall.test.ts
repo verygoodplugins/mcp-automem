@@ -169,16 +169,12 @@ describe('uninstall hermes', () => {
     expect(options).toMatchObject({ platform: 'hermes', rulesPath: '/custom/AGENTS.md' });
   });
 
-  it('exits when --rules has no path value', () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
-      throw new Error(`process.exit(${code})`);
-    }) as never);
+  it('returns null when --rules has no path value', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      expect(() => parseUninstallArgs(['hermes', '--rules'])).toThrow('process.exit(1)');
+      expect(parseUninstallArgs(['hermes', '--rules'])).toBeNull();
       expect(errSpy).toHaveBeenCalledWith('Error: --rules requires a path value');
     } finally {
-      exitSpy.mockRestore();
       errSpy.mockRestore();
     }
   });
