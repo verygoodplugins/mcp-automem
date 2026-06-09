@@ -465,7 +465,7 @@ export function parseUninstallArgs(args: string[]): UninstallOptions | null {
       case '--rules':
         if (i + 1 >= args.length) {
           console.error('Error: --rules requires a path value');
-          process.exit(1);
+          return null;
         }
         options.rulesPath = args[i + 1];
         i += 1;
