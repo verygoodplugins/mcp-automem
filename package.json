@@ -16,6 +16,7 @@
     "build": "tsc",
     "postbuild": "node scripts/build-openclaw-plugin-package.mjs && chmod +x dist/index.js",
     "sync-versions": "node scripts/sync-template-versions.mjs",
+    "docs:hermes": "node scripts/build-hermes-demos.mjs",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint .",
     "prepare": "husky",
@@ -55,7 +56,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^17.4.2",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.0.1",

@@ -1,0 +1,41 @@
+# Isolated AutoMem stack for capturing the "AutoMem inside Hermes" demo visuals.
+#
+# Layered on top of the automem repo's docker-compose.yml. The project name
+# prefixes the named volumes, so this stack starts with EMPTY stores — the
+# cleanliness invariant (health.memory_count == hermes-demo count == seeded N)
+# depends on that isolation. Never capture against the personal :8001 instance.
+#
+# Bring up (paths resolved by build-hermes-demos.mjs):
+#   docker compose -p automem-hermes-demo \
+#     -f <automem-repo>/docker-compose.yml \
+#     -f scripts/demo/hermes-demo-stack.override.yml \
+#     --project-directory <automem-repo> up -d
+#
+# Ports chosen to avoid the personal (:8001) and eval (:8031/:8041) stacks.
+services:
+  falkordb:
+    ports: !override
+      - "16380:6379"
+      - "13050:3000"
+
+  qdrant:
+    ports: !override
+      - "16340:6333"
+
+  flask-api:
+    ports: !override
+      - "8051:8001"
+    environment:
+      PORT: 8001
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: 6379
+      QDRANT_URL: http://qdrant:6333
+      # Hermetic + deterministic: no embedding API calls, no model download, and
+      # no background summary/enrichment, so seeded memory_count stays exact and
+      # recall is purely keyword/tag/recency (matching the seed-data design).
+      EMBEDDING_PROVIDER: placeholder
+      MEMORY_AUTO_SUMMARIZE: "false"
+      JIT_ENRICHMENT_ENABLED: "false"
+      # Known token so the seed script and debug-recall can authenticate.
+      AUTOMEM_API_TOKEN: hermes-demo-token
+      ADMIN_API_TOKEN: hermes-demo-admin

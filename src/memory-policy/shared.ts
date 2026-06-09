@@ -1,11 +1,29 @@
 import { AUTHORABLE_RELATION_TYPES } from '../types.js';
 
-export const AUTOMEM_POLICY_DEFAULTS = {
-  preferenceRecallLimit: 20,
-  contextRecallLimit: 30,
-  debugRecallLimit: 20,
-  contextRecallWindowDays: 90,
+export const AUTOMEM_POLICY_PROFILES = {
+  rules: {
+    preferenceRecallLimit: 20,
+    contextRecallLimit: 30,
+    debugRecallLimit: 20,
+    contextRecallWindowDays: 90,
+  },
+  provider: {
+    preferenceRecallLimit: 5,
+    contextRecallLimit: 10,
+    debugRecallLimit: 10,
+    contextRecallWindowDays: 90,
+  },
 } as const;
+
+export const AUTOMEM_POLICY_DEFAULTS = AUTOMEM_POLICY_PROFILES.rules;
+
+export const AUTOMEM_PROVIDER_POLICY_DEFAULTS = AUTOMEM_POLICY_PROFILES.provider;
+
+export const AUTOMEM_RULES_POLICY_DEFAULTS = AUTOMEM_POLICY_PROFILES.rules;
+
+export type AutoMemPolicyProfile = keyof typeof AUTOMEM_POLICY_PROFILES;
+
+export type AutoMemPolicyDefaults = typeof AUTOMEM_POLICY_PROFILES[AutoMemPolicyProfile];
 
 export const AUTOMEM_POLICY_TRIGGER_HEADINGS = [
   '1. User correction or override.',
@@ -25,7 +43,7 @@ const CASUAL_OPENING_PATTERN =
 const DEBUG_PROMPT_PATTERN =
   /(error|exception|traceback|stack trace|stacktrace|failing|fails|failed|failure|bug|regression|crash|broken|debug|investigat|not work|doesn't work|does not work|cannot|can't|fix)/i;
 const EXPLICIT_RECALL_PROMPT_PATTERN =
-  /(what do (you|we) (have|know) about|what do you remember about|tell me about|who is|who's|do you remember|remember when|recall|search memory|check memory|look in memory|have we spoken about|what do you have on)/i;
+  /(what do (you|we) (have|know) about|what do you remember about|tell me about|who is|who's|do you remember|remember when|recall|search memory|check memory|look in memory|have we spoken about|what do you have on|do we like|how do we feel about|what do we think (of|about))/i;
 
 type ToolNames = {
   recall: string;

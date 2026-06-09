@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import {
   AUTOMEM_POLICY_ASSOCIATION_MAPPINGS,
   AUTOMEM_POLICY_DEFAULTS,
+  AUTOMEM_POLICY_PROFILES,
+  looksLikeExplicitRecallPrompt,
   renderClaudeCodeSessionStartPrompt,
   renderOpenClawPolicyContext,
   renderRelationTypesInline,
@@ -63,6 +65,28 @@ function expectSharedPolicySurface(source: string) {
 }
 
 describe('shared AutoMem memory policy', () => {
+  it('defines rules and provider recall profiles from one policy surface', () => {
+    expect(AUTOMEM_POLICY_PROFILES.rules).toEqual({
+      preferenceRecallLimit: 20,
+      contextRecallLimit: 30,
+      debugRecallLimit: 20,
+      contextRecallWindowDays: 90,
+    });
+    expect(AUTOMEM_POLICY_PROFILES.provider).toEqual({
+      preferenceRecallLimit: 5,
+      contextRecallLimit: 10,
+      debugRecallLimit: 10,
+      contextRecallWindowDays: 90,
+    });
+    expect(AUTOMEM_POLICY_DEFAULTS).toBe(AUTOMEM_POLICY_PROFILES.rules);
+  });
+
+  it('recognizes general opinion prompts as explicit recall prompts', () => {
+    expect(looksLikeExplicitRecallPrompt('do we like Example Contact?')).toBe(true);
+    expect(looksLikeExplicitRecallPrompt('how do we feel about Example Org?')).toBe(true);
+    expect(looksLikeExplicitRecallPrompt('what do we think of Hermes provider mode?')).toBe(true);
+  });
+
   it('renders the Claude Code session-start prompt from shared defaults', () => {
     expect(renderClaudeCodeSessionStartPrompt('$PROJECT')).toMatchInlineSnapshot(`
       "<automem_session_context>
@@ -171,5 +195,16 @@ describe('shared AutoMem memory policy', () => {
 
   it('keeps the Codex memory rules aligned with the shared defaults', () => {
     expectSharedPolicySurface(readRepoFile('templates/codex/memory-rules.md'));
+  });
+
+  it('keeps the Hermes provider template aligned with the provider profile', () => {
+    const source = readRepoFile('templates/hermes/provider/__init__.py');
+    expect(source).toContain('PREFERENCE_RECALL_LIMIT = 5');
+    expect(source).toContain('CONTEXT_RECALL_LIMIT = 10');
+    expect(source).toContain('DEBUG_RECALL_LIMIT = 10');
+    expect(source).toContain('CONTEXT_RECALL_WINDOW_DAYS = 90');
+    expect(source).toContain('time_query');
+    expect(source).toContain('updated_desc');
+    expect(source).toContain('topic shift');
   });
 });

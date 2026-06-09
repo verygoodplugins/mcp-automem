@@ -3,11 +3,18 @@
  * explicitly targets generated files in a temp workspace/home.
  */
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { execFileSync, execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+
+// These tests spawn the built CLI as a child process (runCli allows the
+// subprocess up to 10s). The default 5s vitest timeout fires before that
+// budget is spent, so the heavier commands (e.g. the openclaw plugin dry-run)
+// flake under load. Give every test in this file headroom over the subprocess
+// timeout; a genuine hang still fails fast via execFileSync's own 10s limit.
+vi.setConfig({ testTimeout: 15000 });
 
 const CLI_PATH = path.resolve(__dirname, '../../dist/index.js');
 
@@ -529,6 +536,45 @@ describe('Template Generation', () => {
     expect(installationGuide).toContain('**Custom Modes**');
     expect(installationGuide).toContain('templates/cursor/user-rules.md');
     expect(installationGuide).not.toContain('### Optional GPT-5.4 Overlay');
+  });
+
+  it('installation guide should document Hermes install modes and duplicate-tool recovery', () => {
+    const installationGuide = fs.readFileSync(
+      path.resolve(__dirname, '../../INSTALLATION.md'),
+      'utf8'
+    );
+
+    expect(installationGuide).toContain('## Hermes Agent');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode mcp');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode provider');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode both');
+    expect(installationGuide).toContain('hermes mcp test automem');
+    expect(installationGuide).toContain('hermes memory status');
+    expect(installationGuide).toContain('hermes automem doctor');
+    expect(installationGuide).toContain('exclusive plugin');
+    expect(installationGuide).toContain('Recall context is injected into the model payload');
+    expect(installationGuide).toContain('shared AutoMem recall blueprint');
+    expect(installationGuide).toContain('rules profile');
+    expect(installationGuide).toContain('provider profile');
+    expect(installationGuide).toContain('5 / 10 / 10');
+    expect(installationGuide).toContain('20 / 30 / 20');
+    expect(installationGuide).toContain('Provider explicit recall is capped at 10 results');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem uninstall hermes');
+    expect(installationGuide).toContain('tools: Tool names must be unique');
+    expect(installationGuide).toContain('mcp_servers.memory');
+    expect(installationGuide).toContain('stale AutoMem Codex rules block');
+    expect(installationGuide).toContain('AUTOMEM_HERMES_PROVIDER_TOOLS=false');
+  });
+
+  it('repo agent guidance should require real host integration smoke tests', () => {
+    const guidance = fs.readFileSync(path.resolve(__dirname, '../../AGENTS.md'), 'utf8');
+
+    expect(guidance).toContain('Host integration smoke tests');
+    expect(guidance).toContain('temp home');
+    expect(guidance).toContain('fake AutoMem API');
+    expect(guidance).toContain('real stdio MCP');
+    expect(guidance).toContain('provider-visible tool names');
+    expect(guidance).toContain('tests/helpers/host-specs.ts');
   });
 
   it('Claude Code docs should prefer the CLI installer and mark the plugin deprecated', () => {

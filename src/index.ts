@@ -15,6 +15,7 @@ import { runClaudeCodeSetup } from "./cli/claude-code.js";
 import { runCursorSetup } from "./cli/cursor.js";
 import { runCodexSetup } from "./cli/codex.js";
 import { runOpenClawSetup } from "./cli/openclaw.js";
+import { runHermesSetup } from "./cli/hermes.js";
 import { runMigrateCommand } from "./cli/migrate.js";
 import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
@@ -116,6 +117,7 @@ COMMANDS:
   cursor             Set up AutoMem for Cursor
   codex              Set up AutoMem for Codex
   openclaw           Set up AutoMem for OpenClaw
+  hermes             Set up AutoMem for Hermes Agent
   migrate            Migrate existing projects to AutoMem
   uninstall          Remove AutoMem configuration
   queue              Manage memory queue
@@ -154,10 +156,11 @@ MIGRATION:
     --yes, -y             Skip confirmation
 
 UNINSTALL:
-  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code> [options]
-  
+  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|hermes> [options]
+
   Options:
-    --dir <path>          Project directory (for cursor)
+    --dir <path>          Project / hermes-home directory
+    --rules <path>        Hermes rules file to strip (default: <hermes-home>/AGENTS.md)
     --clean-all          Also remove MCP server config (Cursor/Claude Desktop)
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation
@@ -195,6 +198,19 @@ CODEX SETUP:
   Options:
     --name <name>         Project name (auto-detected if not provided)
     --rules <path>        Target rules file (default: ./AGENTS.md)
+    --dry-run             Show what would be changed
+    --quiet               Suppress output
+
+HERMES SETUP:
+  npx @verygoodplugins/mcp-automem hermes [options]
+
+  Options:
+    --dir <path>          Hermes home directory (default: $HERMES_HOME or ~/.hermes)
+    --name <name>         Project name (auto-detected if not provided)
+    --endpoint <url>      AutoMem endpoint (default: $AUTOMEM_API_URL or http://127.0.0.1:8001)
+    --api-key <key>       AutoMem API key (optional)
+    --mode <mode>         Install mode: mcp, provider, or both (default: mcp)
+    --rules <path>        Target rules file (default: <hermes-home>/AGENTS.md)
     --dry-run             Show what would be changed
     --quiet               Suppress output
 
@@ -249,6 +265,11 @@ if (command === "codex") {
 
 if (command === "openclaw") {
   await runOpenClawSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === "hermes") {
+  await runHermesSetup(process.argv.slice(3));
   process.exit(0);
 }
 
