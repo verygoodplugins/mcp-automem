@@ -171,7 +171,12 @@ export function renderClaudeCodeSessionStartPrompt(projectExpression: string): s
 }
 
 export function renderClaudeCodeSessionStartHook(): string {
-  const shellPrompt = renderClaudeCodeSessionStartPrompt('$PROJECT').replace(/`/g, '\\`');
+  const projectToken = '__AUTOMEM_PROJECT__';
+  const shellPrompt = renderClaudeCodeSessionStartPrompt(projectToken)
+    .replace(/\\/g, '\\\\')
+    .replace(/`/g, '\\`')
+    .replace(/\$/g, '\\$')
+    .replaceAll(projectToken, '$PROJECT');
   return [
     '#!/bin/bash',
     '# AutoMem SessionStart hook - prompts Claude to run two-phase recall.',
