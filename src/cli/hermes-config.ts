@@ -51,6 +51,7 @@ function parseHermesDocument(raw: string, configPath: string) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Failed to parse Hermes config at ${configPath}: ${reason}. Fix the YAML syntax and re-run.`,
+      { cause: error },
     );
   }
   if (doc.errors.length > 0) {
