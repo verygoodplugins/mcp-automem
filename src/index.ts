@@ -364,6 +364,8 @@ const tools: Tool[] = [
 
 **Mode 1 — Single (default):** pass top-level \`content\` plus any optional fields (tags, importance, metadata, type, confidence, embedding, t_valid, t_invalid, id, etc.).
 
+**Mode 1b — Supersede/correct:** pass top-level \`content\` plus \`supersedes_memory_id\`. The server stores the replacement, marks the old memory invalid with \`t_invalid=now\`, merges supersede metadata, and associates old → new with \`INVALIDATED_BY\` (default) or \`EVOLVED_INTO\`.
+
 **Mode 2 — Batch:** pass \`memories: [{ content, tags?, importance?, metadata?, timestamp?, type?, confidence? }, ...]\` to store up to 500 memories in one request. Faster for bulk ingestion (imports, benchmark seeding). Batch mode does NOT accept \`id\`, \`embedding\`, \`t_valid\`, or \`t_invalid\` per-item — use single mode for those.
 
 **Content size guidelines (per item):**
@@ -382,6 +384,7 @@ const tools: Tool[] = [
 **Examples:**
 - store_memory({ content: "Chose PostgreSQL over MongoDB for user service. Need ACID for transactions.", tags: ["architecture", "database"], importance: 0.9 })
 - store_memory({ content: "User prefers early returns over nested conditionals.", tags: ["code-style"], importance: 0.7 })
+- store_memory({ content: "User now prefers SQLite for small local tools.", supersedes_memory_id: "old-id", supersede_reason: "Correction from user" })
 - store_memory({ memories: [{ content: "...", tags: ["import"] }, { content: "...", tags: ["import"] }] })  // Batch`,
     annotations: {
       title: "Store Memory",
@@ -480,6 +483,23 @@ const tools: Tool[] = [
           type: "string",
           description: "Single-memory mode. ISO 8601 last-accessed timestamp",
         },
+        supersedes_memory_id: {
+          type: "string",
+          description:
+            "Single-memory supersede mode. Existing memory ID that this new memory replaces or corrects.",
+        },
+        supersede_relation: {
+          type: "string",
+          enum: ["INVALIDATED_BY", "EVOLVED_INTO"],
+          default: "INVALIDATED_BY",
+          description:
+            "Single-memory supersede mode. Relationship to create from old memory to new memory.",
+        },
+        supersede_reason: {
+          type: "string",
+          description:
+            "Single-memory supersede mode. Optional reason stored on the old memory's metadata.",
+        },
       },
     },
     outputSchema: {
@@ -494,6 +514,14 @@ const tools: Tool[] = [
           type: "array",
           items: { type: "string" },
           description: "Batch-mode result: IDs of the stored memories.",
+        },
+        superseded_memory_id: {
+          type: "string",
+          description: "Supersede-mode result: ID of the old memory marked invalid.",
+        },
+        association_created: {
+          type: "boolean",
+          description: "Supersede-mode result: whether old → new association was created.",
         },
         stored: {
           type: "integer",
@@ -528,7 +556,7 @@ const tools: Tool[] = [
 
 **Mode 2 — Tag enumeration:** pass \`tags\` + \`exhaustive: true\` for paginated exact-match listing (NOT ranked retrieval). Use this for cleanup/audit workflows where ranked retrieval silently undercounts large tag sets. Pair with \`limit\` (≤200) and \`offset\`. Returns \`has_more\`/\`limit\`/\`offset\` page metadata. Tag matching is exact, case-insensitive, any-of mode — \`tag_match: "prefix"\` and \`tag_mode: "all"\` are rejected in this mode.
 
-**Mode 3 — Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency, and optional graph expansion. The primary tool for finding relevant context.
+**Mode 3 — Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency, and optional graph expansion. The primary tool for finding relevant context. By default, ranked recall requests current active memories only; set \`current_only: false\` for audits.
 
 **When to use ranked (mode 3):**
 - At conversation start: recall context about the current project/topic
@@ -544,6 +572,7 @@ const tools: Tool[] = [
 - recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50 })  // Mode 2
 - recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50, offset: 50 })  // Mode 2 page 2
 - recall_memory({ query: "auth", exclude_tags: ["deprecated"] })  // Mode 3 with exclusion
+- recall_memory({ query: "preference corrections", state_debug: true })  // Mode 3 with state-filter diagnostics
 - recall_memory({ query: "What is Sarah's sister's job?", expand_entities: true })  // Mode 3 multi-hop`,
     annotations: {
       title: "Recall Memory",
@@ -669,6 +698,18 @@ const tools: Tool[] = [
           description:
             "Minimum relation strength to follow during graph expansion. Only traverses edges above this threshold. Recommended: 0.3 for exploratory, 0.6+ for high-confidence connections only. Does not affect entity expansion.",
         },
+        current_only: {
+          type: "boolean",
+          default: true,
+          description:
+            "Ranked-mode only. When true, server suppresses archived, not-yet-valid, expired, invalidated, or superseded memories from active context.",
+        },
+        state_debug: {
+          type: "boolean",
+          default: false,
+          description:
+            "Ranked-mode only. Include state-filter suppression/replacement IDs and reasons when current_only is true.",
+        },
         context: {
           type: "string",
           description:
@@ -779,6 +820,11 @@ const tools: Tool[] = [
           type: "integer",
           description:
             "Number of duplicate results removed (when using multiple queries)",
+        },
+        state_filter: {
+          type: "object",
+          description:
+            "Current-state filtering diagnostics. Includes aggregate counts by default and detailed IDs/reasons only when state_debug=true.",
         },
       },
       required: ["count", "results"],
@@ -905,6 +951,14 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
         timestamp: {
           type: "string",
           description: "Override creation timestamp",
+        },
+        t_valid: {
+          type: "string",
+          description: "ISO 8601 timestamp when the memory becomes valid",
+        },
+        t_invalid: {
+          type: "string",
+          description: "ISO 8601 timestamp when the memory expires or was superseded",
         },
         updated_at: {
           type: "string",
@@ -1135,6 +1189,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Single-store mode response
         let responseText = `Memory stored successfully!\n\nMemory ID: ${result.memory_id}`;
+        if (result.superseded_memory_id) {
+          responseText += `\nSuperseded memory ID: ${result.superseded_memory_id}`;
+        }
+        if (typeof result.association_created === "boolean") {
+          responseText += `\nAssociation created: ${result.association_created ? "yes" : "no"}`;
+        }
         if (result.message) {
           responseText += `\nMessage: ${result.message}`;
         }
@@ -1152,6 +1212,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const output = {
           memory_id: result.memory_id,
           message: result.message,
+          ...(result.superseded_memory_id && {
+            superseded_memory_id: result.superseded_memory_id,
+          }),
+          ...(typeof result.association_created === "boolean" && {
+            association_created: result.association_created,
+          }),
           ...(summarized && {
             summarized,
             original_length: originalLength,

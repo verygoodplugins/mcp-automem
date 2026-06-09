@@ -213,8 +213,6 @@ tmp/
 temp/
 /.cursor/screenshots
 /.claude
-AGENTS.md
-!/AGENTS.md
 mcp-automem.code-workspace
 
 # MCP Registry publisher
