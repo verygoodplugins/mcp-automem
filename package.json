@@ -12,7 +12,7 @@
     "mcp-automem": "dist/index.js"
   },
   "scripts": {
-    "prebuild": "node scripts/sync-template-versions.mjs",
+    "prebuild": "tsx scripts/sync-memory-policy.ts && node scripts/sync-template-versions.mjs",
     "build": "tsc",
     "postbuild": "node scripts/build-openclaw-plugin-package.mjs && chmod +x dist/index.js",
     "sync-versions": "node scripts/sync-template-versions.mjs",

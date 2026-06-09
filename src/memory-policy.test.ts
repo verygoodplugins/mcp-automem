@@ -1,13 +1,22 @@
 import fs from 'fs';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
 import {
   AUTOMEM_POLICY_ASSOCIATION_MAPPINGS,
   AUTOMEM_POLICY_DEFAULTS,
   AUTOMEM_POLICY_PROFILES,
+  AUTOMEM_PROVIDER_EXPLICIT_RECALL_LIMIT,
   looksLikeExplicitRecallPrompt,
+  renderClaudeDesktopInstructions,
+  renderCodexMemoryRules,
+  renderCursorProjectRule,
   renderClaudeCodeSessionStartPrompt,
+  renderClaudeCodeSessionStartHook,
+  renderHermesMemoryRules,
+  renderHermesModeRules,
+  renderHermesProviderPolicyPython,
   renderOpenClawPolicyContext,
   renderRelationTypesInline,
 } from './memory-policy/shared.js';
@@ -18,6 +27,10 @@ function readRepoFile(relativePath: string): string {
   return fs.readFileSync(path.join(REPO_ROOT, relativePath), 'utf8');
 }
 
+function readPackageVersion(): string {
+  return JSON.parse(readRepoFile('package.json')).version;
+}
+
 function normalize(value: string): string {
   return value
     .replace(/[–—]/g, '-')
@@ -26,6 +39,11 @@ function normalize(value: string): string {
     .replace(/\\`/g, '`')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function expectFileEquals(relativePath: string, expected: string): void {
+  const actual = readRepoFile(relativePath);
+  expect(actual, `${relativePath} drifted from shared policy renderer`).toBe(expected);
 }
 
 function extractHeredocBody(fileContents: string): string {
@@ -79,6 +97,7 @@ describe('shared AutoMem memory policy', () => {
       contextRecallWindowDays: 90,
     });
     expect(AUTOMEM_POLICY_DEFAULTS).toBe(AUTOMEM_POLICY_PROFILES.rules);
+    expect(AUTOMEM_PROVIDER_EXPLICIT_RECALL_LIMIT).toBe(10);
   });
 
   it('recognizes general opinion prompts as explicit recall prompts', () => {
@@ -183,6 +202,38 @@ describe('shared AutoMem memory policy', () => {
     expect(normalize(extractHeredocBody(hookContents))).toBe(
       normalize(renderClaudeCodeSessionStartPrompt('$PROJECT'))
     );
+    expect(hookContents).toBe(renderClaudeCodeSessionStartHook());
+  });
+
+  it('keeps generated host rule artifacts exactly aligned with shared renderers', () => {
+    const templateVersion = readPackageVersion();
+    expectFileEquals('templates/claude-code/hooks/automem-session-start.sh', renderClaudeCodeSessionStartHook());
+    expectFileEquals('plugins/automem/scripts/session-start.sh', renderClaudeCodeSessionStartHook());
+    expectFileEquals(
+      'templates/codex/memory-rules.md',
+      renderCodexMemoryRules({ projectName: '{{PROJECT_NAME}}', templateVersion })
+    );
+    expectFileEquals(
+      'templates/cursor/automem.mdc.template',
+      renderCursorProjectRule({
+        projectName: '{{PROJECT_NAME}}',
+        mcpServerName: '{{MCP_SERVER_NAME}}',
+        mcpToolPrefix: '{{MCP_TOOL_PREFIX}}',
+        templateVersion,
+      })
+    );
+    expectFileEquals(
+      'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',
+      renderClaudeDesktopInstructions({ templateVersion })
+    );
+    expectFileEquals(
+      'templates/hermes/memory-rules.md',
+      renderHermesMemoryRules({
+        projectName: '{{PROJECT_NAME}}',
+        modeRules: '{{HERMES_MODE_RULES}}',
+        templateVersion,
+      })
+    );
   });
 
   it('keeps the Cursor template aligned with the shared defaults', () => {
@@ -198,13 +249,43 @@ describe('shared AutoMem memory policy', () => {
   });
 
   it('keeps the Hermes provider template aligned with the provider profile', () => {
-    const source = readRepoFile('templates/hermes/provider/__init__.py');
+    const source = readRepoFile('templates/hermes/provider/automem_policy.py');
+    expect(source).toBe(renderHermesProviderPolicyPython());
     expect(source).toContain('PREFERENCE_RECALL_LIMIT = 5');
     expect(source).toContain('CONTEXT_RECALL_LIMIT = 10');
     expect(source).toContain('DEBUG_RECALL_LIMIT = 10');
     expect(source).toContain('CONTEXT_RECALL_WINDOW_DAYS = 90');
+    expect(source).toContain('MAX_EXPLICIT_RECALL_LIMIT = 10');
     expect(source).toContain('time_query');
     expect(source).toContain('updated_desc');
     expect(source).toContain('topic shift');
+  });
+
+  it('renders Hermes mode-specific rules from the shared policy surface', () => {
+    expect(renderHermesModeRules('mcp')).toContain('mcp_automem_recall_memory');
+    expect(renderHermesModeRules('provider')).toContain('automem_recall_memory');
+    expect(renderHermesModeRules('both')).toContain('mcp_automem_recall_memory');
+    expect(renderHermesModeRules('both')).not.toMatch(/`automem_recall_memory`/);
+  });
+
+  it('sync-memory-policy is idempotent for generated policy artifacts', () => {
+    const generatedFiles = [
+      'templates/claude-code/hooks/automem-session-start.sh',
+      'plugins/automem/scripts/session-start.sh',
+      'templates/codex/memory-rules.md',
+      'templates/cursor/automem.mdc.template',
+      'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',
+      'templates/hermes/memory-rules.md',
+      'templates/hermes/provider/automem_policy.py',
+    ];
+    const before = new Map(generatedFiles.map((file) => [file, readRepoFile(file)]));
+    const tsx = path.join(REPO_ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
+
+    execFileSync(tsx, ['scripts/sync-memory-policy.ts'], { cwd: REPO_ROOT, stdio: 'pipe' });
+    execFileSync(tsx, ['scripts/sync-memory-policy.ts'], { cwd: REPO_ROOT, stdio: 'pipe' });
+
+    for (const file of generatedFiles) {
+      expect(readRepoFile(file), `${file} changed after idempotent sync`).toBe(before.get(file));
+    }
   });
 });
