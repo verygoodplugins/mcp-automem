@@ -101,7 +101,9 @@ const stored = await {{MCP_TOOL_PREFIX}}store_memory({
   confidence: 0.95
 })
 await {{MCP_TOOL_PREFIX}}recall_memory({ query: "<distinctive phrase from content>", limit: 3 })
-await {{MCP_TOOL_PREFIX}}associate_memories({ memory1_id: related.results[0].id, memory2_id: stored.memory_id, type: "INVALIDATED_BY", strength: 0.9 })
+if (related?.results?.length) {
+  await {{MCP_TOOL_PREFIX}}associate_memories({ memory1_id: related.results[0].id, memory2_id: stored.memory_id, type: "INVALIDATED_BY", strength: 0.9 })
+}
 ```
 
 Step 4 is where the graph gets built. Skipping it is the main reason AutoMem degrades into a flat bag of notes.
