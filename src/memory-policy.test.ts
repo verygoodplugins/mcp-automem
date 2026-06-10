@@ -10,6 +10,7 @@ import {
   AUTOMEM_PROVIDER_EXPLICIT_RECALL_LIMIT,
   looksLikeExplicitRecallPrompt,
   renderClaudeDesktopInstructions,
+  renderClaudeMdMemoryRules,
   renderCodexMemoryRules,
   renderCursorProjectRule,
   renderClaudeCodeSessionStartPrompt,
@@ -63,6 +64,9 @@ function expectSharedPolicySurface(source: string) {
   expect(normalized).toContain(`limit: ${AUTOMEM_POLICY_DEFAULTS.debugRecallLimit}`);
   expect(normalized).toContain('topic genuinely shifts');
   expect(normalized).toContain('proper noun');
+  expect(normalized).toContain('When recall misses');
+  expect(normalized).toContain('expand_relations: true');
+  expect(normalized).toContain('project/<slug>');
   expect(normalized).toContain('debug');
   expect(normalized).toContain('INVALIDATED_BY');
   expect(normalized).toContain('PREFERS_OVER');
@@ -121,7 +125,7 @@ describe('shared AutoMem memory policy', () => {
       
       Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; 90-day window):
         mcp__memory__recall_memory({
-          query: "<proper nouns, product names, tools, specific topics from the user's message>",
+          query: "<proper nouns, product names, people, tools, specific topics from the user's message>",
           tags: ["$PROJECT"],    // drop if slug collides with a common word
           time_query: "last 90 days",
           limit: 30,
@@ -227,6 +231,10 @@ describe('shared AutoMem memory policy', () => {
       renderClaudeDesktopInstructions({ templateVersion })
     );
     expectFileEquals(
+      'templates/CLAUDE_MD_MEMORY_RULES.md',
+      renderClaudeMdMemoryRules({ templateVersion })
+    );
+    expectFileEquals(
       'templates/hermes/memory-rules.md',
       renderHermesMemoryRules({
         projectName: '{{PROJECT_NAME}}',
@@ -275,6 +283,7 @@ describe('shared AutoMem memory policy', () => {
       'templates/codex/memory-rules.md',
       'templates/cursor/automem.mdc.template',
       'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',
+      'templates/CLAUDE_MD_MEMORY_RULES.md',
       'templates/hermes/memory-rules.md',
       'templates/hermes/provider/automem_policy.py',
     ];

@@ -19,7 +19,7 @@ Phase 1 - Preferences (tag-only, no time filter, no query):
 
 Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; 90-day window):
   mcp__memory__recall_memory({
-    query: "<proper nouns, product names, tools, specific topics from the user's message>",
+    query: "<proper nouns, product names, people, tools, specific topics from the user's message>",
     tags: ["$PROJECT"],    // drop if slug collides with a common word
     time_query: "last 90 days",
     limit: 30,

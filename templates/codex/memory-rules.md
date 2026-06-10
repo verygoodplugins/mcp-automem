@@ -37,7 +37,7 @@ Task context: one semantic query built from proper nouns, products, files, error
 
 ```javascript
 mcp__memory__recall_memory({
-  query: "<proper nouns, product names, tools, specific topics from the user's message>",
+  query: "<proper nouns, product names, people, tools, specific topics from the user's message>",
   tags: ["{{PROJECT_NAME}}"],        // drop if slug collides with a common word
   time_query: "last 90 days",
   limit: 30,
@@ -59,6 +59,15 @@ mcp__memory__recall_memory({
 ```
 
 Don't re-recall mid-conversation unless the topic genuinely shifts, a new proper noun enters, or active debugging starts.
+
+### When recall misses
+
+Escalate only when the task-context recall comes back too broad or empty:
+
+- **Too broad** - add a tag gate (a stable category like `preference`/`bugfix`, or the unambiguous project slug) and tighten the query to the real nouns.
+- **Empty** - drop the time window first (the topic may be dormant-but-important), then broaden the query.
+- **Sparse under a tag gate** - drop the gate and rely on the semantic query alone; older memories use `project/<slug>` prefixes, so gated queries can miss historical content.
+- **Need graph traversal** - drop tags before setting `expand_relations: true`; the server re-applies tag filters to expansion targets, which defeats the traversal.
 
 ## Storage Discipline
 

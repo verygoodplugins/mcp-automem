@@ -210,7 +210,7 @@ AUTOMEM_PARENT_WATCHDOG_MS=30000
 **Modify memory policy / recall rules:**
 1. Edit the shared policy source in `src/memory-policy/shared.ts`
 2. Run `npx tsx scripts/sync-memory-policy.ts` (or `npm run build`, which runs it during `prebuild`)
-3. Do not hand-edit generated policy artifacts: `templates/claude-code/hooks/automem-session-start.sh`, `plugins/automem/scripts/session-start.sh`, `templates/codex/memory-rules.md`, `templates/cursor/automem.mdc.template`, `templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`, `templates/hermes/memory-rules.md`, or `templates/hermes/provider/automem_policy.py`
+3. Do not hand-edit generated policy artifacts: `templates/claude-code/hooks/automem-session-start.sh`, `plugins/automem/scripts/session-start.sh`, `templates/codex/memory-rules.md`, `templates/cursor/automem.mdc.template`, `templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`, `templates/CLAUDE_MD_MEMORY_RULES.md`, `templates/hermes/memory-rules.md`, or `templates/hermes/provider/automem_policy.py`
 4. Update `src/memory-policy.test.ts` when the shared policy contract changes
 
 **Modify non-policy hook behavior:**
