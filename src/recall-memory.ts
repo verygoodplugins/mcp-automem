@@ -55,7 +55,7 @@ function capMetadata(metadata: unknown, budgeted: boolean): unknown {
   if (!budgeted || metadata === null || metadata === undefined || typeof metadata !== 'object') {
     return metadata;
   }
-  let serialized = '';
+  let serialized: string;
   try {
     serialized = JSON.stringify(metadata) ?? '';
   } catch {
@@ -356,11 +356,12 @@ export async function buildRecallMemoryResponse(
   }
 
   const joinedBlocks = kept.map((entry) => entry.textBlock).join('\n\n');
+  const showingSuffix = omitted > 0 ? ` (showing ${kept.length})` : '';
   return {
     content: [
       {
         type: 'text',
-        text: `Found ${results.length} memories${notesSuffix}:\n\n${joinedBlocks}${trailer}`,
+        text: `Found ${results.length} memories${showingSuffix}${notesSuffix}:\n\n${joinedBlocks}${trailer}`,
       },
     ],
     structuredContent,

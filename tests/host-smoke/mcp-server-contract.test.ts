@@ -27,9 +27,10 @@ describe('MCP server real stdio contract', () => {
 
     try {
       const initialized = await client.initialize();
+      const instructions = initialized.instructions ?? '';
       expect(typeof initialized.instructions).toBe('string');
-      expect(initialized.instructions.length).toBeGreaterThan(0);
-      expect(Buffer.byteLength(initialized.instructions, 'utf8')).toBeLessThanOrEqual(2048);
+      expect(instructions.length).toBeGreaterThan(0);
+      expect(Buffer.byteLength(instructions, 'utf8')).toBeLessThanOrEqual(2048);
 
       const listed = await client.request('tools/list');
       const names = listed.tools.map((tool: { name: string }) => tool.name);

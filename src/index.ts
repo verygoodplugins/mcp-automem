@@ -769,7 +769,7 @@ const tools: Tool[] = [
           enum: ["text", "items", "detailed", "json"],
           default: "text",
           description:
-            'Output format: text (default, compact preview with timestamps/importance), items (one block per memory), detailed (adds type/confidence/metadata summary), json (raw per-memory fields; whole-response budget still applies). Long content is previewed — fetch a full record via memory_id.',
+            'Output format: text (default, compact preview with timestamps/importance), items (one block per memory), detailed (adds type/confidence to text; metadata in structured payload only), json (raw per-memory fields; whole-response budget still applies). Long content is previewed — fetch a full record via memory_id.',
         },
         offset: {
           type: "integer",
