@@ -769,7 +769,7 @@ const tools: Tool[] = [
           enum: ["text", "items", "detailed", "json"],
           default: "text",
           description:
-            'Output format: text (default, compact preview with timestamps/importance), items (one block per memory), detailed (adds type/confidence to text; metadata in structured payload only), json (raw per-memory fields; whole-response budget still applies). Long content is previewed — fetch a full record via memory_id.',
+            'Output format: text (default), items (one block per memory), detailed (adds type/confidence/metadata keys/relation stubs), json (raw per-memory fields incl. full content/metadata/relations; whole-response token budget still applies). text/items/detailed are summary-first: each memory shows its stored 1-2 sentence summary when available, else a content preview — fetch a full record via memory_id.',
         },
         offset: {
           type: "integer",
@@ -810,7 +810,16 @@ const tools: Tool[] = [
             type: "object",
             properties: {
               memory_id: { type: "string" },
-              content: { type: "string" },
+              summary: {
+                type: "string",
+                description:
+                  "Stored 1-2 sentence summary. In budgeted formats it replaces content when present.",
+              },
+              content: {
+                type: "string",
+                description:
+                  "Memory content (preview in budgeted formats; omitted when summary is shown).",
+              },
               content_truncated: {
                 type: "boolean",
                 description:
@@ -818,7 +827,8 @@ const tools: Tool[] = [
               },
               content_chars: {
                 type: "integer",
-                description: "Original content length when content_truncated is true.",
+                description:
+                  "Original content length when content was previewed or replaced by summary.",
               },
               tags: { type: "array", items: { type: "string" } },
               importance: { type: "number" },

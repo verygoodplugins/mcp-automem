@@ -76,6 +76,7 @@ export async function startFakeAutoMemApi(): Promise<FakeAutoMemApi> {
             score_components: {},
             memory: {
               content: `remembered host smoke detail (${kind})`,
+              summary: `host smoke summary (${kind})`,
               tags,
               importance: 0.8,
               timestamp: '2026-06-06T00:00:00.000Z',
