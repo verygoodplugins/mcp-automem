@@ -61,6 +61,8 @@ export interface MemoryRecord {
 export interface StoredMemory {
   memory_id: string;
   content: string;
+  /** Server-generated 1-2 sentence summary (enrichment); absent until enriched. */
+  summary?: string;
   tags: string[];
   importance: number;
   created_at: string;
@@ -80,7 +82,6 @@ export interface RecallResult {
     score_components: Record<string, number>;
     source?: string;
     relations?: Array<Record<string, any>>;
-    related_to?: Array<Record<string, any>>;
     memory: StoredMemory & Record<string, any>;
     deduped_from?: string[];
     expanded_from_entity?: string;

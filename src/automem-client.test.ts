@@ -302,6 +302,78 @@ describe('AutoMemClient', () => {
       );
     });
 
+    it('should normalize relations into a single field and never fabricate related_to', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [
+            {
+              id: 'mem-1',
+              match_type: 'semantic',
+              score: 0.95,
+              relations: [{ memory: { id: 'rel-1' }, type: 'REINFORCES', strength: 0.8 }],
+              memory: { content: 'Recalled content', tags: ['test'] },
+            },
+          ],
+          count: 1,
+        }),
+      } as any);
+
+      const result = await client.recallMemory({ query: 'test query' });
+
+      expect(result.results[0].relations).toHaveLength(1);
+      expect(result.results[0]).not.toHaveProperty('related_to');
+    });
+
+    it('should fall back to related_to when the server sends only related_to', async () => {
+      const related = [{ memory: { id: 'rel-2' }, type: 'RELATES_TO', strength: 0.5 }];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [
+            {
+              id: 'mem-1',
+              match_type: 'semantic',
+              score: 0.95,
+              related_to: related,
+              memory: { content: 'Recalled content', tags: ['test'] },
+            },
+          ],
+          count: 1,
+        }),
+      } as any);
+
+      const result = await client.recallMemory({ query: 'test query' });
+
+      expect(result.results[0].relations).toEqual(related);
+      expect(result.results[0]).not.toHaveProperty('related_to');
+    });
+
+    it('should map the memory summary when the server provides one', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [
+            {
+              id: 'mem-1',
+              match_type: 'semantic',
+              score: 0.95,
+              memory: {
+                content: 'Recalled content',
+                summary: 'Short standalone summary.',
+                tags: ['test'],
+              },
+            },
+          ],
+          count: 1,
+        }),
+      } as any);
+
+      const result = await client.recallMemory({ query: 'test query' });
+
+      expect(result.results[0].memory.summary).toBe('Short standalone summary.');
+    });
+
     it('should support multiple queries', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

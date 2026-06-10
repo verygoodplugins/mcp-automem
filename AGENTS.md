@@ -143,7 +143,7 @@ The server exposes 6 tools to AI assistants. Several are mode-multiplexed — th
 2. **recall_memory** — Three modes:
    - **ID fetch:** `memory_id` → routes to `GET /memory/{id}` and ignores other params.
    - **Tag enumeration:** `tags` + `exhaustive: true` → routes to `GET /memory/by-tag` for paginated exact-match listing. Pair with `limit` (≤200) and `offset`. Returns `has_more`/`limit`/`offset`. Use this for cleanup/audit workflows where ranked recall undercounts.
-   - **Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency, and graph expansion. Supports `query`/`queries`, `embedding`, `limit`, `time_query`, `tags`, `tag_mode`, `tag_match`, `exclude_tags`, expansion options, context hints, and pagination (`offset`, `sort`, `format`).
+   - **Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency, and graph expansion. Supports `query`/`queries`, `embedding`, `limit`, `time_query`, `tags`, `tag_mode`, `tag_match`, `exclude_tags`, expansion options, context hints, and pagination (`offset`, `sort`, `format`). Responses are token-budgeted (default ~18k estimated tokens, override via `AUTOMEM_RECALL_TOKEN_BUDGET`) to stay under MCP client caps: `text`/`items`/`detailed` formats are summary-first (the stored summary replaces the content preview when present), relations collapse to `{id, type, strength, summary}` stubs, and metadata collapses to `metadata_keys`. `format: "json"` and ID fetches keep full per-field passthrough.
 3. **associate_memories** — Create relationships (11 public authorable types only).
 4. **update_memory** — Update existing memory fields (supports `MEMORY_TYPES` enum for `type`).
 5. **delete_memory** — Two modes:
@@ -197,6 +197,12 @@ AUTOMEM_API_KEY=your_api_key_here
 # the 30000 default; the watchdog cannot be disabled (it is the fix for an
 # orphaned-process memory leak — see src/lifecycle.ts).
 AUTOMEM_PARENT_WATCHDOG_MS=30000
+
+# Optional (advanced): recall response budget, in estimated tokens (default
+# 18000). Recall responses tokenize at ~2.5 chars/token; the budget keeps them
+# under MCP client tool-response caps (~25k tokens in Claude Code). Raise it
+# only for hosts with larger caps — see src/recall-memory.ts.
+AUTOMEM_RECALL_TOKEN_BUDGET=18000
 ```
 
 ## Common Tasks

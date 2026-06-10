@@ -54,6 +54,7 @@ function mapStoredMemory(raw: any) {
   return {
     memory_id: raw?.id || raw?.memory_id || '',
     content: raw?.content || '',
+    summary: raw?.summary,
     tags: raw?.tags || [],
     importance: raw?.importance ?? 0,
     created_at: raw?.timestamp || raw?.created_at || '',
@@ -73,7 +74,6 @@ function wrapMemoryAsRecallResult(raw: any): RecallResult['results'][number] {
     final_score: 1,
     score_components: {},
     relations: [],
-    related_to: [],
     memory: memory as any,
   };
 }
@@ -552,12 +552,14 @@ export class AutoMemClient {
         final_score: result.final_score ?? result.score ?? 0,
         score_components: result.score_components || {},
         source: result.source,
-        relations: result.relations || [],
-        related_to: result.related_to || result.relations || [],
+        // Servers may send either key; normalize to one so the formatter never
+        // serializes the same relation list twice.
+        relations: result.relations || result.related_to || [],
         expanded_from_entity: result.expanded_from_entity,
         memory: {
           memory_id: result.id,
           content: result.memory?.content || '',
+          summary: result.memory?.summary,
           tags: result.memory?.tags || [],
           importance: result.memory?.importance ?? 0,
           created_at: result.memory?.timestamp || result.memory?.created_at || '',
