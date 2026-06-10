@@ -7,5 +7,6 @@ plugins/automem/scripts/session-start.sh text eol=lf
 templates/codex/memory-rules.md text eol=lf
 templates/cursor/automem.mdc.template text eol=lf
 templates/CLAUDE_DESKTOP_INSTRUCTIONS.md text eol=lf
+templates/CLAUDE_MD_MEMORY_RULES.md text eol=lf
 templates/hermes/memory-rules.md text eol=lf
 templates/hermes/provider/automem_policy.py text eol=lf
