@@ -423,12 +423,13 @@ class AutoMemMemoryProvider(MemoryProvider):
             )
 
         if is_debug:
+            # No tag gate: bugfix/solution tagging is incomplete and a hard
+            # gate hides cross-corpus fixes.
             recall_plan.append(
                 (
                     "Debug context",
                     {
                         "query": prompt[:500],
-                        "tags": ["bugfix", "solution"],
                         "limit": DEBUG_RECALL_LIMIT,
                         "format": "detailed",
                     },

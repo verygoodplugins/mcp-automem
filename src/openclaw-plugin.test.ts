@@ -561,7 +561,9 @@ describe('openclaw AutoMem plugin', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const debugUrl = getRequestUrl(0);
-    expect(debugUrl.searchParams.getAll('tags')).toEqual(['bugfix', 'solution']);
+    // Debug recall sends NO tag gate: bugfix/solution tagging is incomplete
+    // and a hard gate hides cross-corpus fixes.
+    expect(debugUrl.searchParams.getAll('tags')).toEqual([]);
     expect(debugUrl.searchParams.get('limit')).toBe('20');
     expect(result?.prependSystemContext).toContain('<relevant-memories>');
   });

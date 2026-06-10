@@ -21,7 +21,7 @@ Desktop conversations often are not project-scoped. Use semantic recall from the
 - **Tags are a hard gate** - memories without matching tags are excluded before scoring. Use tags for stable categories like `preference` and `bugfix`; do not guess topic tags.
 - **One good query beats `queries[]` + `auto_decompose`** for focused tasks. Use `queries[]` only for genuinely multi-topic questions.
 - **`limit` caps at 50.** Routine recall should use enough budget to be useful.
-- **`format: "detailed"`** exposes timestamps, confidence, importance, and relations so staleness is visible.
+- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id })`.
 - **`store_memory` can silently fail.** Verify important stores by recalling a distinctive phrase; retry once if missing.
 - **Bare tag convention** - use `automem`, not `project/automem`; no `lang/` prefixes, platform tags, or date-stamped tags. `entity:*:*` tags are server-injected.
 
@@ -33,14 +33,15 @@ Drop the project tag gate when the slug collides with common topic words: `api`,
 
 Desktop has no reliable project slug on most first turns, so prefer preferences plus one semantic task query. Add a tag gate only after the user clearly scopes to a project.
 
+Preferences and task context are independent recalls - issue them in parallel in a single message.
+
 Preferences first:
 
 ```javascript
 mcp__memory__recall_memory({
   tags: ["preference"],
   limit: 20,
-  sort: "updated_desc",
-  format: "detailed"
+  sort: "updated_desc"
 })
 ```
 
@@ -51,7 +52,6 @@ mcp__memory__recall_memory({
   query: "<proper nouns, product names, people, tools, specific topics from the user's message>",
   time_query: "last 90 days",
   limit: 30,
-  format: "detailed",
   language: "<typescript|python|go|rust|...>" // optional ranker
 })
 ```
@@ -63,10 +63,11 @@ Debug context, only when actively investigating a concrete symptom:
 ```javascript
 mcp__memory__recall_memory({
   query: "<error symptom or exact message>",
-  tags: ["bugfix", "solution"],
   limit: 20
 })
 ```
+
+No tag gate on debug recall - bugfix/solution tagging is incomplete and a hard gate hides cross-corpus fixes.
 
 Don't re-recall mid-conversation unless the topic genuinely shifts, a new proper noun enters, or active debugging starts.
 

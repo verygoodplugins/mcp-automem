@@ -60,8 +60,11 @@ function expectSharedPolicySurface(source: string) {
   expect(normalized).toContain(`limit: ${AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit}`);
   expect(normalized).toContain(`limit: ${AUTOMEM_POLICY_DEFAULTS.contextRecallLimit}`);
   expect(normalized).toContain(`time_query: "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days"`);
-  expect(normalized).toContain(`tags: ["bugfix", "solution"]`);
   expect(normalized).toContain(`limit: ${AUTOMEM_POLICY_DEFAULTS.debugRecallLimit}`);
+  expect(normalized).toContain('No tag gate on debug recall');
+  expect(normalized).toContain('issue them in parallel');
+  expect(normalized).not.toContain('format: "detailed"');
+  expect(normalized).not.toContain('tags: ["bugfix", "solution"]');
   expect(normalized).toContain('topic genuinely shifts');
   expect(normalized).toContain('proper noun');
   expect(normalized).toContain('When recall misses');
@@ -113,39 +116,31 @@ describe('shared AutoMem memory policy', () => {
   it('renders the Claude Code session-start prompt from shared defaults', () => {
     expect(renderClaudeCodeSessionStartPrompt('$PROJECT')).toMatchInlineSnapshot(`
       "<automem_session_context>
-      MEMORY RECALL - run these phases in order before your first substantive response.
-      
+      MEMORY RECALL - run both recalls before your first substantive response. They are independent: issue them in parallel in a single message.
+
       Phase 1 - Preferences (tag-only, no time filter, no query):
         mcp__memory__recall_memory({
           tags: ["preference"],
           limit: 20,
-          sort: "updated_desc",
-          format: "detailed"
+          sort: "updated_desc"
         })
-      
+
       Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; 90-day window):
         mcp__memory__recall_memory({
           query: "<proper nouns, product names, people, tools, specific topics from the user's message>",
           tags: ["$PROJECT"],    // drop if slug collides with a common word
           time_query: "last 90 days",
-          limit: 30,
-          format: "detailed"
+          limit: 30
         })
-      
-      Phase 3 - ON-DEMAND debugging (only if the user's message is a debugging/error-symptom question; skip otherwise):
-        mcp__memory__recall_memory({
-          query: "<error symptom>",
-          tags: ["bugfix", "solution"],
-          limit: 20
-        })
-      
+
       Project slug: $PROJECT
-      
+
       Notes:
-      - Tags are a HARD GATE - they filter before scoring. For discovery/debugging across the full corpus, drop \`tags\` and rely on semantic \`query\` alone.
-      - Do NOT use namespace-prefixed tags (\`project/*\`, \`lang/*\`, etc.) - the corpus uses bare tags.
-      - Phase 2 uses ONE targeted query, not \`queries[]\` + \`auto_decompose\`. Sub-queries converge and dedup drops results; a single query built from the real nouns in the user's message wins empirically. Only switch to \`queries[]\` for genuinely multi-topic questions.
+      - Tags are a HARD GATE - they filter before scoring. Use only the tag sets above; never invent topic tags. Bare tags only - no namespace prefixes (\`project/*\`, \`lang/*\`).
+      - Debugging recall is ON-DEMAND: when the user reports an error symptom, recall with the symptom as a semantic query and NO tags (a tag gate hides cross-corpus fixes), limit 20.
+      - Phase 2 uses ONE targeted query, not \`queries[]\` + \`auto_decompose\`. Sub-queries converge and dedup drops results; reserve \`queries[]\` for genuinely multi-topic questions.
       - If the project slug collides with a common topic word (for example \`video\` or \`test\`), drop the Phase 2 tag gate and rely on semantic \`query\` alone.
+      - Results show created/updated timestamps and importance - prefer fresh, high-importance memories. Fetch a single full record with recall_memory({ memory_id: "<id>" }) when needed.
       - Do not re-recall every turn. After turn 1, recall again only for topic shifts, new proper nouns, or active debugging.
       - If recall fails or returns nothing, continue without memory - do not mention the failure to the user.
       </automem_session_context>"
@@ -162,13 +157,13 @@ describe('shared AutoMem memory policy', () => {
       Use AutoMem with the validated shared policy.
 
       Recall rules:
-      - First substantive turn: run automem_recall_memory for preferences with tags ["preference"], limit 20, sort "updated_desc", format "detailed". Then run ONE semantic task-context recall using the user's real nouns, time_query "last 90 days", limit 30, format "detailed", and only use the project gate when it is unambiguous.
-      - Active debugging only: run automem_recall_memory with the error symptom, tags ["bugfix", "solution"], and limit 20.
+      - First substantive turn: run automem_recall_memory for preferences with tags ["preference"], limit 20, sort "updated_desc". In parallel, run ONE semantic task-context recall using the user's real nouns, time_query "last 90 days", limit 30, and only use the project gate when it is unambiguous.
+      - Active debugging only: run automem_recall_memory with the error symptom as a semantic query, NO tags (a tag gate hides cross-corpus fixes), limit 20.
       - After turn 1, recall again only for topic shifts, new proper nouns, or active debugging. Do not re-recall on routine follow-ups.
       - If the user explicitly asks what you know about a person, project, or topic, run automem_recall_memory before answering from memory. Do not promise a "live recall" without doing it.
 
       Tag discipline for tool calls (tags are a hard gate, not a hint):
-      - Valid tag sets for automem_recall_memory: ["preference"], ["bugfix", "solution"], or the project slug (e.g. ["mcp-automem"]). Otherwise drop tags and rely on the query.
+      - Valid tag sets for automem_recall_memory: ["preference"] or the project slug (e.g. ["mcp-automem"]). Otherwise drop tags and rely on the query.
       - Never invent topic-word tags from the prompt (e.g. ["voiceink", "autohub"]). Put those nouns in query, not tags.
       - Bare strings only. No namespace prefixes (project/*, lang/*), no platform tags (cursor, claude-code), no date-stamped tags.
 

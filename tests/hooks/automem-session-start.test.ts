@@ -14,12 +14,16 @@ import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HOOKS_DIR } from './helpers';
 
-function runSessionStart(options: { cwd?: string } = {}): { stdout: string; exitCode: number } {
+function runSessionStart(
+  options: { cwd?: string; input?: string; env?: NodeJS.ProcessEnv } = {}
+): { stdout: string; exitCode: number } {
   const hookPath = path.join(HOOKS_DIR, 'automem-session-start.sh');
   const result = spawnSync('bash', [hookPath], {
     encoding: 'utf8',
     timeout: 5000,
     cwd: options.cwd ?? process.cwd(),
+    input: options.input,
+    env: options.env ?? process.env,
   });
   return {
     stdout: result.stdout ?? '',
@@ -50,10 +54,11 @@ describe('automem-session-start.sh', () => {
     expect(stdout).toMatch(/Phase 1/);
     expect(stdout).toMatch(/tags:\s*\["preference"\]/);
     expect(stdout).toMatch(/limit:\s*20/);
-    // v3: Phase 1 sorts by updated_desc and uses detailed format so the
-    // freshest preferences win and staleness is visible inline.
+    // Phase 1 sorts by updated_desc so the freshest preferences win. The
+    // default text format now carries timestamps/importance, so the prompt
+    // must NOT request format "detailed" (it overflowed the response cap).
     expect(stdout).toMatch(/sort:\s*"updated_desc"/);
-    expect(stdout).toMatch(/format:\s*"detailed"/);
+    expect(stdout).not.toMatch(/format:\s*"detailed"/);
   });
 
   it('injects a Phase 2 task-context recall with project-slug gate + 90-day window', () => {
@@ -81,12 +86,64 @@ describe('automem-session-start.sh', () => {
     expect(stdout).toMatch(/auto_decompose/);
   });
 
-  it('injects a Phase 3 on-demand debugging recall gated by bugfix/solution', () => {
+  it('describes debugging recall as on-demand with no tag gate (no Phase 3)', () => {
     const { stdout } = runSessionStart();
-    expect(stdout).toMatch(/Phase 3/);
-    // On-demand framing: should NOT be described as a routine every-session call
-    expect(stdout).toMatch(/ON-DEMAND|on-demand/);
-    expect(stdout).toMatch(/tags:\s*\["bugfix",\s*"solution"\]/);
+    // The dedicated Phase 3 was removed: debugging recall is an on-demand
+    // note, and it must NOT gate on bugfix/solution tags — that hard gate
+    // hides cross-corpus fixes (tagging discipline is incomplete).
+    expect(stdout).not.toMatch(/Phase 3/);
+    expect(stdout).toMatch(/ON-DEMAND/);
+    expect(stdout).toMatch(/NO tags/);
+    expect(stdout).not.toMatch(/tags:\s*\["bugfix",\s*"solution"\]/);
+  });
+
+  it('emits the prompt in parallel-recall framing for both phases', () => {
+    const { stdout } = runSessionStart();
+    expect(stdout).toMatch(/in parallel/);
+  });
+
+  it('emits only once per session_id (sentinel suppresses duplicate registration)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-sentinel-'));
+    tmpDirs.push(tmp);
+    const env = { ...process.env, TMPDIR: tmp };
+    const input = JSON.stringify({ session_id: 'abc-123', source: 'startup' });
+
+    const first = runSessionStart({ input, env });
+    expect(first.exitCode).toBe(0);
+    expect(first.stdout).toMatch(/<automem_session_context>/);
+
+    const second = runSessionStart({ input, env });
+    expect(second.exitCode).toBe(0);
+    expect(second.stdout).toBe('');
+  });
+
+  it('keys the sentinel on source so startup and clear both emit', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-sentinel-'));
+    tmpDirs.push(tmp);
+    const env = { ...process.env, TMPDIR: tmp };
+
+    const startup = runSessionStart({
+      input: JSON.stringify({ session_id: 'abc-123', source: 'startup' }),
+      env,
+    });
+    expect(startup.stdout).toMatch(/<automem_session_context>/);
+
+    const clear = runSessionStart({
+      input: JSON.stringify({ session_id: 'abc-123', source: 'clear' }),
+      env,
+    });
+    expect(clear.stdout).toMatch(/<automem_session_context>/);
+  });
+
+  it('always emits when stdin carries no session_id', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-sentinel-'));
+    tmpDirs.push(tmp);
+    const env = { ...process.env, TMPDIR: tmp };
+
+    const first = runSessionStart({ input: '', env });
+    const second = runSessionStart({ input: '', env });
+    expect(first.stdout).toMatch(/<automem_session_context>/);
+    expect(second.stdout).toMatch(/<automem_session_context>/);
   });
 
   it('tool-call bodies use ONLY bare tags (no namespace prefixes inside tags arrays)', () => {

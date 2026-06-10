@@ -241,13 +241,14 @@ export class StdioMcpClient {
     this.child.stdin.write(`${JSON.stringify(payload)}\n`);
   }
 
-  async initialize(): Promise<void> {
-    await this.request('initialize', {
+  async initialize(): Promise<any> {
+    const result = await this.request('initialize', {
       protocolVersion: '2025-06-18',
       capabilities: {},
       clientInfo: { name: 'automem-host-smoke', version: '0.0.0' },
     });
     this.notify('notifications/initialized');
+    return result;
   }
 
   async close(): Promise<void> {

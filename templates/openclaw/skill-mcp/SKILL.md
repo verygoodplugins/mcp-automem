@@ -28,7 +28,7 @@ Interpret `/automem remember ...`, `/automem recall ...`, `/automem update ...`,
 
 - Recall preferences first with `tags: ["preference"]`, `sort: "updated_desc"`, and `format: "detailed"` when collaboration style or user habits matter.
 - For task context, prefer one semantic query built from the user's actual nouns. Do not hard-gate recall with default tags unless the conversation is clearly scoped to an unambiguous project slug.
-- For debugging, use a tighter recall on the symptom with `tags: ["bugfix", "solution"]`.
+- For debugging, recall with the error symptom as a semantic query and NO tags — bugfix/solution tagging is incomplete, and a tag gate hides cross-corpus fixes.
 - Tags are a hard gate. Use bare tags only, and avoid platform tags like `openclaw`.
 - Store only durable information worth reusing later.
 - Default project tags are for stored memories. Recall should stay semantic unless tags are explicitly needed.
