@@ -406,6 +406,40 @@ describe('buildRecallMemoryResponse', () => {
     });
   });
 
+  it('budgets json format by actual pretty-printed length, not a 2x minified guess', async () => {
+    vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '2000');
+    // Metadata built from many tiny arrays: pretty-printing inflates these ~6x
+    // over minified, so a 2x heuristic badly underestimates the text channel.
+    const inflatedMetadata = { rows: Array.from({ length: 40 }, () => [1]) };
+    const manyResults = Array.from({ length: 40 }, (_, i) => ({
+      id: `mem-${i}`,
+      match_type: 'semantic',
+      final_score: 0.5,
+      score_components: { importance: 0.5 },
+      memory: {
+        memory_id: `mem-${i}`,
+        content: 'small content',
+        tags: ['big'],
+        importance: 0.5,
+        created_at: '2026-03-25T00:00:00Z',
+        metadata: inflatedMetadata,
+      },
+    }));
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue({ results: manyResults, count: 40 }),
+    };
+
+    const response = await buildRecallMemoryResponse(client, {
+      query: 'inflated',
+      format: 'json',
+    });
+
+    const structured = response.structuredContent as any;
+    expect(structured.truncation.applied).toBe(true);
+    // the pretty-printed text channel must respect the token budget
+    expect(response.content[0].text.length).toBeLessThanOrEqual(2000 * RECALL_CHARS_PER_TOKEN);
+  });
+
   it('drops trailing results past the global token budget in text format', async () => {
     const manyResults = Array.from({ length: 200 }, (_, i) => ({
       id: `mem-${i}`,

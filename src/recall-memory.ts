@@ -308,9 +308,12 @@ export async function buildRecallMemoryResponse(
       textBlock = renderTextBlock(item, displayText, index);
     }
     const structuredLength = JSON.stringify(structuredItem)?.length ?? 0;
-    // json doubles the structured payload into the text channel (pretty-printed).
+    // json repeats the structured payload in the text channel pretty-printed;
+    // measure that length directly (nesting can inflate it well past 2x).
     const cost =
-      format === 'json' ? structuredLength * 2 : structuredLength + textBlock.length;
+      format === 'json'
+        ? structuredLength + (JSON.stringify(structuredItem, null, 2)?.length ?? 0)
+        : structuredLength + textBlock.length;
     return { structuredItem, textBlock, cost, contentTruncated, summaryShown };
   });
 
