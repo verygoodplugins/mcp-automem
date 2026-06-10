@@ -26,7 +26,6 @@ const STUB_SCRIPT_NAMES = [
   'capture-build-result.sh',
   'capture-test-pattern.sh',
   'capture-deployment.sh',
-  'session-memory.sh',
 ];
 
 interface HookEntry {
@@ -98,12 +97,14 @@ describe('shipped hook commands run via the platform exec model (#108)', () => {
   const templateCmds = extractEnvPrefixedCommands(templateSettings);
   const pluginCmds = extractEnvPrefixedCommands(pluginHooks);
 
-  it('finds the four template hook commands that carry CLAUDE_HOOK_TYPE', () => {
-    expect(templateCmds).toHaveLength(4);
+  it('finds the three template hook commands that carry CLAUDE_HOOK_TYPE', () => {
+    // build, test_run, deploy — the session_end hook was retired from the
+    // default Stop matcher (session-summary rollups are low-signal noise).
+    expect(templateCmds).toHaveLength(3);
   });
 
-  it('finds the plugin hook command that carries CLAUDE_HOOK_TYPE', () => {
-    expect(pluginCmds).toHaveLength(1);
+  it('plugin hooks carry no CLAUDE_HOOK_TYPE-prefixed commands', () => {
+    expect(pluginCmds).toHaveLength(0);
   });
 
   // Cross-platform structural guard: on POSIX, execSync uses /bin/sh which
@@ -119,17 +120,7 @@ describe('shipped hook commands run via the platform exec model (#108)', () => {
 
   it.each(templateCmds)('template command executes cleanly: %s', (cmd) => {
     const out = execSync(cmd, { encoding: 'utf8', env: process.env });
-    expect(out).toMatch(/CLAUDE_HOOK_TYPE=(build|test_run|deploy|session_end)/);
-    expect(out).not.toMatch(/MISSING/);
-  });
-
-  it.each(pluginCmds)('plugin command executes cleanly: %s', (cmd) => {
-    // Plugin hooks reference scripts via ${CLAUDE_PLUGIN_ROOT}; in the runtime
-    // Claude Code provides this. Here we resolve it to the same hooks dir we
-    // staged in beforeAll, since the stub script names match.
-    const resolved = cmd.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, path.join(tmpHome, '.claude'));
-    const out = execSync(resolved, { encoding: 'utf8', env: process.env });
-    expect(out).toMatch(/CLAUDE_HOOK_TYPE=session_end/);
+    expect(out).toMatch(/CLAUDE_HOOK_TYPE=(build|test_run|deploy)/);
     expect(out).not.toMatch(/MISSING/);
   });
 });

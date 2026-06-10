@@ -20,6 +20,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **hooks:** disable session-summary Stop hook by default. `session-memory.sh` was emitting "Claude session in X on branch Y. Modified Z files…" rollups that violate AutoMem's "never store session summaries" guideline, polluting recall results with low-signal noise (~74% of recent project-tagged corpus memories were hook-emitted, dominated by these rollups). Build/test/deploy capture and queue draining are unaffected — only the `session-memory.sh` entry was removed from the `Stop` matcher; `queue-cleanup.sh` and the queue drainer remain. The script files are intentionally retained at `templates/claude-code/hooks/session-memory.sh` (and the `plugins/automem/` duplicate) for a future decision-extracting rewrite. **Migration for existing users:** `mergeSettings` is additive, so re-running `npx @verygoodplugins/mcp-automem claude-code` will not remove the legacy entry from your `~/.claude/settings.json`. Open that file and delete the hook object whose `command` references `session-memory.sh` from the `Stop` matcher's `hooks` array, leaving `queue-cleanup.sh` and the `npx ... queue` drainer in place.
+
 ### Features
 
 - parity with AutoMem service v0.15.2 — exposed via mode-multiplexed parameters on existing tools (no new tools, surface stays at 6):

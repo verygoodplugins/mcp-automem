@@ -35,10 +35,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'CLAUDE_HOOK_TYPE=session_end \"${CLAUDE_PLUGIN_ROOT}/scripts/session-memory.sh\"'"
-          },
-          {
-            "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/queue-cleanup.sh"
           },
           {
