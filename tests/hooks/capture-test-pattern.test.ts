@@ -22,16 +22,18 @@ describe('capture-test-pattern.sh', () => {
   }
 
   describe('matcher', () => {
+    // Output must be parseable for the framework: a passing run that parses
+    // zero tests is skipped by the noise guard (see its own describe below).
     it.each([
-      ['pytest', 'pytest tests/'],
-      ['npm test', 'npm test'],
-      ['yarn test', 'yarn test'],
-      ['jest', 'jest --coverage'],
-      ['vitest', 'vitest run'],
-      ['go test', 'go test ./...'],
-      ['cargo test', 'cargo test --release'],
-    ])('captures: %s', (_label, command) => {
-      const result = run({ command, exitCode: 0, output: '42 passed in 1s' });
+      ['pytest', 'pytest tests/', '42 passed in 1.3s', 0],
+      ['npm test', 'npm test', 'Tests: 42 passed', 0],
+      ['yarn test', 'yarn test', 'Tests: 42 passed', 0],
+      ['jest', 'jest --coverage', 'Tests: 42 passed', 0],
+      ['vitest', 'vitest run', 'Tests: 42 passed', 0],
+      ['go test', 'go test ./...', 'ok\texample.com/pkg\t0.4s\nPASS', 0],
+      ['cargo test (failure)', 'cargo test --release', 'test result: FAILED. 0 passed; 1 failed', 1],
+    ])('captures: %s', (_label, command, output, exitCode) => {
+      const result = run({ command, exitCode, output });
       expect(result.queue).toHaveLength(1);
     });
 
@@ -41,6 +43,20 @@ describe('capture-test-pattern.sh', () => {
     ])('skips: %s', (_label, command) => {
       const result = run({ command });
       expect(result.queue).toHaveLength(0);
+    });
+  });
+
+  describe('zero-parse noise guard', () => {
+    it('skips a passing run whose output parses zero tests', () => {
+      // e.g. output truncated by `| tail` so counts never appear — queueing
+      // would store a "Test suite passed: 0 tests" memory, which is noise.
+      const result = run({ command: 'npm test', exitCode: 0, output: 'output elided' });
+      expect(result.queue).toHaveLength(0);
+    });
+
+    it('still captures a failing run even when counts are unparseable', () => {
+      const result = run({ command: 'npm test', exitCode: 1, output: 'something exploded' });
+      expect(result.queue).toHaveLength(1);
     });
   });
 

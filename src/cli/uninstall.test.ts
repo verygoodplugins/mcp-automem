@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { removeManagedHookEntries } from './claude-code.js';
 import { parseUninstallArgs, runUninstall } from './uninstall.js';
 
 describe('uninstall hermes', () => {
@@ -198,5 +199,148 @@ describe('uninstall hermes', () => {
     expect(fs.readFileSync(path.join(tmpDir, '.env'), 'utf8')).toBe(beforeEnv);
     expect(fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8')).toBe(beforeAgents);
     expect(fs.existsSync(path.join(tmpDir, 'plugins', 'automem'))).toBe(true);
+  });
+});
+
+describe('removeManagedHookEntries', () => {
+  const opts = { homeDir: '/Users/testuser', platform: 'darwin' as const };
+
+  it('removes managed hooks across events, preserves foreign hooks, drops emptied events', () => {
+    const hooks = {
+      Stop: [
+        {
+          matcher: '*',
+          hooks: [
+            { type: 'command', command: 'bash "$HOME/.claude/scripts/queue-cleanup.sh"' },
+            {
+              type: 'command',
+              command:
+                'npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5',
+            },
+            { type: 'command', command: 'node "/Users/testuser/.claude/hooks/awtrix-event.js"' },
+            {
+              type: 'command',
+              command:
+                "bash -c 'CLAUDE_HOOK_TYPE=session_end bash \"$HOME/.claude/hooks/session-memory.sh\"'",
+            },
+          ],
+        },
+      ],
+      SessionStart: [
+        {
+          matcher: 'startup|clear',
+          hooks: [
+            { type: 'command', command: 'bash "$HOME/.claude/hooks/automem-session-start.sh"' },
+          ],
+        },
+      ],
+      PreToolUse: [
+        {
+          matcher: 'AskUserQuestion',
+          hooks: [{ type: 'command', command: 'node "/Users/testuser/.claude/hooks/plan-autonomy.js"' }],
+        },
+      ],
+    };
+
+    const { hooks: cleaned, removedCount } = removeManagedHookEntries(hooks, opts);
+    expect(removedCount).toBe(4);
+    expect(cleaned.SessionStart).toBeUndefined();
+    expect(cleaned.Stop).toHaveLength(1);
+    expect(cleaned.Stop[0].hooks).toEqual([
+      { type: 'command', command: 'node "/Users/testuser/.claude/hooks/awtrix-event.js"' },
+    ]);
+    expect(cleaned.PreToolUse).toEqual(hooks.PreToolUse);
+  });
+
+  it('returns zero removals for a config with no AutoMem hooks', () => {
+    const hooks = {
+      Stop: [{ matcher: '*', hooks: [{ type: 'command', command: 'bash /opt/user.sh' }] }],
+    };
+    const result = removeManagedHookEntries(hooks, opts);
+    expect(result.removedCount).toBe(0);
+    expect(result.hooks).toEqual(hooks);
+  });
+});
+
+describe('uninstall claude-code', () => {
+  let tmpHome: string;
+
+  beforeEach(() => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-uninstall-cc-'));
+    fs.mkdirSync(path.join(tmpHome, '.claude'), { recursive: true });
+    vi.spyOn(os, 'homedir').mockReturnValue(tmpHome);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  const settingsPath = () => path.join(tmpHome, '.claude', 'settings.json');
+
+  function writeInstalledSettings(): void {
+    fs.writeFileSync(
+      settingsPath(),
+      JSON.stringify(
+        {
+          permissions: {
+            allow: ['mcp__memory__store_memory', 'mcp__memory__recall_memory', 'Bash(ls:*)'],
+          },
+          hooks: {
+            Stop: [
+              {
+                matcher: '*',
+                hooks: [
+                  { type: 'command', command: 'bash "$HOME/.claude/scripts/queue-cleanup.sh"' },
+                  {
+                    type: 'command',
+                    command:
+                      'npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5',
+                  },
+                  { type: 'command', command: `node "${tmpHome}/.claude/hooks/awtrix-event.js"` },
+                ],
+              },
+            ],
+            SessionStart: [
+              {
+                matcher: 'startup|clear',
+                hooks: [
+                  { type: 'command', command: 'bash "$HOME/.claude/hooks/automem-session-start.sh"' },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2
+      )
+    );
+  }
+
+  it('removes managed hooks and MCP permissions, keeps foreign hooks, creates a backup', async () => {
+    writeInstalledSettings();
+
+    await runUninstall({ platform: 'claude-code', yes: true, quiet: true });
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    expect(settings.permissions.allow).toEqual(['Bash(ls:*)']);
+    expect(settings.hooks.SessionStart).toBeUndefined();
+    expect(settings.hooks.Stop[0].hooks).toEqual([
+      { type: 'command', command: `node "${tmpHome}/.claude/hooks/awtrix-event.js"` },
+    ]);
+
+    const backups = fs
+      .readdirSync(path.join(tmpHome, '.claude'))
+      .filter((name) => name.startsWith('settings.json.backup.'));
+    expect(backups).toHaveLength(1);
+  });
+
+  it('honors dry-run without changing settings.json', async () => {
+    writeInstalledSettings();
+    const before = fs.readFileSync(settingsPath(), 'utf8');
+
+    await runUninstall({ platform: 'claude-code', yes: true, dryRun: true, quiet: true });
+
+    expect(fs.readFileSync(settingsPath(), 'utf8')).toBe(before);
   });
 });

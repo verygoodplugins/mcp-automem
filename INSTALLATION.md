@@ -400,6 +400,8 @@ npx @verygoodplugins/mcp-automem claude-code
 
 This merges permissions into `~/.claude/settings.json` so Claude can use memory tools without asking.
 
+Re-running setup is also the supported migration path for legacy installs: the merge removes retired hooks (the old `session-memory.sh` Stop entry), collapses duplicate hook registrations — including the globally-installed `mcp-automem queue …` drainer spelling next to the current `npx -y @verygoodplugins/mcp-automem queue …` form — and rewrites known-legacy command spellings to the current template. Hooks the installer didn't author are never touched, and a backup (`settings.json.bak`, numbered if needed) is written before any change.
+
 > Windows compatibility note: the Claude Code hook payload remains Bash-based. On Windows, use a POSIX shell environment such as Git Bash, MSYS2, or WSL, and make sure `bash`, `jq`, and Python are available. This is not full native Windows hook support yet.
 
 > Note: the old Claude Code marketplace plugin is deprecated and kept only as a migration bridge. Use `npx @verygoodplugins/mcp-automem claude-code` for new installs. See [DEPRECATION.md](DEPRECATION.md).
@@ -1341,6 +1343,12 @@ npx @verygoodplugins/mcp-automem help
 - Check `~/.claude/settings.json` has the MCP permissions
 - Verify MCP server is configured in `~/.claude.json`
 - Run setup again: `npx @verygoodplugins/mcp-automem claude-code`
+
+#### Claude Code: Hooks firing twice or storing duplicate/session-summary memories
+
+- Run setup again: `npx @verygoodplugins/mcp-automem claude-code` — the merge self-repairs duplicate hook registrations, removes the retired `session-memory.sh` Stop hook, and collapses the legacy `mcp-automem queue` drainer into the current `npx -y` form
+- A backup of `settings.json` is created automatically before any change
+- Preview first with `--dry-run` if you want to see what would change
 
 #### Codex: MCP server not loading
 
