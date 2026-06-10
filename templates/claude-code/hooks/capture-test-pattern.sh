@@ -71,7 +71,7 @@ if echo "$COMMAND" | grep -q "pytest\|python.*test"; then
     TESTS_PASSED="${TESTS_PASSED:-0}"
     TESTS_FAILED=$(echo "$OUTPUT" | grep -oE "[0-9]+ failed" | grep -oE "[0-9]+" | head -1)
     TESTS_FAILED="${TESTS_FAILED:-0}"
-elif echo "$COMMAND" | grep -q "npm test\|jest\|vitest"; then
+elif echo "$COMMAND" | grep -q "npm test\|yarn test\|pnpm test\|jest\|vitest"; then
     TEST_FRAMEWORK="jest/vitest"
     TESTS_PASSED=$(echo "$OUTPUT" | grep -oE "Tests:.*[0-9]+ passed" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1)
     TESTS_PASSED="${TESTS_PASSED:-0}"
@@ -88,6 +88,12 @@ elif echo "$COMMAND" | grep -q "phpunit"; then
     TESTS_PASSED="${TESTS_PASSED:-0}"
     TESTS_FAILED=$(echo "$OUTPUT" | grep -oE "FAILURES.*Tests: [0-9]+" | grep -oE "[0-9]+" | tail -1)
     TESTS_FAILED="${TESTS_FAILED:-0}"
+fi
+
+# Nothing parsed on a passing run: a "Test suite passed: 0 tests" memory is
+# pure noise — skip queueing entirely.
+if [ "$EXIT_CODE" -eq 0 ] && [ "$TESTS_PASSED" -eq 0 ] && [ "$TESTS_FAILED" -eq 0 ]; then
+    exit 0
 fi
 
 # Calculate test significance

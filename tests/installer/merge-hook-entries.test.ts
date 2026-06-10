@@ -12,13 +12,17 @@
  * hooks when the template moves them under a new matcher.
  */
 
+import fs from 'fs';
 import os from 'os';
+import path from 'path';
 import { describe, expect, it } from 'vitest';
 import {
+  canonicalizeLegacyHookCommands,
   mergeHookEntries,
   mergeSettings,
   migrateManagedHookEntries,
   normalizeHookCommand,
+  stripRetiredHookEntries,
 } from '../../src/cli/claude-code.js';
 
 const HOME = '/Users/testuser';
@@ -127,6 +131,25 @@ describe('mergeHookEntries', () => {
       { matcher: '*', hooks: [hook(`bash "${HOME}/.claude/hooks/session-memory.sh"`)] },
     ];
     const merged = mergeHookEntries(existing, template, opts);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].hooks).toHaveLength(1);
+  });
+
+  it('dedupes the bare-CLI and npx spellings of the queue drainer to one hook', () => {
+    const existing = [
+      {
+        matcher: '*',
+        hooks: [
+          hook(
+            `command -v mcp-automem >/dev/null 2>&1 && mcp-automem queue --file "${HOME}/.claude/scripts/memory-queue.jsonl" --limit 5 || true`
+          ),
+          hook(
+            'npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5'
+          ),
+        ],
+      },
+    ];
+    const merged = mergeHookEntries(existing, [], opts);
     expect(merged).toHaveLength(1);
     expect(merged[0].hooks).toHaveLength(1);
   });
@@ -271,5 +294,197 @@ describe('mergeSettings (SessionStart matcher migration end-to-end)', () => {
     expect(sessionStart[0].hooks).toEqual([hook('bash /opt/user-session-banner.sh')]);
     expect(sessionStart[1].matcher).toBe('startup|clear');
     expect(sessionStart[1].hooks).toHaveLength(1);
+  });
+});
+
+describe('stripRetiredHookEntries', () => {
+  const opts = { homeDir: HOME, platform: 'darwin' as const };
+
+  it.each([
+    ['unwrapped env-prefix', 'CLAUDE_HOOK_TYPE=session_end bash "$HOME/.claude/hooks/session-memory.sh"'],
+    ['bash -c wrapped', "bash -c 'CLAUDE_HOOK_TYPE=session_end bash \"$HOME/.claude/hooks/session-memory.sh\"'"],
+    ['absolute path', `bash "${HOME}/.claude/hooks/session-memory.sh"`],
+    ['tilde path', 'bash ~/.claude/hooks/session-memory.sh'],
+    ['plugin form', "bash -c 'CLAUDE_HOOK_TYPE=session_end \"${CLAUDE_PLUGIN_ROOT}/scripts/session-memory.sh\"'"],
+  ])('removes the retired session-memory hook spelled as %s', (_label, command) => {
+    const existing = [
+      {
+        matcher: '*',
+        hooks: [
+          hook('bash "$HOME/.claude/scripts/queue-cleanup.sh"'),
+          hook(command),
+          hook('npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5'),
+        ],
+      },
+    ];
+    const stripped = stripRetiredHookEntries(existing, opts);
+    expect(stripped).toHaveLength(1);
+    expect(stripped[0].hooks).toHaveLength(2);
+    expect(
+      stripped[0].hooks.map((h: { command: string }) => h.command).join(' ')
+    ).not.toContain('session-memory.sh');
+  });
+
+  it('drops an entry whose hooks all retired', () => {
+    const existing = [
+      {
+        matcher: '*',
+        hooks: [hook('bash "$HOME/.claude/hooks/session-memory.sh"')],
+      },
+    ];
+    expect(stripRetiredHookEntries(existing, opts)).toHaveLength(0);
+  });
+
+  it('never touches non-AutoMem hooks', () => {
+    const existing = [
+      {
+        matcher: '*',
+        hooks: [
+          hook(`node "${HOME}/.claude/hooks/awtrix-event.js"`),
+          hook('bash /opt/my-own-session-memory-wrapper.sh'),
+        ],
+      },
+    ];
+    expect(stripRetiredHookEntries(existing, opts)).toEqual(existing);
+  });
+
+  it('does not strip the deliberately retained smart-notify.sh', () => {
+    const existing = [
+      { matcher: '*', hooks: [hook('bash "$HOME/.claude/scripts/smart-notify.sh"')] },
+    ];
+    expect(stripRetiredHookEntries(existing, opts)).toEqual(existing);
+  });
+});
+
+describe('canonicalizeLegacyHookCommands', () => {
+  const opts = { homeDir: HOME, platform: 'darwin' as const };
+  const TEMPLATE_DRAINER =
+    'npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5';
+  const template = [{ matcher: '*', hooks: [hook(TEMPLATE_DRAINER)] }];
+
+  it('rewrites the bare-CLI drainer to the template spelling', () => {
+    const existing = [
+      {
+        matcher: '*',
+        hooks: [
+          hook(
+            `command -v mcp-automem >/dev/null 2>&1 && mcp-automem queue --file "${HOME}/.claude/scripts/memory-queue.jsonl" --limit 5 || true`
+          ),
+        ],
+      },
+    ];
+    const result = canonicalizeLegacyHookCommands(existing, template, opts);
+    expect(result[0].hooks[0].command).toBe(TEMPLATE_DRAINER);
+  });
+
+  it('rewrites the historical no-limit npx drainer to the template spelling', () => {
+    const existing = [
+      {
+        matcher: '*',
+        hooks: [
+          hook('npx @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl"'),
+        ],
+      },
+    ];
+    const result = canonicalizeLegacyHookCommands(existing, template, opts);
+    expect(result[0].hooks[0].command).toBe(TEMPLATE_DRAINER);
+  });
+
+  it('rewrites the unwrapped env-prefixed capture hook to the wrapped template spelling', () => {
+    const wrapped =
+      "bash -c 'CLAUDE_HOOK_TYPE=build bash \"$HOME/.claude/hooks/capture-build-result.sh\"'";
+    const existing = [
+      {
+        matcher: 'Bash',
+        hooks: [hook('CLAUDE_HOOK_TYPE=build bash "$HOME/.claude/hooks/capture-build-result.sh"')],
+      },
+    ];
+    const result = canonicalizeLegacyHookCommands(
+      existing,
+      [{ matcher: 'Bash', hooks: [hook(wrapped)] }],
+      opts
+    );
+    expect(result[0].hooks[0].command).toBe(wrapped);
+  });
+
+  it('leaves a user-customized drainer alone', () => {
+    const custom =
+      'npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 10';
+    const existing = [{ matcher: '*', hooks: [hook(custom)] }];
+    const result = canonicalizeLegacyHookCommands(existing, template, opts);
+    expect(result[0].hooks[0].command).toBe(custom);
+  });
+
+  it('leaves foreign hooks alone', () => {
+    const existing = [{ matcher: '*', hooks: [hook(`node "${HOME}/.claude/hooks/awtrix-event.js"`)] }];
+    expect(canonicalizeLegacyHookCommands(existing, template, opts)).toEqual(existing);
+  });
+});
+
+describe('mergeSettings (legacy Stop-hook migration end-to-end)', () => {
+  // Fixture mirrors a real machine observed in the wild: retired session-memory
+  // hook, BOTH queue-drainer spellings (the double-store bug), and a foreign
+  // user hook that must survive untouched. mergeSettings uses the real
+  // os.homedir(), so absolute-path spellings use it too.
+  const home = os.homedir();
+  const REPO_ROOT = path.resolve(__dirname, '../..');
+  const realTemplate = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, 'templates/claude-code/settings.json'), 'utf8')
+  );
+
+  const liveStopFixture = () => ({
+    hooks: {
+      Stop: [
+        {
+          matcher: '*',
+          hooks: [
+            hook('bash "$HOME/.claude/scripts/queue-cleanup.sh"'),
+            hook(
+              `command -v mcp-automem >/dev/null 2>&1 && mcp-automem queue --file "${home}/.claude/scripts/memory-queue.jsonl" --limit 5 || true`
+            ),
+            hook(`node "${home}/.claude/hooks/awtrix-event.js"`),
+            hook(
+              "bash -c 'CLAUDE_HOOK_TYPE=session_end bash \"$HOME/.claude/hooks/session-memory.sh\"'"
+            ),
+            hook(
+              'npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5'
+            ),
+          ],
+        },
+      ],
+    },
+  });
+
+  it('migrates the real-machine Stop block: strips retired hook, collapses drainers, keeps foreign hook', () => {
+    const merged = mergeSettings(liveStopFixture(), realTemplate);
+    const stop = merged.hooks.Stop;
+    expect(stop).toHaveLength(1);
+    const commands = stop[0].hooks.map((h: { command: string }) => h.command);
+    expect(commands.join(' ')).not.toContain('session-memory.sh');
+    expect(commands.filter((c: string) => /mcp-automem\s+queue|@verygoodplugins\/mcp-automem queue/.test(c))).toHaveLength(1);
+    expect(commands).toContain(`node "${home}/.claude/hooks/awtrix-event.js"`);
+    expect(commands.filter((c: string) => c.includes('queue-cleanup.sh'))).toHaveLength(1);
+    // The surviving drainer carries the template's canonical spelling.
+    expect(commands).toContain(
+      'npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5'
+    );
+  });
+
+  it('is idempotent over the legacy fixture', () => {
+    const once = mergeSettings(liveStopFixture(), realTemplate);
+    const twice = mergeSettings(JSON.parse(JSON.stringify(once)), realTemplate);
+    expect(twice).toEqual(once);
+  });
+
+  it('removes a retired hook stranded under an event the template no longer registers', () => {
+    const settings = {
+      hooks: {
+        SubagentStop: [
+          { matcher: '*', hooks: [hook('bash "$HOME/.claude/hooks/session-memory.sh"')] },
+        ],
+      },
+    };
+    const merged = mergeSettings(settings, realTemplate);
+    expect(merged.hooks.SubagentStop).toBeUndefined();
   });
 });

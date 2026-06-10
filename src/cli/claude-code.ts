@@ -86,7 +86,31 @@ const MANAGED_HOOK_SCRIPT_BASENAMES = new Set<string>([
   ...HOOK_SCRIPTS,
   'session-start.sh',
   'queue-cleanup.sh',
+  // Retired scripts stay managed even after they leave HOOK_SCRIPTS, or the
+  // strip below silently stops matching the legacy entries it exists to remove.
+  'session-memory.sh',
 ]);
+
+// Hooks the template no longer ships and the installer actively removes from
+// existing installs. Additions must cite the retiring PR (#130 for the
+// session-summary Stop hook). Never list anything without a managed key.
+const RETIRED_HOOK_KEYS = new Set<string>(['script:session-memory.sh']);
+
+// Exact historical template spellings (normalized before comparison). A hook
+// command is rewritten to the current template spelling ONLY when it matches
+// one of these — a user-customized command (different flags, paths) never
+// does, so customizations survive while known-legacy forms converge.
+const LEGACY_HOOK_COMMAND_SPELLINGS: ReadonlyArray<string> = [
+  // Pre-#108 unwrapped env-prefix forms (no bash -c wrapper).
+  'CLAUDE_HOOK_TYPE=build bash "$HOME/.claude/hooks/capture-build-result.sh"',
+  'CLAUDE_HOOK_TYPE=test_run bash "$HOME/.claude/hooks/capture-test-pattern.sh"',
+  'CLAUDE_HOOK_TYPE=deploy bash "$HOME/.claude/hooks/capture-deployment.sh"',
+  // Queue-drainer generations: no -y/--limit, then --limit without -y, then
+  // the install.sh-era bare-CLI form (a silent no-op without a global binary).
+  'npx @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl"',
+  'npx @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5',
+  'command -v mcp-automem >/dev/null 2>&1 && mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5 || true',
+];
 
 export function normalizeHookCommand(
   command: unknown,
@@ -124,6 +148,14 @@ function managedHookScriptKey(normalizedCommand: string): string | undefined {
   if (cliMatch) {
     return `mcp-automem:${cliMatch[1]}`;
   }
+  // Bare globally-installed CLI (install.sh era): `mcp-automem queue …`.
+  // Allowlisted to `queue` so both drainer spellings share one key; the
+  // leading char class keeps `@verygoodplugins/mcp-automem` and path segments
+  // like `/opt/mcp-automem` from matching.
+  const bareCliMatch = normalizedCommand.match(/(?:^|[\s;&|(])mcp-automem\s+(queue)\b/);
+  if (bareCliMatch) {
+    return `mcp-automem:${bareCliMatch[1]}`;
+  }
   const scriptPaths = normalizedCommand.match(/[^\s()]+\.(?:sh|py)\b/g) ?? [];
   for (const scriptPath of scriptPaths) {
     const basename = scriptPath.split(/[\\/]/).pop() ?? '';
@@ -134,7 +166,7 @@ function managedHookScriptKey(normalizedCommand: string): string | undefined {
   return undefined;
 }
 
-function hookDedupKeys(hook: any, options: HookCommandComparisonOptions = {}): string[] {
+export function hookDedupKeys(hook: any, options: HookCommandComparisonOptions = {}): string[] {
   const normalized = normalizeHookCommand(hook?.command, options);
   if (!normalized) {
     return [];
@@ -145,6 +177,103 @@ function hookDedupKeys(hook: any, options: HookCommandComparisonOptions = {}): s
     keys.push(`managed:${managedKey}`);
   }
   return keys;
+}
+
+function hookIsRetired(hook: any, options: HookCommandComparisonOptions = {}): boolean {
+  const managedKey = managedHookScriptKey(normalizeHookCommand(hook?.command, options));
+  return managedKey !== undefined && RETIRED_HOOK_KEYS.has(managedKey);
+}
+
+export function stripRetiredHookEntries(
+  existingHooks: any[] = [],
+  options: HookCommandComparisonOptions = {}
+): any[] {
+  const stripped: any[] = [];
+  for (const entry of existingHooks) {
+    const sourceHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    const kept = sourceHooks.filter((hook: any) => !hookIsRetired(hook, options));
+    if (sourceHooks.length > 0 && kept.length === 0) {
+      continue; // entry only carried retired hooks
+    }
+    stripped.push(kept.length === sourceHooks.length ? entry : { ...entry, hooks: kept });
+  }
+  return stripped;
+}
+
+export function canonicalizeLegacyHookCommands(
+  existingHooks: any[] = [],
+  templateHooks: any[] = [],
+  options: HookCommandComparisonOptions = {}
+): any[] {
+  const templateCommandByManagedKey = new Map<string, string>();
+  for (const entry of templateHooks) {
+    for (const hook of Array.isArray(entry?.hooks) ? entry.hooks : []) {
+      if (typeof hook?.command !== 'string') {
+        continue;
+      }
+      const managedKey = managedHookScriptKey(normalizeHookCommand(hook.command, options));
+      if (managedKey) {
+        templateCommandByManagedKey.set(managedKey, hook.command);
+      }
+    }
+  }
+  if (templateCommandByManagedKey.size === 0) {
+    return existingHooks;
+  }
+
+  const legacyNormalized = new Set(
+    LEGACY_HOOK_COMMAND_SPELLINGS.map((spelling) => normalizeHookCommand(spelling, options))
+  );
+
+  return existingHooks.map((entry) => {
+    const sourceHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    let changed = false;
+    const hooks = sourceHooks.map((hook: any) => {
+      const normalized = normalizeHookCommand(hook?.command, options);
+      if (!legacyNormalized.has(normalized)) {
+        return hook;
+      }
+      const managedKey = managedHookScriptKey(normalized);
+      const templateCommand = managedKey
+        ? templateCommandByManagedKey.get(managedKey)
+        : undefined;
+      if (!templateCommand || templateCommand === hook.command) {
+        return hook;
+      }
+      changed = true;
+      return { ...hook, command: templateCommand };
+    });
+    return changed ? { ...entry, hooks } : entry;
+  });
+}
+
+export function removeManagedHookEntries(
+  hooks: Record<string, any[]>,
+  options: HookCommandComparisonOptions = {}
+): { hooks: Record<string, any[]>; removedCount: number } {
+  const cleaned: Record<string, any[]> = {};
+  let removedCount = 0;
+  for (const [event, entries] of Object.entries(hooks ?? {})) {
+    const keptEntries: any[] = [];
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      const sourceHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+      const kept = sourceHooks.filter((hook: any) => {
+        const isManaged = hookDedupKeys(hook, options).some((key) => key.startsWith('managed:'));
+        if (isManaged) {
+          removedCount += 1;
+        }
+        return !isManaged;
+      });
+      if (sourceHooks.length > 0 && kept.length === 0) {
+        continue;
+      }
+      keptEntries.push(kept.length === sourceHooks.length ? entry : { ...entry, hooks: kept });
+    }
+    if (keptEntries.length > 0) {
+      cleaned[event] = keptEntries;
+    }
+  }
+  return { hooks: cleaned, removedCount };
 }
 
 export function mergeHookEntries(
@@ -265,12 +394,24 @@ export function mergeSettings(targetSettings: any, templateSettings: any): any {
   // Merge hooks - add SessionStart hook for automem if not already present
   if (templateSettings.hooks) {
     merged.hooks = merged.hooks ?? {};
+    // Retire hooks the template no longer ships — across every event, so a
+    // retired hook stranded under an event the template stopped registering
+    // still gets removed.
+    for (const [hookName, entries] of Object.entries(merged.hooks)) {
+      const stripped = stripRetiredHookEntries(entries as any[]);
+      if (stripped.length === 0) {
+        delete merged.hooks[hookName];
+      } else {
+        merged.hooks[hookName] = stripped;
+      }
+    }
     for (const [hookName, hookConfigs] of Object.entries(templateSettings.hooks)) {
       if (!merged.hooks[hookName]) {
         merged.hooks[hookName] = hookConfigs;
       } else {
         const existingHooks = merged.hooks[hookName] as any[];
-        const migratedHooks = migrateManagedHookEntries(existingHooks, hookConfigs as any[]);
+        const canonicalHooks = canonicalizeLegacyHookCommands(existingHooks, hookConfigs as any[]);
+        const migratedHooks = migrateManagedHookEntries(canonicalHooks, hookConfigs as any[]);
         merged.hooks[hookName] = mergeHookEntries(migratedHooks, hookConfigs as any[]);
       }
     }
@@ -421,6 +562,12 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   }
 
   writeFileWithBackup(targetPath, output, options);
+  if (raw.includes('session-memory.sh') && !output.includes('session-memory.sh')) {
+    log(
+      'migrated: removed retired session-memory.sh Stop hook (backup created)',
+      options.quiet
+    );
+  }
   log('updated settings.json (merged MCP permissions)', options.quiet);
 }
 

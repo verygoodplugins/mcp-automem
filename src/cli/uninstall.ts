@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { removeManagedHookEntries } from './claude-code.js';
 import {
   removeHermesMemoryProvider,
   removeMcpServerEntry,
@@ -358,42 +359,62 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
     log('ℹ️  No Claude Code settings.json found', options.quiet);
     return;
   }
-  
+
   if (options.dryRun) {
-    log(`[DRY RUN] Would remove MCP permissions from: ${settingsPath}`, options.quiet);
+    log(
+      `[DRY RUN] Would remove MCP permissions and AutoMem hook entries from: ${settingsPath}`,
+      options.quiet
+    );
     return;
   }
-  
+
   try {
     const raw = fs.readFileSync(settingsPath, 'utf8');
     const settings = JSON.parse(raw);
-    
-    if (!settings.permissions?.allow) {
-      log('ℹ️  No permissions found in settings.json', options.quiet);
-      return;
-    }
-    
+
     // Remove MCP permissions
-    const originalLength = settings.permissions.allow.length;
-    settings.permissions.allow = settings.permissions.allow.filter(
-      (perm: string) => !mcpPermissions.includes(perm)
-    );
-    
-    const removedCount = originalLength - settings.permissions.allow.length;
-    
-    if (removedCount === 0) {
-      log('ℹ️  No AutoMem permissions found in settings.json', options.quiet);
+    let permissionsRemoved = 0;
+    if (settings.permissions?.allow) {
+      const originalLength = settings.permissions.allow.length;
+      settings.permissions.allow = settings.permissions.allow.filter(
+        (perm: string) => !mcpPermissions.includes(perm)
+      );
+      permissionsRemoved = originalLength - settings.permissions.allow.length;
+    }
+
+    // Remove AutoMem-managed hook entries (current and retired spellings),
+    // preserving hooks the installer didn't author.
+    let hooksRemoved = 0;
+    if (settings.hooks) {
+      const result = removeManagedHookEntries(settings.hooks);
+      hooksRemoved = result.removedCount;
+      if (hooksRemoved > 0) {
+        if (Object.keys(result.hooks).length > 0) {
+          settings.hooks = result.hooks;
+        } else {
+          delete settings.hooks;
+        }
+      }
+    }
+
+    if (permissionsRemoved === 0 && hooksRemoved === 0) {
+      log('ℹ️  No AutoMem configuration found in settings.json', options.quiet);
       return;
     }
-    
+
     // Backup and write
     const backupPath = `${settingsPath}.backup.${Date.now()}`;
     fs.copyFileSync(settingsPath, backupPath);
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-    
-    log(`🗑️  Removed ${removedCount} MCP permissions from settings.json`, options.quiet);
+
+    if (permissionsRemoved > 0) {
+      log(`🗑️  Removed ${permissionsRemoved} MCP permissions from settings.json`, options.quiet);
+    }
+    if (hooksRemoved > 0) {
+      log(`🗑️  Removed ${hooksRemoved} AutoMem hook entries from settings.json`, options.quiet);
+    }
     log(`   Backup: ${backupPath}`, options.quiet);
-    log('\n✅ Claude Code AutoMem permissions removed', options.quiet);
+    log('\n✅ Claude Code AutoMem configuration removed', options.quiet);
   } catch (error) {
     log(`❌ Failed to update settings.json: ${(error as Error).message}`, options.quiet);
   }
