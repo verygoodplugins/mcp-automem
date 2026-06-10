@@ -107,6 +107,37 @@ describe('CLI Smoke Tests', () => {
       expect(stdout).toContain('http://legacy-host:8765');
     });
 
+    it('prefers AUTOMEM_API_URL over AUTOMEM_ENDPOINT when both are set', () => {
+      const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
+      cleanEnv.AUTOMEM_API_URL = 'http://new-host:1111';
+      cleanEnv.AUTOMEM_ENDPOINT = 'http://legacy-host:8765';
+
+      const stdout = execFileSync(process.execPath, [CLI_PATH, 'config', '--format=json'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        env: cleanEnv,
+        cwd: tempDir,
+      });
+
+      expect(stdout).toContain('http://new-host:1111');
+      expect(stdout).not.toContain('http://legacy-host:8765');
+    });
+
+    it('treats an empty AUTOMEM_API_URL as unset so the legacy alias still applies', () => {
+      const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
+      cleanEnv.AUTOMEM_API_URL = '';
+      cleanEnv.AUTOMEM_ENDPOINT = 'http://legacy-host:8765';
+
+      const stdout = execFileSync(process.execPath, [CLI_PATH, 'config', '--format=json'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        env: cleanEnv,
+        cwd: tempDir,
+      });
+
+      expect(stdout).toContain('http://legacy-host:8765');
+    });
+
     it('should include Claude Code setup', () => {
       const output = runCliExpectSuccess(['config']);
       expect(output).toMatch(/claude mcp add/i);

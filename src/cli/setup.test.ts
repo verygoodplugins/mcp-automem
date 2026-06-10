@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runConfig } from './setup.js';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { runConfig, runSetup } from './setup.js';
 
 describe('runConfig — API key handling in printed snippets', () => {
   const REAL_KEY = 'sk-super-secret-runconfig';
@@ -45,5 +48,44 @@ describe('runConfig — API key handling in printed snippets', () => {
     // The JSON dump is the single surface that deliberately includes the key,
     // so a developer can paste a working config. The Hermes/Claude snippets do not.
     expect(out).toContain(REAL_KEY);
+  });
+});
+
+describe('runSetup — deprecated AUTOMEM_ENDPOINT alias migration', () => {
+  let tmpDir: string;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-setup-test-'));
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('keeps a pre-existing AUTOMEM_ENDPOINT line in sync with the new endpoint', async () => {
+    const envPath = path.join(tmpDir, '.env');
+    fs.writeFileSync(envPath, 'AUTOMEM_ENDPOINT=https://old.example.test\nKEEP_ME=1\n');
+
+    await runSetup(['--env', envPath, '--endpoint', 'https://new.example.test', '--yes']);
+
+    const envText = fs.readFileSync(envPath, 'utf8');
+    expect(envText).toContain('AUTOMEM_API_URL=https://new.example.test');
+    // The stale legacy value must not survive — it would silently resurface
+    // if AUTOMEM_API_URL were ever removed.
+    expect(envText).not.toContain('https://old.example.test');
+    expect(envText).toContain('KEEP_ME=1');
+  });
+
+  it('does not introduce the deprecated alias into a fresh .env', async () => {
+    const envPath = path.join(tmpDir, '.env');
+
+    await runSetup(['--env', envPath, '--endpoint', 'https://new.example.test', '--yes']);
+
+    const envText = fs.readFileSync(envPath, 'utf8');
+    expect(envText).toContain('AUTOMEM_API_URL=https://new.example.test');
+    expect(envText).not.toContain('AUTOMEM_ENDPOINT');
   });
 });

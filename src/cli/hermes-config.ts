@@ -145,7 +145,10 @@ function readCredentialsFromConfig(configPath: string): HermesCredentials {
   const env = entry && isRecord(entry.env) ? (entry.env as Record<string, unknown>) : null;
   if (!env) return {};
   return {
-    endpoint: normalizeCred(env.AUTOMEM_API_URL),
+    // The runtime provider still honors the deprecated AUTOMEM_ENDPOINT, so a
+    // hand-migrated config must survive a setup re-run instead of being reset
+    // to the default endpoint.
+    endpoint: normalizeCred(env.AUTOMEM_API_URL) ?? normalizeCred(env.AUTOMEM_ENDPOINT),
     apiKey: normalizeCred(env.AUTOMEM_API_KEY),
   };
 }
@@ -153,15 +156,17 @@ function readCredentialsFromConfig(configPath: string): HermesCredentials {
 function readCredentialsFromEnvFile(envPath: string): HermesCredentials {
   if (!fs.existsSync(envPath)) return {};
   let endpoint: string | undefined;
+  let legacyEndpoint: string | undefined;
   let apiKey: string | undefined;
   for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
     const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
     if (!match) continue;
     const value = normalizeCred(unquoteEnvValue(match[2]));
     if (match[1] === 'AUTOMEM_API_URL') endpoint = value;
+    else if (match[1] === 'AUTOMEM_ENDPOINT') legacyEndpoint = value;
     else if (match[1] === 'AUTOMEM_API_KEY') apiKey = value;
   }
-  return { endpoint, apiKey };
+  return { endpoint: endpoint ?? legacyEndpoint, apiKey };
 }
 
 /**

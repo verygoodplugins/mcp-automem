@@ -310,6 +310,46 @@ describe('hermes-config', () => {
       expect(creds.apiKey).toBe('sk-env');
     });
 
+    it('recovers a legacy AUTOMEM_ENDPOINT from the config entry when AUTOMEM_API_URL is absent', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'config.yaml'),
+        [
+          'mcp_servers:',
+          '  automem:',
+          '    env:',
+          '      AUTOMEM_ENDPOINT: https://legacy.automem.test',
+          '      AUTOMEM_API_KEY: sk-legacy',
+          '',
+        ].join('\n'),
+      );
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBe('https://legacy.automem.test');
+      expect(creds.apiKey).toBe('sk-legacy');
+    });
+
+    it('recovers a legacy AUTOMEM_ENDPOINT from .env when AUTOMEM_API_URL is absent', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.env'),
+        'AUTOMEM_ENDPOINT=https://legacy-env.automem.test\nAUTOMEM_API_KEY=sk-env\n',
+      );
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBe('https://legacy-env.automem.test');
+      expect(creds.apiKey).toBe('sk-env');
+    });
+
+    it('prefers AUTOMEM_API_URL over the legacy AUTOMEM_ENDPOINT in the same source', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.env'),
+        [
+          'AUTOMEM_ENDPOINT=https://legacy-env.automem.test',
+          'AUTOMEM_API_URL=https://env.automem.test',
+          '',
+        ].join('\n'),
+      );
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBe('https://env.automem.test');
+    });
+
     it('prefers the config entry over .env when both are present', () => {
       fs.writeFileSync(
         path.join(tmpDir, 'config.yaml'),

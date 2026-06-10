@@ -45,6 +45,7 @@ describe('uninstall hermes', () => {
       path.join(tmpDir, '.env'),
       [
         'AUTOMEM_API_URL=https://automem.example.test',
+        'AUTOMEM_ENDPOINT=https://legacy.example.test',
         'AUTOMEM_API_KEY=sk-test',
         'AUTOMEM_API_TOKEN=token-test',
         'AUTOMEM_HERMES_PROVIDER_TOOLS=true',
