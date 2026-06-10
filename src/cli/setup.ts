@@ -168,12 +168,14 @@ export async function runSetup(args: string[] = []): Promise<void> {
   const envPath = path.resolve(options.envPath ?? '.env');
 
   const existingValues = loadEnvValues(envPath);
+  // `||` not `??`: an empty value (e.g. a blank AUTOMEM_API_URL= line) must
+  // fall through to the next source, matching the server's own resolution.
   const defaultEndpoint = options.endpoint
-    ?? existingValues[ENV_API_URL_KEY]
-    ?? existingValues[LEGACY_ENV_ENDPOINT_KEY]
-    ?? process.env[ENV_API_URL_KEY]
-    ?? process.env[LEGACY_ENV_ENDPOINT_KEY]
-    ?? DEFAULT_AUTOMEM_API_URL;
+    || existingValues[ENV_API_URL_KEY]
+    || existingValues[LEGACY_ENV_ENDPOINT_KEY]
+    || process.env[ENV_API_URL_KEY]
+    || process.env[LEGACY_ENV_ENDPOINT_KEY]
+    || DEFAULT_AUTOMEM_API_URL;
 
   const defaultApiKey = options.apiKey
     ?? existingValues[ENV_API_KEY]
@@ -215,12 +217,23 @@ export async function runSetup(args: string[] = []): Promise<void> {
   const updates: Record<string, string> = {
     [ENV_API_URL_KEY]: endpoint,
   };
+  // Keep a pre-existing deprecated alias in sync — a stale divergent value
+  // would silently resurface if AUTOMEM_API_URL were ever removed.
+  const hasLegacyLine = existingValues[LEGACY_ENV_ENDPOINT_KEY] !== undefined;
+  if (hasLegacyLine) {
+    updates[LEGACY_ENV_ENDPOINT_KEY] = endpoint;
+  }
   if (apiKey && apiKey !== '<required>' && apiKey !== '<unchanged>') {
     updates[ENV_API_KEY] = apiKey;
   }
 
   mergeEnvFile(envPath, updates);
   console.log(`\n✅ Saved AutoMem settings to ${envPath}`);
+  if (hasLegacyLine) {
+    console.log(
+      `ℹ️  ${LEGACY_ENV_ENDPOINT_KEY} is deprecated; it was updated to match ${ENV_API_URL_KEY}. You can remove the old line.`
+    );
+  }
 
   console.log(buildSummaryInstructions(endpoint, Boolean(apiKey)));
   console.log('Claude Desktop snippet:\n');
@@ -246,8 +259,8 @@ export async function runSetup(args: string[] = []): Promise<void> {
 export async function runConfig(args: string[] = []): Promise<void> {
   const options = parseConfigArgs(args);
   const endpoint = process.env[ENV_API_URL_KEY]
-    ?? process.env[LEGACY_ENV_ENDPOINT_KEY]
-    ?? DEFAULT_AUTOMEM_API_URL;
+    || process.env[LEGACY_ENV_ENDPOINT_KEY]
+    || DEFAULT_AUTOMEM_API_URL;
   const apiKey = process.env[ENV_API_KEY] ?? '${AUTOMEM_API_KEY}';
 
   if (options.format === 'json') {

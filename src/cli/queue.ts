@@ -58,12 +58,14 @@ function ensureObject(value: unknown): Record<string, unknown> {
 type AutoMemConfig = { endpoint: string; apiKey?: string };
 
 function resolveAutoMemConfig(): AutoMemConfig {
-  const envEndpoint = process.env.AUTOMEM_API_URL ?? process.env.AUTOMEM_ENDPOINT;
+  // `||` not `??`: an empty-string env var must fall through to the next
+  // source, matching the server's own resolution in src/index.ts.
+  const envEndpoint = process.env.AUTOMEM_API_URL || process.env.AUTOMEM_ENDPOINT;
   const envApiKey = readAutoMemApiKeyFromEnv();
 
   if (envEndpoint || envApiKey) {
     return {
-      endpoint: envEndpoint ?? 'http://127.0.0.1:8001',
+      endpoint: envEndpoint || 'http://127.0.0.1:8001',
       apiKey: envApiKey,
     };
   }
@@ -79,10 +81,10 @@ function resolveAutoMemConfig(): AutoMemConfig {
     for (const server of Object.values(servers)) {
       const env = server?.env ?? {};
       const keyFromServerEnv = readAutoMemApiKeyFromEnv(env);
-      const serverEndpoint = env.AUTOMEM_API_URL ?? env.AUTOMEM_ENDPOINT;
+      const serverEndpoint = env.AUTOMEM_API_URL || env.AUTOMEM_ENDPOINT;
       if (serverEndpoint || keyFromServerEnv) {
         return {
-          endpoint: serverEndpoint ?? 'http://127.0.0.1:8001',
+          endpoint: serverEndpoint || 'http://127.0.0.1:8001',
           apiKey: keyFromServerEnv,
         };
       }

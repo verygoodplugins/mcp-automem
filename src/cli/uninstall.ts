@@ -322,6 +322,7 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
     path.join(paths.home, '.env'),
     [
       'AUTOMEM_API_URL',
+      'AUTOMEM_ENDPOINT',
       'AUTOMEM_API_KEY',
       'AUTOMEM_API_TOKEN',
       'AUTOMEM_HERMES_PROVIDER_TOOLS',

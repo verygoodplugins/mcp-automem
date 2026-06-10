@@ -194,11 +194,13 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
   // switch --mode) without flags or env vars does not clobber a remote
   // endpoint/key with the local default. Explicit flags and env still win.
   const existing = readExistingHermesCredentials(paths);
+  // `||` not `??`: an empty-string env var must fall through to the next
+  // source, matching the server's own resolution in src/index.ts.
   const endpoint =
-    cliOptions.endpoint ??
-    process.env.AUTOMEM_API_URL ??
-    process.env.AUTOMEM_ENDPOINT ??
-    existing.endpoint ??
+    cliOptions.endpoint ||
+    process.env.AUTOMEM_API_URL ||
+    process.env.AUTOMEM_ENDPOINT ||
+    existing.endpoint ||
     DEFAULT_AUTOMEM_API_URL;
   const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? existing.apiKey;
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
