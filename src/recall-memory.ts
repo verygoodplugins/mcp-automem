@@ -27,8 +27,9 @@ function estimateTokens(chars: number): number {
 function resolveTokenBudget(): number {
   const raw = process.env.AUTOMEM_RECALL_TOKEN_BUDGET;
   if (raw) {
-    const parsed = Number.parseInt(raw, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
+    // Strict parse: reject non-numeric suffixes ("1200foo") and fractions.
+    const parsed = Number(raw.trim());
+    if (Number.isInteger(parsed) && parsed > 0) {
       return parsed;
     }
   }

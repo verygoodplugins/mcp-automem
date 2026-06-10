@@ -462,6 +462,32 @@ describe('buildRecallMemoryResponse', () => {
     expect(structured.truncation.omitted_results).toBe(20 - structured.results.length);
   });
 
+  it('falls back to the default budget when AUTOMEM_RECALL_TOKEN_BUDGET is not a clean integer', async () => {
+    vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '1200foo');
+    const manyResults = Array.from({ length: 20 }, (_, i) => ({
+      id: `mem-${i}`,
+      match_type: 'semantic',
+      final_score: 0.5,
+      memory: {
+        memory_id: `mem-${i}`,
+        content: 'v'.repeat(RECALL_CONTENT_PREVIEW_CHARS + 100),
+        tags: ['big'],
+        importance: 0.5,
+        created_at: '2026-03-25T00:00:00Z',
+      },
+    }));
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue({ results: manyResults, count: 20 }),
+    };
+
+    const response = await buildRecallMemoryResponse(client, { query: 'big' });
+
+    // strict parsing rejects "1200foo"; the default 18k budget keeps all 20
+    const structured = response.structuredContent as any;
+    expect(structured.results).toHaveLength(20);
+    expect(structured).not.toHaveProperty('truncation');
+  });
+
   it('fits a real-world session-start recall (fat relations + enrichment metadata) without truncation', async () => {
     // Modeled on the live 2026-06-10 failure: 26 ranked results, mixed relation
     // counts, enrichment metadata, ~400-char contents, 200-char summaries. The
