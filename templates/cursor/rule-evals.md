@@ -22,7 +22,7 @@ Use this lightweight eval set whenever revising the Cursor memory rules. Verifie
 **Setup:** Load only `.cursor/rules/automem.mdc`.
 
 **Expected behavior:**
-- Two-phase session-start recall (preferences `limit 20`, task-context `limit 30`, `time_query: "last 90 days"`, `format: "detailed"`) runs on first substantive turn.
+- Two-phase session-start recall (preferences `limit 20`, task-context `limit 30`, `time_query: "last 90 days"`) runs on first substantive turn.
 - Three-triggers framework + atomic ritual available for mid-conversation stores.
 - GPT-5.4 overlay remains available in the project rule.
 
@@ -60,7 +60,7 @@ Use this lightweight eval set whenever revising the Cursor memory rules. Verifie
 **Prompt:** `Why does this project use Redis for auth session caching instead of in-memory storage?`
 
 **Expected behavior:**
-- Run Phase 2 with `format: "detailed"` and `time_query: "last 90 days"`, `limit: 30` (NOT `limit: 5`).
+- Run Phase 2 with `time_query: "last 90 days"`, `limit: 30` (NOT `limit: 5`).
 - Query is built from the actual nouns in the message (e.g., `"Redis auth session caching in-memory"`), not generic phrases like `"current task"`.
 - Use recalled context as supporting evidence, but confirm against the repo. If memory and current code disagree, trust current evidence.
 
@@ -69,7 +69,7 @@ Use this lightweight eval set whenever revising the Cursor memory rules. Verifie
 **Prompt:** `Login is timing out on slow networks after the last deploy. Find the cause and fix it.`
 
 **Expected behavior:**
-- Phase 3 on-demand recall (`tags: ["bugfix", "solution"]`) once the error is identified.
+- On-demand debugging recall (error symptom as the semantic query, NO tags — a tag gate hides cross-corpus fixes) once the error is identified.
 - After a real root cause is found, run the **atomic ritual**: recall (`limit 5`) → store as `Insight` (importance 0.75, confidence 0.85, tags include `bugfix` + `solution` + project slug) → verify-recall on a distinctive phrase → associate `LEADS_TO` the bug-discovery memory.
 - The store has bare tags — no `cursor`, no `[YYYY-MM]`.
 
@@ -87,8 +87,8 @@ Use this lightweight eval set whenever revising the Cursor memory rules. Verifie
 **Prompt:** `OAuth callbacks started failing after yesterday's deploy. Have we seen anything like this before?`
 
 **Expected behavior:**
-- Run a focused recall first (Phase 3 with bug-fix tags).
-- If results are empty or thin, retry with **semantic-only** (drop the tag gate) before concluding nothing useful exists — tags are a hard gate; sparse historical content may live without the expected tags.
+- Run an on-demand debugging recall first: the error symptom as a semantic query, NO tags.
+- If results are empty or thin, drop the time window and broaden the query terms before concluding nothing useful exists — sparse historical content may describe the same failure with different words.
 - Continue with repo / log inspection even if memory is unhelpful.
 - Do not conclude "no useful memory" after a single weak lookup.
 

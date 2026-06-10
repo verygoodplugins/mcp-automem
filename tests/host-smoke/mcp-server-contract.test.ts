@@ -26,7 +26,11 @@ describe('MCP server real stdio contract', () => {
     );
 
     try {
-      await client.initialize();
+      const initialized = await client.initialize();
+      const instructions = initialized.instructions ?? '';
+      expect(typeof initialized.instructions).toBe('string');
+      expect(instructions.length).toBeGreaterThan(0);
+      expect(Buffer.byteLength(instructions, 'utf8')).toBeLessThanOrEqual(2048);
 
       const listed = await client.request('tools/list');
       const names = listed.tools.map((tool: { name: string }) => tool.name);
@@ -38,6 +42,18 @@ describe('MCP server real stdio contract', () => {
         'delete_memory',
         'check_database_health',
       ]);
+
+      // Claude Code loads tools marked `anthropic/alwaysLoad` upfront instead of
+      // deferring them behind ToolSearch; the session-start policy requires these
+      // three on every session. CC also truncates descriptions at 2KB under tool
+      // search, so every description must stay within that cap.
+      const alwaysLoaded = listed.tools
+        .filter((tool: { _meta?: Record<string, unknown> }) => tool._meta?.['anthropic/alwaysLoad'] === true)
+        .map((tool: { name: string }) => tool.name);
+      expect(alwaysLoaded).toEqual(['store_memory', 'recall_memory', 'associate_memories']);
+      for (const tool of listed.tools) {
+        expect(Buffer.byteLength(tool.description ?? '', 'utf8')).toBeLessThanOrEqual(2048);
+      }
 
       const health = await client.request('tools/call', {
         name: 'check_database_health',

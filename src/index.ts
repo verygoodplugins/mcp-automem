@@ -353,14 +353,18 @@ const client = new AutoMemClient(clientConfig);
 
 const server = new Server(
   { name: "mcp-automem", version: PACKAGE_VERSION },
-  { capabilities: { tools: {} } }
+  {
+    capabilities: { tools: {} },
+    instructions:
+      "AutoMem is the agent's persistent long-term memory (graph + vector). Use recall_memory to retrieve context (session start, before decisions, when debugging), store_memory to persist decisions, patterns, preferences, and fixes, and associate_memories to link related memories into the knowledge graph. Search for the remaining tools when needed: update_memory edits an existing memory's fields in place, delete_memory removes one memory by ID or bulk-deletes by tag, and check_database_health verifies FalkorDB/Qdrant connectivity.",
+  }
 );
 
 const tools: Tool[] = [
   {
     name: "store_memory",
     title: "Store Memory",
-    description: `Store memory in one of two modes — single-memory (set top-level \`content\`) or batch (set \`memories: [...]\` for up to 500). Use this to persist important information for future recall.
+    description: `Store memory in one of two modes — single-memory (set top-level \`content\`) or batch (set \`memories: [...]\` for up to 500).
 
 **Mode 1 — Single (default):** pass top-level \`content\` plus any optional fields (tags, importance, metadata, type, confidence, embedding, t_valid, t_invalid, id, etc.).
 
@@ -384,8 +388,7 @@ const tools: Tool[] = [
 **Examples:**
 - store_memory({ content: "Chose PostgreSQL over MongoDB for user service. Need ACID for transactions.", tags: ["architecture", "database"], importance: 0.9 })
 - store_memory({ content: "User prefers early returns over nested conditionals.", tags: ["code-style"], importance: 0.7 })
-- store_memory({ content: "User now prefers SQLite for small local tools.", supersedes_memory_id: "old-id", supersede_reason: "Correction from user" })
-- store_memory({ memories: [{ content: "...", tags: ["import"] }, { content: "...", tags: ["import"] }] })  // Batch`,
+- store_memory({ content: "User now prefers SQLite for small local tools.", supersedes_memory_id: "old-id", supersede_reason: "Correction from user" })`,
     annotations: {
       title: "Store Memory",
       readOnlyHint: false,
@@ -393,6 +396,7 @@ const tools: Tool[] = [
       idempotentHint: false,
       openWorldHint: false,
     },
+    _meta: { "anthropic/alwaysLoad": true },
     inputSchema: {
       type: "object",
       properties: {
@@ -569,10 +573,8 @@ const tools: Tool[] = [
 **Examples:**
 - recall_memory({ query: "database architecture decisions", tags: ["my-project"], limit: 5 })
 - recall_memory({ memory_id: "abc123" })  // Mode 1
-- recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50 })  // Mode 2
-- recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50, offset: 50 })  // Mode 2 page 2
+- recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50 })  // Mode 2 (add offset for later pages)
 - recall_memory({ query: "auth", exclude_tags: ["deprecated"] })  // Mode 3 with exclusion
-- recall_memory({ query: "preference corrections", state_debug: true })  // Mode 3 with state-filter diagnostics
 - recall_memory({ query: "What is Sarah's sister's job?", expand_entities: true })  // Mode 3 multi-hop`,
     annotations: {
       title: "Recall Memory",
@@ -581,6 +583,7 @@ const tools: Tool[] = [
       idempotentHint: true,
       openWorldHint: false,
     },
+    _meta: { "anthropic/alwaysLoad": true },
     inputSchema: {
       type: "object",
       properties: {
@@ -766,7 +769,7 @@ const tools: Tool[] = [
           enum: ["text", "items", "detailed", "json"],
           default: "text",
           description:
-            'Output format: text (default), items (per-memory), detailed (with metadata), json (raw)',
+            'Output format: text (default, compact preview with timestamps/importance), items (one block per memory), detailed (adds type/confidence to text; metadata in structured payload only), json (raw per-memory fields; whole-response budget still applies). Long content is previewed — fetch a full record via memory_id.',
         },
         offset: {
           type: "integer",
@@ -808,13 +811,28 @@ const tools: Tool[] = [
             properties: {
               memory_id: { type: "string" },
               content: { type: "string" },
+              content_truncated: {
+                type: "boolean",
+                description:
+                  "True when content is a preview; fetch the full record via recall_memory({ memory_id }).",
+              },
+              content_chars: {
+                type: "integer",
+                description: "Original content length when content_truncated is true.",
+              },
               tags: { type: "array", items: { type: "string" } },
               importance: { type: "number" },
               final_score: { type: "number" },
               match_type: { type: "string" },
               created_at: { type: "string" },
+              updated_at: { type: "string" },
             },
           },
+        },
+        truncation: {
+          type: "object",
+          description:
+            "Present when trailing results were dropped to fit the response budget: { applied, omitted_results, reason }.",
         },
         dedup_removed: {
           type: "integer",
@@ -857,6 +875,7 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
       idempotentHint: true,
       openWorldHint: false,
     },
+    _meta: { "anthropic/alwaysLoad": true },
     inputSchema: {
       type: "object",
       properties: {

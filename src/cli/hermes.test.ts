@@ -290,6 +290,9 @@ describe('hermes setup handler', () => {
     expect(fs.readFileSync(path.join(pluginRoot, 'cli.py'), 'utf8')).toContain(
       'doctor'
     );
+    expect(fs.readFileSync(path.join(pluginRoot, 'automem_policy.py'), 'utf8')).toContain(
+      'PREFERENCE_RECALL_LIMIT = 5'
+    );
     expect(fs.readFileSync(path.join(tmpDir, '.env'), 'utf8')).toContain(
       'AUTOMEM_API_URL=https://example.automem.test'
     );

@@ -134,6 +134,11 @@ type PendingRequest = {
   reject: (error: Error) => void;
 };
 
+export interface McpInitializeResult {
+  instructions?: string;
+  [key: string]: unknown;
+}
+
 export class StdioMcpClient {
   private child: ChildProcessWithoutNullStreams;
   private nextId = 1;
@@ -241,13 +246,14 @@ export class StdioMcpClient {
     this.child.stdin.write(`${JSON.stringify(payload)}\n`);
   }
 
-  async initialize(): Promise<void> {
-    await this.request('initialize', {
+  async initialize(): Promise<McpInitializeResult> {
+    const result = await this.request('initialize', {
       protocolVersion: '2025-06-18',
       capabilities: {},
       clientInfo: { name: 'automem-host-smoke', version: '0.0.0' },
     });
     this.notify('notifications/initialized');
+    return result as McpInitializeResult;
   }
 
   async close(): Promise<void> {

@@ -104,6 +104,24 @@ def log_message(message: str) -> None:
         handle.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
 
 
+def prune_archives(directory: Path, keep: int = 10) -> None:
+    archives = []
+    for pattern in ("memory-queue.*.deduped.jsonl", "memory-queue.*.overflow.jsonl"):
+        archives.extend(directory.glob(pattern))
+    # Timestamped filenames sort chronologically; drop all but the newest `keep`.
+    archives = sorted(set(archives), key=lambda path: path.name)
+    stale = archives[:-keep] if keep > 0 else list(archives)
+    removed = 0
+    for path in stale:
+        try:
+            path.unlink()
+            removed += 1
+        except OSError:
+            pass
+    if removed:
+        log_message(f"Pruned {removed} old archive file(s); kept newest {keep}")
+
+
 log_message("Queue cleanup started")
 
 if not queue_file.exists() or queue_file.stat().st_size == 0:
@@ -184,6 +202,8 @@ with queue_file.open("r+", encoding="utf-8") as handle:
 
     finally:
         unlock_file(handle)
+
+prune_archives(queue_file.parent)
 
 log_message("Queue cleanup complete")
 PY

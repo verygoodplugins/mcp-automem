@@ -137,7 +137,7 @@ Options:
 - Hydrates `plugins.entries.automem.config.startupProfile` from memory-backed identity/personality cues when bootstrap is skipped
 - Disables legacy `automem` skill entries and archives old overrides that would conflict with plugin mode
 - Preserves old AGENTS cleanup only as a migration step
-- Uses the shared AutoMem memory policy from Claude Desktop / Claude Code / Cursor: first-turn preference recall (`limit 20`), first-turn semantic task recall (`limit 30`, `last 90 days`), and debug-only bugfix recall (`tags: ["bugfix", "solution"]`)
+- Uses the shared AutoMem memory policy from Claude Desktop / Claude Code / Cursor: first-turn preference recall (`limit 20`), first-turn semantic task recall (`limit 30`, `last 90 days`), and on-demand debug recall (error symptom as the semantic query, no tag gate)
 - Keeps bare project tags for stores, while using `defaultTags` only as an unambiguous project gate for first-turn task recall
 - Uses `defaultTags` only as an unambiguous project gate for first-turn task recall; later turns rely on the injected policy plus explicit tool calls instead of unconditional per-turn recall
 - When bootstrap is skipped, the plugin injects the cached startup profile plus live startup recall on the first turn so OpenClaw greets like a returning conversation when possible, or falls back to a generic greeting without asking bootstrap questions again

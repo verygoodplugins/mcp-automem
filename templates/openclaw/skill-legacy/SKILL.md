@@ -59,7 +59,7 @@ curl -s -X DELETE "$AUTOMEM_API_URL/memory/MEMORY_ID" \
 ## Rules
 
 - Recall preferences first with `tags=preference`, then task context with one semantic query built from the user's actual nouns.
-- For debugging, prefer a tighter recall on the symptom plus `tags=bugfix&tags=solution`.
+- For debugging, recall with the error symptom as the semantic query and no `tags=` parameters — bugfix/solution tagging is incomplete, and a tag gate hides cross-corpus fixes.
 - Tags are a hard gate. Use bare tags only, and avoid platform tags like `openclaw`.
 - Store durable outcomes only.
 - Default project tags belong on stores, not on every recall.

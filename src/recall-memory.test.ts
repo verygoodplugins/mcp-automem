@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildRecallMemoryResponse } from './recall-memory.js';
+import {
+  buildRecallMemoryResponse,
+  RECALL_CONTENT_PREVIEW_CHARS,
+  RECALL_MAX_RELATIONS,
+  RECALL_METADATA_MAX_CHARS,
+  RECALL_RESPONSE_CHAR_BUDGET,
+} from './recall-memory.js';
 import type { RecallMemoryArgs, RecallResult } from './types.js';
 
 function makeRecallResult(overrides: Partial<RecallResult> = {}): RecallResult {
@@ -188,5 +194,150 @@ describe('buildRecallMemoryResponse', () => {
     expect(response.structuredContent).not.toHaveProperty('has_more');
     expect(response.structuredContent).not.toHaveProperty('offset');
     expect(response.structuredContent).not.toHaveProperty('limit');
+  });
+
+  it('previews long content in text format and points at memory_id for the full record', async () => {
+    const longContent = 'x'.repeat(RECALL_CONTENT_PREVIEW_CHARS + 500);
+    const recallResult = makeRecallResult();
+    recallResult.results![0].memory.content = longContent;
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue(recallResult),
+    };
+
+    const response = await buildRecallMemoryResponse(client, { query: 'long' });
+
+    const item = (response.structuredContent.results as any[])[0];
+    expect(item.content.length).toBe(RECALL_CONTENT_PREVIEW_CHARS + 1); // preview + ellipsis
+    expect(item.content.endsWith('…')).toBe(true);
+    expect(item.content_truncated).toBe(true);
+    expect(item.content_chars).toBe(longContent.length);
+    expect(response.content[0].text).not.toContain(longContent);
+    expect(response.content[0].text).toContain('memory_id');
+  });
+
+  it('never truncates an id fetch', async () => {
+    const longContent = 'y'.repeat(RECALL_CONTENT_PREVIEW_CHARS + 2000);
+    const recallResult = makeRecallResult({ mode: 'id_fetch' });
+    recallResult.results![0].memory.content = longContent;
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue(recallResult),
+    };
+
+    const response = await buildRecallMemoryResponse(client, { memory_id: 'mem-1' });
+
+    const item = (response.structuredContent.results as any[])[0];
+    expect(item.content).toBe(longContent);
+    expect(item).not.toHaveProperty('content_truncated');
+    expect(response.structuredContent).not.toHaveProperty('truncation');
+  });
+
+  it('drops score_components, caps metadata, and slices relations in detailed format', async () => {
+    const bigMetadata: Record<string, string> = {};
+    for (let i = 0; i < 40; i += 1) {
+      bigMetadata[`key_${i}`] = 'v'.repeat(50);
+    }
+    expect(JSON.stringify(bigMetadata).length).toBeGreaterThan(RECALL_METADATA_MAX_CHARS);
+    const relations = Array.from({ length: RECALL_MAX_RELATIONS + 3 }, (_, i) => ({
+      memory_id: `rel-${i}`,
+      type: 'RELATES_TO',
+    }));
+    const recallResult = makeRecallResult();
+    recallResult.results![0].memory.metadata = bigMetadata;
+    (recallResult.results![0] as any).relations = relations;
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue(recallResult),
+    };
+
+    const response = await buildRecallMemoryResponse(client, {
+      query: 'rich',
+      format: 'detailed',
+    });
+
+    const item = (response.structuredContent.results as any[])[0];
+    expect(item).not.toHaveProperty('score_components');
+    expect(item.metadata).toMatchObject({ _truncated: true });
+    expect(item.metadata._keys).toContain('key_0');
+    expect(item.relations).toHaveLength(RECALL_MAX_RELATIONS);
+    expect(item.relations_total).toBe(RECALL_MAX_RELATIONS + 3);
+  });
+
+  it('keeps raw per-field passthrough in json format but still applies the global budget', async () => {
+    const bigMetadata = { blob: 'm'.repeat(RECALL_METADATA_MAX_CHARS + 500) };
+    const manyResults = Array.from({ length: 60 }, (_, i) => ({
+      id: `mem-${i}`,
+      match_type: 'semantic',
+      final_score: 0.5,
+      score_components: { importance: 0.5 },
+      memory: {
+        memory_id: `mem-${i}`,
+        content: 'z'.repeat(2000),
+        tags: ['big'],
+        importance: 0.5,
+        created_at: '2026-03-25T00:00:00Z',
+        metadata: bigMetadata,
+      },
+    }));
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue({ results: manyResults, count: 60 }),
+    };
+
+    const response = await buildRecallMemoryResponse(client, {
+      query: 'big',
+      format: 'json',
+    });
+
+    const structured = response.structuredContent as any;
+    const firstItem = structured.results[0];
+    expect(firstItem.content).toHaveLength(2000); // no per-field caps in json
+    expect(firstItem.metadata).toEqual(bigMetadata);
+    expect(firstItem.score_components).toEqual({ importance: 0.5 });
+    expect(structured.results.length).toBeLessThan(60);
+    expect(structured.truncation).toMatchObject({
+      applied: true,
+      reason: 'response_char_budget',
+    });
+    expect(structured.truncation.omitted_results).toBe(60 - structured.results.length);
+    expect(JSON.parse(response.content[0].text)).toMatchObject({
+      truncation: { applied: true },
+    });
+  });
+
+  it('drops trailing results past the global char budget in text format', async () => {
+    const manyResults = Array.from({ length: 200 }, (_, i) => ({
+      id: `mem-${i}`,
+      match_type: 'semantic',
+      final_score: 0.5,
+      memory: {
+        memory_id: `mem-${i}`,
+        content: 'w'.repeat(RECALL_CONTENT_PREVIEW_CHARS + 100),
+        tags: ['big'],
+        importance: 0.5,
+        created_at: '2026-03-25T00:00:00Z',
+      },
+    }));
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue({ results: manyResults, count: 200 }),
+    };
+
+    const response = await buildRecallMemoryResponse(client, { query: 'big' });
+
+    const structured = response.structuredContent as any;
+    expect(structured.results.length).toBeLessThan(200);
+    expect(structured.results.length).toBeGreaterThan(0);
+    expect(structured.truncation.applied).toBe(true);
+    expect(response.content[0].text.length).toBeLessThan(RECALL_RESPONSE_CHAR_BUDGET);
+    expect(response.content[0].text).toContain('Response budget: showing');
+  });
+
+  it('surfaces updated_at in text output and the structured base item', async () => {
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue(makeRecallResult()),
+    };
+
+    const response = await buildRecallMemoryResponse(client, { query: 'tagged memory' });
+
+    expect(response.content[0].text).toContain('Updated: 2026-03-25T01:00:00Z');
+    const item = (response.structuredContent.results as any[])[0];
+    expect(item.updated_at).toBe('2026-03-25T01:00:00Z');
   });
 });

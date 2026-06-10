@@ -77,47 +77,184 @@ function mergeUniqueStrings(target: string[] = [], additions: string[]): string[
   return target;
 }
 
-function mergeHookEntries(existingHooks: any[] = [], templateHooks: any[]): any[] {
-  const merged = existingHooks.map((entry) => ({
-    ...entry,
-    hooks: Array.isArray(entry?.hooks) ? [...entry.hooks] : [],
-  }));
+export type HookCommandComparisonOptions = {
+  homeDir?: string;
+  platform?: NodeJS.Platform;
+};
+
+const MANAGED_HOOK_SCRIPT_BASENAMES = new Set<string>([
+  ...HOOK_SCRIPTS,
+  'session-start.sh',
+  'queue-cleanup.sh',
+]);
+
+export function normalizeHookCommand(
+  command: unknown,
+  options: HookCommandComparisonOptions = {}
+): string {
+  if (typeof command !== 'string') {
+    return '';
+  }
+  const homeDir = options.homeDir ?? os.homedir();
+  const platform = options.platform ?? process.platform;
+
+  let normalized = command.trim().replace(/\s+/g, ' ');
+  // Quotes only group arguments; strip them so `"$HOME/x"` and $HOME/x compare equal.
+  normalized = normalized.replace(/["']/g, '');
+  // Expand home-directory spellings only. Other env vars (e.g. ${CLAUDE_PLUGIN_ROOT})
+  // stay literal: expanding them here risks false-positive dedup across installs.
+  normalized = normalized
+    .replace(/\$\{HOME\}/g, () => homeDir)
+    .replace(/\$HOME(?![A-Za-z0-9_])/g, () => homeDir)
+    .replace(/%USERPROFILE%/gi, () => homeDir)
+    .replace(/(^|[\s=:])~(?=\/)/g, (_match, prefix: string) => `${prefix}${homeDir}`);
+
+  if (platform === 'win32') {
+    normalized = normalized.replace(/\\/g, '/').toLowerCase();
+  }
+
+  return normalized;
+}
+
+function managedHookScriptKey(normalizedCommand: string): string | undefined {
+  if (!normalizedCommand) {
+    return undefined;
+  }
+  const cliMatch = normalizedCommand.match(/@verygoodplugins\/mcp-automem\s+(\S+)/);
+  if (cliMatch) {
+    return `mcp-automem:${cliMatch[1]}`;
+  }
+  const scriptPaths = normalizedCommand.match(/[^\s()]+\.(?:sh|py)\b/g) ?? [];
+  for (const scriptPath of scriptPaths) {
+    const basename = scriptPath.split(/[\\/]/).pop() ?? '';
+    if (MANAGED_HOOK_SCRIPT_BASENAMES.has(basename)) {
+      return `script:${basename}`;
+    }
+  }
+  return undefined;
+}
+
+function hookDedupKeys(hook: any, options: HookCommandComparisonOptions = {}): string[] {
+  const normalized = normalizeHookCommand(hook?.command, options);
+  if (!normalized) {
+    return [];
+  }
+  const keys = [`command:${normalized}`];
+  const managedKey = managedHookScriptKey(normalized);
+  if (managedKey) {
+    keys.push(`managed:${managedKey}`);
+  }
+  return keys;
+}
+
+export function mergeHookEntries(
+  existingHooks: any[] = [],
+  templateHooks: any[] = [],
+  options: HookCommandComparisonOptions = {}
+): any[] {
+  const merged: any[] = [];
+  const seenByMatcher = new Map<string, Set<string>>();
+  const seenFor = (matcher: string): Set<string> => {
+    let seen = seenByMatcher.get(matcher);
+    if (!seen) {
+      seen = new Set<string>();
+      seenByMatcher.set(matcher, seen);
+    }
+    return seen;
+  };
+
+  for (const entry of existingHooks) {
+    const seen = seenFor(entry?.matcher ?? '');
+    const sourceHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    const hooks: any[] = [];
+    for (const hook of sourceHooks) {
+      const keys = hookDedupKeys(hook, options);
+      if (keys.length > 0 && keys.some((key) => seen.has(key))) {
+        continue; // self-repair: same hook spelled differently (e.g. $HOME vs absolute path)
+      }
+      for (const key of keys) {
+        seen.add(key);
+      }
+      hooks.push(hook);
+    }
+    if (sourceHooks.length > 0 && hooks.length === 0) {
+      continue; // entry only held duplicates of hooks kept elsewhere
+    }
+    merged.push({ ...entry, hooks });
+  }
 
   for (const templateEntry of templateHooks) {
     const matcher = templateEntry?.matcher ?? '';
-    const index = merged.findIndex((entry) => (entry?.matcher ?? '') === matcher);
-
-    if (index === -1) {
-      merged.push(templateEntry);
+    const seen = seenFor(matcher);
+    const templateHookList = Array.isArray(templateEntry?.hooks) ? templateEntry.hooks : [];
+    const newHooks = templateHookList.filter((hook: any) => {
+      const keys = hookDedupKeys(hook, options);
+      return keys.length === 0 || !keys.some((key) => seen.has(key));
+    });
+    if (templateHookList.length > 0 && newHooks.length === 0) {
       continue;
     }
 
-    const mergedEntry = merged[index];
-    const existingHookList = Array.isArray(mergedEntry?.hooks) ? mergedEntry.hooks : [];
-    const templateHookList = Array.isArray(templateEntry?.hooks) ? templateEntry.hooks : [];
-
-    for (const hook of templateHookList) {
-      const command = hook?.command;
-      const alreadyExists = command
-        ? existingHookList.some((existing: any) => existing?.command === command)
-        : existingHookList.includes(hook);
-
-      if (!alreadyExists) {
-        existingHookList.push(hook);
+    const index = merged.findIndex((entry) => (entry?.matcher ?? '') === matcher);
+    if (index === -1) {
+      merged.push({ ...templateEntry, hooks: [...newHooks] });
+    } else {
+      const target = merged[index];
+      merged[index] = {
+        ...target,
+        hooks: [...(Array.isArray(target?.hooks) ? target.hooks : []), ...newHooks],
+      };
+    }
+    for (const hook of newHooks) {
+      for (const key of hookDedupKeys(hook, options)) {
+        seen.add(key);
       }
     }
-
-    merged[index] = {
-      ...mergedEntry,
-      matcher: mergedEntry?.matcher ?? templateEntry?.matcher,
-      hooks: existingHookList,
-    };
   }
 
   return merged;
 }
 
-function mergeSettings(targetSettings: any, templateSettings: any): any {
+export function migrateManagedHookEntries(
+  existingHooks: any[] = [],
+  templateHooks: any[] = [],
+  options: HookCommandComparisonOptions = {}
+): any[] {
+  // Map each AutoMem-managed hook key to the matcher the template now wants it under,
+  // so a matcher change (e.g. SessionStart gaining "startup|clear") moves the hook
+  // instead of leaving a stale copy firing under the old matcher.
+  const managedKeyMatchers = new Map<string, string>();
+  for (const templateEntry of templateHooks) {
+    const matcher = templateEntry?.matcher ?? '';
+    for (const hook of Array.isArray(templateEntry?.hooks) ? templateEntry.hooks : []) {
+      for (const key of hookDedupKeys(hook, options)) {
+        managedKeyMatchers.set(key, matcher);
+      }
+    }
+  }
+  if (managedKeyMatchers.size === 0) {
+    return existingHooks;
+  }
+
+  const migrated: any[] = [];
+  for (const entry of existingHooks) {
+    const matcher = entry?.matcher ?? '';
+    const sourceHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    const kept = sourceHooks.filter((hook: any) => {
+      return !hookDedupKeys(hook, options).some((key) => {
+        const templateMatcher = managedKeyMatchers.get(key);
+        return templateMatcher !== undefined && templateMatcher !== matcher;
+      });
+    });
+    if (sourceHooks.length > 0 && kept.length === 0) {
+      continue; // entry only carried AutoMem-managed hooks; the template re-adds them
+    }
+    migrated.push(kept.length === sourceHooks.length ? entry : { ...entry, hooks: kept });
+  }
+  return migrated;
+}
+
+export function mergeSettings(targetSettings: any, templateSettings: any): any {
   const merged = { ...targetSettings };
 
   // Merge env if not present
@@ -133,7 +270,8 @@ function mergeSettings(targetSettings: any, templateSettings: any): any {
         merged.hooks[hookName] = hookConfigs;
       } else {
         const existingHooks = merged.hooks[hookName] as any[];
-        merged.hooks[hookName] = mergeHookEntries(existingHooks, hookConfigs as any[]);
+        const migratedHooks = migrateManagedHookEntries(existingHooks, hookConfigs as any[]);
+        merged.hooks[hookName] = mergeHookEntries(migratedHooks, hookConfigs as any[]);
       }
     }
   }

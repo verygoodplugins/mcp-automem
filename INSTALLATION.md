@@ -441,6 +441,24 @@ Check the health of the AutoMem service
 
 See **[Claude Code Integration Guide](templates/CLAUDE_CODE_INTEGRATION.md)** for more details.
 
+### Tool search and deferred loading
+
+Claude Code defers MCP tool schemas behind its `ToolSearch` tool by default. The AutoMem server marks `store_memory`, `recall_memory`, and `associate_memories` as always-loaded (via `anthropic/alwaysLoad` in each tool's `_meta`), so the tools the memory rules invoke on every session are available without a search step on Claude Code v2.1.121+. The maintenance tools (`update_memory`, `delete_memory`, `check_database_health`) stay deferred and are discovered on demand.
+
+On older Claude Code versions, you can load the whole server upfront instead by setting `"alwaysLoad": true` on the server entry in `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "alwaysLoad": true
+    }
+  }
+}
+```
+
 ---
 
 ## GitHub Copilot coding agent (GitHub.com)

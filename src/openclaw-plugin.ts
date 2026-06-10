@@ -750,9 +750,10 @@ const openClawPlugin = {
         }
 
         if (debugTurn) {
+          // No tag gate: bugfix/solution tagging is incomplete and a hard
+          // gate hides cross-corpus fixes.
           await runRecall('debug', {
             query: prompt,
-            tags: ['bugfix', 'solution'],
             limit: config.debugRecallLimit,
             format: 'detailed',
           });

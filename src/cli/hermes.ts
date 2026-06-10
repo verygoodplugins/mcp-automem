@@ -19,6 +19,7 @@ import {
   upsertMcpServer,
 } from './hermes-config.js';
 import { readAutoMemApiKeyFromEnv } from '../env.js';
+import { renderHermesModeRules } from '../memory-policy/shared.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
 export type HermesInstallMode = 'mcp' | 'provider' | 'both';
@@ -40,62 +41,6 @@ const HERMES_RULES_START = '<!-- BEGIN AUTOMEM HERMES RULES -->';
 const HERMES_RULES_END = '<!-- END AUTOMEM HERMES RULES -->';
 const CODEX_RULES_START = '<!-- BEGIN AUTOMEM CODEX RULES -->';
 const CODEX_RULES_END = '<!-- END AUTOMEM CODEX RULES -->';
-
-const HERMES_MCP_TOOL_NAMES = [
-  'mcp_automem_recall_memory',
-  'mcp_automem_store_memory',
-  'mcp_automem_associate_memories',
-  'mcp_automem_update_memory',
-  'mcp_automem_check_database_health',
-];
-
-const HERMES_PROVIDER_TOOL_NAMES = [
-  'automem_recall_memory',
-  'automem_store_memory',
-  'automem_associate_memories',
-  'automem_update_memory',
-  'automem_check_database_health',
-];
-
-function formatToolList(toolNames: string[]): string {
-  return toolNames.map((toolName) => `- \`${toolName}\``).join('\n');
-}
-
-function buildHermesModeRules(mode: HermesInstallMode): string {
-  if (mode === 'provider') {
-    return [
-      '## Provider-only mode',
-      '',
-      "Hermes is using AutoMem through `memory.provider: automem`. Ambient recall is injected before model calls through Hermes' memory provider lifecycle. When explicit memory tools are available, use these provider tool names:",
-      '',
-      formatToolList(HERMES_PROVIDER_TOOL_NAMES),
-      '',
-      'Recall once early in substantive work, store only high-signal corrections/decisions/patterns, verify the stored memory can be recalled, and associate it with related memories when there is a meaningful relationship.',
-    ].join('\n');
-  }
-
-  if (mode === 'both') {
-    return [
-      '## Both mode',
-      '',
-      "Hermes uses the native provider for ambient recall and the MCP server for explicit tools. The provider explicit tools are disabled with `AUTOMEM_HERMES_PROVIDER_TOOLS=false`, leaving one explicit tool surface:",
-      '',
-      formatToolList(HERMES_MCP_TOOL_NAMES),
-      '',
-      'Recall once early in substantive work, store only high-signal corrections/decisions/patterns, verify the stored memory can be recalled, and associate it with related memories when there is a meaningful relationship.',
-    ].join('\n');
-  }
-
-  return [
-    '## MCP-only mode',
-    '',
-    'Hermes is using AutoMem as an MCP server. Use these tool names:',
-    '',
-    formatToolList(HERMES_MCP_TOOL_NAMES),
-    '',
-    'Recall once early in substantive work, store only high-signal corrections/decisions/patterns, verify the stored memory can be recalled, and associate it with related memories when there is a meaningful relationship.',
-  ].join('\n');
-}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -220,7 +165,7 @@ function installHermesProvider(
   options: Pick<CommonOptions, 'dryRun' | 'quiet'>,
 ): void {
   const providerRoot = path.join(paths.home, 'plugins', HERMES_PROVIDER_NAME);
-  const files = ['__init__.py', 'plugin.yaml', 'cli.py'];
+  const files = ['__init__.py', 'plugin.yaml', 'cli.py', 'automem_policy.py'];
   for (const fileName of files) {
     const sourcePath = path.join(HERMES_PROVIDER_TEMPLATE_ROOT, fileName);
     const targetPath = path.join(providerRoot, fileName);
@@ -314,7 +259,7 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
   );
   const processed = replaceTemplateVars(templateContent, {
     PROJECT_NAME: projectName,
-    HERMES_MODE_RULES: buildHermesModeRules(mode),
+    HERMES_MODE_RULES: renderHermesModeRules(mode),
   });
 
   const existingContent = fs.existsSync(rulesPath)

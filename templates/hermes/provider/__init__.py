@@ -20,48 +20,39 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 
+if __package__:
+    from .automem_policy import (
+        AMBIGUOUS_PROJECT_TAGS,
+        CASUAL_OPENING_PATTERN,
+        CONTEXT_RECALL_LIMIT,
+        CONTEXT_RECALL_WINDOW_DAYS,
+        DEBUG_PROMPT_PATTERN,
+        DEBUG_RECALL_LIMIT,
+        DEFAULT_RECALL_LIMIT,
+        ENTITY_PATTERN,
+        ENTITY_STOPWORDS,
+        EXPLICIT_RECALL_PROMPT_PATTERN,
+        MAX_EXPLICIT_RECALL_LIMIT,
+        PREFERENCE_RECALL_LIMIT,
+    )
+else:
+    from automem_policy import (
+        AMBIGUOUS_PROJECT_TAGS,
+        CASUAL_OPENING_PATTERN,
+        CONTEXT_RECALL_LIMIT,
+        CONTEXT_RECALL_WINDOW_DAYS,
+        DEBUG_PROMPT_PATTERN,
+        DEBUG_RECALL_LIMIT,
+        DEFAULT_RECALL_LIMIT,
+        ENTITY_PATTERN,
+        ENTITY_STOPWORDS,
+        EXPLICIT_RECALL_PROMPT_PATTERN,
+        MAX_EXPLICIT_RECALL_LIMIT,
+        PREFERENCE_RECALL_LIMIT,
+    )
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:8001"
 DEFAULT_TIMEOUT = 8.0
-DEFAULT_RECALL_LIMIT = 5
-PREFERENCE_RECALL_LIMIT = 5
-CONTEXT_RECALL_LIMIT = 10
-DEBUG_RECALL_LIMIT = 10
-CONTEXT_RECALL_WINDOW_DAYS = 90
-MAX_EXPLICIT_RECALL_LIMIT = 10
-AMBIGUOUS_PROJECT_TAGS = {"api", "app", "test", "video"}
-ENTITY_STOPWORDS = {
-    "also",
-    "and",
-    "but",
-    "can",
-    "could",
-    "does",
-    "how",
-    "should",
-    "that",
-    "then",
-    "what",
-    "when",
-    "where",
-    "which",
-    "who",
-    "why",
-    "would",
-}
-CASUAL_OPENING_PATTERN = re.compile(
-    r"^(hi|hello|hey|yo|sup|thanks|thank you|ok|okay|cool|nice|great|ping|test|who are you)\b",
-    re.IGNORECASE,
-)
-DEBUG_PROMPT_PATTERN = re.compile(
-    r"(error|exception|traceback|stack trace|stacktrace|failing|fails|failed|failure|bug|regression|crash|broken|debug|investigat|not work|doesn't work|does not work|cannot|can't|fix)",
-    re.IGNORECASE,
-)
-EXPLICIT_RECALL_PROMPT_PATTERN = re.compile(
-    r"(what do (you|we) (have|know) about|what do you remember about|tell me about|who is|who's|do you remember|remember when|recall|search memory|check memory|look in memory|have we spoken about|what do you have on|do we like|how do we feel about|what do we think (of|about))",
-    re.IGNORECASE,
-)
-ENTITY_PATTERN = re.compile(r"\b(?:[A-Z][A-Za-z0-9_-]{2,}|[a-z0-9]+(?:-[a-z0-9]+)+)\b")
 logger = logging.getLogger(__name__)
 
 
@@ -432,12 +423,13 @@ class AutoMemMemoryProvider(MemoryProvider):
             )
 
         if is_debug:
+            # No tag gate: bugfix/solution tagging is incomplete and a hard
+            # gate hides cross-corpus fixes.
             recall_plan.append(
                 (
                     "Debug context",
                     {
                         "query": prompt[:500],
-                        "tags": ["bugfix", "solution"],
                         "limit": DEBUG_RECALL_LIMIT,
                         "format": "detailed",
                     },

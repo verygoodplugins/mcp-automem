@@ -488,11 +488,13 @@ describe('Template Generation', () => {
     expect(cursorTemplate).toContain('active_path');
     expect(cursorTemplate).toContain('language');
 
-    // Validated-parameter guardrails.
+    // Validated-parameter guardrails. format "detailed" was dropped from the
+    // recall examples — the default text format now carries timestamps and
+    // responses are budget-capped server-side.
     expect(cursorTemplate).toContain('"last 90 days"');
     expect(cursorTemplate).toContain('limit: 20');
     expect(cursorTemplate).toContain('limit: 30');
-    expect(cursorTemplate).toContain('format: "detailed"');
+    expect(cursorTemplate).not.toContain('format: "detailed"');
 
     // Tag discipline: bare tags only, no platform tag, no [YYYY-MM].
     expect(cursorTemplate).toContain('NO platform tag');
@@ -631,12 +633,16 @@ describe('Template Generation', () => {
     );
 
     expect(mcpSkill).toContain('tags: ["preference"]');
-    expect(mcpSkill).toContain('bugfix", "solution');
+    // Debug recall must NOT gate on bugfix/solution tags — tagging is
+    // incomplete and a hard gate hides cross-corpus fixes.
+    expect(mcpSkill).not.toContain('bugfix", "solution');
+    expect(mcpSkill).toContain('NO tags');
     expect(mcpSkill).toContain('hard gate');
     expect(mcpSkill).toContain('avoid platform tags like `openclaw`');
 
     expect(legacySkill).toContain('tags=preference');
-    expect(legacySkill).toContain('bugfix&tags=solution');
+    expect(legacySkill).not.toContain('bugfix&tags=solution');
+    expect(legacySkill).toContain('no `tags=` parameters');
     expect(legacySkill).toContain('"tags": ["project-slug", "decision"]');
     expect(legacySkill).not.toContain('"tags": ["openclaw"]');
 

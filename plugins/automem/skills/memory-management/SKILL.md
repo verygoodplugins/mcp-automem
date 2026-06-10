@@ -38,9 +38,9 @@ This skill teaches the current AutoMem playbook: **Recall early, store durable o
 
 ### Standard Recall Pattern
 
-- **Preferences first**: recall with `tags: ["preference"]`, `limit: 20`, `sort: "updated_desc"`, `format: "detailed"`
+- **Preferences first**: recall with `tags: ["preference"]`, `limit: 20`, `sort: "updated_desc"`
 - **Task context second**: one semantic query built from actual nouns in the request, optional project slug if unambiguous
-- **Debugging third**: a tighter recall on the error text with `tags: ["bugfix", "solution"]`
+- **Debugging on demand**: recall with the error text as the semantic query and NO tags — bugfix/solution tagging is incomplete, and a tag gate hides cross-corpus fixes
 
 ### Skip Recall For
 
@@ -56,8 +56,7 @@ This skill teaches the current AutoMem playbook: **Recall early, store durable o
 mcp__memory__recall_memory({
   tags: ["preference"],
   limit: 20,
-  sort: "updated_desc",
-  format: "detailed"
+  sort: "updated_desc"
 })
 
 // Task context recall
@@ -65,14 +64,12 @@ mcp__memory__recall_memory({
   query: "authentication timeout PostgreSQL auth.ts retry logic",
   tags: ["myapp"],   // drop if ambiguous
   time_query: "last 90 days",
-  limit: 30,
-  format: "detailed"
+  limit: 30
 })
 
-// Debug similar errors
+// Debug similar errors (no tag gate — a hard gate hides cross-corpus fixes)
 mcp__memory__recall_memory({
   query: "TimeoutError authentication request timed out",
-  tags: ["bugfix", "solution"],
   limit: 20
 })
 ```

@@ -632,7 +632,9 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     );
     expect(debug?.searchParams.get('limit')).toBe('10');
     expect(debug?.searchParams.get('format')).toBe('detailed');
-    expect(debug?.searchParams.getAll('tags')).toEqual(['bugfix', 'solution']);
+    // Debug recall sends NO tag gate: bugfix/solution tagging is incomplete
+    // and a hard gate hides cross-corpus fixes.
+    expect(debug?.searchParams.getAll('tags')).toEqual([]);
   }, 45_000);
 
   it('provider prefetch omits ambiguous project gates', async () => {
