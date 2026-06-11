@@ -169,7 +169,34 @@ export function normalizeHookCommand(
   return normalized;
 }
 
-function managedHookScriptKey(normalizedCommand: string): string | undefined {
+// AutoMem only ever installs hook scripts in two places: the CLI writes them to
+// ~/.claude/{hooks,scripts}/, and the plugin runs them from
+// ${CLAUDE_PLUGIN_ROOT}/scripts/. Requiring a managed *script* to live under one
+// of these prefixes keeps a foreign hook that merely shares a basename (e.g.
+// `bash /opt/stop-nudge.sh`) from being deduped, migrated, or — most importantly
+// — removed during uninstall as if it were ours.
+function ownedHookScriptPrefixes(options: HookCommandComparisonOptions): string[] {
+  const homeDir = options.homeDir ?? os.homedir();
+  const platform = options.platform ?? process.platform;
+  const prefixes = [
+    `${homeDir}/.claude/hooks/`,
+    `${homeDir}/.claude/scripts/`,
+    // ${CLAUDE_PLUGIN_ROOT} is left literal by normalizeHookCommand, so match it
+    // literally (both brace spellings).
+    '${CLAUDE_PLUGIN_ROOT}/scripts/',
+    '$CLAUDE_PLUGIN_ROOT/scripts/',
+  ];
+  // normalizeHookCommand forward-slashes and lowercases on win32; mirror that so
+  // the owned-path comparison stays separator/case-insensitive there.
+  return platform === 'win32'
+    ? prefixes.map((prefix) => prefix.replace(/\\/g, '/').toLowerCase())
+    : prefixes;
+}
+
+function managedHookScriptKey(
+  normalizedCommand: string,
+  options: HookCommandComparisonOptions = {}
+): string | undefined {
   if (!normalizedCommand) {
     return undefined;
   }
@@ -185,12 +212,19 @@ function managedHookScriptKey(normalizedCommand: string): string | undefined {
   if (bareCliMatch) {
     return `mcp-automem:${bareCliMatch[1]}`;
   }
+  const ownedPrefixes = ownedHookScriptPrefixes(options);
   const scriptPaths = normalizedCommand.match(/[^\s()]+\.(?:sh|py)\b/g) ?? [];
   for (const scriptPath of scriptPaths) {
     const basename = scriptPath.split(/[\\/]/).pop() ?? '';
-    if (MANAGED_HOOK_SCRIPT_BASENAMES.has(basename)) {
-      return `script:${basename}`;
+    if (!MANAGED_HOOK_SCRIPT_BASENAMES.has(basename)) {
+      continue;
     }
+    // A managed basename only counts as ours when the script path is under an
+    // AutoMem-owned location; a foreign hook sharing the name is left alone.
+    if (!ownedPrefixes.some((prefix) => scriptPath.startsWith(prefix))) {
+      continue;
+    }
+    return `script:${basename}`;
   }
   return undefined;
 }
@@ -201,7 +235,7 @@ export function hookDedupKeys(hook: any, options: HookCommandComparisonOptions =
     return [];
   }
   const keys = [`command:${normalized}`];
-  const managedKey = managedHookScriptKey(normalized);
+  const managedKey = managedHookScriptKey(normalized, options);
   if (managedKey) {
     keys.push(`managed:${managedKey}`);
   }
@@ -209,7 +243,7 @@ export function hookDedupKeys(hook: any, options: HookCommandComparisonOptions =
 }
 
 function hookIsRetired(hook: any, options: HookCommandComparisonOptions = {}): boolean {
-  const managedKey = managedHookScriptKey(normalizeHookCommand(hook?.command, options));
+  const managedKey = managedHookScriptKey(normalizeHookCommand(hook?.command, options), options);
   return managedKey !== undefined && RETIRED_HOOK_KEYS.has(managedKey);
 }
 
@@ -240,7 +274,7 @@ export function canonicalizeLegacyHookCommands(
       if (typeof hook?.command !== 'string') {
         continue;
       }
-      const managedKey = managedHookScriptKey(normalizeHookCommand(hook.command, options));
+      const managedKey = managedHookScriptKey(normalizeHookCommand(hook.command, options), options);
       if (managedKey) {
         templateCommandByManagedKey.set(managedKey, hook.command);
       }
@@ -262,7 +296,7 @@ export function canonicalizeLegacyHookCommands(
       if (!legacyNormalized.has(normalized)) {
         return hook;
       }
-      const managedKey = managedHookScriptKey(normalized);
+      const managedKey = managedHookScriptKey(normalized, options);
       const templateCommand = managedKey
         ? templateCommandByManagedKey.get(managedKey)
         : undefined;

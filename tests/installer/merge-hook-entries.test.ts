@@ -22,6 +22,7 @@ import {
   mergeSettings,
   migrateManagedHookEntries,
   normalizeHookCommand,
+  removeManagedHookEntries,
   stripRetiredHookEntries,
 } from '../../src/cli/claude-code.js';
 
@@ -377,6 +378,62 @@ describe('stripRetiredHookEntries', () => {
       { matcher: '*', hooks: [hook('bash "$HOME/.claude/scripts/smart-notify.sh"')] },
     ];
     expect(stripRetiredHookEntries(existing, opts)).toEqual(existing);
+  });
+
+  // The new hook basenames (stop-nudge.sh, track-store.sh) are generic enough
+  // that a user could have an unrelated hook with the same name. A managed
+  // basename only counts when the script lives under an AutoMem-owned path, so a
+  // foreign script sharing a *retired* basename is never stripped either.
+  it('leaves a foreign script that merely shares a retired basename', () => {
+    const existing = [
+      { matcher: '*', hooks: [hook('bash /opt/queue-cleanup.sh')] },
+    ];
+    expect(stripRetiredHookEntries(existing, opts)).toEqual(existing);
+  });
+});
+
+describe('owned-path scoping for managed hooks', () => {
+  const opts = { homeDir: HOME, platform: 'darwin' as const };
+
+  it('removeManagedHookEntries removes the owned stop-nudge but keeps a foreign /opt/stop-nudge.sh', () => {
+    const hooks = {
+      Stop: [
+        {
+          matcher: '*',
+          hooks: [
+            hook(`bash "${HOME}/.claude/hooks/automem-stop-nudge.sh"`),
+            hook('bash /opt/stop-nudge.sh'),
+          ],
+        },
+      ],
+    };
+    const { hooks: cleaned, removedCount } = removeManagedHookEntries(hooks, opts);
+    expect(removedCount).toBe(1);
+    expect(cleaned.Stop[0].hooks).toEqual([hook('bash /opt/stop-nudge.sh')]);
+  });
+
+  it('treats the plugin ${CLAUDE_PLUGIN_ROOT}/scripts/ location as owned', () => {
+    const hooks = {
+      Stop: [
+        { matcher: '*', hooks: [hook('${CLAUDE_PLUGIN_ROOT}/scripts/stop-nudge.sh')] },
+      ],
+    };
+    const { removedCount } = removeManagedHookEntries(hooks, opts);
+    expect(removedCount).toBe(1);
+  });
+
+  it('does not dedupe a foreign track-store.sh against the owned one', () => {
+    const existing = [
+      {
+        matcher: '*',
+        hooks: [
+          hook(`bash "${HOME}/.claude/hooks/automem-track-store.sh"`),
+          hook('bash /opt/track-store.sh'),
+        ],
+      },
+    ];
+    const merged = mergeHookEntries(existing, [], opts);
+    expect(merged[0].hooks).toHaveLength(2);
   });
 });
 
