@@ -15,18 +15,31 @@ const TEMPLATE_ROOT = path.resolve(
 );
 const HOOK_SCRIPTS = [
   'automem-session-start.sh',
-  'capture-build-result.sh',
-  'capture-test-pattern.sh',
-  'capture-deployment.sh',
-  'session-memory.sh',
+  'automem-stop-nudge.sh',
+  'automem-track-store.sh',
 ];
-const SUPPORT_SCRIPTS = [
-  'python-command.sh',
-  'queue-cleanup.sh',
-  'process-session-memory.py',
-  'memory-filters.json',
+
+// Files earlier installer versions wrote under ~/.claude that the current
+// template no longer ships. Re-running the installer deletes them (they are
+// installer-owned: every install overwrote them wholesale, so user edits were
+// never preserved anyway). smart-notify.sh is deliberately absent — it was
+// never a retired hook, so a user-registered copy stays untouched. Uninstall
+// removes the same set plus the current HOOK_SCRIPTS.
+export const RETIRED_FILES: ReadonlyArray<string> = [
+  'hooks/capture-build-result.sh',
+  'hooks/capture-test-pattern.sh',
+  'hooks/capture-deployment.sh',
+  'hooks/session-memory.sh',
+  'scripts/queue-cleanup.sh',
+  'scripts/process-session-memory.py',
+  'scripts/python-command.sh',
+  'scripts/memory-filters.json',
 ];
-const LEGACY_OPTIONAL_SUPPORT_SCRIPTS = ['smart-notify.sh'];
+
+// Everything the installer owns on disk (relative to ~/.claude), for uninstall.
+export function automemOwnedFiles(): string[] {
+  return [...HOOK_SCRIPTS.map((name) => `hooks/${name}`), ...RETIRED_FILES];
+}
 
 function log(message: string, quiet?: boolean) {
   if (!quiet) {
@@ -85,16 +98,32 @@ export type HookCommandComparisonOptions = {
 const MANAGED_HOOK_SCRIPT_BASENAMES = new Set<string>([
   ...HOOK_SCRIPTS,
   'session-start.sh',
-  'queue-cleanup.sh',
-  // Retired scripts stay managed even after they leave HOOK_SCRIPTS, or the
+  'stop-nudge.sh',
+  'track-store.sh',
+  // Retired scripts stay managed even after they leave the shipped set, or the
   // strip below silently stops matching the legacy entries it exists to remove.
+  'queue-cleanup.sh',
   'session-memory.sh',
+  'capture-build-result.sh',
+  'capture-test-pattern.sh',
+  'capture-deployment.sh',
 ]);
 
 // Hooks the template no longer ships and the installer actively removes from
 // existing installs. Additions must cite the retiring PR (#130 for the
-// session-summary Stop hook). Never list anything without a managed key.
-const RETIRED_HOOK_KEYS = new Set<string>(['script:session-memory.sh']);
+// session-summary Stop hook; mechanical build/test/deploy capture retired in
+// favor of the LLM-judged automem-stop-nudge.sh; the queue Stop machinery —
+// cleanup script + npx drainer — retired with it because nothing writes to
+// the queue anymore, leaving `mcp-automem queue` as a manual-only CLI).
+// Never list anything without a managed key.
+const RETIRED_HOOK_KEYS = new Set<string>([
+  'script:session-memory.sh',
+  'script:capture-build-result.sh',
+  'script:capture-test-pattern.sh',
+  'script:capture-deployment.sh',
+  'script:queue-cleanup.sh',
+  'mcp-automem:queue',
+]);
 
 // Exact historical template spellings (normalized before comparison). A hook
 // command is rewritten to the current template spelling ONLY when it matches
@@ -140,7 +169,34 @@ export function normalizeHookCommand(
   return normalized;
 }
 
-function managedHookScriptKey(normalizedCommand: string): string | undefined {
+// AutoMem only ever installs hook scripts in two places: the CLI writes them to
+// ~/.claude/{hooks,scripts}/, and the plugin runs them from
+// ${CLAUDE_PLUGIN_ROOT}/scripts/. Requiring a managed *script* to live under one
+// of these prefixes keeps a foreign hook that merely shares a basename (e.g.
+// `bash /opt/stop-nudge.sh`) from being deduped, migrated, or — most importantly
+// — removed during uninstall as if it were ours.
+function ownedHookScriptPrefixes(options: HookCommandComparisonOptions): string[] {
+  const homeDir = options.homeDir ?? os.homedir();
+  const platform = options.platform ?? process.platform;
+  const prefixes = [
+    `${homeDir}/.claude/hooks/`,
+    `${homeDir}/.claude/scripts/`,
+    // ${CLAUDE_PLUGIN_ROOT} is left literal by normalizeHookCommand, so match it
+    // literally (both brace spellings).
+    '${CLAUDE_PLUGIN_ROOT}/scripts/',
+    '$CLAUDE_PLUGIN_ROOT/scripts/',
+  ];
+  // normalizeHookCommand forward-slashes and lowercases on win32; mirror that so
+  // the owned-path comparison stays separator/case-insensitive there.
+  return platform === 'win32'
+    ? prefixes.map((prefix) => prefix.replace(/\\/g, '/').toLowerCase())
+    : prefixes;
+}
+
+function managedHookScriptKey(
+  normalizedCommand: string,
+  options: HookCommandComparisonOptions = {}
+): string | undefined {
   if (!normalizedCommand) {
     return undefined;
   }
@@ -156,12 +212,19 @@ function managedHookScriptKey(normalizedCommand: string): string | undefined {
   if (bareCliMatch) {
     return `mcp-automem:${bareCliMatch[1]}`;
   }
+  const ownedPrefixes = ownedHookScriptPrefixes(options);
   const scriptPaths = normalizedCommand.match(/[^\s()]+\.(?:sh|py)\b/g) ?? [];
   for (const scriptPath of scriptPaths) {
     const basename = scriptPath.split(/[\\/]/).pop() ?? '';
-    if (MANAGED_HOOK_SCRIPT_BASENAMES.has(basename)) {
-      return `script:${basename}`;
+    if (!MANAGED_HOOK_SCRIPT_BASENAMES.has(basename)) {
+      continue;
     }
+    // A managed basename only counts as ours when the script path is under an
+    // AutoMem-owned location; a foreign hook sharing the name is left alone.
+    if (!ownedPrefixes.some((prefix) => scriptPath.startsWith(prefix))) {
+      continue;
+    }
+    return `script:${basename}`;
   }
   return undefined;
 }
@@ -172,7 +235,7 @@ export function hookDedupKeys(hook: any, options: HookCommandComparisonOptions =
     return [];
   }
   const keys = [`command:${normalized}`];
-  const managedKey = managedHookScriptKey(normalized);
+  const managedKey = managedHookScriptKey(normalized, options);
   if (managedKey) {
     keys.push(`managed:${managedKey}`);
   }
@@ -180,7 +243,7 @@ export function hookDedupKeys(hook: any, options: HookCommandComparisonOptions =
 }
 
 function hookIsRetired(hook: any, options: HookCommandComparisonOptions = {}): boolean {
-  const managedKey = managedHookScriptKey(normalizeHookCommand(hook?.command, options));
+  const managedKey = managedHookScriptKey(normalizeHookCommand(hook?.command, options), options);
   return managedKey !== undefined && RETIRED_HOOK_KEYS.has(managedKey);
 }
 
@@ -211,7 +274,7 @@ export function canonicalizeLegacyHookCommands(
       if (typeof hook?.command !== 'string') {
         continue;
       }
-      const managedKey = managedHookScriptKey(normalizeHookCommand(hook.command, options));
+      const managedKey = managedHookScriptKey(normalizeHookCommand(hook.command, options), options);
       if (managedKey) {
         templateCommandByManagedKey.set(managedKey, hook.command);
       }
@@ -233,7 +296,7 @@ export function canonicalizeLegacyHookCommands(
       if (!legacyNormalized.has(normalized)) {
         return hook;
       }
-      const managedKey = managedHookScriptKey(normalized);
+      const managedKey = managedHookScriptKey(normalized, options);
       const templateCommand = managedKey
         ? templateCommandByManagedKey.get(managedKey)
         : undefined;
@@ -458,71 +521,24 @@ function installHookScripts(targetDir: string, options: ClaudeCodeSetupOptions) 
   }
 }
 
-function installSupportScripts(targetDir: string, options: ClaudeCodeSetupOptions) {
-  const scriptTemplateDir = path.join(TEMPLATE_ROOT, 'scripts');
-  const scriptTargetDir = path.join(targetDir, 'scripts');
-
-  for (const scriptName of SUPPORT_SCRIPTS) {
-    const templatePath = path.join(scriptTemplateDir, scriptName);
-    const targetPath = path.join(scriptTargetDir, scriptName);
-
-    if (!fs.existsSync(templatePath)) {
-      log(`Warning: Script template not found at ${templatePath}`, options.quiet);
+function removeRetiredFiles(targetDir: string, options: ClaudeCodeSetupOptions) {
+  for (const relativePath of RETIRED_FILES) {
+    const targetPath = path.join(targetDir, relativePath);
+    if (!fs.existsSync(targetPath)) {
       continue;
     }
-
-    const content = fs.readFileSync(templatePath, 'utf8');
-    writeFileWithBackup(targetPath, content, options);
-
-    if (!options.dryRun && (scriptName.endsWith('.sh') || scriptName.endsWith('.py'))) {
-      fs.chmodSync(targetPath, 0o755);
-      log(`installed script: ${scriptName}`, options.quiet);
-    }
-  }
-}
-
-function shouldInstallLegacySmartNotify(targetDir: string): boolean {
-  const smartNotifyPath = path.join(targetDir, 'scripts', 'smart-notify.sh');
-  if (fs.existsSync(smartNotifyPath)) {
-    return true;
-  }
-
-  const settingsPath = path.join(targetDir, 'settings.json');
-  if (!fs.existsSync(settingsPath)) {
-    return false;
-  }
-
-  try {
-    const raw = fs.readFileSync(settingsPath, 'utf8');
-    return raw.includes('smart-notify.sh');
-  } catch {
-    return false;
-  }
-}
-
-function installLegacyOptionalSupportScripts(targetDir: string, options: ClaudeCodeSetupOptions) {
-  if (!shouldInstallLegacySmartNotify(targetDir)) {
-    return;
-  }
-
-  const scriptTemplateDir = path.join(TEMPLATE_ROOT, 'scripts');
-  const scriptTargetDir = path.join(targetDir, 'scripts');
-
-  for (const scriptName of LEGACY_OPTIONAL_SUPPORT_SCRIPTS) {
-    const templatePath = path.join(scriptTemplateDir, scriptName);
-    const targetPath = path.join(scriptTargetDir, scriptName);
-
-    if (!fs.existsSync(templatePath)) {
-      log(`Warning: Legacy script template not found at ${templatePath}`, options.quiet);
+    if (options.dryRun) {
+      log(`dry-run: would remove retired file ${targetPath}`, options.quiet);
       continue;
     }
-
-    const content = fs.readFileSync(templatePath, 'utf8');
-    writeFileWithBackup(targetPath, content, options);
-
-    if (!options.dryRun && (scriptName.endsWith('.sh') || scriptName.endsWith('.py'))) {
-      fs.chmodSync(targetPath, 0o755);
-      log(`installed legacy script: ${scriptName}`, options.quiet);
+    try {
+      fs.unlinkSync(targetPath);
+      log(`migrated: removed retired file ${targetPath}`, options.quiet);
+    } catch (error) {
+      log(
+        `Warning: could not remove retired file ${targetPath}: ${(error as Error).message}`,
+        options.quiet
+      );
     }
   }
 }
@@ -565,6 +581,28 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   if (raw.includes('session-memory.sh') && !output.includes('session-memory.sh')) {
     log(
       'migrated: removed retired session-memory.sh Stop hook (backup created)',
+      options.quiet
+    );
+  }
+  const retiredCaptureScripts = [
+    'capture-build-result.sh',
+    'capture-test-pattern.sh',
+    'capture-deployment.sh',
+  ];
+  const removedCapture = retiredCaptureScripts.filter(
+    (name) => raw.includes(name) && !output.includes(name)
+  );
+  if (removedCapture.length > 0) {
+    log(
+      `migrated: removed retired capture hooks (${removedCapture.join(', ')}) — storage is now LLM-judged via automem-stop-nudge.sh`,
+      options.quiet
+    );
+  }
+  const hadQueueHooks = raw.includes('queue-cleanup.sh') || raw.includes('mcp-automem queue');
+  const hasQueueHooks = output.includes('queue-cleanup.sh') || output.includes('mcp-automem queue');
+  if (hadQueueHooks && !hasQueueHooks) {
+    log(
+      'migrated: removed retired queue Stop hooks (queue-cleanup.sh, queue drainer) — the memory queue is manual-only via `npx @verygoodplugins/mcp-automem queue`',
       options.quiet
     );
   }
@@ -611,17 +649,17 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  // Install hook scripts and support scripts
+  // Order matters for crash-safety. Install current hooks, then merge settings
+  // so the config stops referencing retired scripts, and only THEN delete the
+  // retired files on disk. mergeSettingsFile throws on an unparseable
+  // settings.json; deleting first would strand the unchanged hook config
+  // pointing at scripts we already removed — i.e. broken hooks.
   installHookScripts(targetDir, options);
-  installSupportScripts(targetDir, options);
-  installLegacyOptionalSupportScripts(targetDir, options);
-
-  // Merge MCP permissions and hooks into settings.json
   mergeSettingsFile(targetDir, options);
+  removeRetiredFiles(targetDir, options);
 
   log('', options.quiet);
-  log('✓ Hook scripts installed for automatic memory capture', options.quiet);
-  log('✓ Support scripts installed for queue processing', options.quiet);
+  log('✓ Hook scripts installed (session recall, store tracking, stop nudge)', options.quiet);
   log('✓ MCP permissions and hooks added to settings.json', options.quiet);
   log('', options.quiet);
   log('Next steps:', options.quiet);

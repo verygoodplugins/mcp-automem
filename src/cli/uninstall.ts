@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { removeManagedHookEntries } from './claude-code.js';
+import { automemOwnedFiles, removeManagedHookEntries } from './claude-code.js';
 import {
   removeHermesMemoryProvider,
   removeMcpServerEntry,
@@ -344,8 +344,50 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
   const settingsPath = path.join(claudeDir, 'settings.json');
   
   log('\n🗑️  Uninstalling Claude Code AutoMem...', options.quiet);
-  
-  // MCP permissions to remove
+
+  let settingsCleared = true;
+  if (!fs.existsSync(settingsPath)) {
+    log('ℹ️  No Claude Code settings.json found', options.quiet);
+  } else if (options.dryRun) {
+    log(
+      `[DRY RUN] Would remove MCP permissions and AutoMem hook entries from: ${settingsPath}`,
+      options.quiet
+    );
+  } else {
+    settingsCleared = uninstallClaudeCodeSettings(settingsPath, options);
+  }
+
+  // Delete installer-owned files only once settings.json no longer references
+  // them. If the settings update failed, removing the scripts would strand the
+  // unchanged config pointing at missing files — broken hooks. Skip and warn.
+  if (!settingsCleared) {
+    log(
+      '⚠️  Skipped removing AutoMem hook/script files because settings.json still references them (update failed above). Fix settings.json and re-run, or remove the files manually.',
+      options.quiet
+    );
+    return;
+  }
+
+  // Remove installer-owned files (current hooks + retired machinery). The
+  // list comes from the installer itself so install-time cleanup and
+  // uninstall cannot drift; foreign files in the shared dirs are untouched.
+  let filesRemoved = 0;
+  for (const relativePath of automemOwnedFiles()) {
+    const filePath = path.join(claudeDir, relativePath);
+    if (removeFileWithBackup(filePath, options.dryRun ?? false, options.quiet)) {
+      filesRemoved += 1;
+    }
+  }
+  if (filesRemoved > 0 && !options.dryRun) {
+    log(`\n✅ Removed ${filesRemoved} AutoMem hook/script file(s)`, options.quiet);
+  }
+}
+
+// Returns true when settings.json no longer references AutoMem hooks (updated
+// cleanly, or had nothing to remove), and false when the update failed — in
+// which case the caller must NOT delete the on-disk scripts the config still
+// points at.
+function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOptions): boolean {
   const mcpPermissions = [
     'mcp__memory__store_memory',
     'mcp__memory__recall_memory',
@@ -354,19 +396,6 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
     'mcp__memory__delete_memory',
     'mcp__memory__check_database_health',
   ];
-  
-  if (!fs.existsSync(settingsPath)) {
-    log('ℹ️  No Claude Code settings.json found', options.quiet);
-    return;
-  }
-
-  if (options.dryRun) {
-    log(
-      `[DRY RUN] Would remove MCP permissions and AutoMem hook entries from: ${settingsPath}`,
-      options.quiet
-    );
-    return;
-  }
 
   try {
     const raw = fs.readFileSync(settingsPath, 'utf8');
@@ -399,7 +428,7 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
 
     if (permissionsRemoved === 0 && hooksRemoved === 0) {
       log('ℹ️  No AutoMem configuration found in settings.json', options.quiet);
-      return;
+      return true;
     }
 
     // Backup and write
@@ -415,8 +444,10 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
     }
     log(`   Backup: ${backupPath}`, options.quiet);
     log('\n✅ Claude Code AutoMem configuration removed', options.quiet);
+    return true;
   } catch (error) {
     log(`❌ Failed to update settings.json: ${(error as Error).message}`, options.quiet);
+    return false;
   }
 }
 

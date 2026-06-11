@@ -17,7 +17,7 @@ The old Claude Code marketplace plugin is deprecated and kept only as a migratio
 Claude has direct MCP access and can judge what's worth storing better than low-signal automation alone. The supported integration provides:
 
 1. **MCP permissions** - So Claude can use memory tools without asking
-2. **SessionStart and capture hooks** - So recall/setup behavior stays consistent
+2. **SessionStart recall + Stop storage-nudge hooks** - So recall happens every session and storage stays LLM-judged (hooks prompt and observe; they never write memories themselves)
 3. **Memory rules** - Instructions in CLAUDE.md teaching Claude when to store/recall
 
 The CLI installer is the source of truth. Manual config remains available below as an advanced fallback.
@@ -34,7 +34,7 @@ npx @verygoodplugins/mcp-automem claude-code
 
 This merges AutoMem permissions into `~/.claude/settings.json` and installs the canonical hook/support files under `~/.claude/`.
 
-Windows compatibility for this branch is limited to POSIX shell environments such as Git Bash, MSYS2, or WSL. `bash`, `jq`, and Python must be available. This is not full native Windows hook support.
+Windows compatibility for this branch is limited to POSIX shell environments such as Git Bash, MSYS2, or WSL. Only `bash` must be available — the hooks are pure bash+sed, with no Python or jq dependency. This is not full native Windows hook support.
 
 ### 2. Advanced Manual Fallback
 
@@ -122,11 +122,29 @@ Claude automatically recalls:
 
 ### During Work
 
-Claude stores significant events:
+Claude stores significant events as they stabilize (per the memory rules):
 
 - Architecture decisions (importance: 0.9)
 - Bug fixes with root cause (importance: 0.8)
 - Patterns and insights (importance: 0.7)
+
+### Session End
+
+If no `store_memory` call happened during the session (tracked by the
+`automem-track-store.sh` PostToolUse sentinel), the `automem-stop-nudge.sh`
+Stop hook asks Claude once to consider whether any durable facts emerged —
+a correction, a stabilized decision, an articulated pattern, or a debugging
+root cause. If nothing durable came up, Claude stops normally; the nudge
+never blocks and explicitly forbids session-summary dumps.
+
+Historical note: earlier versions mechanically captured build/test/deploy
+results into a JSONL memory queue drained by Stop hooks. That whole pipeline
+was retired — templated "Build succeeded…" one-liners drowned out real
+memories in recall, and once the capture hooks were gone nothing wrote to
+the queue. Re-running the installer removes the retired hook entries AND
+their orphaned script files from existing installs. The
+`npx @verygoodplugins/mcp-automem queue` CLI remains for manually draining
+a queue file you point it at.
 
 ## Available Tools
 

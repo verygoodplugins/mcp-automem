@@ -3,10 +3,11 @@
  * plugins/automem/hooks/hooks.json.
  *
  * Two invariants:
- * 1. Neither shipped hook config references the retired session-memory.sh —
- *    it was removed from the default Stop matcher because its per-session
- *    rollups are low-signal noise, and the installer now actively strips it
- *    from existing installs (RETIRED_HOOK_KEYS).
+ * 1. Neither shipped hook config references retired machinery — the
+ *    session-memory.sh Stop hook (#130) or the queue pipeline
+ *    (queue-cleanup.sh + the npx queue drainer, retired when the capture
+ *    hooks that fed the queue were removed). The installer actively strips
+ *    all of these from existing installs (RETIRED_HOOK_KEYS).
  * 2. Every shipped hook command yields a managed dedup key. Anything that
  *    escapes the managed-key net also escapes installer dedup, migration,
  *    and uninstall — a rename that breaks the key surfaces here instead of
@@ -51,8 +52,27 @@ describe.each(CONFIGS)('%s', (configPath) => {
     expect(commands.join('\n')).not.toContain('session-memory.sh');
   });
 
+  it('does not reference the retired queue machinery', () => {
+    const joined = commands.join('\n');
+    expect(joined).not.toContain('queue-cleanup.sh');
+    expect(joined).not.toMatch(/mcp-automem\s+queue/);
+  });
+
   it.each(commands)('command yields a managed dedup key: %s', (command) => {
     const keys = hookDedupKeys({ command });
     expect(keys.some((key) => key.startsWith('managed:'))).toBe(true);
   });
+});
+
+describe('plugin hook commands', () => {
+  const commands = shippedCommands('plugins/automem/hooks/hooks.json');
+
+  it.each(commands.filter((command) => command.startsWith('${CLAUDE_PLUGIN_ROOT}/')))(
+    'direct plugin command points at an executable packaged script: %s',
+    (command) => {
+      const relativeScript = command.replace('${CLAUDE_PLUGIN_ROOT}/', 'plugins/automem/');
+      const mode = fs.statSync(path.join(REPO_ROOT, relativeScript)).mode;
+      expect(mode & 0o111, `${relativeScript} is invoked directly and must be executable`).not.toBe(0);
+    }
+  );
 });

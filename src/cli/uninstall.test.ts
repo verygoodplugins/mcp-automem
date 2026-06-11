@@ -317,6 +317,31 @@ describe('uninstall claude-code', () => {
     );
   }
 
+  // Every file the installer writes (current hooks) or ever wrote (retired
+  // machinery), plus foreign neighbors that must survive.
+  const OWNED_FILES = [
+    'hooks/automem-session-start.sh',
+    'hooks/automem-stop-nudge.sh',
+    'hooks/automem-track-store.sh',
+    'hooks/session-memory.sh',
+    'hooks/capture-build-result.sh',
+    'hooks/capture-test-pattern.sh',
+    'hooks/capture-deployment.sh',
+    'scripts/queue-cleanup.sh',
+    'scripts/process-session-memory.py',
+    'scripts/python-command.sh',
+    'scripts/memory-filters.json',
+  ];
+  const FOREIGN_FILES = ['hooks/awtrix-event.js', 'scripts/smart-notify.sh'];
+
+  function seedInstalledFiles(): void {
+    for (const rel of [...OWNED_FILES, ...FOREIGN_FILES]) {
+      const abs = path.join(tmpHome, '.claude', rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, '#!/bin/bash\n');
+    }
+  }
+
   it('removes managed hooks and MCP permissions, keeps foreign hooks, creates a backup', async () => {
     writeInstalledSettings();
 
@@ -335,12 +360,57 @@ describe('uninstall claude-code', () => {
     expect(backups).toHaveLength(1);
   });
 
-  it('honors dry-run without changing settings.json', async () => {
+  it('removes AutoMem-owned hook and script files, keeps foreign files', async () => {
     writeInstalledSettings();
+    seedInstalledFiles();
+
+    await runUninstall({ platform: 'claude-code', yes: true, quiet: true });
+
+    for (const rel of OWNED_FILES) {
+      expect(
+        fs.existsSync(path.join(tmpHome, '.claude', rel)),
+        `${rel} should be removed`
+      ).toBe(false);
+    }
+    for (const rel of FOREIGN_FILES) {
+      expect(
+        fs.existsSync(path.join(tmpHome, '.claude', rel)),
+        `${rel} must survive uninstall`
+      ).toBe(true);
+    }
+  });
+
+  it('honors dry-run without changing settings.json or removing files', async () => {
+    writeInstalledSettings();
+    seedInstalledFiles();
     const before = fs.readFileSync(settingsPath(), 'utf8');
 
     await runUninstall({ platform: 'claude-code', yes: true, dryRun: true, quiet: true });
 
     expect(fs.readFileSync(settingsPath(), 'utf8')).toBe(before);
+    for (const rel of OWNED_FILES) {
+      expect(
+        fs.existsSync(path.join(tmpHome, '.claude', rel)),
+        `${rel} should survive dry-run`
+      ).toBe(true);
+    }
+  });
+
+  it('keeps owned files when the settings update fails (no half-uninstall)', async () => {
+    // Unparseable settings.json makes uninstallClaudeCodeSettings fail. File
+    // deletion is gated on a clean settings update, so the scripts the broken
+    // config still references must survive — otherwise the user is left with a
+    // half-uninstalled config pointing at deleted hooks.
+    fs.writeFileSync(settingsPath(), '{ not valid json');
+    seedInstalledFiles();
+
+    await runUninstall({ platform: 'claude-code', yes: true, quiet: true });
+
+    for (const rel of OWNED_FILES) {
+      expect(
+        fs.existsSync(path.join(tmpHome, '.claude', rel)),
+        `${rel} must survive a failed settings update`
+      ).toBe(true);
+    }
   });
 });

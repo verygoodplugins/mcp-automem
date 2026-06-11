@@ -6,27 +6,19 @@
  * `VAR=value command` prefix, so any command using that syntax must wrap the
  * whole thing in `bash -c '…'` to re-introduce a real shell.
  *
- * This test extracts every command from settings.json / hooks.json that
- * carries an env-var prefix, stages a stub for the script it references, and
- * runs it via execSync. On POSIX it always passes; on `windows-latest` CI it
- * fails loudly if the wrapper regresses.
+ * The mechanical capture hooks (the only env-prefixed commands we ever
+ * shipped) were retired in favor of the LLM-judged automem-stop-nudge.sh, so
+ * the shipped configs must now carry NO env-prefixed commands at all. The
+ * wrap guard stays so any future env-prefixed command must come through it.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execSync } from 'child_process';
+import { describe, it, expect } from 'vitest';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const SETTINGS_PATH = path.join(REPO_ROOT, 'templates/claude-code/settings.json');
 const PLUGIN_HOOKS_PATH = path.join(REPO_ROOT, 'plugins/automem/hooks/hooks.json');
-
-const STUB_SCRIPT_NAMES = [
-  'capture-build-result.sh',
-  'capture-test-pattern.sh',
-  'capture-deployment.sh',
-];
 
 interface HookEntry {
   command: string;
@@ -36,91 +28,38 @@ interface HookGroup {
   hooks: HookEntry[];
 }
 interface HookConfig {
-  hooks: {
-    PostToolUse?: HookGroup[];
-    Stop?: HookGroup[];
-    SessionStart?: HookGroup[];
-  };
+  hooks: Record<string, HookGroup[]>;
 }
 
-function extractEnvPrefixedCommands(config: HookConfig): string[] {
+function extractCommands(config: HookConfig): string[] {
   const all: string[] = [];
-  for (const section of [config.hooks.PostToolUse, config.hooks.Stop, config.hooks.SessionStart]) {
+  for (const section of Object.values(config.hooks ?? {})) {
     for (const group of section ?? []) {
       for (const entry of group.hooks ?? []) {
         all.push(entry.command);
       }
     }
   }
-  return all.filter((c) => /CLAUDE_HOOK_TYPE=/.test(c));
+  return all;
 }
 
 describe('shipped hook commands run via the platform exec model (#108)', () => {
-  let tmpHome: string;
-  let originalHome: string | undefined;
-  let originalUserProfile: string | undefined;
-
-  beforeAll(() => {
-    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-automem-hookcmd-'));
-    // Templates reference $HOME/.claude/hooks/*.sh; plugin references
-    // ${CLAUDE_PLUGIN_ROOT}/scripts/*.sh which we map to tmpHome/.claude/scripts.
-    const hooksDir = path.join(tmpHome, '.claude', 'hooks');
-    const scriptsDir = path.join(tmpHome, '.claude', 'scripts');
-    fs.mkdirSync(hooksDir, { recursive: true });
-    fs.mkdirSync(scriptsDir, { recursive: true });
-
-    const stub =
-      '#!/usr/bin/env bash\necho "${0##*/} CLAUDE_HOOK_TYPE=${CLAUDE_HOOK_TYPE:-MISSING}"\nexit 0\n';
-    for (const name of STUB_SCRIPT_NAMES) {
-      for (const dir of [hooksDir, scriptsDir]) {
-        const p = path.join(dir, name);
-        fs.writeFileSync(p, stub);
-        fs.chmodSync(p, 0o755);
-      }
-    }
-
-    originalHome = process.env.HOME;
-    originalUserProfile = process.env.USERPROFILE;
-    process.env.HOME = tmpHome;
-    process.env.USERPROFILE = tmpHome;
-  });
-
-  afterAll(() => {
-    process.env.HOME = originalHome;
-    process.env.USERPROFILE = originalUserProfile;
-    fs.rmSync(tmpHome, { recursive: true, force: true });
-  });
-
   const templateSettings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) as HookConfig;
   const pluginHooks = JSON.parse(fs.readFileSync(PLUGIN_HOOKS_PATH, 'utf8')) as HookConfig;
+  const allCommands = [...extractCommands(templateSettings), ...extractCommands(pluginHooks)];
 
-  const templateCmds = extractEnvPrefixedCommands(templateSettings);
-  const pluginCmds = extractEnvPrefixedCommands(pluginHooks);
-
-  it('finds the three template hook commands that carry CLAUDE_HOOK_TYPE', () => {
-    // build, test_run, deploy — the session_end hook was retired from the
-    // default Stop matcher (session-summary rollups are low-signal noise).
-    expect(templateCmds).toHaveLength(3);
+  it('ships no retired CLAUDE_HOOK_TYPE capture commands', () => {
+    // Mechanical build/test/deploy capture is retired; the installer strips
+    // these from existing installs via RETIRED_HOOK_KEYS.
+    expect(allCommands.filter((c) => /CLAUDE_HOOK_TYPE=/.test(c))).toHaveLength(0);
+    expect(allCommands.join('\n')).not.toMatch(/capture-(build-result|test-pattern|deployment)/);
   });
 
-  it('plugin hooks carry no CLAUDE_HOOK_TYPE-prefixed commands', () => {
-    expect(pluginCmds).toHaveLength(0);
-  });
-
-  // Cross-platform structural guard: on POSIX, execSync uses /bin/sh which
-  // happily parses the `VAR=value command` prefix, so a regression that drops
-  // the bash wrapper would still pass the exec tests above on Linux/macOS.
-  // This assertion fails on every platform if anyone removes the wrap.
-  it.each([...templateCmds, ...pluginCmds])(
-    'env-prefixed command is wrapped in `bash -c` (#108): %s',
-    (cmd) => {
-      expect(cmd).toMatch(/^bash -c '/);
+  it('wraps any env-prefixed command in `bash -c` (#108 guard for future additions)', () => {
+    for (const cmd of allCommands) {
+      if (/^[A-Z_]+=\S/.test(cmd)) {
+        expect(cmd, `unwrapped env-prefix breaks Windows exec: ${cmd}`).toMatch(/^bash -c '/);
+      }
     }
-  );
-
-  it.each(templateCmds)('template command executes cleanly: %s', (cmd) => {
-    const out = execSync(cmd, { encoding: 'utf8', env: process.env });
-    expect(out).toMatch(/CLAUDE_HOOK_TYPE=(build|test_run|deploy)/);
-    expect(out).not.toMatch(/MISSING/);
   });
 });

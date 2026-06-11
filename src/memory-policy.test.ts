@@ -15,6 +15,9 @@ import {
   renderCursorProjectRule,
   renderClaudeCodeSessionStartPrompt,
   renderClaudeCodeSessionStartHook,
+  renderClaudeCodeStopNudgeHook,
+  renderClaudeCodeStopNudgePrompt,
+  renderClaudeCodeTrackStoreHook,
   renderHermesMemoryRules,
   renderHermesModeRules,
   renderHermesProviderPolicyPython,
@@ -204,10 +207,26 @@ describe('shared AutoMem memory policy', () => {
     expect(hookContents).toBe(renderClaudeCodeSessionStartHook());
   });
 
+  it('embeds the storage-nudge prompt as JSON with the required hookEventName field', () => {
+    const hook = renderClaudeCodeStopNudgeHook();
+    // Claude Code rejects Stop-hook JSON whose hookSpecificOutput lacks
+    // hookEventName — the exact bug that motivated this hook's design.
+    expect(hook).toContain('"hookEventName":"%s"');
+    // suppressOutput:true keeps the nudge JSON out of the user-visible transcript
+    // while Claude still receives additionalContext.
+    expect(hook).toContain('"suppressOutput":true');
+    expect(hook).toContain(JSON.stringify(renderClaudeCodeStopNudgePrompt()));
+    expect(renderClaudeCodeStopNudgePrompt()).toContain('stop normally');
+  });
+
   it('keeps generated host rule artifacts exactly aligned with shared renderers', () => {
     const templateVersion = readPackageVersion();
     expectFileEquals('templates/claude-code/hooks/automem-session-start.sh', renderClaudeCodeSessionStartHook());
     expectFileEquals('plugins/automem/scripts/session-start.sh', renderClaudeCodeSessionStartHook());
+    expectFileEquals('templates/claude-code/hooks/automem-stop-nudge.sh', renderClaudeCodeStopNudgeHook());
+    expectFileEquals('plugins/automem/scripts/stop-nudge.sh', renderClaudeCodeStopNudgeHook());
+    expectFileEquals('templates/claude-code/hooks/automem-track-store.sh', renderClaudeCodeTrackStoreHook());
+    expectFileEquals('plugins/automem/scripts/track-store.sh', renderClaudeCodeTrackStoreHook());
     expectFileEquals(
       'templates/codex/memory-rules.md',
       renderCodexMemoryRules({ projectName: '{{PROJECT_NAME}}', templateVersion })
@@ -275,6 +294,10 @@ describe('shared AutoMem memory policy', () => {
     const generatedFiles = [
       'templates/claude-code/hooks/automem-session-start.sh',
       'plugins/automem/scripts/session-start.sh',
+      'templates/claude-code/hooks/automem-stop-nudge.sh',
+      'plugins/automem/scripts/stop-nudge.sh',
+      'templates/claude-code/hooks/automem-track-store.sh',
+      'plugins/automem/scripts/track-store.sh',
       'templates/codex/memory-rules.md',
       'templates/cursor/automem.mdc.template',
       'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',

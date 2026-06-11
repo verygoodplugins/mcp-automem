@@ -400,9 +400,9 @@ npx @verygoodplugins/mcp-automem claude-code
 
 This merges permissions into `~/.claude/settings.json` so Claude can use memory tools without asking.
 
-Re-running setup is also the supported migration path for legacy installs: the merge removes retired hooks (the old `session-memory.sh` Stop entry), collapses duplicate hook registrations — including the globally-installed `mcp-automem queue …` drainer spelling next to the current `npx -y @verygoodplugins/mcp-automem queue …` form — and rewrites known-legacy command spellings to the current template. Hooks the installer didn't author are never touched, and a backup (`settings.json.bak`, numbered if needed) is written before any change.
+Re-running setup is also the supported migration path for legacy installs: the merge removes retired hooks in every historical spelling — the old `session-memory.sh` Stop entry, the mechanical `capture-*.sh` PostToolUse hooks, and the queue Stop machinery (`queue-cleanup.sh` plus the `mcp-automem queue` drainer in its npx and bare-CLI forms; nothing writes to the queue anymore, so draining it per-session was dead weight). It also deletes the retired script files those hooks used from `~/.claude/hooks` and `~/.claude/scripts`, and collapses duplicate hook registrations. Hooks the installer didn't author are never touched, and a backup (`settings.json.bak`, numbered if needed) is written before any change. The `mcp-automem queue` CLI remains available for manually draining a queue file.
 
-> Windows compatibility note: the Claude Code hook payload remains Bash-based. On Windows, use a POSIX shell environment such as Git Bash, MSYS2, or WSL, and make sure `bash`, `jq`, and Python are available. This is not full native Windows hook support yet.
+> Windows compatibility note: the Claude Code hook payload remains Bash-based. On Windows, use a POSIX shell environment such as Git Bash, MSYS2, or WSL with `bash` available (the hooks are pure bash+sed — Python and jq are no longer required). This is not full native Windows hook support yet.
 
 > Note: the old Claude Code marketplace plugin is deprecated and kept only as a migration bridge. Use `npx @verygoodplugins/mcp-automem claude-code` for new installs. See [DEPRECATION.md](DEPRECATION.md).
 
@@ -1346,7 +1346,7 @@ npx @verygoodplugins/mcp-automem help
 
 #### Claude Code: Hooks firing twice or storing duplicate/session-summary memories
 
-- Run setup again: `npx @verygoodplugins/mcp-automem claude-code` — the merge self-repairs duplicate hook registrations, removes the retired `session-memory.sh` Stop hook, and collapses the legacy `mcp-automem queue` drainer into the current `npx -y` form
+- Run setup again: `npx @verygoodplugins/mcp-automem claude-code` — the merge self-repairs duplicate hook registrations and removes retired hooks (the `session-memory.sh` Stop entry, the `capture-*.sh` PostToolUse hooks, and the `queue-cleanup.sh` + `mcp-automem queue` drainer Stop entries) along with their orphaned script files
 - A backup of `settings.json` is created automatically before any change
 - Preview first with `--dry-run` if you want to see what would change
 

@@ -22,6 +22,7 @@ import {
   mergeSettings,
   migrateManagedHookEntries,
   normalizeHookCommand,
+  removeManagedHookEntries,
   stripRetiredHookEntries,
 } from '../../src/cli/claude-code.js';
 
@@ -311,9 +312,9 @@ describe('stripRetiredHookEntries', () => {
       {
         matcher: '*',
         hooks: [
-          hook('bash "$HOME/.claude/scripts/queue-cleanup.sh"'),
+          hook('bash "$HOME/.claude/hooks/automem-stop-nudge.sh"'),
           hook(command),
-          hook('npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5'),
+          hook(`node "${HOME}/.claude/hooks/awtrix-event.js"`),
         ],
       },
     ];
@@ -323,6 +324,30 @@ describe('stripRetiredHookEntries', () => {
     expect(
       stripped[0].hooks.map((h: { command: string }) => h.command).join(' ')
     ).not.toContain('session-memory.sh');
+  });
+
+  // The memory queue lost its last automatic writer when the capture hooks
+  // retired, so the queue Stop machinery (cleanup script + npx drainer, in
+  // every historical spelling) is retired too. The `mcp-automem queue` CLI
+  // remains for manual drains.
+  it.each([
+    ['queue-cleanup script', 'bash "$HOME/.claude/scripts/queue-cleanup.sh"'],
+    ['queue-cleanup absolute path', `bash "${HOME}/.claude/scripts/queue-cleanup.sh"`],
+    ['queue-cleanup plugin form', '${CLAUDE_PLUGIN_ROOT}/scripts/queue-cleanup.sh'],
+    ['npx drainer (no -y, no --limit)', 'npx @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl"'],
+    ['npx drainer (no -y, --limit)', 'npx @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5'],
+    ['npx drainer (canonical -y form)', 'npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5'],
+    ['bare-CLI drainer', `command -v mcp-automem >/dev/null 2>&1 && mcp-automem queue --file "${HOME}/.claude/scripts/memory-queue.jsonl" --limit 5 || true`],
+  ])('removes the retired queue hook spelled as %s', (_label, command) => {
+    const existing = [
+      {
+        matcher: '*',
+        hooks: [hook(command), hook(`node "${HOME}/.claude/hooks/awtrix-event.js"`)],
+      },
+    ];
+    const stripped = stripRetiredHookEntries(existing, opts);
+    expect(stripped).toHaveLength(1);
+    expect(stripped[0].hooks).toEqual([hook(`node "${HOME}/.claude/hooks/awtrix-event.js"`)]);
   });
 
   it('drops an entry whose hooks all retired', () => {
@@ -353,6 +378,62 @@ describe('stripRetiredHookEntries', () => {
       { matcher: '*', hooks: [hook('bash "$HOME/.claude/scripts/smart-notify.sh"')] },
     ];
     expect(stripRetiredHookEntries(existing, opts)).toEqual(existing);
+  });
+
+  // The new hook basenames (stop-nudge.sh, track-store.sh) are generic enough
+  // that a user could have an unrelated hook with the same name. A managed
+  // basename only counts when the script lives under an AutoMem-owned path, so a
+  // foreign script sharing a *retired* basename is never stripped either.
+  it('leaves a foreign script that merely shares a retired basename', () => {
+    const existing = [
+      { matcher: '*', hooks: [hook('bash /opt/queue-cleanup.sh')] },
+    ];
+    expect(stripRetiredHookEntries(existing, opts)).toEqual(existing);
+  });
+});
+
+describe('owned-path scoping for managed hooks', () => {
+  const opts = { homeDir: HOME, platform: 'darwin' as const };
+
+  it('removeManagedHookEntries removes the owned stop-nudge but keeps a foreign /opt/stop-nudge.sh', () => {
+    const hooks = {
+      Stop: [
+        {
+          matcher: '*',
+          hooks: [
+            hook(`bash "${HOME}/.claude/hooks/automem-stop-nudge.sh"`),
+            hook('bash /opt/stop-nudge.sh'),
+          ],
+        },
+      ],
+    };
+    const { hooks: cleaned, removedCount } = removeManagedHookEntries(hooks, opts);
+    expect(removedCount).toBe(1);
+    expect(cleaned.Stop[0].hooks).toEqual([hook('bash /opt/stop-nudge.sh')]);
+  });
+
+  it('treats the plugin ${CLAUDE_PLUGIN_ROOT}/scripts/ location as owned', () => {
+    const hooks = {
+      Stop: [
+        { matcher: '*', hooks: [hook('${CLAUDE_PLUGIN_ROOT}/scripts/stop-nudge.sh')] },
+      ],
+    };
+    const { removedCount } = removeManagedHookEntries(hooks, opts);
+    expect(removedCount).toBe(1);
+  });
+
+  it('does not dedupe a foreign track-store.sh against the owned one', () => {
+    const existing = [
+      {
+        matcher: '*',
+        hooks: [
+          hook(`bash "${HOME}/.claude/hooks/automem-track-store.sh"`),
+          hook('bash /opt/track-store.sh'),
+        ],
+      },
+    ];
+    const merged = mergeHookEntries(existing, [], opts);
+    expect(merged[0].hooks).toHaveLength(2);
   });
 });
 
@@ -455,19 +536,18 @@ describe('mergeSettings (legacy Stop-hook migration end-to-end)', () => {
     },
   });
 
-  it('migrates the real-machine Stop block: strips retired hook, collapses drainers, keeps foreign hook', () => {
+  it('migrates the real-machine Stop block: strips retired + queue hooks, keeps foreign hook, registers the nudge', () => {
     const merged = mergeSettings(liveStopFixture(), realTemplate);
     const stop = merged.hooks.Stop;
     expect(stop).toHaveLength(1);
     const commands = stop[0].hooks.map((h: { command: string }) => h.command);
     expect(commands.join(' ')).not.toContain('session-memory.sh');
-    expect(commands.filter((c: string) => /mcp-automem\s+queue|@verygoodplugins\/mcp-automem queue/.test(c))).toHaveLength(1);
+    // The whole queue pipeline retired with the capture hooks: no cleanup
+    // script, no drainer in any spelling.
+    expect(commands.join(' ')).not.toContain('queue-cleanup.sh');
+    expect(commands.filter((c: string) => /mcp-automem\s+queue|@verygoodplugins\/mcp-automem queue/.test(c))).toHaveLength(0);
     expect(commands).toContain(`node "${home}/.claude/hooks/awtrix-event.js"`);
-    expect(commands.filter((c: string) => c.includes('queue-cleanup.sh'))).toHaveLength(1);
-    // The surviving drainer carries the template's canonical spelling.
-    expect(commands).toContain(
-      'npx -y @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5'
-    );
+    expect(commands).toContain('bash "$HOME/.claude/hooks/automem-stop-nudge.sh"');
   });
 
   it('is idempotent over the legacy fixture', () => {
@@ -486,5 +566,44 @@ describe('mergeSettings (legacy Stop-hook migration end-to-end)', () => {
     };
     const merged = mergeSettings(settings, realTemplate);
     expect(merged.hooks.SubagentStop).toBeUndefined();
+  });
+
+  // Mechanical build/test/deploy capture retired in favor of the LLM-judged
+  // stop nudge: a pre-switch install (wrapped + legacy spellings) must come
+  // out captureless with the nudge + tracker registered.
+  it('strips retired capture hooks and registers the stop-nudge replacement', () => {
+    const settings = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [
+              hook(
+                "bash -c 'CLAUDE_HOOK_TYPE=build bash \"$HOME/.claude/hooks/capture-build-result.sh\"'"
+              ),
+              hook('CLAUDE_HOOK_TYPE=test_run bash "$HOME/.claude/hooks/capture-test-pattern.sh"'),
+              hook(`bash "${home}/.claude/hooks/capture-deployment.sh"`),
+              hook(`node "${home}/.claude/hooks/awtrix-event.js"`),
+            ],
+          },
+        ],
+        Stop: [{ matcher: '*', hooks: [hook('bash "$HOME/.claude/scripts/queue-cleanup.sh"')] }],
+      },
+    };
+    const merged = mergeSettings(settings, realTemplate);
+
+    const allCommands = Object.values(
+      merged.hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>
+    )
+      .flat()
+      .flatMap((entry) => entry.hooks.map((h) => h.command));
+    expect(allCommands.join(' ')).not.toMatch(/capture-(build-result|test-pattern|deployment)/);
+    // The queue Stop machinery retires alongside the capture hooks that fed it.
+    expect(allCommands.join(' ')).not.toContain('queue-cleanup.sh');
+    // Foreign user hook survives.
+    expect(allCommands).toContain(`node "${home}/.claude/hooks/awtrix-event.js"`);
+    // Replacement architecture is registered from the template.
+    expect(allCommands).toContain('bash "$HOME/.claude/hooks/automem-stop-nudge.sh"');
+    expect(allCommands).toContain('bash "$HOME/.claude/hooks/automem-track-store.sh"');
   });
 });
