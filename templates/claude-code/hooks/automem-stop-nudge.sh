@@ -1,6 +1,6 @@
 #!/bin/bash
 # AutoMem Stop hook - one-shot LLM-judged storage nudge.
-# If no mcp__memory__store_memory call happened this session (tracked by
+# If no store_memory call happened this session (tracked by
 # automem-track-store.sh via the automem-stored-<session_id> sentinel),
 # emits hookSpecificOutput.additionalContext asking Claude once to consider
 # storing durable facts. The top-level suppressOutput:true keeps the JSON out
@@ -39,7 +39,7 @@ if ! : > "$NUDGED_SENTINEL" 2>/dev/null; then
   exit 0
 fi
 
-printf '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"%s","additionalContext":%s}}\n' "$EVENT_NAME" '"Before stopping: no memories were stored this session. Check whether any durable facts emerged.\n\nStore via mcp__memory__store_memory ONLY if one of these fired:\n- A user correction or preference override -> type \"Preference\", importance 0.9, tag \"correction\"\n- A decision that survived discussion -> type \"Decision\", importance 0.85-0.9\n- A pattern the user articulated -> type \"Pattern\", importance 0.8\n- A root-cause insight from debugging -> type \"Insight\", importance 0.75, tags \"bugfix\" + \"solution\"\n\nUse bare tags (category + project slug). Run the atomic ritual: recall related -> store -> verify -> associate.\n\nIf nothing durable came up, stop normally - do NOT store session summaries, progress reports, or confirmations."'
+printf '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"%s","additionalContext":%s}}\n' "$EVENT_NAME" '"Before stopping: no memories were stored this session. Check whether any durable facts emerged.\n\nStore via the store_memory memory tool ONLY if one of these fired:\n- A user correction or preference override -> type \"Preference\", importance 0.9, tag \"correction\"\n- A decision that survived discussion -> type \"Decision\", importance 0.85-0.9\n- A pattern the user articulated -> type \"Pattern\", importance 0.8\n- A root-cause insight from debugging -> type \"Insight\", importance 0.75, tags \"bugfix\" + \"solution\"\n\nUse bare tags (category + project slug). Run the atomic ritual: recall related -> store -> verify -> associate.\n\nIf nothing durable came up, stop normally - do NOT store session summaries, progress reports, or confirmations."'
 
 # Advisory hook: always succeed even if printf hit a write error, so Claude
 # Code never treats the Stop hook as failed and discards the JSON.

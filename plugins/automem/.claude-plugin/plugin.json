@@ -1,7 +1,7 @@
 {
   "name": "automem",
   "version": "0.14.0",
-  "description": "Deprecated Claude Code plugin for AutoMem. Use npx @verygoodplugins/mcp-automem claude-code.",
+  "description": "Persistent memory for Claude Code via AutoMem: session-start recall, LLM-judged storage nudge, and the AutoMem MCP memory tools.",
   "author": {
     "name": "Very Good Plugins",
     "email": "info@verygoodplugins.com",
@@ -18,5 +18,18 @@
     "persistence",
     "knowledge-graph"
   ],
-  "mcpServers": "./.mcp.json"
+  "mcpServers": "./.mcp.json",
+  "userConfig": {
+    "api_url": {
+      "type": "string",
+      "title": "AutoMem API URL",
+      "description": "Base URL of your AutoMem service (e.g. http://127.0.0.1:8001 or your Railway URL). Leave empty to use AUTOMEM_API_URL/AUTOMEM_ENDPOINT from your environment; falls back to http://127.0.0.1:8001."
+    },
+    "api_key": {
+      "type": "string",
+      "title": "AutoMem API key",
+      "description": "API key if your AutoMem deployment requires auth. Leave empty for unauthenticated local instances or to use AUTOMEM_API_KEY from your environment.",
+      "sensitive": true
+    }
+  }
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# AutoMem PostToolUse tracker for mcp__memory__store_memory.
+# AutoMem PostToolUse tracker for store_memory calls (any MCP prefix).
 # Writes a session sentinel so the Stop-hook storage nudge
 # (automem-stop-nudge.sh) knows a store already happened and stays quiet.
 # Side-effect only: no output, always exits 0.

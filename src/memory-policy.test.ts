@@ -122,14 +122,14 @@ describe('shared AutoMem memory policy', () => {
       MEMORY RECALL - run both recalls before your first substantive response. They are independent: issue them in parallel in a single message.
 
       Phase 1 - Preferences (tag-only, no time filter, no query):
-        mcp__memory__recall_memory({
+        recall_memory({
           tags: ["preference"],
           limit: 20,
           sort: "updated_desc"
         })
 
       Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; 90-day window):
-        mcp__memory__recall_memory({
+        recall_memory({
           query: "<proper nouns, product names, people, tools, specific topics from the user's message>",
           tags: ["$PROJECT"],    // drop if slug collides with a common word
           time_query: "last 90 days",

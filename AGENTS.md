@@ -149,14 +149,19 @@ The server exposes 6 tools to AI assistants. Several are mode-multiplexed — th
 
 ## Claude Code Integration
 
-The `claude-code` command installs hooks built around LLM-judged storage — the model decides what is durable; hooks only prompt and observe, never write memories themselves:
+Two install modes ship the same policy-generated behavior:
+
+- **Plugin (recommended for users):** the marketplace payload in `plugins/automem/` + the catalog at `.claude-plugin/marketplace.json`. Bundles the MCP server (plugin tool names are namespaced: `mcp__plugin_automem_memory__*`), the three hooks via `hooks/hooks.json`, the memory-management skill, and slash commands. `userConfig` in `plugin.json` prompts for the API URL/key at enable time; Claude Code exports the answers as `CLAUDE_PLUGIN_OPTION_*` env vars, which the server resolves in `src/env.ts` (between `AUTOMEM_API_URL` and the deprecated `AUTOMEM_ENDPOINT` — never wire them through the plugin's `.mcp.json` env, see `tests/installer/plugin-mcp-config.test.ts`).
+- **CLI installer (settings-level alternative + migration path):** the `claude-code` command writes hook scripts into `~/.claude/hooks/` and merges hook registrations plus exactly the six `mcp__memory__*` permissions into `~/.claude/settings.json` — nothing else (no `Bash(*)` grants, env, or deny/ask blocks; re-runs strip the retired hook-era grants via `RETIRED_PERMISSIONS`).
+
+The hooks are built around LLM-judged storage — the model decides what is durable; hooks only prompt and observe, never write memories themselves:
 - **SessionStart** (`automem-session-start.sh`): injects the two-phase recall prompt
 - **PostToolUse** on `mcp__.*__store_memory` (`automem-track-store.sh`): writes a per-session sentinel recording that a store happened
 - **Stop** (`automem-stop-nudge.sh`): if no store happened this session, emits `hookSpecificOutput.additionalContext` (with the required `hookEventName`) nudging Claude once to consider storing durable facts per the shared policy triggers. The JSON also sets top-level `suppressOutput: true` so the nudge is injected into Claude's context silently — it never prints to the user's terminal transcript.
 
 The three installed hooks are pure bash+sed — the integration no longer requires Python or jq.
 
-**Retired (auto-removed from existing installs on re-run, settings entries AND files):** the mechanical `capture-build-result.sh` / `capture-test-pattern.sh` / `capture-deployment.sh` PostToolUse hooks (templated "Build succeeded…" / "Deployed X to production…" one-liners were corpus noise that outranked real memories), the `session-memory.sh` Stop hook (#130) with its `process-session-memory.py` / `memory-filters.json` support chain, and the queue Stop machinery (`queue-cleanup.sh` + the npx queue drainer + `python-command.sh`) — nothing writes to the queue once the capture hooks are gone. `smart-notify.sh` is no longer shipped but is never removed from user machines.
+**Retired (auto-removed from existing installs on re-run, settings entries AND files):** the mechanical `capture-build-result.sh` / `capture-test-pattern.sh` / `capture-deployment.sh` PostToolUse hooks (templated "Build succeeded…" / "Deployed X to production…" one-liners were corpus noise that outranked real memories), the `session-memory.sh` Stop hook (#130) with its `process-session-memory.py` / `memory-filters.json` support chain, the queue Stop machinery (`queue-cleanup.sh` + the npx queue drainer + `python-command.sh`) — nothing writes to the queue once the capture hooks are gone — and the four hook-era permission grants that existed only for that machinery (`Bash(python3:*)`, `Bash(python:*)`, `Bash(py:*)`, `Bash(jq:*)`; `RETIRED_PERMISSIONS` in `src/cli/claude-code.ts`). Generic grants earlier templates shipped (`Bash(git:*)`, `Edit`, …) are user-owned and never stripped. `smart-notify.sh` is no longer shipped but is never removed from user machines.
 
 **Modified Files:**
 - `~/.claude/settings.json` - Merges tool permissions and hook configurations

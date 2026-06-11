@@ -44,4 +44,56 @@ describe('shipped MCP server configs', () => {
     expect(memory.env?.AUTOMEM_API_URL).toBeUndefined();
     expect(memory.env?.AUTOMEM_ENDPOINT).toBeUndefined();
   });
+
+  /**
+   * The plugin prompts for endpoint/key at enable time via userConfig.
+   * Claude Code exports the answers to plugin subprocesses as
+   * CLAUDE_PLUGIN_OPTION_<KEY> env vars, and the server resolves them in
+   * src/env.ts (AUTOMEM_API_URL > plugin answer > AUTOMEM_ENDPOINT >
+   * default). api_url must NOT declare a `default`: a pre-filled default
+   * blindly accepted by a legacy AUTOMEM_ENDPOINT user would shadow their
+   * endpoint — the exact failure mode the .mcp.json guard above prevents.
+   */
+  it('plugin manifest prompts for endpoint and key via userConfig', () => {
+    const raw = fs.readFileSync(
+      path.join(REPO_ROOT, 'plugins/automem/.claude-plugin/plugin.json'),
+      'utf8'
+    );
+    const parsed = JSON.parse(raw) as {
+      description?: string;
+      userConfig?: Record<
+        string,
+        {
+          type?: string;
+          title?: string;
+          description?: string;
+          sensitive?: boolean;
+          default?: unknown;
+        }
+      >;
+    };
+
+    expect(parsed.description ?? '').not.toMatch(/deprecated/i);
+
+    const apiUrl = parsed.userConfig?.api_url;
+    expect(apiUrl).toBeDefined();
+    expect(apiUrl?.type).toBe('string');
+    expect(apiUrl?.title).toBeTruthy();
+    expect(apiUrl?.description).toBeTruthy();
+    expect(apiUrl?.sensitive).toBeUndefined();
+    expect(apiUrl?.default).toBeUndefined();
+
+    const apiKey = parsed.userConfig?.api_key;
+    expect(apiKey).toBeDefined();
+    expect(apiKey?.type).toBe('string');
+    expect(apiKey?.title).toBeTruthy();
+    expect(apiKey?.description).toBeTruthy();
+    expect(apiKey?.sensitive).toBe(true);
+    expect(apiKey?.default).toBeUndefined();
+  });
+
+  it('marketplace catalog no longer markets the plugin as deprecated', () => {
+    const raw = fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin/marketplace.json'), 'utf8');
+    expect(raw).not.toMatch(/deprecated/i);
+  });
 });

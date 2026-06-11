@@ -2,10 +2,12 @@
  * Tests for templates/claude-code/hooks/automem-stop-nudge.sh
  *
  * The Stop hook replaces the retired mechanical build/test/deploy capture
- * with an LLM-judged nudge: if no mcp__memory__store_memory call happened
- * this session (tracked via the automem-stored-<session_id> sentinel written
- * by automem-track-store.sh), it emits hookSpecificOutput.additionalContext
- * asking Claude once to consider storing durable facts.
+ * with an LLM-judged nudge: if no store_memory call happened this session
+ * (tracked via the automem-stored-<session_id> sentinel written by
+ * automem-track-store.sh), it emits hookSpecificOutput.additionalContext
+ * asking Claude once to consider storing durable facts. The nudge names the
+ * tool by short name so it stays correct under plugin-namespaced MCP
+ * prefixes (mcp__plugin_automem_memory__*) as well as mcp__memory__*.
  *
  * The JSON shape is the load-bearing part: Claude Code rejects Stop-hook
  * JSON whose hookSpecificOutput lacks hookEventName ("Stop" | "SubagentStop").
@@ -68,7 +70,10 @@ describe('automem-stop-nudge.sh', () => {
     // still injecting additionalContext into Claude's context.
     expect(parsed.suppressOutput).toBe(true);
     expect(parsed.hookSpecificOutput?.hookEventName).toBe('Stop');
-    expect(parsed.hookSpecificOutput?.additionalContext).toMatch(/mcp__memory__store_memory/);
+    // Short tool name: must hold for both mcp__memory__* and the plugin's
+    // namespaced mcp__plugin_automem_memory__* tool set.
+    expect(parsed.hookSpecificOutput?.additionalContext).toMatch(/store_memory/);
+    expect(parsed.hookSpecificOutput?.additionalContext).not.toMatch(/mcp__memory__/);
   });
 
   it('echoes SubagentStop back when registered on that event', () => {

@@ -369,9 +369,36 @@ Keep this global layer short. Project rules should continue to own recall/store/
 
 ## Claude Code
 
-Claude Code integration uses a simple approach: **MCP permissions + memory rules**. Claude has direct MCP access and can judge what's worth storing better than automated hooks.
+The recommended install is the **AutoMem plugin** — Claude Code handles install, updates, configuration prompts, and uninstall natively. A settings-level CLI installer remains for environments without plugin support.
 
-### 1. Configure MCP Server
+### Option A: Plugin (Recommended)
+
+```text
+# In Claude Code:
+/plugin marketplace add verygoodplugins/mcp-automem
+/plugin install automem@verygoodplugins-mcp-automem
+```
+
+When you enable the plugin, Claude Code prompts for:
+
+- **AutoMem API URL** — e.g. `http://127.0.0.1:8001` or your Railway URL. Leave empty to use `AUTOMEM_API_URL` from your environment; falls back to `http://127.0.0.1:8001`.
+- **AutoMem API key** — only if your deployment requires auth. Stored in the system keychain.
+
+The plugin bundles the MCP server, the three integration hooks (SessionStart recall, store tracking, Stop storage nudge), and the memory-management skill plus `/memory-recall`, `/memory-store`, and `/memory-health` commands.
+
+> Tool naming: Claude Code namespaces plugin MCP tools, so they appear as `mcp__plugin_automem_memory__store_memory` (etc.) rather than `mcp__memory__*`. Approve each tool on first use, or pre-approve by adding the `mcp__plugin_automem_memory__*` names to `permissions.allow` in `~/.claude/settings.json`.
+
+**Migrating from the CLI installer:** remove the settings-level install first, so hooks don't fire twice and the memory tools don't appear under two servers:
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall claude-code --clean-all
+```
+
+### Option B: CLI installer (settings-level)
+
+For locked-down environments without plugin support, or if you prefer hooks and permissions written directly into `~/.claude/`:
+
+#### 1. Configure MCP Server
 
 Add AutoMem to `~/.claude.json`:
 
@@ -390,23 +417,19 @@ Add AutoMem to `~/.claude.json`:
 }
 ```
 
-### 2. Add Permissions (Optional)
-
-Run the setup to add MCP tool permissions:
+#### 2. Install hooks and permissions
 
 ```bash
 npx @verygoodplugins/mcp-automem claude-code
 ```
 
-This merges permissions into `~/.claude/settings.json` so Claude can use memory tools without asking.
+This installs the three hook scripts and merges the six `mcp__memory__*` tool permissions into `~/.claude/settings.json` so Claude can use memory tools without asking. That permission list is everything the installer grants — it no longer ships any `Bash(*)`, file-tool, or `deny`/`ask` entries.
 
-Re-running setup is also the supported migration path for legacy installs: the merge removes retired hooks in every historical spelling — the old `session-memory.sh` Stop entry, the mechanical `capture-*.sh` PostToolUse hooks, and the queue Stop machinery (`queue-cleanup.sh` plus the `mcp-automem queue` drainer in its npx and bare-CLI forms; nothing writes to the queue anymore, so draining it per-session was dead weight). It also deletes the retired script files those hooks used from `~/.claude/hooks` and `~/.claude/scripts`, and collapses duplicate hook registrations. Hooks the installer didn't author are never touched, and a backup (`settings.json.bak`, numbered if needed) is written before any change. The `mcp-automem queue` CLI remains available for manually draining a queue file.
+Re-running setup is also the supported migration path for legacy installs: the merge removes retired hooks in every historical spelling — the old `session-memory.sh` Stop entry, the mechanical `capture-*.sh` PostToolUse hooks, and the queue Stop machinery (`queue-cleanup.sh` plus the `mcp-automem queue` drainer in its npx and bare-CLI forms; nothing writes to the queue anymore, so draining it per-session was dead weight). It also deletes the retired script files those hooks used from `~/.claude/hooks` and `~/.claude/scripts`, collapses duplicate hook registrations, and strips the four hook-era permission grants the old template shipped for that machinery (`Bash(python3:*)`, `Bash(python:*)`, `Bash(py:*)`, `Bash(jq:*)`). Generic grants like `Bash(git:*)` or `Edit` that earlier templates added are treated as user-owned and never touched — remove them yourself if you don't want them. Hooks the installer didn't author are never touched, and a backup (`settings.json.bak`, numbered if needed) is written before any change. The `mcp-automem queue` CLI remains available for manually draining a queue file.
 
 > Windows compatibility note: the Claude Code hook payload remains Bash-based. On Windows, use a POSIX shell environment such as Git Bash, MSYS2, or WSL with `bash` available (the hooks are pure bash+sed — Python and jq are no longer required). This is not full native Windows hook support yet.
 
-> Note: the old Claude Code marketplace plugin is deprecated and kept only as a migration bridge. Use `npx @verygoodplugins/mcp-automem claude-code` for new installs. See [DEPRECATION.md](DEPRECATION.md).
-
-Or manually add to `~/.claude/settings.json`:
+Or manually add the permissions to `~/.claude/settings.json`:
 
 ```json
 {
@@ -423,7 +446,7 @@ Or manually add to `~/.claude/settings.json`:
 }
 ```
 
-### 3. Add Memory Rules
+### Add Memory Rules (both options)
 
 Append memory instructions to `~/.claude/CLAUDE.md`:
 
@@ -433,7 +456,7 @@ cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md
 
 This teaches Claude when to recall (session start, before decisions) and what to store (decisions, patterns, insights).
 
-### 4. Verify Installation
+### Verify Installation
 
 Ask Claude Code:
 

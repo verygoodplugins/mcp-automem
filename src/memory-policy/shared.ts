@@ -134,14 +134,14 @@ export function renderClaudeCodeSessionStartPrompt(projectExpression: string): s
     'MEMORY RECALL - run both recalls before your first substantive response. They are independent: issue them in parallel in a single message.',
     '',
     'Phase 1 - Preferences (tag-only, no time filter, no query):',
-    '  mcp__memory__recall_memory({',
+    '  recall_memory({',
     '    tags: ["preference"],',
     `    limit: ${AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit},`,
     '    sort: "updated_desc"',
     '  })',
     '',
     `Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays}-day window):`,
-    '  mcp__memory__recall_memory({',
+    '  recall_memory({',
     '    query: "<proper nouns, product names, people, tools, specific topics from the user\'s message>",',
     `    tags: ["${projectExpression}"],    // drop if slug collides with a common word`,
     `    time_query: "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days",`,
@@ -213,7 +213,7 @@ export function renderClaudeCodeStopNudgePrompt(): string {
   return [
     'Before stopping: no memories were stored this session. Check whether any durable facts emerged.',
     '',
-    'Store via mcp__memory__store_memory ONLY if one of these fired:',
+    'Store via the store_memory memory tool ONLY if one of these fired:',
     ...AUTOMEM_STOP_NUDGE_TRIGGER_LINES,
     '',
     'Use bare tags (category + project slug). Run the atomic ritual: recall related -> store -> verify -> associate.',
@@ -233,7 +233,7 @@ export function renderClaudeCodeStopNudgeHook(): string {
   return [
     '#!/bin/bash',
     '# AutoMem Stop hook - one-shot LLM-judged storage nudge.',
-    '# If no mcp__memory__store_memory call happened this session (tracked by',
+    '# If no store_memory call happened this session (tracked by',
     '# automem-track-store.sh via the automem-stored-<session_id> sentinel),',
     '# emits hookSpecificOutput.additionalContext asking Claude once to consider',
     '# storing durable facts. The top-level suppressOutput:true keeps the JSON out',
@@ -284,7 +284,7 @@ export function renderClaudeCodeStopNudgeHook(): string {
 export function renderClaudeCodeTrackStoreHook(): string {
   return [
     '#!/bin/bash',
-    '# AutoMem PostToolUse tracker for mcp__memory__store_memory.',
+    '# AutoMem PostToolUse tracker for store_memory calls (any MCP prefix).',
     '# Writes a session sentinel so the Stop-hook storage nudge',
     '# (automem-stop-nudge.sh) knows a store already happened and stays quiet.',
     '# Side-effect only: no output, always exits 0.',

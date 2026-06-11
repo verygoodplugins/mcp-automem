@@ -1,42 +1,44 @@
 # AutoMem Claude Code Integration
 
-Canonical CLI-based integration guide for AutoMem with Claude Code.
+Canonical integration guide for AutoMem with Claude Code.
 
 ## Philosophy
 
-**Use the CLI installer as the supported path**
+Claude has direct MCP access and can judge what's worth storing better than low-signal automation alone. The integration provides, in any install mode:
 
-```bash
-npx @verygoodplugins/mcp-automem claude-code
-```
-
-This installs the supported Claude Code integration from the repo's canonical `templates/claude-code/` assets.
-
-The old Claude Code marketplace plugin is deprecated and kept only as a migration bridge for one release. See [DEPRECATION.md](../DEPRECATION.md).
-
-Claude has direct MCP access and can judge what's worth storing better than low-signal automation alone. The supported integration provides:
-
-1. **MCP permissions** - So Claude can use memory tools without asking
+1. **The AutoMem MCP server** - memory tools wired into Claude Code
 2. **SessionStart recall + Stop storage-nudge hooks** - So recall happens every session and storage stays LLM-judged (hooks prompt and observe; they never write memories themselves)
 3. **Memory rules** - Instructions in CLAUDE.md teaching Claude when to store/recall
 
-The CLI installer is the source of truth. Manual config remains available below as an advanced fallback.
+Both install modes ship the same policy-generated hook scripts, so behavior is identical; they differ only in where the wiring lives.
 
 ## Installation
 
-### 1. Recommended Setup
+### 1. Plugin (Recommended)
 
-Run:
+```text
+# In Claude Code:
+/plugin marketplace add verygoodplugins/mcp-automem
+/plugin install automem@verygoodplugins-mcp-automem
+```
+
+Claude Code prompts for your AutoMem API URL and (optional) API key at enable time, bundles the MCP server and hooks, auto-updates through the marketplace, and uninstalls atomically.
+
+> Tool naming: plugin MCP tools are namespaced as `mcp__plugin_automem_memory__*` rather than `mcp__memory__*`. Approve them on first use, or pre-approve those names in `permissions.allow`.
+
+Migrating from the CLI installer? Remove the settings-level install first (`npx @verygoodplugins/mcp-automem uninstall claude-code --clean-all`) so hooks don't fire twice.
+
+### 2. CLI Installer (settings-level alternative)
 
 ```bash
 npx @verygoodplugins/mcp-automem claude-code
 ```
 
-This merges AutoMem permissions into `~/.claude/settings.json` and installs the canonical hook/support files under `~/.claude/`.
+For environments without plugin support, or when you want the hooks and permissions written directly into `~/.claude/`. This merges the six `mcp__memory__*` permissions and the three hook registrations into `~/.claude/settings.json` and installs the canonical hook scripts from `templates/claude-code/` — nothing else (no `Bash(*)` grants, no deny/ask blocks). Re-running it migrates legacy installs: retired hooks, retired script files, and the retired hook-era `Bash(python*/jq)` permission grants are removed automatically.
 
-Windows compatibility for this branch is limited to POSIX shell environments such as Git Bash, MSYS2, or WSL. Only `bash` must be available — the hooks are pure bash+sed, with no Python or jq dependency. This is not full native Windows hook support.
+Windows compatibility for either mode is limited to POSIX shell environments such as Git Bash, MSYS2, or WSL. Only `bash` must be available — the hooks are pure bash+sed, with no Python or jq dependency. This is not full native Windows hook support.
 
-### 2. Advanced Manual Fallback
+### 3. Advanced Manual Fallback
 
 If you prefer to configure Claude Code by hand, use the manual steps below.
 
@@ -64,7 +66,7 @@ Add to `~/.claude.json`:
 To let Claude use memory tools without asking, add to `~/.claude/settings.json`:
 
 > Note: The `mcp__memory__*` prefix assumes your MCP server is named `memory` (the key in `mcpServers`).
-> Migration note: if you previously installed AutoMem via the deprecated Claude Code plugin, Claude may have namespaced the server name (for example `plugin_automem_memory`). After migrating to the CLI path, use the canonical `mcp__memory__*` tool names.
+> Migration note: plugin installs namespace the server name (`plugin_automem_memory`), so plugin tools are `mcp__plugin_automem_memory__*`. The `mcp__memory__*` names below apply to user-level installs where the `mcpServers` key is `memory`. Use whichever prefix matches your install mode.
 
 ```json
 {
@@ -102,7 +104,7 @@ This teaches Claude:
 - How to score importance (0.9+ critical, 0.7-0.8 important)
 - How to create relationships between memories
 
-### 3. Verify Installation
+### 4. Verify Installation
 
 Ask Claude Code:
 
@@ -157,7 +159,7 @@ a queue file you point it at.
 
 ## Tips
 
-1. **Use the CLI path for new installs** - It is the supported Claude Code integration.
+1. **Use the plugin for new installs** - It is the recommended Claude Code integration; the CLI installer covers settings-level needs.
 2. **Manual config is fallback-only** - Keep it for advanced or locked-down environments.
 3. **Keep memories concise** - Target 150-300 chars; max 500 chars (auto-summarized beyond that).
 4. **Use bare tags** - Avoid platform tags and date tags in stored memories.
@@ -183,4 +185,4 @@ a queue file you point it at.
 - [Claude Desktop Personal Preferences Template](CLAUDE_DESKTOP_INSTRUCTIONS.md) - Paste-ready Desktop instructions
 - [AutoMem Documentation](https://github.com/verygoodplugins/automem) - Backend service
 - [MCP Tools Reference](../INSTALLATION.md#mcp-tools) - All memory operations
-- [Deprecations](../DEPRECATION.md) - Claude Code plugin migration and removal plan
+- [Deprecations](../DEPRECATION.md) - history of the plugin deprecation and its reversal

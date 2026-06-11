@@ -1,20 +1,11 @@
 # AutoMem Plugin for Claude Code
 
-Persistent memory for Claude Code via the AutoMem MCP server.
-
-> Deprecated: this plugin is kept only as a migration bridge for one compatibility release.
-> Use `npx @verygoodplugins/mcp-automem claude-code` for new installs.
-> Migration details: [../../DEPRECATION.md](../../DEPRECATION.md)
+Persistent memory for Claude Code via the AutoMem MCP server. This plugin is
+the recommended way to install AutoMem in Claude Code: install and updates are
+handled by Claude Code itself, configuration is prompted at enable time, and
+uninstall is atomic.
 
 ## Installation
-
-### Supported Install Path
-
-```bash
-npx @verygoodplugins/mcp-automem claude-code
-```
-
-### Deprecated Plugin Install
 
 ```bash
 # In Claude Code:
@@ -22,21 +13,42 @@ npx @verygoodplugins/mcp-automem claude-code
 /plugin install automem@verygoodplugins-mcp-automem
 ```
 
+When you enable the plugin, Claude Code prompts for:
+
+- **AutoMem API URL** — your service endpoint (e.g. `http://127.0.0.1:8001`
+  or your Railway URL). Leave empty to use `AUTOMEM_API_URL` from your
+  environment; falls back to `http://127.0.0.1:8001`.
+- **AutoMem API key** — only if your deployment requires auth. Stored in the
+  system keychain, never in `settings.json`.
+
 ### Requirements
 
 - AutoMem service running (see [main README](../../README.md))
-- `AUTOMEM_API_URL` environment variable set (`AUTOMEM_ENDPOINT` is the deprecated name and still works)
-- `AUTOMEM_API_KEY` if your AutoMem deployment requires auth
+- Claude Code with plugin support
+
+### Migrating from the CLI installer
+
+If you previously ran `npx @verygoodplugins/mcp-automem claude-code`, remove
+that install first so hooks don't fire twice and the memory tools don't appear
+under two servers:
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall claude-code --clean-all
+```
+
+Then install the plugin as above.
 
 ## What's Included
 
-### Agent Skill: Memory Management
+1. **Session Start (Recall)** — a SessionStart hook injects the two-phase
+   recall prompt at the start of each session
+2. **During Work (Store)** — Claude stores decisions, patterns, and fixes via
+   the MCP tools as they stabilize; a PostToolUse hook tracks that a store
+   happened
+3. **Session End (Storage nudge)** — if nothing was stored, a Stop hook asks
+   Claude once whether any durable facts emerged
 
-The plugin includes a **memory-management skill** that mirrors the canonical Claude Code templates:
-
-1. **Session Start (Recall)** - Automatically recall project context
-2. **During Work (Store)** - Store decisions, patterns, bug fixes
-3. **Session End (Storage nudge)** - If nothing was stored, a Stop hook asks Claude once whether any durable facts emerged (same shipped scripts as the CLI templates)
+The hooks are pure bash+sed — no Python or jq required.
 
 ### Slash Commands
 
@@ -46,38 +58,17 @@ The plugin includes a **memory-management skill** that mirrors the canonical Cla
 | `/memory-store` | Store an insight, decision, or pattern |
 | `/memory-health` | Check AutoMem service status |
 
-### SessionStart Hook
-
-Automatically prompts memory recall at the beginning of each session.
-
 ### MCP Server
 
-Configures the AutoMem MCP server with these tools:
-- `store_memory` - Store memories with tags and importance
-- `recall_memory` - Hybrid search (semantic + keyword + tags)
-- `associate_memories` - Link related memories
-- `update_memory` - Modify existing memories
-- `delete_memory` - Remove memories
-- `check_database_health` - Verify service status
+The bundled MCP server provides: `store_memory`, `recall_memory`,
+`associate_memories`, `update_memory`, `delete_memory`, and
+`check_database_health`.
 
-## Configuration
-
-Set the `AUTOMEM_API_URL` environment variable:
-
-```bash
-# Local development
-export AUTOMEM_API_URL=http://127.0.0.1:8001
-
-# Or in your shell profile
-echo 'export AUTOMEM_API_URL=http://127.0.0.1:8001' >> ~/.zshrc
-```
-
-If your AutoMem deployment requires authentication, also export `AUTOMEM_API_KEY`:
-
-```bash
-# Replace with your issued key
-export AUTOMEM_API_KEY=your_api_key_here
-```
+**Tool naming note:** Claude Code namespaces plugin MCP tools, so they appear
+as `mcp__plugin_automem_memory__store_memory` (etc.) rather than
+`mcp__memory__*`. You'll be asked to approve each tool on first use; to
+pre-approve, add the `mcp__plugin_automem_memory__*` names to
+`permissions.allow` in `~/.claude/settings.json`.
 
 ## Memory Types
 
@@ -101,17 +92,19 @@ Do not use platform tags or date tags.
 
 Example: `["mcp-automem", "bugfix", "typescript"]`
 
-## Recommended Alternative
+## Settings-Level Alternative
+
+If you prefer hooks and permissions written directly into `~/.claude/`
+(e.g. locked-down environments without plugin support):
 
 ```bash
 npx @verygoodplugins/mcp-automem claude-code
 ```
 
-This is the supported Claude Code installation path and will remain after the plugin payload is removed.
+See [INSTALLATION.md](../../INSTALLATION.md) for details.
 
 ## More Information
 
 - [AutoMem Documentation](../../README.md)
 - [MCP Server on npm](https://www.npmjs.com/package/@verygoodplugins/mcp-automem)
 - [AutoMem Service](https://github.com/verygoodplugins/automem)
-- [Deprecations](../../DEPRECATION.md)

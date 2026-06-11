@@ -21,7 +21,7 @@ import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
 import { AutoMemClient } from "./automem-client.js";
 import { parseWatchdogIntervalMs, startParentWatchdog } from "./lifecycle.js";
-import { readAutoMemApiKeyFromEnv } from "./env.js";
+import { readAutoMemApiKeyFromEnv, resolveAutoMemApiUrl } from "./env.js";
 import { buildRecallMemoryResponse } from "./recall-memory.js";
 import { AUTHORABLE_RELATION_TYPES, MEMORY_TYPES, RELATION_TYPE_METADATA } from "./types.js";
 import type {
@@ -138,10 +138,13 @@ COMMANDS:
 
 CLAUDE CODE SETUP:
   npx @verygoodplugins/mcp-automem claude-code [options]
-  
+
+  Settings-level install. Recommended alternative: the AutoMem plugin
+  (/plugin marketplace add verygoodplugins/mcp-automem, then
+  /plugin install automem@verygoodplugins-mcp-automem).
+
   Options:
     --dir <path>           Target directory (default: ~/.claude)
-    --profile <lean|extras> Use a predefined profile
     --dry-run             Show what would be changed
     --yes, -y             Skip confirmation prompts
 
@@ -180,8 +183,8 @@ RECALL:
           # Set up with custom project name
           npx @verygoodplugins/mcp-automem cursor --name my-project
 
-          # Set up Claude Code with lean profile
-          npx @verygoodplugins/mcp-automem claude-code --profile lean
+          # Preview Claude Code setup without changing anything
+          npx @verygoodplugins/mcp-automem claude-code --dry-run
 
           # Migrate manual memory usage to Cursor
           npx @verygoodplugins/mcp-automem migrate --from manual --to cursor
@@ -289,10 +292,7 @@ if (command === "queue") {
 }
 
 if (command === "recall") {
-  const AUTOMEM_API_URL =
-    process.env.AUTOMEM_API_URL ||
-    process.env.AUTOMEM_ENDPOINT ||
-    "http://127.0.0.1:8001";
+  const AUTOMEM_API_URL = resolveAutoMemApiUrl().url;
   const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
   const client = new AutoMemClient({
@@ -326,19 +326,16 @@ if (command === "recall") {
   }
 }
 
-const AUTOMEM_API_URL =
-  process.env.AUTOMEM_API_URL ||
-  process.env.AUTOMEM_ENDPOINT ||
-  "http://127.0.0.1:8001";
+const { url: AUTOMEM_API_URL, source: automemApiUrlSource } = resolveAutoMemApiUrl();
 const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
-if (!process.env.AUTOMEM_API_URL && !process.env.AUTOMEM_ENDPOINT) {
+if (automemApiUrlSource === "default") {
   if (isInteractiveTerminal()) {
     console.warn(
       "⚠️  AUTOMEM_API_URL not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting."
     );
   }
-} else if (!process.env.AUTOMEM_API_URL && process.env.AUTOMEM_ENDPOINT) {
+} else if (automemApiUrlSource === "AUTOMEM_ENDPOINT") {
   console.warn(
     "⚠️  AUTOMEM_ENDPOINT is deprecated; rename it to AUTOMEM_API_URL. The old name still works for now."
   );
