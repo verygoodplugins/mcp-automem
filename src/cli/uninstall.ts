@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { automemOwnedFiles, removeManagedHookEntries } from './claude-code.js';
+import { automemOwnedFiles, removeManagedHookEntries, RETIRED_PERMISSIONS } from './claude-code.js';
 import {
   removeHermesMemoryProvider,
   removeMcpServerEntry,
@@ -396,6 +396,9 @@ function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOpt
     'mcp__memory__delete_memory',
     'mcp__memory__check_database_health',
   ];
+  // Plus the hook-era Bash grants old templates shipped (RETIRED_PERMISSIONS
+  // is shared with the installer so the two lists cannot drift).
+  const removablePermissions = [...mcpPermissions, ...RETIRED_PERMISSIONS];
 
   try {
     const raw = fs.readFileSync(settingsPath, 'utf8');
@@ -406,7 +409,7 @@ function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOpt
     if (settings.permissions?.allow) {
       const originalLength = settings.permissions.allow.length;
       settings.permissions.allow = settings.permissions.allow.filter(
-        (perm: string) => !mcpPermissions.includes(perm)
+        (perm: string) => !removablePermissions.includes(perm)
       );
       permissionsRemoved = originalLength - settings.permissions.allow.length;
     }

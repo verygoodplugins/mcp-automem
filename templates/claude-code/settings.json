@@ -1,7 +1,4 @@
 {
-  "env": {
-    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "true"
-  },
   "hooks": {
     "PostToolUse": [
       {
@@ -39,46 +36,12 @@
   },
   "permissions": {
     "allow": [
-      "Edit",
-      "Write",
-      "MultiEdit",
-      "Read",
-      "Read(*)",
-      "Bash(npm:*)",
-      "Bash(yarn:*)",
-      "Bash(git:*)",
-      "Bash(find:*)",
-      "Bash(grep:*)",
-      "Bash(cat:*)",
-      "Bash(ls:*)",
-      "Bash(mkdir:*)",
-      "Bash(cp:*)",
-      "Bash(mv:*)",
-      "Bash(chmod:*)",
-      "Bash(jq:*)",
-      "Bash(awk:*)",
-      "Bash(sed:*)",
-      "Bash(node:*)",
-      "Bash(python3:*)",
-      "Bash(python:*)",
-      "Bash(py:*)",
-      "Bash(npx:*)",
       "mcp__memory__store_memory",
       "mcp__memory__recall_memory",
       "mcp__memory__associate_memories",
       "mcp__memory__update_memory",
       "mcp__memory__delete_memory",
       "mcp__memory__check_database_health"
-    ],
-    "deny": [
-      "Bash(sudo:*)",
-      "Bash(su:*)",
-      "Bash(rm -rf /*)",
-      "Bash(format:*)",
-      "Bash(fdisk:*)"
-    ],
-    "ask": [
-      "Bash(git push:*)"
     ]
   }
 }

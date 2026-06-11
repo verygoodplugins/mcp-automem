@@ -125,6 +125,20 @@ const RETIRED_HOOK_KEYS = new Set<string>([
   'mcp-automem:queue',
 ]);
 
+// Permission grants the old template shipped solely for retired hook
+// machinery: the Python session-memory/queue chain (#102 added the python/py
+// aliases for it) and the jq-based queue cleanup. The hooks are pure bash+sed
+// now, so a re-run strips exactly these. Generic dev grants (Bash(git:*),
+// Edit, ...) cannot be attributed to AutoMem vs the user and are never
+// touched — only entries that existed for AutoMem's own retired machinery
+// belong here.
+export const RETIRED_PERMISSIONS: ReadonlyArray<string> = [
+  'Bash(python3:*)',
+  'Bash(python:*)',
+  'Bash(py:*)',
+  'Bash(jq:*)',
+];
+
 // Exact historical template spellings (normalized before comparison). A hook
 // command is rewritten to the current template spelling ONLY when it matches
 // one of these — a user-customized command (different flags, paths) never
@@ -486,15 +500,22 @@ export function mergeSettings(targetSettings: any, templateSettings: any): any {
   merged.permissions.allow = mergeUniqueStrings(
     merged.permissions.allow ?? [],
     templatePermissions.allow ?? []
-  );
-  merged.permissions.deny = mergeUniqueStrings(
-    merged.permissions.deny ?? [],
-    templatePermissions.deny ?? []
-  );
-  merged.permissions.ask = mergeUniqueStrings(
-    merged.permissions.ask ?? [],
-    templatePermissions.ask ?? []
-  );
+  ).filter((permission: string) => !RETIRED_PERMISSIONS.includes(permission));
+  // deny/ask are user-owned; the template no longer ships any. Merge only
+  // when one side actually has entries so the installer stops planting empty
+  // blocks in user settings.
+  if (merged.permissions.deny !== undefined || (templatePermissions.deny?.length ?? 0) > 0) {
+    merged.permissions.deny = mergeUniqueStrings(
+      merged.permissions.deny ?? [],
+      templatePermissions.deny ?? []
+    );
+  }
+  if (merged.permissions.ask !== undefined || (templatePermissions.ask?.length ?? 0) > 0) {
+    merged.permissions.ask = mergeUniqueStrings(
+      merged.permissions.ask ?? [],
+      templatePermissions.ask ?? []
+    );
+  }
 
   return merged;
 }
@@ -606,6 +627,15 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
       options.quiet
     );
   }
+  const removedPermissions = RETIRED_PERMISSIONS.filter(
+    (permission) => raw.includes(`"${permission}"`) && !output.includes(`"${permission}"`)
+  );
+  if (removedPermissions.length > 0) {
+    log(
+      `migrated: removed retired hook-era permissions (${removedPermissions.join(', ')}) — the bash-only hooks no longer need Python or jq`,
+      options.quiet
+    );
+  }
   log('updated settings.json (merged MCP permissions)', options.quiet);
 }
 
@@ -666,6 +696,13 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
   log('1. Add MCP server to ~/.claude.json (see INSTALLATION.md)', options.quiet);
   log('2. Add memory rules: cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md', options.quiet);
   log('3. Restart Claude Code', options.quiet);
+  log('', options.quiet);
+  log(
+    'Tip: the AutoMem plugin is the recommended install for Claude Code — it bundles the MCP server and these hooks, prompts for your endpoint, and auto-updates:',
+    options.quiet
+  );
+  log('  /plugin marketplace add verygoodplugins/mcp-automem', options.quiet);
+  log('  /plugin install automem@verygoodplugins-mcp-automem', options.quiet);
 }
 
 export async function runClaudeCodeSetup(args: string[] = []): Promise<void> {

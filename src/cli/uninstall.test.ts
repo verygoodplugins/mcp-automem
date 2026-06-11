@@ -284,7 +284,16 @@ describe('uninstall claude-code', () => {
       JSON.stringify(
         {
           permissions: {
-            allow: ['mcp__memory__store_memory', 'mcp__memory__recall_memory', 'Bash(ls:*)'],
+            // Bash(python3:*)/Bash(jq:*) are retired hook-era grants the old
+            // template shipped; uninstall removes them along with the MCP
+            // permissions. Bash(ls:*) stands in for a user-owned grant.
+            allow: [
+              'mcp__memory__store_memory',
+              'mcp__memory__recall_memory',
+              'Bash(python3:*)',
+              'Bash(jq:*)',
+              'Bash(ls:*)',
+            ],
           },
           hooks: {
             Stop: [
