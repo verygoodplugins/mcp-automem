@@ -152,7 +152,7 @@ The server exposes 6 tools to AI assistants. Several are mode-multiplexed — th
 The `claude-code` command installs hooks built around LLM-judged storage — the model decides what is durable; hooks only prompt and observe, never write memories themselves:
 - **SessionStart** (`automem-session-start.sh`): injects the two-phase recall prompt
 - **PostToolUse** on `mcp__.*__store_memory` (`automem-track-store.sh`): writes a per-session sentinel recording that a store happened
-- **Stop** (`automem-stop-nudge.sh`): if no store happened this session, emits `hookSpecificOutput.additionalContext` (with the required `hookEventName`) nudging Claude once to consider storing durable facts per the shared policy triggers
+- **Stop** (`automem-stop-nudge.sh`): if no store happened this session, emits `hookSpecificOutput.additionalContext` (with the required `hookEventName`) nudging Claude once to consider storing durable facts per the shared policy triggers. The JSON also sets top-level `suppressOutput: true` so the nudge is injected into Claude's context silently — it never prints to the user's terminal transcript.
 
 The three installed hooks are pure bash+sed — the integration no longer requires Python or jq.
 

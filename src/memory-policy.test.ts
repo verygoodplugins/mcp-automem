@@ -212,6 +212,9 @@ describe('shared AutoMem memory policy', () => {
     // Claude Code rejects Stop-hook JSON whose hookSpecificOutput lacks
     // hookEventName — the exact bug that motivated this hook's design.
     expect(hook).toContain('"hookEventName":"%s"');
+    // suppressOutput:true keeps the nudge JSON out of the user-visible transcript
+    // while Claude still receives additionalContext.
+    expect(hook).toContain('"suppressOutput":true');
     expect(hook).toContain(JSON.stringify(renderClaudeCodeStopNudgePrompt()));
     expect(renderClaudeCodeStopNudgePrompt()).toContain('stop normally');
   });

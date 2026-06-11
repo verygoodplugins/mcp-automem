@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { HOOKS_DIR } from './helpers';
 
 type StopHookOutput = {
+  suppressOutput?: boolean;
   hookSpecificOutput?: {
     hookEventName?: string;
     additionalContext?: string;
@@ -63,6 +64,9 @@ describe('automem-stop-nudge.sh', () => {
     });
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.stdout) as StopHookOutput;
+    // suppressOutput:true hides the nudge JSON from the user's transcript while
+    // still injecting additionalContext into Claude's context.
+    expect(parsed.suppressOutput).toBe(true);
     expect(parsed.hookSpecificOutput?.hookEventName).toBe('Stop');
     expect(parsed.hookSpecificOutput?.additionalContext).toMatch(/mcp__memory__store_memory/);
   });
