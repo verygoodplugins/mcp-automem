@@ -325,6 +325,8 @@ describe('uninstall claude-code', () => {
     'hooks/automem-track-store.sh',
     'hooks/session-memory.sh',
     'hooks/capture-build-result.sh',
+    'hooks/capture-test-pattern.sh',
+    'hooks/capture-deployment.sh',
     'scripts/queue-cleanup.sh',
     'scripts/process-session-memory.py',
     'scripts/python-command.sh',
