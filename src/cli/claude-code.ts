@@ -15,9 +15,8 @@ const TEMPLATE_ROOT = path.resolve(
 );
 const HOOK_SCRIPTS = [
   'automem-session-start.sh',
-  'capture-build-result.sh',
-  'capture-test-pattern.sh',
-  'capture-deployment.sh',
+  'automem-stop-nudge.sh',
+  'automem-track-store.sh',
   'session-memory.sh',
 ];
 const SUPPORT_SCRIPTS = [
@@ -85,16 +84,28 @@ export type HookCommandComparisonOptions = {
 const MANAGED_HOOK_SCRIPT_BASENAMES = new Set<string>([
   ...HOOK_SCRIPTS,
   'session-start.sh',
+  'stop-nudge.sh',
+  'track-store.sh',
   'queue-cleanup.sh',
   // Retired scripts stay managed even after they leave HOOK_SCRIPTS, or the
   // strip below silently stops matching the legacy entries it exists to remove.
   'session-memory.sh',
+  'capture-build-result.sh',
+  'capture-test-pattern.sh',
+  'capture-deployment.sh',
 ]);
 
 // Hooks the template no longer ships and the installer actively removes from
 // existing installs. Additions must cite the retiring PR (#130 for the
-// session-summary Stop hook). Never list anything without a managed key.
-const RETIRED_HOOK_KEYS = new Set<string>(['script:session-memory.sh']);
+// session-summary Stop hook; mechanical build/test/deploy capture retired in
+// favor of the LLM-judged automem-stop-nudge.sh). Never list anything without
+// a managed key.
+const RETIRED_HOOK_KEYS = new Set<string>([
+  'script:session-memory.sh',
+  'script:capture-build-result.sh',
+  'script:capture-test-pattern.sh',
+  'script:capture-deployment.sh',
+]);
 
 // Exact historical template spellings (normalized before comparison). A hook
 // command is rewritten to the current template spelling ONLY when it matches
@@ -565,6 +576,20 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   if (raw.includes('session-memory.sh') && !output.includes('session-memory.sh')) {
     log(
       'migrated: removed retired session-memory.sh Stop hook (backup created)',
+      options.quiet
+    );
+  }
+  const retiredCaptureScripts = [
+    'capture-build-result.sh',
+    'capture-test-pattern.sh',
+    'capture-deployment.sh',
+  ];
+  const removedCapture = retiredCaptureScripts.filter(
+    (name) => raw.includes(name) && !output.includes(name)
+  );
+  if (removedCapture.length > 0) {
+    log(
+      `migrated: removed retired capture hooks (${removedCapture.join(', ')}) — storage is now LLM-judged via automem-stop-nudge.sh`,
       options.quiet
     );
   }

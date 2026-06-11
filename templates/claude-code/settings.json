@@ -5,29 +5,11 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "mcp__.*__store_memory",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'CLAUDE_HOOK_TYPE=build bash \"$HOME/.claude/hooks/capture-build-result.sh\"'"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'CLAUDE_HOOK_TYPE=test_run bash \"$HOME/.claude/hooks/capture-test-pattern.sh\"'"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'CLAUDE_HOOK_TYPE=deploy bash \"$HOME/.claude/hooks/capture-deployment.sh\"'"
+            "command": "bash \"$HOME/.claude/hooks/automem-track-store.sh\""
           }
         ]
       }
@@ -43,6 +25,10 @@
           {
             "type": "command",
             "command": "npx -y @verygoodplugins/mcp-automem queue --file \"$HOME/.claude/scripts/memory-queue.jsonl\" --limit 5"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/hooks/automem-stop-nudge.sh\""
           }
         ]
       }

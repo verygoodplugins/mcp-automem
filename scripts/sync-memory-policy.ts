@@ -4,6 +4,8 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   renderClaudeCodeSessionStartHook,
+  renderClaudeCodeStopNudgeHook,
+  renderClaudeCodeTrackStoreHook,
   renderClaudeDesktopInstructions,
   renderClaudeMdMemoryRules,
   renderCodexMemoryRules,
@@ -34,9 +36,15 @@ function writeIfChanged(relativePath: string, content: string): boolean {
 
 const templateVersion = readPackageVersion();
 const hook = renderClaudeCodeSessionStartHook();
+const stopNudgeHook = renderClaudeCodeStopNudgeHook();
+const trackStoreHook = renderClaudeCodeTrackStoreHook();
 const files: Array<[string, string]> = [
   ['templates/claude-code/hooks/automem-session-start.sh', hook],
   ['plugins/automem/scripts/session-start.sh', hook],
+  ['templates/claude-code/hooks/automem-stop-nudge.sh', stopNudgeHook],
+  ['plugins/automem/scripts/stop-nudge.sh', stopNudgeHook],
+  ['templates/claude-code/hooks/automem-track-store.sh', trackStoreHook],
+  ['plugins/automem/scripts/track-store.sh', trackStoreHook],
   [
     'templates/codex/memory-rules.md',
     renderCodexMemoryRules({ projectName: '{{PROJECT_NAME}}', templateVersion }),

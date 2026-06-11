@@ -487,4 +487,41 @@ describe('mergeSettings (legacy Stop-hook migration end-to-end)', () => {
     const merged = mergeSettings(settings, realTemplate);
     expect(merged.hooks.SubagentStop).toBeUndefined();
   });
+
+  // Mechanical build/test/deploy capture retired in favor of the LLM-judged
+  // stop nudge: a pre-switch install (wrapped + legacy spellings) must come
+  // out captureless with the nudge + tracker registered.
+  it('strips retired capture hooks and registers the stop-nudge replacement', () => {
+    const settings = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [
+              hook(
+                "bash -c 'CLAUDE_HOOK_TYPE=build bash \"$HOME/.claude/hooks/capture-build-result.sh\"'"
+              ),
+              hook('CLAUDE_HOOK_TYPE=test_run bash "$HOME/.claude/hooks/capture-test-pattern.sh"'),
+              hook(`bash "${home}/.claude/hooks/capture-deployment.sh"`),
+              hook(`node "${home}/.claude/hooks/awtrix-event.js"`),
+            ],
+          },
+        ],
+        Stop: [{ matcher: '*', hooks: [hook('bash "$HOME/.claude/scripts/queue-cleanup.sh"')] }],
+      },
+    };
+    const merged = mergeSettings(settings, realTemplate);
+
+    const allCommands = Object.values(
+      merged.hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>
+    )
+      .flat()
+      .flatMap((entry) => entry.hooks.map((h) => h.command));
+    expect(allCommands.join(' ')).not.toMatch(/capture-(build-result|test-pattern|deployment)/);
+    // Foreign user hook survives.
+    expect(allCommands).toContain(`node "${home}/.claude/hooks/awtrix-event.js"`);
+    // Replacement architecture is registered from the template.
+    expect(allCommands).toContain('bash "$HOME/.claude/hooks/automem-stop-nudge.sh"');
+    expect(allCommands).toContain('bash "$HOME/.claude/hooks/automem-track-store.sh"');
+  });
 });

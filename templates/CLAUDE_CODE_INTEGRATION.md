@@ -17,7 +17,7 @@ The old Claude Code marketplace plugin is deprecated and kept only as a migratio
 Claude has direct MCP access and can judge what's worth storing better than low-signal automation alone. The supported integration provides:
 
 1. **MCP permissions** - So Claude can use memory tools without asking
-2. **SessionStart and capture hooks** - So recall/setup behavior stays consistent
+2. **SessionStart recall + Stop storage-nudge hooks** - So recall happens every session and storage stays LLM-judged (hooks prompt and observe; they never write memories themselves)
 3. **Memory rules** - Instructions in CLAUDE.md teaching Claude when to store/recall
 
 The CLI installer is the source of truth. Manual config remains available below as an advanced fallback.
@@ -122,11 +122,25 @@ Claude automatically recalls:
 
 ### During Work
 
-Claude stores significant events:
+Claude stores significant events as they stabilize (per the memory rules):
 
 - Architecture decisions (importance: 0.9)
 - Bug fixes with root cause (importance: 0.8)
 - Patterns and insights (importance: 0.7)
+
+### Session End
+
+If no `store_memory` call happened during the session (tracked by the
+`automem-track-store.sh` PostToolUse sentinel), the `automem-stop-nudge.sh`
+Stop hook asks Claude once to consider whether any durable facts emerged —
+a correction, a stabilized decision, an articulated pattern, or a debugging
+root cause. If nothing durable came up, Claude stops normally; the nudge
+never blocks and explicitly forbids session-summary dumps.
+
+Historical note: earlier versions mechanically captured build/test/deploy
+results into the memory queue. Those hooks were retired — templated
+"Build succeeded…" one-liners drowned out real memories in recall — and the
+installer removes them from existing installs on re-run.
 
 ## Available Tools
 
