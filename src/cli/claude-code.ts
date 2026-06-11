@@ -649,12 +649,14 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  // Install hook scripts and clean up files retired template versions left behind
+  // Order matters for crash-safety. Install current hooks, then merge settings
+  // so the config stops referencing retired scripts, and only THEN delete the
+  // retired files on disk. mergeSettingsFile throws on an unparseable
+  // settings.json; deleting first would strand the unchanged hook config
+  // pointing at scripts we already removed — i.e. broken hooks.
   installHookScripts(targetDir, options);
-  removeRetiredFiles(targetDir, options);
-
-  // Merge MCP permissions and hooks into settings.json
   mergeSettingsFile(targetDir, options);
+  removeRetiredFiles(targetDir, options);
 
   log('', options.quiet);
   log('✓ Hook scripts installed (session recall, store tracking, stop nudge)', options.quiet);

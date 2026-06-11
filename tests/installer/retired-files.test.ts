@@ -89,6 +89,26 @@ describe('installer retired-file cleanup', () => {
     }
   });
 
+  it('keeps retired files when the settings merge fails (delete runs only after a clean merge)', async () => {
+    seedRetiredFiles();
+    // An unparseable settings.json makes mergeSettingsFile throw. Because file
+    // deletion now runs only AFTER a successful merge, the retired scripts the
+    // still-unchanged config references must survive — otherwise the user is
+    // left with broken hooks pointing at deleted files.
+    fs.writeFileSync(path.join(targetDir, 'settings.json'), '{ not valid json');
+
+    await expect(applyClaudeCodeSetup({ targetDir, quiet: true })).rejects.toThrow(
+      /parse existing settings\.json/i
+    );
+
+    for (const rel of RETIRED) {
+      expect(
+        fs.existsSync(path.join(targetDir, rel)),
+        `${rel} must survive a failed merge`
+      ).toBe(true);
+    }
+  });
+
   it('installs no legacy scripts and registers only the nudge on Stop for a fresh dir', async () => {
     await applyClaudeCodeSetup({ targetDir, quiet: true });
 
