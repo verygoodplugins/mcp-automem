@@ -124,4 +124,23 @@ describe('automem-stop-nudge.sh', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('');
   });
+
+  // POSIX-only: relies on ENOTDIR when writing under a regular file. The primary
+  // `test` CI job is POSIX; the win32 hook job has different FS semantics.
+  const itPosix = process.platform === 'win32' ? it.skip : it;
+  itPosix('stays silent when the nudge sentinel cannot be written (dedup impossible)', () => {
+    // Point TMPDIR at a regular file so "${TMPDIR}/automem-stop-nudged-*" cannot
+    // be created. The once-per-session guarantee is gone, so the hook must stay
+    // silent rather than nudge on every Stop.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-stop-nudge-nodir-'));
+    tmpDirs.push(dir);
+    const fileAsTmp = path.join(dir, 'not-a-dir');
+    fs.writeFileSync(fileAsTmp, 'x');
+    const result = runStopNudge({
+      input: JSON.stringify({ session_id: 'nudge-nowrite', hook_event_name: 'Stop' }),
+      env: { ...process.env, TMPDIR: fileAsTmp },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('');
+  });
 });

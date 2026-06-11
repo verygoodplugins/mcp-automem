@@ -32,7 +32,15 @@ NUDGED_SENTINEL="${TMPDIR:-/tmp}/automem-stop-nudged-${SESSION_ID}"
 if [ -e "$STORED_SENTINEL" ] || [ -e "$NUDGED_SENTINEL" ]; then
   exit 0
 fi
-# Write before emitting so a re-entrant Stop sees it immediately.
-: > "$NUDGED_SENTINEL" 2>/dev/null || true
+# Write the sentinel before emitting so a re-entrant Stop sees it. If it
+# can't be created (e.g. TMPDIR not writable), the once-per-session guarantee
+# is gone, so stay silent rather than nudge on every Stop.
+if ! : > "$NUDGED_SENTINEL" 2>/dev/null; then
+  exit 0
+fi
 
 printf '{"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"%s","additionalContext":%s}}\n' "$EVENT_NAME" '"Before stopping: no memories were stored this session. Check whether any durable facts emerged.\n\nStore via mcp__memory__store_memory ONLY if one of these fired:\n- A user correction or preference override -> type \"Preference\", importance 0.9, tag \"correction\"\n- A decision that survived discussion -> type \"Decision\", importance 0.85-0.9\n- A pattern the user articulated -> type \"Pattern\", importance 0.8\n- A root-cause insight from debugging -> type \"Insight\", importance 0.75, tags \"bugfix\" + \"solution\"\n\nUse bare tags (category + project slug). Run the atomic ritual: recall related -> store -> verify -> associate.\n\nIf nothing durable came up, stop normally - do NOT store session summaries, progress reports, or confirmations."'
+
+# Advisory hook: always succeed even if printf hit a write error, so Claude
+# Code never treats the Stop hook as failed and discards the JSON.
+exit 0
