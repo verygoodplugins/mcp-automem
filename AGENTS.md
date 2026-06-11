@@ -61,7 +61,7 @@ npx @verygoodplugins/mcp-automem claude-code --dir <path>        # Custom target
 # Print config snippets for Claude Desktop/Cursor/Code
 npx @verygoodplugins/mcp-automem config --format=json
 
-# Process memory queue manually (normally automatic via Stop hook)
+# Drain a memory queue file (manual-only; no hooks write to or drain the queue anymore)
 npx @verygoodplugins/mcp-automem queue
 npx @verygoodplugins/mcp-automem queue --file ~/.claude/scripts/memory-queue.jsonl
 ```
@@ -122,7 +122,6 @@ src/
 templates/
 ├── claude-code/
 │   ├── hooks/            # SessionStart recall prompt, Stop storage nudge, store tracker
-│   ├── scripts/          # Queue cleanup + legacy queue-processing support scripts
 │   └── settings.json     # Default hook config (merged into ~/.claude/settings.json)
 ├── CLAUDE_CODE_INTEGRATION.md   # Complete hook system documentation
 └── CLAUDE_MD_MEMORY_RULES.md    # Memory rules template for ~/.claude/CLAUDE.md
@@ -153,17 +152,18 @@ The server exposes 6 tools to AI assistants. Several are mode-multiplexed — th
 The `claude-code` command installs hooks built around LLM-judged storage — the model decides what is durable; hooks only prompt and observe, never write memories themselves:
 - **SessionStart** (`automem-session-start.sh`): injects the two-phase recall prompt
 - **PostToolUse** on `mcp__.*__store_memory` (`automem-track-store.sh`): writes a per-session sentinel recording that a store happened
-- **Stop** (`automem-stop-nudge.sh`): if no store happened this session, emits `hookSpecificOutput.additionalContext` (with the required `hookEventName`) nudging Claude once to consider storing durable facts per the shared policy triggers; plus `queue-cleanup.sh` and the queue drainer
+- **Stop** (`automem-stop-nudge.sh`): if no store happened this session, emits `hookSpecificOutput.additionalContext` (with the required `hookEventName`) nudging Claude once to consider storing durable facts per the shared policy triggers
 
-**Retired (auto-removed from existing installs on re-run):** the mechanical `capture-build-result.sh` / `capture-test-pattern.sh` / `capture-deployment.sh` PostToolUse hooks (templated "Build succeeded…" / "Deployed X to production…" one-liners were corpus noise that outranked real memories), and the `session-memory.sh` Stop hook (#130).
+The three installed hooks are pure bash+sed — the integration no longer requires Python or jq.
+
+**Retired (auto-removed from existing installs on re-run, settings entries AND files):** the mechanical `capture-build-result.sh` / `capture-test-pattern.sh` / `capture-deployment.sh` PostToolUse hooks (templated "Build succeeded…" / "Deployed X to production…" one-liners were corpus noise that outranked real memories), the `session-memory.sh` Stop hook (#130) with its `process-session-memory.py` / `memory-filters.json` support chain, and the queue Stop machinery (`queue-cleanup.sh` + the npx queue drainer + `python-command.sh`) — nothing writes to the queue once the capture hooks are gone. `smart-notify.sh` is no longer shipped but is never removed from user machines.
 
 **Modified Files:**
 - `~/.claude/settings.json` - Merges tool permissions and hook configurations
 - `~/.claude/hooks/*.sh` - Hook scripts (triggered by SessionStart, PostToolUse, Stop)
-- `~/.claude/scripts/*` - Support scripts (queue cleanup, queue processor)
 
 **Key Implementation Details:**
-- Queue processor (`npx mcp-automem queue`) reads JSONL entries and stores them via `store_memory` (the queue remains as a transport for explicit/manual queueing)
+- `npx mcp-automem queue` remains as a manual-only CLI: it drains a JSONL queue file you point it at and stores entries via `store_memory`. No hook registers it.
 - Relationships are optional: if a queue entry includes `relatesTo`, the processor creates that association; otherwise none are created automatically
 - AutoMem enriches in background (entities, summaries, temporal links)
 
@@ -217,11 +217,6 @@ AUTOMEM_RECALL_TOKEN_BUDGET=18000
 3. Test with `--dry-run` flag before applying
 4. Rebuild with `npm run build` if modifying TypeScript code
 
-**Change memory filters:**
-- Edit `templates/claude-code/scripts/memory-filters.json`
-- Configure `trivial_patterns`, `significant_patterns`, `file_weight`, thresholds
-- Users can customize `~/.claude/scripts/memory-filters.json` after installation
-
 **Add new CLI command:**
 1. Create handler in `src/cli/<command>.ts`
 2. Export main function (e.g., `runCommandName`)
@@ -245,7 +240,7 @@ npm run build
 npx @verygoodplugins/mcp-automem claude-code --dry-run --dir /tmp/test-claude
 ```
 
-**Test queue processor:**
+**Test queue processor (manual-only CLI):**
 ```bash
 # Create test queue file
 echo '{"content":"test memory","tags":["test"],"importance":0.5}' > /tmp/test-queue.jsonl
@@ -297,10 +292,9 @@ Documentation changes are part of the integration contract. Any new host mode or
   - You can specify `tag_mode=all` to require all tags, or `tag_match=exact` for strict matches.
 
 **Hook Script Patterns:**
-- Hooks receive context via env vars. Capture scripts prefer `CLAUDE_LAST_COMMAND`, `CLAUDE_COMMAND_OUTPUT`, `CLAUDE_EXIT_CODE`, and fall back to `CLAUDE_CONTEXT`, `TOOL_NAME`, `TOOL_RESULT` when present.
-- All hooks should be idempotent and safe to retry
-- Use `memory-filters.json` to avoid storing trivial changes
-- Queue format: JSONL (one JSON object per line)
+- Hooks read a JSON payload on stdin (Claude Code's hook input format: `session_id`, `hook_event_name`, `source`, …) and parse it with sed — no Python or jq dependency.
+- All hooks should be idempotent and safe to retry (sentinel files in `${TMPDIR:-/tmp}` guard once-per-session behavior).
+- Queue format (manual `mcp-automem queue` CLI): JSONL (one JSON object per line)
 - Template hook scripts in `templates/` are duplicated in `plugins/` for distribution; update both when changing hook behavior.
 
 **Settings Merge Strategy:**

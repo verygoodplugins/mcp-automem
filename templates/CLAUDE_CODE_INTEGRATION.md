@@ -34,7 +34,7 @@ npx @verygoodplugins/mcp-automem claude-code
 
 This merges AutoMem permissions into `~/.claude/settings.json` and installs the canonical hook/support files under `~/.claude/`.
 
-Windows compatibility for this branch is limited to POSIX shell environments such as Git Bash, MSYS2, or WSL. `bash`, `jq`, and Python must be available. This is not full native Windows hook support.
+Windows compatibility for this branch is limited to POSIX shell environments such as Git Bash, MSYS2, or WSL. Only `bash` must be available — the hooks are pure bash+sed, with no Python or jq dependency. This is not full native Windows hook support.
 
 ### 2. Advanced Manual Fallback
 
@@ -138,9 +138,13 @@ root cause. If nothing durable came up, Claude stops normally; the nudge
 never blocks and explicitly forbids session-summary dumps.
 
 Historical note: earlier versions mechanically captured build/test/deploy
-results into the memory queue. Those hooks were retired — templated
-"Build succeeded…" one-liners drowned out real memories in recall — and the
-installer removes them from existing installs on re-run.
+results into a JSONL memory queue drained by Stop hooks. That whole pipeline
+was retired — templated "Build succeeded…" one-liners drowned out real
+memories in recall, and once the capture hooks were gone nothing wrote to
+the queue. Re-running the installer removes the retired hook entries AND
+their orphaned script files from existing installs. The
+`npx @verygoodplugins/mcp-automem queue` CLI remains for manually draining
+a queue file you point it at.
 
 ## Available Tools
 

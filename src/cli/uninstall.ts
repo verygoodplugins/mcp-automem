@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { removeManagedHookEntries } from './claude-code.js';
+import { automemOwnedFiles, removeManagedHookEntries } from './claude-code.js';
 import {
   removeHermesMemoryProvider,
   removeMcpServerEntry,
@@ -344,8 +344,34 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
   const settingsPath = path.join(claudeDir, 'settings.json');
   
   log('\n🗑️  Uninstalling Claude Code AutoMem...', options.quiet);
-  
-  // MCP permissions to remove
+
+  if (!fs.existsSync(settingsPath)) {
+    log('ℹ️  No Claude Code settings.json found', options.quiet);
+  } else if (options.dryRun) {
+    log(
+      `[DRY RUN] Would remove MCP permissions and AutoMem hook entries from: ${settingsPath}`,
+      options.quiet
+    );
+  } else {
+    uninstallClaudeCodeSettings(settingsPath, options);
+  }
+
+  // Remove installer-owned files (current hooks + retired machinery). The
+  // list comes from the installer itself so install-time cleanup and
+  // uninstall cannot drift; foreign files in the shared dirs are untouched.
+  let filesRemoved = 0;
+  for (const relativePath of automemOwnedFiles()) {
+    const filePath = path.join(claudeDir, relativePath);
+    if (removeFileWithBackup(filePath, options.dryRun ?? false, options.quiet)) {
+      filesRemoved += 1;
+    }
+  }
+  if (filesRemoved > 0 && !options.dryRun) {
+    log(`\n✅ Removed ${filesRemoved} AutoMem hook/script file(s)`, options.quiet);
+  }
+}
+
+function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOptions): void {
   const mcpPermissions = [
     'mcp__memory__store_memory',
     'mcp__memory__recall_memory',
@@ -354,19 +380,6 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
     'mcp__memory__delete_memory',
     'mcp__memory__check_database_health',
   ];
-  
-  if (!fs.existsSync(settingsPath)) {
-    log('ℹ️  No Claude Code settings.json found', options.quiet);
-    return;
-  }
-
-  if (options.dryRun) {
-    log(
-      `[DRY RUN] Would remove MCP permissions and AutoMem hook entries from: ${settingsPath}`,
-      options.quiet
-    );
-    return;
-  }
 
   try {
     const raw = fs.readFileSync(settingsPath, 'utf8');

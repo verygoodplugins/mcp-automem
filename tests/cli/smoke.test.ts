@@ -415,14 +415,9 @@ describe('Template Generation', () => {
 
   it('plugin-distributed Claude Code runtime assets should match the canonical templates', () => {
     const pairs: Array<[string, string]> = [
-      ['templates/claude-code/hooks/session-memory.sh', 'plugins/automem/scripts/session-memory.sh'],
       ['templates/claude-code/hooks/automem-session-start.sh', 'plugins/automem/scripts/session-start.sh'],
       ['templates/claude-code/hooks/automem-stop-nudge.sh', 'plugins/automem/scripts/stop-nudge.sh'],
       ['templates/claude-code/hooks/automem-track-store.sh', 'plugins/automem/scripts/track-store.sh'],
-      ['templates/claude-code/scripts/python-command.sh', 'plugins/automem/scripts/python-command.sh'],
-      ['templates/claude-code/scripts/memory-filters.json', 'plugins/automem/scripts/memory-filters.json'],
-      ['templates/claude-code/scripts/process-session-memory.py', 'plugins/automem/scripts/process-session-memory.py'],
-      ['templates/claude-code/scripts/queue-cleanup.sh', 'plugins/automem/scripts/queue-cleanup.sh'],
     ];
 
     for (const [canonical, pluginCopy] of pairs) {

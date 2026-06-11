@@ -36,7 +36,7 @@ The plugin includes a **memory-management skill** that mirrors the canonical Cla
 
 1. **Session Start (Recall)** - Automatically recall project context
 2. **During Work (Store)** - Store decisions, patterns, bug fixes
-3. **Stop/queue processing** - Capture significant events through the same shipped scripts as the CLI templates
+3. **Session End (Storage nudge)** - If nothing was stored, a Stop hook asks Claude once whether any durable facts emerged (same shipped scripts as the CLI templates)
 
 ### Slash Commands
 

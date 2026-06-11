@@ -10,4 +10,3 @@
 import path from 'path';
 
 export const HOOKS_DIR = path.resolve(__dirname, '../../templates/claude-code/hooks');
-export const SCRIPTS_DIR = path.resolve(__dirname, '../../templates/claude-code/scripts');
