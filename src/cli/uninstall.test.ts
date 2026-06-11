@@ -393,4 +393,22 @@ describe('uninstall claude-code', () => {
       ).toBe(true);
     }
   });
+
+  it('keeps owned files when the settings update fails (no half-uninstall)', async () => {
+    // Unparseable settings.json makes uninstallClaudeCodeSettings fail. File
+    // deletion is gated on a clean settings update, so the scripts the broken
+    // config still references must survive — otherwise the user is left with a
+    // half-uninstalled config pointing at deleted hooks.
+    fs.writeFileSync(settingsPath(), '{ not valid json');
+    seedInstalledFiles();
+
+    await runUninstall({ platform: 'claude-code', yes: true, quiet: true });
+
+    for (const rel of OWNED_FILES) {
+      expect(
+        fs.existsSync(path.join(tmpHome, '.claude', rel)),
+        `${rel} must survive a failed settings update`
+      ).toBe(true);
+    }
+  });
 });

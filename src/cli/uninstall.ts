@@ -345,6 +345,7 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
   
   log('\n🗑️  Uninstalling Claude Code AutoMem...', options.quiet);
 
+  let settingsCleared = true;
   if (!fs.existsSync(settingsPath)) {
     log('ℹ️  No Claude Code settings.json found', options.quiet);
   } else if (options.dryRun) {
@@ -353,7 +354,18 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
       options.quiet
     );
   } else {
-    uninstallClaudeCodeSettings(settingsPath, options);
+    settingsCleared = uninstallClaudeCodeSettings(settingsPath, options);
+  }
+
+  // Delete installer-owned files only once settings.json no longer references
+  // them. If the settings update failed, removing the scripts would strand the
+  // unchanged config pointing at missing files — broken hooks. Skip and warn.
+  if (!settingsCleared) {
+    log(
+      '⚠️  Skipped removing AutoMem hook/script files because settings.json still references them (update failed above). Fix settings.json and re-run, or remove the files manually.',
+      options.quiet
+    );
+    return;
   }
 
   // Remove installer-owned files (current hooks + retired machinery). The
@@ -371,7 +383,11 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
   }
 }
 
-function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOptions): void {
+// Returns true when settings.json no longer references AutoMem hooks (updated
+// cleanly, or had nothing to remove), and false when the update failed — in
+// which case the caller must NOT delete the on-disk scripts the config still
+// points at.
+function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOptions): boolean {
   const mcpPermissions = [
     'mcp__memory__store_memory',
     'mcp__memory__recall_memory',
@@ -412,7 +428,7 @@ function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOpt
 
     if (permissionsRemoved === 0 && hooksRemoved === 0) {
       log('ℹ️  No AutoMem configuration found in settings.json', options.quiet);
-      return;
+      return true;
     }
 
     // Backup and write
@@ -428,8 +444,10 @@ function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOpt
     }
     log(`   Backup: ${backupPath}`, options.quiet);
     log('\n✅ Claude Code AutoMem configuration removed', options.quiet);
+    return true;
   } catch (error) {
     log(`❌ Failed to update settings.json: ${(error as Error).message}`, options.quiet);
+    return false;
   }
 }
 
