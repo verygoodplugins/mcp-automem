@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.14.0...mcp-automem-v1.0.0) (2026-06-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **hooks:** build/test/deploy results are no longer auto-captured into AutoMem; durable facts are stored by the model per the shared memory policy.
+
+### Features
+
+* **api:** parity with AutoMem v0.15.2 via mode-multiplexed params ([#112](https://github.com/verygoodplugins/mcp-automem/issues/112)) ([b81c63a](https://github.com/verygoodplugins/mcp-automem/commit/b81c63ae8f833feb4f6fb21e795c389f99a5dbe8))
+* **hermes:** add Hermes Agent integration ([#141](https://github.com/verygoodplugins/mcp-automem/issues/141)) ([fdde107](https://github.com/verygoodplugins/mcp-automem/commit/fdde107c1c027c3c29bb3092679a31377faa8749))
+* **hooks:** replace mechanical capture with LLM-judged storage nudge ([#147](https://github.com/verygoodplugins/mcp-automem/issues/147)) ([f597616](https://github.com/verygoodplugins/mcp-automem/commit/f597616ef1f6a2a54ea6bba872edc0f84d8af992))
+* **installer:** auto-migrate legacy Claude Code hook entries ([#145](https://github.com/verygoodplugins/mcp-automem/issues/145)) ([cfa67c6](https://github.com/verygoodplugins/mcp-automem/commit/cfa67c68641af7091a237926faf9aa9bb00ccafc))
+* rename AUTOMEM_ENDPOINT to AUTOMEM_API_URL ([#110](https://github.com/verygoodplugins/mcp-automem/issues/110)) ([29f9e8d](https://github.com/verygoodplugins/mcp-automem/commit/29f9e8df87e12ab48d32f22e4006cf6d7ca548fc))
+* **store:** add supersede memory mode ([#132](https://github.com/verygoodplugins/mcp-automem/issues/132)) ([322f53d](https://github.com/verygoodplugins/mcp-automem/commit/322f53de0ed5887735fe1c6da4385911d53a697e))
+
+
+### Bug Fixes
+
+* close remaining AUTOMEM_ENDPOINT migration gaps ([#144](https://github.com/verygoodplugins/mcp-automem/issues/144)) ([cfcd9d0](https://github.com/verygoodplugins/mcp-automem/commit/cfcd9d009083c92b20d0667af9f4acd9a8149b6f))
+* **hooks:** disable session-summary Stop hook by default ([#130](https://github.com/verygoodplugins/mcp-automem/issues/130)) ([8efb763](https://github.com/verygoodplugins/mcp-automem/commit/8efb763c0b61e69f65872700202b1154c8261939))
+* **recall:** summary-first budgeted formats + token-aware response budget ([#146](https://github.com/verygoodplugins/mcp-automem/issues/146)) ([8009f2a](https://github.com/verygoodplugins/mcp-automem/commit/8009f2a898497cf4fb9371b5b6f2812d138c5483))
+* self-terminate orphaned stdio MCP servers to stop a memory leak ([#137](https://github.com/verygoodplugins/mcp-automem/issues/137)) ([c03d706](https://github.com/verygoodplugins/mcp-automem/commit/c03d70677f29c5acfa6d4d2c86c9d5d30453b587))
+* wrap hook commands in bash -c for Windows Git Bash ([#108](https://github.com/verygoodplugins/mcp-automem/issues/108)) ([#113](https://github.com/verygoodplugins/mcp-automem/issues/113)) ([34fcfe2](https://github.com/verygoodplugins/mcp-automem/commit/34fcfe2b7bdac6a99829c64cc74611e29af69a38))
+
 ## [0.14.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.13.0...mcp-automem-v0.14.0) (2026-04-23)
 
 
