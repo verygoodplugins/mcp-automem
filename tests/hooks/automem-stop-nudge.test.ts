@@ -4,10 +4,16 @@
  * The Stop hook replaces the retired mechanical build/test/deploy capture
  * with an LLM-judged nudge: if no store_memory call happened this session
  * (tracked via the automem-stored-<session_id> sentinel written by
- * automem-track-store.sh), it emits hookSpecificOutput.additionalContext
- * asking Claude once to consider storing durable facts. The nudge names the
- * tool by short name so it stays correct under plugin-namespaced MCP
- * prefixes (mcp__plugin_automem_memory__*) as well as mcp__memory__*.
+ * automem-track-store.sh) AND the transcript shows a substantive session,
+ * it emits hookSpecificOutput.additionalContext asking Claude once to
+ * consider storing durable facts.
+ *
+ * Two display facts shape this hook (verified empirically on Claude Code
+ * 2.1.175): Stop-hook additionalContext is rendered as a visible
+ * "Stop hook feedback" block in the conversation, and the injection rewakes
+ * Claude for one closing turn. suppressOutput only hides raw stdout. There is
+ * no silent variant — so the nudge is a single line, and it is gated to
+ * sessions with >= 5 human prompts so trivial sessions stay fully silent.
  *
  * The JSON shape is the load-bearing part: Claude Code rejects Stop-hook
  * JSON whose hookSpecificOutput lacks hookEventName ("Stop" | "SubagentStop").
@@ -19,6 +25,9 @@ import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HOOKS_DIR } from './helpers';
+
+/** Must match AUTOMEM_STOP_NUDGE_MIN_HUMAN_TURNS in src/memory-policy/shared.ts. */
+const MIN_HUMAN_TURNS = 5;
 
 type StopHookOutput = {
   suppressOutput?: boolean;
@@ -42,12 +51,77 @@ function runStopNudge(options: { input?: string; env?: NodeJS.ProcessEnv } = {})
   return { stdout: result.stdout ?? '', exitCode: result.status ?? 0 };
 }
 
+/**
+ * Build a transcript JSONL shaped like Claude Code's real session files:
+ * human prompts are type:"user" entries; tool results are ALSO type:"user"
+ * but carry tool_use_id; meta entries (command output, compact caveats)
+ * carry isMeta:true. Only the first kind counts toward the gate.
+ */
+function transcriptLines(opts: {
+  humanTurns: number;
+  toolResults?: number;
+  metaTurns?: number;
+}): string[] {
+  const lines: string[] = [];
+  for (let i = 0; i < opts.humanTurns; i += 1) {
+    lines.push(
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: `prompt ${i}` },
+        uuid: `human-${i}`,
+      })
+    );
+    lines.push(
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: `answer ${i}` }] },
+        uuid: `assistant-${i}`,
+      })
+    );
+  }
+  for (let i = 0; i < (opts.toolResults ?? 0); i += 1) {
+    lines.push(
+      JSON.stringify({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: `toolu_${i}`, content: 'ok' }],
+        },
+        uuid: `tool-${i}`,
+      })
+    );
+  }
+  for (let i = 0; i < (opts.metaTurns ?? 0); i += 1) {
+    lines.push(
+      JSON.stringify({
+        type: 'user',
+        isMeta: true,
+        message: { role: 'user', content: `meta ${i}` },
+        uuid: `meta-${i}`,
+      })
+    );
+  }
+  return lines;
+}
+
 describe('automem-stop-nudge.sh', () => {
   const tmpDirs: string[] = [];
-  function tmpEnv(): NodeJS.ProcessEnv {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-stop-nudge-'));
+  function makeTmpDir(prefix: string): string {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
     tmpDirs.push(tmp);
-    return { ...process.env, TMPDIR: tmp };
+    return tmp;
+  }
+  function tmpEnv(): NodeJS.ProcessEnv {
+    return { ...process.env, TMPDIR: makeTmpDir('automem-stop-nudge-') };
+  }
+  /** Forward slashes so the path survives JSON round-tripping on win32 too. */
+  function writeTranscript(
+    opts: { humanTurns: number; toolResults?: number; metaTurns?: number },
+    dir = makeTmpDir('automem-stop-nudge-transcript-')
+  ): string {
+    const transcriptPath = path.join(dir, 'transcript.jsonl');
+    fs.writeFileSync(transcriptPath, `${transcriptLines(opts).join('\n')}\n`);
+    return transcriptPath.replace(/\\/g, '/');
   }
   afterEach(() => {
     while (tmpDirs.length) {
@@ -61,13 +135,17 @@ describe('automem-stop-nudge.sh', () => {
 
   it('emits schema-valid Stop JSON with hookEventName (the field Claude Code validates)', () => {
     const result = runStopNudge({
-      input: JSON.stringify({ session_id: 'nudge-1', hook_event_name: 'Stop' }),
+      input: JSON.stringify({
+        session_id: 'nudge-1',
+        hook_event_name: 'Stop',
+        transcript_path: writeTranscript({ humanTurns: MIN_HUMAN_TURNS }),
+      }),
       env: tmpEnv(),
     });
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.stdout) as StopHookOutput;
-    // suppressOutput:true hides the nudge JSON from the user's transcript while
-    // still injecting additionalContext into Claude's context.
+    // suppressOutput:true hides the raw JSON stdout from transcript view; the
+    // additionalContext itself is still rendered as "Stop hook feedback".
     expect(parsed.suppressOutput).toBe(true);
     expect(parsed.hookSpecificOutput?.hookEventName).toBe('Stop');
     // Short tool name: must hold for both mcp__memory__* and the plugin's
@@ -78,34 +156,50 @@ describe('automem-stop-nudge.sh', () => {
 
   it('echoes SubagentStop back when registered on that event', () => {
     const result = runStopNudge({
-      input: JSON.stringify({ session_id: 'nudge-sub', hook_event_name: 'SubagentStop' }),
+      input: JSON.stringify({
+        session_id: 'nudge-sub',
+        hook_event_name: 'SubagentStop',
+        transcript_path: writeTranscript({ humanTurns: MIN_HUMAN_TURNS }),
+      }),
       env: tmpEnv(),
     });
     const parsed = JSON.parse(result.stdout) as StopHookOutput;
     expect(parsed.hookSpecificOutput?.hookEventName).toBe('SubagentStop');
   });
 
-  it('nudges the policy triggers and permits stopping without a store', () => {
+  it('keeps the nudge to a single user-visible line that permits stopping without a store', () => {
     const result = runStopNudge({
-      input: JSON.stringify({ session_id: 'nudge-text', hook_event_name: 'Stop' }),
+      input: JSON.stringify({
+        session_id: 'nudge-text',
+        hook_event_name: 'Stop',
+        transcript_path: writeTranscript({ humanTurns: MIN_HUMAN_TURNS }),
+      }),
       env: tmpEnv(),
     });
     const context = (JSON.parse(result.stdout) as StopHookOutput).hookSpecificOutput
       ?.additionalContext as string;
-    expect(context).toMatch(/Preference/);
-    expect(context).toMatch(/Decision/);
-    expect(context).toMatch(/Pattern/);
-    expect(context).toMatch(/Insight/);
-    // Anti-noise guardrails: never store to perform attentiveness.
-    expect(context).toMatch(/stop normally/i);
+    // The whole nudge is rendered verbatim in the "Stop hook feedback" block,
+    // so it must be ONE line — the old 10-line trigger checklist is gone.
+    expect(context).not.toContain('\n');
+    expect(context).toMatch(/preference/i);
+    expect(context).toMatch(/decision/i);
+    expect(context).toMatch(/pattern/i);
+    expect(context).toMatch(/insight/i);
+    // Anti-noise guardrails: never store to perform attentiveness, and close
+    // the forced rewake turn tersely instead of narrating.
     expect(context).toMatch(/session summaries/i);
+    expect(context).toMatch(/Nothing durable to store/);
     // Bare-tag convention only — no namespace prefixes.
     expect(context).not.toMatch(/(project|lang)\//);
   });
 
   it('nudges at most once per session (re-entrant Stop stays silent)', () => {
     const env = tmpEnv();
-    const input = JSON.stringify({ session_id: 'nudge-once', hook_event_name: 'Stop' });
+    const input = JSON.stringify({
+      session_id: 'nudge-once',
+      hook_event_name: 'Stop',
+      transcript_path: writeTranscript({ humanTurns: MIN_HUMAN_TURNS }),
+    });
     const first = runStopNudge({ input, env });
     expect(first.stdout).toMatch(/hookSpecificOutput/);
     const second = runStopNudge({ input, env });
@@ -113,11 +207,88 @@ describe('automem-stop-nudge.sh', () => {
     expect(second.stdout).toBe('');
   });
 
+  it('stays silent below the human-turn threshold (trivial sessions cost nothing)', () => {
+    const result = runStopNudge({
+      input: JSON.stringify({
+        session_id: 'nudge-short',
+        hook_event_name: 'Stop',
+        transcript_path: writeTranscript({ humanTurns: MIN_HUMAN_TURNS - 1 }),
+      }),
+      env: tmpEnv(),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('');
+  });
+
+  it('does not count tool results or meta entries toward the threshold', () => {
+    // Tool-result and meta lines are type:"user" in the transcript format —
+    // a tool-heavy short session must not trip the gate.
+    const result = runStopNudge({
+      input: JSON.stringify({
+        session_id: 'nudge-toolheavy',
+        hook_event_name: 'Stop',
+        transcript_path: writeTranscript({
+          humanTurns: MIN_HUMAN_TURNS - 1,
+          toolResults: 40,
+          metaTurns: 5,
+        }),
+      }),
+      env: tmpEnv(),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('');
+  });
+
+  it('keeps the once-per-session sentinel unburned below the threshold', () => {
+    // A below-threshold Stop must NOT consume the nudge: the same session can
+    // still be nudged at a later Stop once it crosses the line. This is what
+    // fixes the fires-at-first-stop timing flaw of the previous design.
+    const env = tmpEnv();
+    const transcriptDir = makeTmpDir('automem-stop-nudge-grow-');
+    const transcriptPath = writeTranscript({ humanTurns: MIN_HUMAN_TURNS - 1 }, transcriptDir);
+    const input = JSON.stringify({
+      session_id: 'nudge-grow',
+      hook_event_name: 'Stop',
+      transcript_path: transcriptPath,
+    });
+    const early = runStopNudge({ input, env });
+    expect(early.stdout).toBe('');
+    fs.appendFileSync(transcriptPath, `${transcriptLines({ humanTurns: 2 }).join('\n')}\n`);
+    const later = runStopNudge({ input, env });
+    expect(later.stdout).toMatch(/hookSpecificOutput/);
+  });
+
+  it('stays silent when the hook input has no transcript_path (no way to judge substance)', () => {
+    const result = runStopNudge({
+      input: JSON.stringify({ session_id: 'nudge-nopath', hook_event_name: 'Stop' }),
+      env: tmpEnv(),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('');
+  });
+
+  it('stays silent when the transcript_path does not exist', () => {
+    const result = runStopNudge({
+      input: JSON.stringify({
+        session_id: 'nudge-ghost',
+        hook_event_name: 'Stop',
+        transcript_path: '/nonexistent/automem/transcript.jsonl',
+      }),
+      env: tmpEnv(),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('');
+  });
+
   it('stays silent when a store_memory call was tracked this session', () => {
     const env = tmpEnv();
     fs.writeFileSync(path.join(env.TMPDIR as string, 'automem-stored-nudge-stored'), '1');
     const result = runStopNudge({
-      input: JSON.stringify({ session_id: 'nudge-stored', hook_event_name: 'Stop' }),
+      input: JSON.stringify({
+        session_id: 'nudge-stored',
+        hook_event_name: 'Stop',
+        transcript_path: writeTranscript({ humanTurns: MIN_HUMAN_TURNS }),
+      }),
       env,
     });
     expect(result.exitCode).toBe(0);
@@ -137,12 +308,15 @@ describe('automem-stop-nudge.sh', () => {
     // Point TMPDIR at a regular file so "${TMPDIR}/automem-stop-nudged-*" cannot
     // be created. The once-per-session guarantee is gone, so the hook must stay
     // silent rather than nudge on every Stop.
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-stop-nudge-nodir-'));
-    tmpDirs.push(dir);
+    const dir = makeTmpDir('automem-stop-nudge-nodir-');
     const fileAsTmp = path.join(dir, 'not-a-dir');
     fs.writeFileSync(fileAsTmp, 'x');
     const result = runStopNudge({
-      input: JSON.stringify({ session_id: 'nudge-nowrite', hook_event_name: 'Stop' }),
+      input: JSON.stringify({
+        session_id: 'nudge-nowrite',
+        hook_event_name: 'Stop',
+        transcript_path: writeTranscript({ humanTurns: MIN_HUMAN_TURNS }),
+      }),
       env: { ...process.env, TMPDIR: fileAsTmp },
     });
     expect(result.exitCode).toBe(0);

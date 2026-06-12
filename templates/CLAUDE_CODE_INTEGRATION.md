@@ -133,11 +133,20 @@ Claude stores significant events as they stabilize (per the memory rules):
 ### Session End
 
 If no `store_memory` call happened during the session (tracked by the
-`automem-track-store.sh` PostToolUse sentinel), the `automem-stop-nudge.sh`
-Stop hook asks Claude once to consider whether any durable facts emerged —
-a correction, a stabilized decision, an articulated pattern, or a debugging
-root cause. If nothing durable came up, Claude stops normally; the nudge
-never blocks and explicitly forbids session-summary dumps.
+`automem-track-store.sh` PostToolUse sentinel) and the session is substantive
+(≥5 human prompts in the transcript — tool results and meta entries don't
+count), the `automem-stop-nudge.sh` Stop hook asks Claude once, in a single
+line, to store any durable facts that emerged — a correction, a stabilized
+decision, an articulated pattern, or a debugging root cause. If nothing
+qualifies, Claude closes with one terse line; the nudge never blocks and
+explicitly forbids session-summary dumps.
+
+Claude Code renders Stop-hook context as a visible "Stop hook feedback"
+block and gives Claude one extra closing turn — that display can't be
+suppressed, which is exactly why the nudge is one line and short sessions
+are never nudged at all. Below the threshold the hook also leaves its
+once-per-session sentinel unburned, so a session that grows past 5 prompts
+can still get its one nudge later.
 
 Historical note: earlier versions mechanically captured build/test/deploy
 results into a JSONL memory queue drained by Stop hooks. That whole pipeline

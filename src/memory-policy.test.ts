@@ -8,6 +8,7 @@ import {
   AUTOMEM_POLICY_DEFAULTS,
   AUTOMEM_POLICY_PROFILES,
   AUTOMEM_PROVIDER_EXPLICIT_RECALL_LIMIT,
+  AUTOMEM_STOP_NUDGE_MIN_HUMAN_TURNS,
   looksLikeExplicitRecallPrompt,
   renderClaudeDesktopInstructions,
   renderClaudeMdMemoryRules,
@@ -212,11 +213,26 @@ describe('shared AutoMem memory policy', () => {
     // Claude Code rejects Stop-hook JSON whose hookSpecificOutput lacks
     // hookEventName — the exact bug that motivated this hook's design.
     expect(hook).toContain('"hookEventName":"%s"');
-    // suppressOutput:true keeps the nudge JSON out of the user-visible transcript
-    // while Claude still receives additionalContext.
+    // suppressOutput:true hides the raw JSON stdout from transcript view. It
+    // does NOT hide the injected context: Claude Code renders Stop-hook
+    // additionalContext as a visible "Stop hook feedback" block and rewakes
+    // Claude for one closing turn (verified on 2.1.175).
     expect(hook).toContain('"suppressOutput":true');
     expect(hook).toContain(JSON.stringify(renderClaudeCodeStopNudgePrompt()));
-    expect(renderClaudeCodeStopNudgePrompt()).toContain('stop normally');
+  });
+
+  it('gates the storage nudge to substantive sessions and keeps it one visible line', () => {
+    const hook = renderClaudeCodeStopNudgeHook();
+    // The gate reads transcript_path from hook stdin and counts human prompts
+    // (type:"user" entries that are neither tool results nor meta entries).
+    expect(hook).toContain('transcript_path');
+    expect(hook).toContain(`-lt ${AUTOMEM_STOP_NUDGE_MIN_HUMAN_TURNS}`);
+    // The whole prompt is rendered verbatim in the "Stop hook feedback" block,
+    // so it must stay a single line and close the forced rewake turn tersely.
+    const prompt = renderClaudeCodeStopNudgePrompt();
+    expect(prompt).not.toContain('\n');
+    expect(prompt).toContain('Nothing durable to store');
+    expect(prompt).toMatch(/session summaries/i);
   });
 
   it('keeps generated host rule artifacts exactly aligned with shared renderers', () => {

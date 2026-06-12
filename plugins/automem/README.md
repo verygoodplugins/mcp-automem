@@ -45,10 +45,11 @@ Then install the plugin as above.
 2. **During Work (Store)** — Claude stores decisions, patterns, and fixes via
    the MCP tools as they stabilize; a PostToolUse hook tracks that a store
    happened
-3. **Session End (Storage nudge)** — if nothing was stored, a Stop hook asks
-   Claude once whether any durable facts emerged
+3. **Session End (Storage nudge)** — if nothing was stored in a substantive
+   session (≥5 prompts), a Stop hook asks Claude once, in a single line,
+   whether any durable facts emerged; trivial sessions are never nudged
 
-The hooks are pure bash+sed — no Python or jq required.
+The hooks are pure bash+sed+grep — no Python or jq required.
 
 ### Slash Commands
 
