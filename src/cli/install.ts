@@ -16,7 +16,7 @@ import { noteBox, sectionTitle } from './ui/messages.js';
 import { renderBrandHeader, renderSuccessCard, renderWorkingMascot } from './ui/brand.js';
 import { startSpinner } from './ui/tasks.js';
 import { startChecklist, type ChecklistStep } from './ui/checklist.js';
-import { revealLines } from './ui/animate.js';
+import { revealHeroLine, revealLines } from './ui/animate.js';
 import {
   cancelable,
   promptConfirm,
@@ -147,6 +147,11 @@ type CommandRunner = (command: string, args: string[], options?: { cwd?: string;
 
 const AUTOMEM_REPO = 'https://github.com/verygoodplugins/automem';
 const REDACTED = '<redacted>';
+
+// Cap the openclaw CLI's `plugins install` in the guided flow. It shells out to
+// an external process whose output we can't surface inside the live checklist, so
+// a hang must not freeze the installer — it degrades to a soft per-agent failure.
+const OPENCLAW_INSTALL_TIMEOUT_MS = 60_000;
 
 // A user-facing failure: rendered as a clean themed line (never a Node stack
 // trace), with an optional actionable hint. Everything that can fail during an
@@ -740,6 +745,23 @@ function clientLabel(client: AgentClient): string {
   }
 }
 
+// One actionable line per agent that failed to apply, so a partial install ends
+// with a clear "here's how to finish it by hand" rather than a dead end.
+export function manualFixHint(client: AgentClient): string {
+  switch (client) {
+    case 'openclaw':
+      return 'OpenClaw: run  openclaw plugins install @verygoodplugins/mcp-automem --force';
+    case 'hermes':
+      return 'Hermes: re-run  npx @verygoodplugins/mcp-automem install --clients hermes';
+    case 'cursor':
+      return 'Cursor: re-run  npx @verygoodplugins/mcp-automem install --clients cursor';
+    case 'codex':
+      return 'Codex: re-run  npx @verygoodplugins/mcp-automem install --clients codex';
+    case 'claude-code':
+      return 'Claude Code: re-run  npx @verygoodplugins/mcp-automem install --clients claude-code';
+  }
+}
+
 function actionTag(action: InstallAction): string {
   switch (action.kind) {
     case 'prepare-local':
@@ -936,7 +958,9 @@ async function resolveInteractiveOptions(
         label: clientLabel(client),
         hint: detected.has(client) ? 'detected on this machine' : 'not detected, still installable',
       })),
-      initialValues: DEFAULT_AGENT_CLIENTS.filter((client) => detected.has(client)),
+      // Pre-check everything detected on this machine (Hermes included) so a
+      // user who already runs an agent reaches its follow-up prompts by default.
+      initialValues: AGENT_CLIENTS.filter((client) => detected.has(client)),
       required: false,
     }));
     clients = selected.length > 0 ? selected : [];
@@ -1030,6 +1054,10 @@ async function applyAgentInstall(client: AgentClient, params: {
         dryRun: params.dryRun,
         quiet: true,
         skipPrompts: true,
+        // The guided flow can't show the openclaw CLI's own output (it runs inside
+        // the live checklist), so cap the wait — a hung plugin install becomes a
+        // soft per-agent failure with a manual command instead of a 2-min freeze.
+        timeoutMs: OPENCLAW_INSTALL_TIMEOUT_MS,
       });
       break;
     case 'hermes':
@@ -1062,7 +1090,10 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
   await playInstallerSplash({ enabled: animate, color: !process.env.NO_COLOR });
   // The animated splash only fires on an interactive TTY; everywhere else lead
   // with a one-line branded header so dry-runs and pipes still identify the tool.
-  if (!animate) {
+  if (animate) {
+    // A typed welcome at AutoVault's cadence — the one deliberate "typing" beat.
+    await revealHeroLine("Let's set up your agents' memory.");
+  } else {
     process.stdout.write(renderBrandHeader(process.stdout, { compact: true }));
   }
 
@@ -1097,8 +1128,14 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
     }
 
     const plan = buildInstallPlan({ options: resolved, environment });
-    // Deliberate, calm reveal so the review reads one line at a time.
-    await revealLines(`\n${renderInstallPlan(plan)}`, { delayMs: 38 });
+    // Deliberate, typed reveal: prose types in a word at a time, rules/tables snap
+    // in whole. Slower than a dump so the review reads as it builds.
+    await revealLines(`\n${renderInstallPlan(plan)}`, {
+      typed: true,
+      wordDelayMs: 34,
+      lineBeatMs: 55,
+      structuralBeatMs: 72,
+    });
 
     if (resolved.dryRun) {
       writeStatus('Dry run only. No files were changed.');
@@ -1164,6 +1201,7 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
     ];
 
     const list = startChecklist(steps);
+    const agentFailures: { client: AgentClient; message: string }[] = [];
     try {
       list.start('verify');
       const verify = await verifyAutoMemEndpoint({ endpoint, apiKey });
@@ -1181,6 +1219,9 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
       );
       list.done('env', `Wrote ${tildify(path.join(environment.cwd, '.env'))}`);
 
+      // Each agent installs independently: a failure (e.g. the openclaw CLI hanging
+      // or absent) marks just that step ✗ and is collected for a manual-fix note —
+      // it never aborts the others. Only verify/env above are fatal.
       for (const { client, key } of agentSteps) {
         if (client === 'claude-code' && resolved.claudeCodeMode === 'plugin') {
           list.done(key); // plugin is a guided manual step; commands are in the outro
@@ -1195,11 +1236,14 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
             hermesMode: resolved.hermesMode,
             claudeCodeMode: resolved.claudeCodeMode,
           });
+          list.done(key, `${clientGlyph(client, theme)} ${clientLabel(client)} configured`);
         } catch (agentErr) {
-          list.fail(key);
-          throw agentErr;
+          list.fail(key, `${clientGlyph(client, theme)} ${clientLabel(client)} needs a manual step`);
+          agentFailures.push({
+            client,
+            message: agentErr instanceof Error ? agentErr.message : String(agentErr),
+          });
         }
-        list.done(key, `${clientGlyph(client, theme)} ${clientLabel(client)} configured`);
       }
     } catch (applyErr) {
       list.stop(); // clear the animation + restore the cursor before the error renders
@@ -1217,8 +1261,28 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
         nextSteps.push(`  ${cmd}`);
       }
     }
+    if (agentFailures.length > 0) {
+      const subject =
+        agentFailures.length === 1 ? '1 agent needs a manual step:' : `${agentFailures.length} agents need a manual step:`;
+      nextSteps.push(subject);
+      for (const failure of agentFailures) {
+        nextSteps.push(`  ${manualFixHint(failure.client)}`);
+      }
+    }
     nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');
-    await revealLines(renderSuccessCard('AutoMem is installed', nextSteps), { delayMs: 32 });
+    // The card is a box, so rows snap in whole (never half-drawn) but slowly —
+    // a deliberate beat per row so the finish lands instead of flashing past.
+    const cardTitle =
+      agentFailures.length > 0 ? 'AutoMem is installed — with follow-ups' : 'AutoMem is installed';
+    await revealLines(renderSuccessCard(cardTitle, nextSteps), {
+      typed: true,
+      wordDelayMs: 42,
+      lineBeatMs: 75,
+      structuralBeatMs: 120,
+    });
+    // A partial install (some agents needed a manual step) still completes the
+    // rest, but exits non-zero so scripts/CI notice the follow-ups.
+    if (agentFailures.length > 0) process.exitCode = 1;
   } catch (err) {
     // Expected failures (bad endpoint, docker port clash, missing prereqs) render
     // as a clean themed line — never a raw Node stack trace. Cancels already exited.

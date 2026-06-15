@@ -269,7 +269,8 @@ if (command === "setup") {
 
 if (command === "install") {
   await runInstallCommand(process.argv.slice(3));
-  process.exit(0);
+  // Honor a non-zero exit set for a partial install (some agents need a manual step).
+  process.exit(process.exitCode ?? 0);
 }
 
 if (command === "config") {

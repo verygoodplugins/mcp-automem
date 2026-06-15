@@ -1,6 +1,6 @@
 import { badge } from './messages.js';
 import { makeTheme, padEndVisible, repeatVisible, visibleLength, type Theme } from './theme.js';
-import { renderMascot, renderWordmark } from '../install-ui.js';
+import { centerBlock, centerLine, renderMascot, renderWordmark } from '../install-ui.js';
 
 const TAGLINE = "your agents' memory, everywhere";
 
@@ -28,9 +28,9 @@ export function renderBrandHeader(
     '',
     renderWordmark(theme.color),
     '',
-    renderMascot({ state: 'idle', color: theme.color }),
+    centerBlock(renderMascot({ state: 'idle', color: theme.color })),
     '',
-    `  ${theme.style.gold('AutoMem')}  ${theme.style.dim(TAGLINE)}`,
+    centerLine(`${theme.style.gold('AutoMem')}  ${theme.style.dim(TAGLINE)}`),
     '',
   ].join('\n');
 }

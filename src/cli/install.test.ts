@@ -9,6 +9,7 @@ import {
   buildInstallPlan,
   detectInstallEnvironment,
   formatInstallError,
+  manualFixHint,
   parseInstallArgs,
   prepareLocalServer,
   renderInstallPlan,
@@ -98,6 +99,34 @@ describe('guided install helpers', () => {
       'cursor',
       'hermes',
     ]);
+  });
+
+  it('pre-checks every detected client (Hermes included), not just the defaults', () => {
+    const homeDir = '/Users/tester';
+    const environment = detectInstallEnvironment({
+      homeDir,
+      cwd: '/repo/project',
+      platform: 'darwin',
+      commandExists: () => true,
+      pathExists: (filePath) => filePath === path.join(homeDir, '.hermes'),
+    });
+    const detected = new Set(environment.detectedClients.map((client) => client.client));
+
+    // The multiselect pre-checks AGENT_CLIENTS ∩ detected — Hermes must survive it.
+    const preChecked = AGENT_CLIENTS.filter((client) => detected.has(client));
+    expect(preChecked).toContain('hermes');
+    // The old defaults-only filter would have dropped it (the bug being fixed).
+    expect(DEFAULT_AGENT_CLIENTS.filter((client) => detected.has(client))).not.toContain('hermes');
+  });
+
+  it('gives a manual-fix command for every agent client', () => {
+    for (const client of AGENT_CLIENTS) {
+      const hint = manualFixHint(client);
+      expect(hint.length).toBeGreaterThan(0);
+      // Each hint names a runnable recovery command.
+      expect(/openclaw plugins install|npx @verygoodplugins\/mcp-automem install/.test(hint)).toBe(true);
+    }
+    expect(manualFixHint('openclaw')).toContain('openclaw plugins install');
   });
 
   it('builds an exact dry-run review plan for an existing endpoint', () => {

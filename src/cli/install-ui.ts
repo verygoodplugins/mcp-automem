@@ -1,3 +1,5 @@
+import { visibleLength } from './ui/theme.js';
+
 export type MascotState = 'idle' | 'blink' | 'working' | 'done' | 'sleeping' | 'error';
 
 type Face = {
@@ -47,6 +49,27 @@ export const WORDMARK = String.raw`
   / ___ / /_/ / /_/ /_/ / /  / /  __/ / / / / /
  /_/  |_\__,_/\__/\____/_/  /_/\___/_/ /_/ /_/
 `.trimEnd();
+
+// Visible width of the widest wordmark row — the centering target so the mascot
+// and footer sit centered under the graphic instead of hugging the left edge.
+export const WORDMARK_WIDTH = Math.max(...WORDMARK.split('\n').map((line) => line.length));
+
+// Shift a whole block right by a uniform pad so it centers under `width` while
+// preserving its internal alignment. Measures by visible width (ANSI-safe).
+export function centerBlock(text: string, width: number = WORDMARK_WIDTH): string {
+  const lines = text.split('\n');
+  const blockWidth = Math.max(0, ...lines.map((line) => visibleLength(line)));
+  const pad = Math.max(0, Math.round((width - blockWidth) / 2));
+  if (pad === 0) return text;
+  const prefix = ' '.repeat(pad);
+  return lines.map((line) => (visibleLength(line) === 0 ? line : `${prefix}${line}`)).join('\n');
+}
+
+// Center a single line under `width` (ANSI-safe).
+export function centerLine(line: string, width: number = WORDMARK_WIDTH): string {
+  const pad = Math.max(0, Math.round((width - visibleLength(line)) / 2));
+  return pad === 0 ? line : `${' '.repeat(pad)}${line}`;
+}
 
 function rgb(color: readonly [number, number, number], value: string, enabled: boolean): string {
   if (!enabled || value.length === 0) return value;
@@ -143,19 +166,22 @@ export function renderInstallerSplash(options: {
   sparkleFrame?: number;
 } = {}): string {
   const color = options.color ?? true;
+  const mascot = renderMascot({
+    pct: options.pct,
+    state: options.mascotState ?? 'idle',
+    color,
+    sparkleFrame: options.sparkleFrame,
+  });
   return [
     renderWordmark(color, options.wordmarkOffset ?? 0),
     '',
-    renderMascot({
-      pct: options.pct,
-      state: options.mascotState ?? 'idle',
-      color,
-      sparkleFrame: options.sparkleFrame,
-    }),
+    centerBlock(mascot),
     '',
-    `  ${rgb(COLORS.gold, 'AutoMem', color)}`,
-    `  ${rgb(COLORS.text, "Your agents' memory. Everywhere.", color)} ${rgb(COLORS.goldBright, '✦', color)}`,
-    `  ${rgb(COLORS.muted, 'guided local, hosted, and existing-endpoint setup', color)}`,
+    centerLine(rgb(COLORS.gold, 'AutoMem', color)),
+    centerLine(
+      `${rgb(COLORS.text, "Your agents' memory. Everywhere.", color)} ${rgb(COLORS.goldBright, '✦', color)}`
+    ),
+    centerLine(rgb(COLORS.muted, 'guided local, hosted, and existing-endpoint setup', color)),
   ].join('\n');
 }
 

@@ -10,8 +10,9 @@ import { bulletList, keyValueRows, statusMark } from './table.js';
 import { badge, noteBox, sectionTitle } from './messages.js';
 import { renderSuccessCard, renderSuccessOutro } from './brand.js';
 import { escapeCliText, formatJson, joinCliList, truncateCliText } from './output.js';
-import { animationEnabled, revealLines } from './animate.js';
+import { animationEnabled, revealHeroLine, revealLines } from './animate.js';
 import { startChecklist } from './checklist.js';
+import { WORDMARK_WIDTH, centerBlock, centerLine } from '../install-ui.js';
 
 const stream = process.stdout;
 
@@ -156,5 +157,50 @@ describe('ui/animate', () => {
     expect(animationEnabled(tty, { NO_COLOR: '1' })).toBe(false);
     expect(animationEnabled(tty, { AUTOMEM_NO_ANIM: '1' })).toBe(false);
     expect(animationEnabled(tty, {})).toBe(true);
+  });
+
+  it('typed reveal types prose but snaps box/rule lines in whole', async () => {
+    let out = '';
+    const fake = { write: (s: string) => { out += s; }, isTTY: true } as unknown as NodeJS.WriteStream;
+    await revealLines('Hello there friend\n╭───╮\n│ x │\n╰───╯', {
+      stream: fake,
+      enabled: true,
+      typed: true,
+      wordDelayMs: 0,
+      lineBeatMs: 0,
+      structuralBeatMs: 0,
+    });
+    // every word is present, in order, and the box is intact line-by-line
+    expect(out).toContain('Hello there friend');
+    expect(out).toContain('╭───╮');
+    expect(out).toContain('│ x │');
+    expect(out).toContain('╰───╯');
+  });
+
+  it('revealHeroLine prints once on a non-TTY (no cursor hide)', async () => {
+    let out = '';
+    const fake = { write: (s: string) => { out += s; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    await revealHeroLine('Set up your memory', { stream: fake });
+    expect(out).toContain('Set up your memory');
+    expect(out).not.toContain('\x1b[?25l');
+  });
+});
+
+describe('install-ui/centering', () => {
+  it('centers a single line under the wordmark width (ANSI-safe)', () => {
+    const centered = centerLine('AutoMem');
+    expect(centered.endsWith('AutoMem')).toBe(true);
+    expect(stripAnsi(centered).length).toBeGreaterThan('AutoMem'.length);
+    // colored input centers by visible width, not byte length
+    const colored = makeTheme(stream, { color: 'always' }).style.gold('AutoMem');
+    expect(stripAnsi(centerLine(colored)).trimStart()).toBe('AutoMem');
+  });
+
+  it('shifts a multi-line block by a uniform pad, preserving internal layout', () => {
+    const block = '╭──╮\n│xy│\n╰──╯';
+    const centered = centerBlock(block, WORDMARK_WIDTH);
+    const pads = centered.split('\n').map((line) => line.length - line.trimStart().length);
+    expect(new Set(pads).size).toBe(1); // same indent on every row
+    expect(pads[0]).toBeGreaterThan(0);
   });
 });
