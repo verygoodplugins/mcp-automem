@@ -50,6 +50,14 @@ Notes:
 ### CLI Commands (via npx or global install)
 
 ```bash
+# Guided installer (clack TUI): pick target (local/cloud/existing), verify the
+# endpoint, write .env, and configure agents. Claude Code defaults to the plugin
+# (a guided manual step) or --claude-code-mode settings for the file writer.
+# Branded UI lives in src/cli/install.ts + src/cli/install-ui.ts + src/cli/ui/*.
+npx @verygoodplugins/mcp-automem install
+npx @verygoodplugins/mcp-automem install --dry-run                # Preview the plan
+npx @verygoodplugins/mcp-automem install --yes --target existing --endpoint <url>
+
 # Guided setup wizard (creates .env, prints config snippets)
 npx @verygoodplugins/mcp-automem setup
 
