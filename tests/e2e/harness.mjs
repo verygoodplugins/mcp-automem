@@ -432,6 +432,9 @@ const SCENARIOS = [
       const r = [];
       const last = ctx.steps.at(-1);
       r.push(A('non-zero exit (verify gate fires)', last.exitCode !== 0, `exit=${last.exitCode}`));
+      r.push(A('clean error — no raw Node stack trace',
+        !/\n\s+at\s|node:internal/.test(`${last.stdout}\n${last.stderr}`),
+        'raw stack leaked on failure'));
       r.push(A('no .env written', (await readEnvFile(ctx.cwd)) === null));
       r.push(A('no agent files written', ctx.homeNew.length === 0 && ctx.cwdNew.length === 0,
         `home:${ctx.homeNew.join(',')} cwd:${ctx.cwdNew.join(',')}`));
@@ -466,6 +469,9 @@ const SCENARIOS = [
       const r = [];
       const last = ctx.steps.at(-1);
       r.push(A('non-zero exit (auth probe fails)', last.exitCode !== 0, `exit=${last.exitCode}`));
+      r.push(A('clean error — no raw Node stack trace',
+        !/\n\s+at\s|node:internal/.test(`${last.stdout}\n${last.stderr}`),
+        'raw stack leaked on failure'));
       r.push(A('no .env written', (await readEnvFile(ctx.cwd)) === null));
       r.push(A('mock saw authed /recall', ctx.mock.requests.some((q) => q.path === '/recall' && q.authed)));
       return r;
@@ -507,6 +513,9 @@ const SCENARIOS = [
       // F5 fixed: a 200 /health carrying a non-JSON body must NOT satisfy the gate.
       // The install must abort with a non-zero exit and write nothing.
       r.push(A('aborts on non-JSON /health (non-zero exit)', last.exitCode !== 0, `exit=${last.exitCode}`));
+      r.push(A('clean error — no raw Node stack trace',
+        !/\n\s+at\s|node:internal/.test(`${last.stdout}\n${last.stderr}`),
+        'raw stack leaked on failure'));
       r.push(A('no .env written', (await readEnvFile(ctx.cwd)) === null));
       r.push(A('no agent files written',
         ctx.homeNew.length === 0 && ctx.cwdNew.length === 0,

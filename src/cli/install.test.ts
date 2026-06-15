@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import {
   AGENT_CLIENTS,
   DEFAULT_AGENT_CLIENTS,
+  InstallError,
   buildInstallPlan,
   detectInstallEnvironment,
+  formatInstallError,
   parseInstallArgs,
+  prepareLocalServer,
   renderInstallPlan,
   shouldUseNonInteractivePreview,
   validateInstallPrerequisites,
@@ -449,5 +454,69 @@ describe('guided install helpers', () => {
       })
     ).resolves.toEqual({ ok: true });
     expect(attempts).toBe(3);
+  });
+
+  it('turns a docker compose failure into a clean InstallError with a port hint', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-prep-'));
+    try {
+      const runCommand = (command: string) => {
+        if (command === 'docker') {
+          // Mirror the real execFileSync failure shape (incl. the port clash).
+          throw new Error(
+            'Command failed: docker compose --env-file .env up -d --build\n' +
+              'Bind for 0.0.0.0:3000 failed: port is already allocated'
+          );
+        }
+        // git clone succeeds
+      };
+      const promise = prepareLocalServer({
+        localDir: path.join(dir, 'server'),
+        dryRun: false,
+        runCommand,
+      });
+      await expect(promise).rejects.toBeInstanceOf(InstallError);
+      const err = await promise.catch((e) => e as InstallError);
+      // Clean, user-facing message — never the raw "Command failed: …" noise.
+      expect(err.message).not.toContain('Command failed');
+      expect(err.message).toMatch(/local AutoMem server/i);
+      expect(err.hint).toMatch(/port|:3000/i);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('turns a git clone failure into a clean InstallError', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-git-'));
+    try {
+      const runCommand = (command: string) => {
+        if (command === 'git') throw new Error('Command failed: git clone …');
+      };
+      const err = await prepareLocalServer({
+        localDir: path.join(dir, 'server'),
+        dryRun: false,
+        runCommand,
+      }).catch((e) => e as InstallError);
+      expect(err).toBeInstanceOf(InstallError);
+      expect(err.message).not.toContain('Command failed');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('formatInstallError renders a clean themed line with the hint and no stack trace', () => {
+    const out = formatInstallError(
+      new InstallError("Local AutoMem server didn't start (docker compose).", 'A port is in use — :3000.'),
+      process.stderr
+    );
+    expect(out).toContain("Local AutoMem server didn't start");
+    expect(out).toContain(':3000');
+    expect(out).not.toMatch(/\n\s+at\s/); // no "    at file:///…" stack frames
+    expect(out).not.toContain('node:internal');
+  });
+
+  it('formatInstallError strips raw "Command failed:" noise from a plain Error', () => {
+    const out = formatInstallError(new Error('Command failed: docker compose up'), process.stderr);
+    expect(out).not.toContain('Command failed');
+    expect(out).toContain('AutoMem install failed');
   });
 });

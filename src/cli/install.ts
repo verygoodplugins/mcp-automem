@@ -8,7 +8,7 @@ import { applyCursorSetup } from './cursor.js';
 import { applyHermesSetup, type HermesInstallMode } from './hermes.js';
 import { applyOpenClawSetup } from './openclaw.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
-import { backupPath, writeFileWithBackup } from './host-toolkit.js';
+import { writeFileWithBackup } from './host-toolkit.js';
 import { playInstallerSplash, shouldUseInstallerAnimation } from './install-ui.js';
 import { makeTheme } from './ui/theme.js';
 import { keyValueRows, type TableRow } from './ui/table.js';
@@ -147,6 +147,18 @@ type CommandRunner = (command: string, args: string[], options?: { cwd?: string;
 const AUTOMEM_REPO = 'https://github.com/verygoodplugins/automem';
 const REDACTED = '<redacted>';
 
+// A user-facing failure: rendered as a clean themed line (never a Node stack
+// trace), with an optional actionable hint. Everything that can fail during an
+// apply throws one of these so the installer fails gracefully.
+export class InstallError extends Error {
+  hint?: string;
+  constructor(message: string, hint?: string) {
+    super(message);
+    this.name = 'InstallError';
+    this.hint = hint;
+  }
+}
+
 // Shorten $HOME to ~ so review paths stay readable on one line.
 function tildify(filePath: string, homeDir: string = os.homedir()): string {
   if (homeDir && (filePath === homeDir || filePath.startsWith(`${homeDir}${path.sep}`))) {
@@ -166,6 +178,23 @@ function writeStatus(message: string, tone: 'info' | 'ok' | 'warn' = 'info'): vo
         ? theme.style.yellow(theme.symbol.warn)
         : theme.style.dim(theme.symbol.arrow);
   process.stdout.write(`\n${mark} ${message}\n`);
+}
+
+// Render a failure as a clean themed block — never a raw Error/stack. The message
+// is shown as-is; InstallError hints add an actionable follow-up line. "Command
+// failed: …" noise from execFileSync is stripped so users see intent, not internals.
+export function formatInstallError(
+  err: unknown,
+  stream: NodeJS.WriteStream = process.stderr
+): string {
+  const theme = makeTheme(stream);
+  let message = err instanceof Error ? err.message : String(err);
+  message = message.replace(/^Command failed:.*$/m, '').trim() || 'AutoMem install failed.';
+  const lines = [`\n${theme.style.red(theme.symbol.cross)} ${theme.style.bold(message)}`];
+  if (err instanceof InstallError && err.hint) {
+    lines.push(`  ${theme.style.dim(err.hint)}`);
+  }
+  return `${lines.join('\n')}\n`;
 }
 
 function parseBooleanEnv(value: string | undefined): boolean {
@@ -643,7 +672,7 @@ function defaultRunCommand(command: string, args: string[], options: { cwd?: str
   });
 }
 
-async function prepareLocalServer(params: {
+export async function prepareLocalServer(params: {
   localDir: string;
   apiKey?: string;
   dryRun: boolean;
@@ -658,10 +687,17 @@ async function prepareLocalServer(params: {
   }
 
   fs.mkdirSync(path.dirname(params.localDir), { recursive: true });
-  if (fs.existsSync(path.join(params.localDir, '.git'))) {
-    runCommand('git', ['-C', params.localDir, 'pull', '--ff-only']);
-  } else {
-    runCommand('git', ['clone', AUTOMEM_REPO, params.localDir]);
+  try {
+    if (fs.existsSync(path.join(params.localDir, '.git'))) {
+      runCommand('git', ['-C', params.localDir, 'pull', '--ff-only']);
+    } else {
+      runCommand('git', ['clone', AUTOMEM_REPO, params.localDir]);
+    }
+  } catch {
+    throw new InstallError(
+      `Couldn't fetch the AutoMem server into ${tildify(params.localDir)}.`,
+      'Check your network and that git can reach github.com, then re-run. (Git output is above.)'
+    );
   }
 
   mergeEnvFile(
@@ -672,10 +708,18 @@ async function prepareLocalServer(params: {
     },
     false
   );
-  runCommand('docker', ['compose', '--env-file', '.env', 'up', '-d', '--build'], {
-    cwd: params.localDir,
-    env: { ...process.env, AUTOMEM_API_TOKEN: apiKey, ADMIN_API_TOKEN: adminToken },
-  });
+  try {
+    runCommand('docker', ['compose', '--env-file', '.env', 'up', '-d', '--build'], {
+      cwd: params.localDir,
+      env: { ...process.env, AUTOMEM_API_TOKEN: apiKey, ADMIN_API_TOKEN: adminToken },
+    });
+  } catch {
+    throw new InstallError(
+      "Local AutoMem server didn't start (docker compose).",
+      'Most often a port is already in use — FalkorDB :3000, Qdrant :6333, or the API :8001. ' +
+        'Stop the conflicting container (`docker ps`) or free the port, then re-run. Docker output is above.'
+    );
+  }
 
   return { endpoint: DEFAULT_AUTOMEM_API_URL, apiKey };
 }
@@ -712,32 +756,23 @@ function actionTag(action: InstallAction): string {
 
 type RenderTheme = ReturnType<typeof makeTheme>;
 
+// One concise line per stage. The title already names the action, so detail is
+// only the single most useful fact (or nothing for an agent install). Secrets are
+// never rendered as values — "+ API key" stands in for a provided key.
 function renderActionDetail(action: InstallAction, plan: InstallPlan, theme: RenderTheme): string[] {
-  const kv = (key: string, value: string): string =>
-    `     ${theme.style.dim(key.padEnd(8))} ${value}`;
+  const detail = (value: string): string => `     ${theme.style.dim(value)}`;
+  const endpoint = (plan.endpoint ?? '<prompted>').replace(/\/$/, '');
   switch (action.kind) {
-    case 'verify-endpoint': {
-      const endpoint = (plan.endpoint ?? '<prompted>').replace(/\/$/, '');
-      return [
-        kv('health', theme.style.dim(`${endpoint}/health`)),
-        // Never render the bearer curl command — show only that an authed probe runs.
-        kv('auth', theme.style.dim(plan.apiKeyProvided ? 'bearer recall probe' : 'not required')),
-      ];
-    }
+    case 'verify-endpoint':
+      return [detail(`${endpoint}/health${plan.apiKeyProvided ? '  + auth probe' : ''}`)];
     case 'write-env':
-      return [
-        kv('env', theme.style.dim(`AUTOMEM_API_URL=${plan.endpoint ?? '<prompted>'}`)),
-        kv('secret', theme.style.dim(plan.apiKeyProvided ? `AUTOMEM_API_KEY=${REDACTED}` : 'not set')),
-      ];
-    case 'install-agent':
-      return [kv('client', theme.style.dim(action.client ? clientLabel(action.client) : 'agent'))];
+      return [detail(`AUTOMEM_API_URL=${plan.endpoint ?? '<prompted>'}${plan.apiKeyProvided ? '  + API key' : ''}`)];
     case 'prepare-local':
-      return [
-        kv('source', theme.style.dim('AutoMem backend repository')),
-        kv('docker', theme.style.dim(`compose up in ${plan.localDir}`)),
-      ];
+      return [detail(`docker compose in ${tildify(plan.localDir)}`)];
     case 'manual-step':
-      return [`     ${theme.style.dim(action.detail)}`];
+      return [detail(action.detail)];
+    case 'install-agent':
+      return []; // the title ("Install <Agent> integration") says it all
   }
 }
 
@@ -762,23 +797,26 @@ export function renderInstallPlan(
     },
   ];
   if (plan.target === 'local') {
-    rows.push({ label: 'server', value: theme.style.dim(plan.localDir), status: 'muted' });
+    rows.push({ label: 'server', value: theme.style.dim(tildify(plan.localDir)), status: 'muted' });
   }
   out.push(keyValueRows(rows, theme), '', sectionTitle('Stages', theme));
 
+  let writesFiles = false;
   for (const action of plan.actions) {
     out.push(`  ${badge(actionTag(action), theme, 'dim')} ${theme.style.bold(action.title)}`);
     out.push(...renderActionDetail(action, plan, theme));
     for (const cmd of action.commands ?? []) {
       out.push(`     ${theme.style.gold('$')} ${cmd}`);
     }
+    // One dim path line per file — no per-file backup line (mentioned once below).
     for (const filePath of action.paths) {
-      out.push(`     ${theme.style.dim(`${'path'.padEnd(8)} ${tildify(filePath)}`)}`);
-      out.push(`     ${theme.style.dim(`${'backup'.padEnd(8)} ${tildify(backupPath(filePath))}`)}`);
+      writesFiles = true;
+      out.push(`     ${theme.style.dim(tildify(filePath))}`);
     }
-    if (action.command && action.kind === 'prepare-local') {
-      out.push(`     ${theme.style.gold('$')} ${action.command}`);
-    }
+  }
+
+  if (writesFiles) {
+    out.push('', `  ${theme.style.dim('backups → each changed file keeps a .bak copy')}`);
   }
 
   return out.join('\n');
@@ -927,18 +965,20 @@ async function applyAgentInstall(client: AgentClient, params: {
   hermesMode: HermesInstallMode;
   claudeCodeMode: ClaudeCodeMode;
 }): Promise<void> {
+  // quiet: true everywhere — the guided installer shows its own themed checklist,
+  // so the per-agent installers must not dump their own ✅/📦 output into the flow.
   switch (client) {
     case 'codex':
-      await applyCodexSetup({ dryRun: params.dryRun, quiet: false, yes: true });
+      await applyCodexSetup({ dryRun: params.dryRun, quiet: true, yes: true });
       break;
     case 'claude-code':
       // Plugin mode is a guided manual step (the plan + outro print the /plugin
       // commands); only the settings path writes files from the CLI.
       if (params.claudeCodeMode === 'plugin') break;
-      await applyClaudeCodeSetup({ dryRun: params.dryRun, quiet: false, yes: true });
+      await applyClaudeCodeSetup({ dryRun: params.dryRun, quiet: true, yes: true });
       break;
     case 'cursor':
-      await applyCursorSetup({ dryRun: params.dryRun, quiet: false, skipPrompts: true });
+      await applyCursorSetup({ dryRun: params.dryRun, quiet: true, skipPrompts: true });
       break;
     case 'openclaw':
       await applyOpenClawSetup({
@@ -947,7 +987,7 @@ async function applyAgentInstall(client: AgentClient, params: {
         endpoint: params.endpoint ?? DEFAULT_AUTOMEM_API_URL,
         apiKey: params.apiKey,
         dryRun: params.dryRun,
-        quiet: false,
+        quiet: true,
         skipPrompts: true,
       });
       break;
@@ -957,7 +997,7 @@ async function applyAgentInstall(client: AgentClient, params: {
         endpoint: params.endpoint ?? DEFAULT_AUTOMEM_API_URL,
         apiKey: params.apiKey,
         dryRun: params.dryRun,
-        quiet: false,
+        quiet: true,
         yes: true,
       });
       break;
@@ -997,102 +1037,123 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
     return;
   }
 
-  const resolved = interactive
-    ? await resolveInteractiveOptions(
-        parsed,
-        environment,
-        clientsExplicit,
-        hermesModeExplicit,
-        claudeCodeModeExplicit
-      )
-    : ({ ...parsed, target: parsed.target ?? 'existing' } as ResolvedInstallOptions);
-  const missingPrerequisites = validateInstallPrerequisites(resolved, environment);
-  if (!resolved.dryRun && missingPrerequisites.length > 0) {
-    throw new Error(
-      `Missing prerequisites for AutoMem ${resolved.target} install: ${missingPrerequisites.join(', ')}.`
-    );
-  }
+  try {
+    const resolved = interactive
+      ? await resolveInteractiveOptions(
+          parsed,
+          environment,
+          clientsExplicit,
+          hermesModeExplicit,
+          claudeCodeModeExplicit
+        )
+      : ({ ...parsed, target: parsed.target ?? 'existing' } as ResolvedInstallOptions);
+    const missingPrerequisites = validateInstallPrerequisites(resolved, environment);
+    if (!resolved.dryRun && missingPrerequisites.length > 0) {
+      throw new InstallError(
+        `Missing prerequisites for the ${resolved.target} install: ${missingPrerequisites.join(', ')}.`,
+        'Install the missing tool(s) and re-run.'
+      );
+    }
 
-  const plan = buildInstallPlan({ options: resolved, environment });
-  await revealLines(`\n${renderInstallPlan(plan)}`);
+    const plan = buildInstallPlan({ options: resolved, environment });
+    // A touch slower than the default reveal so the review reads calmly.
+    await revealLines(`\n${renderInstallPlan(plan)}`, { delayMs: 28 });
 
-  if (resolved.dryRun) {
-    writeStatus('Dry run only. No files were changed.');
-    return;
-  }
-
-  if (!resolved.yes) {
-    const approved = await cancelable(promptConfirm({
-      message: 'Apply this AutoMem install plan?',
-      initialValue: false,
-    }));
-    if (!approved) {
-      writeStatus('No files were changed.');
+    if (resolved.dryRun) {
+      writeStatus('Dry run only. No files were changed.');
       return;
     }
-  }
 
-  let endpoint = resolved.endpoint ?? plan.endpoint;
-  let apiKey = resolved.apiKey;
-
-  if (resolved.target === 'local') {
-    const spin = startSpinner('Preparing local AutoMem server');
-    const local = await prepareLocalServer({
-      localDir: plan.localDir,
-      apiKey,
-      dryRun: resolved.dryRun,
-    });
-    endpoint = local.endpoint;
-    apiKey = local.apiKey;
-    spin.stop('Local AutoMem server prepared');
-
-    const ready = await waitForAutoMemEndpoint({ endpoint });
-    if (!ready.ok) {
-      throw new Error(ready.message);
+    if (!resolved.yes) {
+      const approved = await cancelable(
+        promptConfirm({ message: 'Apply this AutoMem install plan?', initialValue: false })
+      );
+      if (!approved) {
+        writeStatus('No files were changed.');
+        return;
+      }
     }
-  }
 
-  if (!endpoint) {
-    throw new Error('AutoMem endpoint is required.');
-  }
+    // Apply phase: one themed line per stage, so users follow what's happening.
+    const theme = makeTheme(process.stdout);
+    const done = (text: string) =>
+      process.stdout.write(`  ${theme.style.gold(theme.symbol.check)} ${text}\n`);
+    const step = (text: string) =>
+      process.stdout.write(`  ${theme.style.dim(theme.symbol.arrow)} ${text}\n`);
+    process.stdout.write(`\n${sectionTitle('Applying', theme)}\n`);
 
-  const verify = await verifyAutoMemEndpoint({ endpoint, apiKey });
-  if (!verify.ok) {
-    throw new Error(verify.message);
-  }
+    let endpoint = resolved.endpoint ?? plan.endpoint;
+    let apiKey = resolved.apiKey;
 
-  mergeEnvFile(
-    path.join(environment.cwd, '.env'),
-    {
-      AUTOMEM_API_URL: endpoint,
-      ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}),
-    },
-    false
-  );
+    if (resolved.target === 'local') {
+      // docker/git stream their own progress (inherited stdio), so use a static
+      // line — not a spinner that the build output would clobber.
+      step('Building & starting local AutoMem server (first run can take a minute)…');
+      const local = await prepareLocalServer({ localDir: plan.localDir, apiKey, dryRun: false });
+      endpoint = local.endpoint;
+      apiKey = local.apiKey;
+      done('Local AutoMem server ready');
 
-  if (!resolved.noAgentInstall) {
-    for (const client of resolved.clients) {
-      await applyAgentInstall(client, {
-        endpoint,
-        apiKey,
-        dryRun: false,
-        hermesMode: resolved.hermesMode,
-        claudeCodeMode: resolved.claudeCodeMode,
-      });
+      const spin = startSpinner('Waiting for AutoMem to come online…');
+      const ready = await waitForAutoMemEndpoint({ endpoint });
+      if (!ready.ok) {
+        spin.error('AutoMem did not come online');
+        throw new InstallError('AutoMem did not become healthy in time.', ready.message);
+      }
+      spin.stop('AutoMem is online');
     }
-  }
 
-  const nextSteps: string[] = [`endpoint  ${endpoint}`];
-  if (
-    !resolved.noAgentInstall &&
-    resolved.clients.includes('claude-code') &&
-    resolved.claudeCodeMode === 'plugin'
-  ) {
-    nextSteps.push('Claude Code plugin — run these inside Claude Code:');
-    for (const cmd of CLAUDE_CODE_PLUGIN_COMMANDS) {
-      nextSteps.push(`  ${cmd}`);
+    if (!endpoint) {
+      throw new InstallError('An AutoMem endpoint is required to continue.');
     }
+
+    const verify = await verifyAutoMemEndpoint({ endpoint, apiKey });
+    if (!verify.ok) {
+      throw new InstallError("Couldn't verify the AutoMem endpoint.", verify.message);
+    }
+    done(`Endpoint verified (${endpoint.replace(/\/$/, '')})`);
+
+    mergeEnvFile(
+      path.join(environment.cwd, '.env'),
+      { AUTOMEM_API_URL: endpoint, ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}) },
+      false
+    );
+    done(`Wrote ${tildify(path.join(environment.cwd, '.env'))}`);
+
+    if (!resolved.noAgentInstall) {
+      for (const client of resolved.clients) {
+        if (client === 'claude-code' && resolved.claudeCodeMode === 'plugin') {
+          step('Claude Code — install the plugin (commands below)');
+          continue;
+        }
+        await applyAgentInstall(client, {
+          endpoint,
+          apiKey,
+          dryRun: false,
+          hermesMode: resolved.hermesMode,
+          claudeCodeMode: resolved.claudeCodeMode,
+        });
+        done(`${clientLabel(client)} configured`);
+      }
+    }
+
+    const nextSteps: string[] = [`endpoint  ${endpoint}`];
+    if (
+      !resolved.noAgentInstall &&
+      resolved.clients.includes('claude-code') &&
+      resolved.claudeCodeMode === 'plugin'
+    ) {
+      nextSteps.push('Claude Code plugin — run these inside Claude Code:');
+      for (const cmd of CLAUDE_CODE_PLUGIN_COMMANDS) {
+        nextSteps.push(`  ${cmd}`);
+      }
+    }
+    nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');
+    await revealLines(renderSuccessOutro('AutoMem is installed', nextSteps), { delayMs: 24 });
+  } catch (err) {
+    // Expected failures (bad endpoint, docker port clash, missing prereqs) render
+    // as a clean themed line — never a raw Node stack trace. Cancels already exited.
+    process.stderr.write(formatInstallError(err));
+    process.exit(1);
   }
-  nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');
-  await revealLines(renderSuccessOutro('AutoMem is installed', nextSteps));
 }
