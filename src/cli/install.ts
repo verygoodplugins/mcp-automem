@@ -12,9 +12,10 @@ import { writeFileWithBackup } from './host-toolkit.js';
 import { playInstallerSplash, shouldUseInstallerAnimation } from './install-ui.js';
 import { makeTheme } from './ui/theme.js';
 import { keyValueRows, type TableRow } from './ui/table.js';
-import { badge, noteBox, sectionTitle } from './ui/messages.js';
-import { renderBrandHeader, renderSuccessOutro } from './ui/brand.js';
+import { noteBox, sectionTitle } from './ui/messages.js';
+import { renderBrandHeader, renderSuccessCard, renderWorkingMascot } from './ui/brand.js';
 import { startSpinner } from './ui/tasks.js';
+import { startChecklist, type ChecklistStep } from './ui/checklist.js';
 import { revealLines } from './ui/animate.js';
 import {
   cancelable,
@@ -756,6 +757,35 @@ function actionTag(action: InstallAction): string {
 
 type RenderTheme = ReturnType<typeof makeTheme>;
 
+// Distinct hue per stage kind so the plan scans at a glance.
+function tagStyle(theme: RenderTheme, kind: InstallActionKind): (text: string) => string {
+  switch (kind) {
+    case 'prepare-local':
+      return theme.style.magenta;
+    case 'verify-endpoint':
+      return theme.style.blue;
+    case 'write-env':
+      return theme.style.gold;
+    case 'install-agent':
+      return theme.style.green;
+    case 'manual-step':
+      return theme.style.yellow;
+  }
+}
+
+// A small per-agent glyph (unicode terminals only; ascii falls back to a bullet).
+function clientGlyph(client: AgentClient, theme: RenderTheme): string {
+  if (!theme.unicode) return '-';
+  const glyphs: Record<AgentClient, string> = {
+    codex: '⌘',
+    'claude-code': '✦',
+    cursor: '❯',
+    openclaw: '◆',
+    hermes: '☿',
+  };
+  return glyphs[client] ?? '•';
+}
+
 // One concise line per stage. The title already names the action, so detail is
 // only the single most useful fact (or nothing for an agent install). Secrets are
 // never rendered as values — "+ API key" stands in for a provided key.
@@ -783,6 +813,13 @@ export function renderInstallPlan(
   const theme = makeTheme(stream);
   const out: string[] = [sectionTitle('Install review', theme)];
 
+  // At-a-glance summary chip.
+  const agentCount = plan.actions.filter((action) => action.client).length;
+  const chip = `${plan.actions.length} stages · ${plan.target}${
+    agentCount ? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'}` : ''
+  }`;
+  out.push(`  ${theme.style.dim(chip)}`, '');
+
   const rows: TableRow[] = [
     { label: 'mode', value: plan.target, status: 'ok' },
     {
@@ -803,7 +840,11 @@ export function renderInstallPlan(
 
   let writesFiles = false;
   for (const action of plan.actions) {
-    out.push(`  ${badge(actionTag(action), theme, 'dim')} ${theme.style.bold(action.title)}`);
+    const title =
+      action.kind === 'install-agent' && action.client
+        ? `${clientGlyph(action.client, theme)} ${action.title}`
+        : action.title;
+    out.push(`  ${tagStyle(theme, action.kind)(`[${actionTag(action)}]`)} ${theme.style.bold(title)}`);
     out.push(...renderActionDetail(action, plan, theme));
     for (const cmd of action.commands ?? []) {
       out.push(`     ${theme.style.gold('$')} ${cmd}`);
@@ -1056,8 +1097,8 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
     }
 
     const plan = buildInstallPlan({ options: resolved, environment });
-    // A touch slower than the default reveal so the review reads calmly.
-    await revealLines(`\n${renderInstallPlan(plan)}`, { delayMs: 28 });
+    // Deliberate, calm reveal so the review reads one line at a time.
+    await revealLines(`\n${renderInstallPlan(plan)}`, { delayMs: 38 });
 
     if (resolved.dryRun) {
       writeStatus('Dry run only. No files were changed.');
@@ -1074,25 +1115,25 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
       }
     }
 
-    // Apply phase: one themed line per stage, so users follow what's happening.
+    // Apply phase: a working mascot, then a static line for streaming docker,
+    // then a live checklist that ticks each remaining step ✓ as it completes.
     const theme = makeTheme(process.stdout);
-    const done = (text: string) =>
-      process.stdout.write(`  ${theme.style.gold(theme.symbol.check)} ${text}\n`);
-    const step = (text: string) =>
-      process.stdout.write(`  ${theme.style.dim(theme.symbol.arrow)} ${text}\n`);
+    process.stdout.write(renderWorkingMascot(process.stdout));
     process.stdout.write(`\n${sectionTitle('Applying', theme)}\n`);
 
     let endpoint = resolved.endpoint ?? plan.endpoint;
     let apiKey = resolved.apiKey;
 
+    // Local docker/git stream their own output (inherited stdio), so they run
+    // BEFORE the live checklist — a redraw region can't share the screen with it.
     if (resolved.target === 'local') {
-      // docker/git stream their own progress (inherited stdio), so use a static
-      // line — not a spinner that the build output would clobber.
-      step('Building & starting local AutoMem server (first run can take a minute)…');
+      process.stdout.write(
+        `  ${theme.style.dim(theme.symbol.arrow)} Building & starting local AutoMem server (first run can take a minute)…\n`
+      );
       const local = await prepareLocalServer({ localDir: plan.localDir, apiKey, dryRun: false });
       endpoint = local.endpoint;
       apiKey = local.apiKey;
-      done('Local AutoMem server ready');
+      process.stdout.write(`  ${theme.style.gold(theme.symbol.check)} Local AutoMem server ready\n`);
 
       const spin = startSpinner('Waiting for AutoMem to come online…');
       const ready = await waitForAutoMemEndpoint({ endpoint });
@@ -1107,34 +1148,62 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
       throw new InstallError('An AutoMem endpoint is required to continue.');
     }
 
-    const verify = await verifyAutoMemEndpoint({ endpoint, apiKey });
-    if (!verify.ok) {
-      throw new InstallError("Couldn't verify the AutoMem endpoint.", verify.message);
-    }
-    done(`Endpoint verified (${endpoint.replace(/\/$/, '')})`);
+    const agentSteps = resolved.noAgentInstall
+      ? []
+      : resolved.clients.map((client) => ({ client, key: `agent:${client}` }));
+    const steps: ChecklistStep[] = [
+      { key: 'verify', label: 'Verify endpoint' },
+      { key: 'env', label: 'Write .env' },
+      ...agentSteps.map(({ client, key }) => ({
+        key,
+        label:
+          client === 'claude-code' && resolved.claudeCodeMode === 'plugin'
+            ? `${clientGlyph(client, theme)} Claude Code (plugin — see below)`
+            : `${clientGlyph(client, theme)} Configure ${clientLabel(client)}`,
+      })),
+    ];
 
-    mergeEnvFile(
-      path.join(environment.cwd, '.env'),
-      { AUTOMEM_API_URL: endpoint, ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}) },
-      false
-    );
-    done(`Wrote ${tildify(path.join(environment.cwd, '.env'))}`);
+    const list = startChecklist(steps);
+    try {
+      list.start('verify');
+      const verify = await verifyAutoMemEndpoint({ endpoint, apiKey });
+      if (!verify.ok) {
+        list.fail('verify');
+        throw new InstallError("Couldn't verify the AutoMem endpoint.", verify.message);
+      }
+      list.done('verify', `Endpoint verified (${endpoint.replace(/\/$/, '')})`);
 
-    if (!resolved.noAgentInstall) {
-      for (const client of resolved.clients) {
+      list.start('env');
+      mergeEnvFile(
+        path.join(environment.cwd, '.env'),
+        { AUTOMEM_API_URL: endpoint, ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}) },
+        false
+      );
+      list.done('env', `Wrote ${tildify(path.join(environment.cwd, '.env'))}`);
+
+      for (const { client, key } of agentSteps) {
         if (client === 'claude-code' && resolved.claudeCodeMode === 'plugin') {
-          step('Claude Code — install the plugin (commands below)');
+          list.done(key); // plugin is a guided manual step; commands are in the outro
           continue;
         }
-        await applyAgentInstall(client, {
-          endpoint,
-          apiKey,
-          dryRun: false,
-          hermesMode: resolved.hermesMode,
-          claudeCodeMode: resolved.claudeCodeMode,
-        });
-        done(`${clientLabel(client)} configured`);
+        list.start(key);
+        try {
+          await applyAgentInstall(client, {
+            endpoint,
+            apiKey,
+            dryRun: false,
+            hermesMode: resolved.hermesMode,
+            claudeCodeMode: resolved.claudeCodeMode,
+          });
+        } catch (agentErr) {
+          list.fail(key);
+          throw agentErr;
+        }
+        list.done(key, `${clientGlyph(client, theme)} ${clientLabel(client)} configured`);
       }
+    } catch (applyErr) {
+      list.stop(); // clear the animation + restore the cursor before the error renders
+      throw applyErr;
     }
 
     const nextSteps: string[] = [`endpoint  ${endpoint}`];
@@ -1149,7 +1218,7 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
       }
     }
     nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');
-    await revealLines(renderSuccessOutro('AutoMem is installed', nextSteps), { delayMs: 24 });
+    await revealLines(renderSuccessCard('AutoMem is installed', nextSteps), { delayMs: 32 });
   } catch (err) {
     // Expected failures (bad endpoint, docker port clash, missing prereqs) render
     // as a clean themed line — never a raw Node stack trace. Cancels already exited.

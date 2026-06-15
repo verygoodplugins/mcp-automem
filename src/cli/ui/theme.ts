@@ -31,6 +31,7 @@ export type Theme = {
     green(text: string): string;
     yellow(text: string): string;
     blue(text: string): string;
+    magenta(text: string): string;
     gold(text: string): string;
     goldBright(text: string): string;
     inverseGold(text: string): string;
@@ -54,6 +55,7 @@ const ANSI = {
   green: '\x1b[38;2;120;200;120m',
   yellow: '\x1b[38;2;232;168;102m',
   blue: '\x1b[38;2;90;157;214m',
+  magenta: '\x1b[38;2;180;138;214m',
   gold: '\x1b[38;2;255;210;63m',
   goldBright: '\x1b[38;2;255;233;168m',
   goldBg: '\x1b[48;2;255;210;63m',
@@ -102,6 +104,7 @@ export function makeTheme(
       green: wrap(color, ANSI.green),
       yellow: wrap(color, ANSI.yellow),
       blue: wrap(color, ANSI.blue),
+      magenta: wrap(color, ANSI.magenta),
       gold: wrap(color, ANSI.gold),
       goldBright: wrap(color, ANSI.goldBright),
       inverseGold: (text) =>

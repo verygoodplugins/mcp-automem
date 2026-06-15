@@ -8,9 +8,10 @@ import {
 } from './theme.js';
 import { bulletList, keyValueRows, statusMark } from './table.js';
 import { badge, noteBox, sectionTitle } from './messages.js';
-import { renderSuccessOutro } from './brand.js';
+import { renderSuccessCard, renderSuccessOutro } from './brand.js';
 import { escapeCliText, formatJson, joinCliList, truncateCliText } from './output.js';
 import { animationEnabled, revealLines } from './animate.js';
+import { startChecklist } from './checklist.js';
 
 const stream = process.stdout;
 
@@ -108,6 +109,34 @@ describe('ui/brand', () => {
     const outro = renderSuccessOutro('AutoMem is installed', ['endpoint  https://x'], stream);
     expect(outro).toContain('AutoMem is installed');
     expect(outro).toContain('endpoint  https://x');
+  });
+
+  it('renderSuccessCard falls back to a clean outro without color/unicode (CI/pipe)', () => {
+    const card = renderSuccessCard('AutoMem is installed', ['endpoint  https://x'], stream);
+    expect(card).toContain('AutoMem is installed');
+    expect(card).toContain('endpoint  https://x');
+    // non-TTY fallback must not emit a box border or cursor escapes
+    expect(card).not.toContain('╭');
+  });
+});
+
+describe('ui/checklist', () => {
+  it('prints one clean line per completed step on a non-TTY (no cursor escapes)', () => {
+    let out = '';
+    const fake = { write: (s: string) => { out += s; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    const list = startChecklist(
+      [{ key: 'a', label: 'Verify endpoint' }, { key: 'b', label: 'Write .env' }],
+      fake
+    );
+    list.start('a');
+    list.done('a', 'Endpoint verified');
+    list.start('b');
+    list.done('b');
+    list.stop();
+    expect(out).toContain('Endpoint verified');
+    expect(out).toContain('Write .env');
+    expect(out).not.toContain('\x1b[?25l'); // no hide-cursor / redraw region on a non-TTY
+    expect(out).not.toContain('\x1b[2K'); // no clear-line redraws
   });
 });
 
