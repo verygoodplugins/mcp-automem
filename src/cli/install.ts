@@ -2,16 +2,6 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execFileSync } from 'child_process';
-import {
-  cancel,
-  confirm,
-  isCancel,
-  multiselect,
-  note,
-  select,
-  spinner,
-  text,
-} from '@clack/prompts';
 import { applyClaudeCodeSetup } from './claude-code.js';
 import { applyCodexSetup } from './codex.js';
 import { applyCursorSetup } from './cursor.js';
@@ -22,8 +12,17 @@ import { backupPath, writeFileWithBackup } from './host-toolkit.js';
 import { playInstallerSplash, shouldUseInstallerAnimation } from './install-ui.js';
 import { makeTheme } from './ui/theme.js';
 import { keyValueRows, type TableRow } from './ui/table.js';
-import { badge, sectionTitle } from './ui/messages.js';
+import { badge, noteBox, sectionTitle } from './ui/messages.js';
 import { renderBrandHeader, renderSuccessOutro } from './ui/brand.js';
+import { startSpinner } from './ui/tasks.js';
+import { revealLines } from './ui/animate.js';
+import {
+  cancelable,
+  promptConfirm,
+  promptMultiselect,
+  promptSelect,
+  promptText,
+} from './ui/prompts.js';
 
 // Claude Code is plugin-first: the marketplace plugin bundles the MCP server +
 // hooks and is the recommended path. The settings-level write (applyClaudeCodeSetup)
@@ -681,12 +680,6 @@ async function prepareLocalServer(params: {
   return { endpoint: DEFAULT_AUTOMEM_API_URL, apiKey };
 }
 
-function unwrapPrompt<T>(value: T | symbol): T {
-  if (!isCancel(value)) return value;
-  cancel('AutoMem install canceled.');
-  process.exit(0);
-}
-
 function clientLabel(client: AgentClient): string {
   switch (client) {
     case 'codex':
@@ -800,7 +793,7 @@ async function resolveInteractiveOptions(
 ): Promise<ResolvedInstallOptions> {
   let target = parsed.target;
   if (!target) {
-    target = unwrapPrompt(await select<InstallTarget>({
+    target = await cancelable(promptSelect<InstallTarget>({
       message: 'Where should AutoMem run?',
       options: [
         { value: 'cloud', label: 'Hosted Cloud', hint: 'InstaPods or Railway, then paste endpoint/token' },
@@ -816,41 +809,39 @@ async function resolveInteractiveOptions(
   let localDir = parsed.localDir ?? defaultLocalDir(environment.homeDir);
 
   if (target === 'cloud') {
-    note(
-      [
+    process.stdout.write(
+      noteBox('Hosted setup', [
         'Deploy AutoMem on InstaPods or Railway first:',
         'https://instapods.com/apps/automem/?ref=jack',
         'https://railway.com/deploy/automem-ai-memory-service',
-      ].join('\n'),
-      'Hosted setup'
+      ])
     );
   }
 
   if (target === 'local') {
-    localDir = String(
-      unwrapPrompt(await text({
+    localDir = (
+      await cancelable(promptText({
         message: 'Local AutoMem server directory',
-        placeholder: localDir,
         defaultValue: localDir,
       }))
-    );
+    ).trim();
     endpoint = endpoint ?? DEFAULT_AUTOMEM_API_URL;
   }
 
   if ((target === 'cloud' || target === 'existing') && !endpoint) {
-    endpoint = String(
-      unwrapPrompt(await text({
+    endpoint = (
+      await cancelable(promptText({
         message: 'AutoMem API URL',
-        placeholder: 'https://your-automem.example',
+        validate: (value) =>
+          /^https?:\/\/\S+$/.test(value.trim()) || 'Enter a URL like https://your-automem.example',
       }))
     ).trim();
   }
 
   if ((target === 'cloud' || target === 'existing') && !apiKey) {
-    const entered = String(
-      unwrapPrompt(await text({
+    const entered = (
+      await cancelable(promptText({
         message: 'AutoMem API key (leave blank if this endpoint does not require one)',
-        placeholder: 'am_live_...',
       }))
     ).trim();
     apiKey = entered || undefined;
@@ -859,7 +850,7 @@ async function resolveInteractiveOptions(
   let clients = parsed.clients;
   if (!parsed.noAgentInstall && !clientsExplicit) {
     const detected = new Set(environment.detectedClients.map((client) => client.client));
-    const selected = unwrapPrompt(await multiselect<AgentClient>({
+    const selected = await cancelable(promptMultiselect<AgentClient>({
       message: 'Install AutoMem into which agents?',
       options: AGENT_CLIENTS.map((client) => ({
         value: client,
@@ -874,7 +865,7 @@ async function resolveInteractiveOptions(
 
   let hermesMode = parsed.hermesMode;
   if (!parsed.noAgentInstall && clients.includes('hermes') && !hermesModeExplicit) {
-    hermesMode = unwrapPrompt(await select<HermesInstallMode>({
+    hermesMode = await cancelable(promptSelect<HermesInstallMode>({
       message: 'How should AutoMem integrate with Hermes?',
       options: [
         {
@@ -899,7 +890,7 @@ async function resolveInteractiveOptions(
 
   let claudeCodeMode = parsed.claudeCodeMode;
   if (!parsed.noAgentInstall && clients.includes('claude-code') && !claudeCodeModeExplicit) {
-    claudeCodeMode = unwrapPrompt(await select<ClaudeCodeMode>({
+    claudeCodeMode = await cancelable(promptSelect<ClaudeCodeMode>({
       message: 'How should AutoMem integrate with Claude Code?',
       options: [
         {
@@ -1023,7 +1014,7 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
   }
 
   const plan = buildInstallPlan({ options: resolved, environment });
-  process.stdout.write(`\n${renderInstallPlan(plan)}\n`);
+  await revealLines(`\n${renderInstallPlan(plan)}`);
 
   if (resolved.dryRun) {
     writeStatus('Dry run only. No files were changed.');
@@ -1031,7 +1022,7 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
   }
 
   if (!resolved.yes) {
-    const approved = unwrapPrompt(await confirm({
+    const approved = await cancelable(promptConfirm({
       message: 'Apply this AutoMem install plan?',
       initialValue: false,
     }));
@@ -1045,8 +1036,7 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
   let apiKey = resolved.apiKey;
 
   if (resolved.target === 'local') {
-    const spin = spinner();
-    spin.start('Preparing local AutoMem server');
+    const spin = startSpinner('Preparing local AutoMem server');
     const local = await prepareLocalServer({
       localDir: plan.localDir,
       apiKey,
@@ -1104,5 +1094,5 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
     }
   }
   nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');
-  process.stdout.write(renderSuccessOutro('AutoMem is installed', nextSteps));
+  await revealLines(renderSuccessOutro('AutoMem is installed', nextSteps));
 }

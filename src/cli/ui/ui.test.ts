@@ -10,6 +10,7 @@ import { bulletList, keyValueRows, statusMark } from './table.js';
 import { badge, noteBox, sectionTitle } from './messages.js';
 import { renderSuccessOutro } from './brand.js';
 import { escapeCliText, formatJson, joinCliList, truncateCliText } from './output.js';
+import { animationEnabled, revealLines } from './animate.js';
 
 const stream = process.stdout;
 
@@ -107,5 +108,24 @@ describe('ui/brand', () => {
     const outro = renderSuccessOutro('AutoMem is installed', ['endpoint  https://x'], stream);
     expect(outro).toContain('AutoMem is installed');
     expect(outro).toContain('endpoint  https://x');
+  });
+});
+
+describe('ui/animate', () => {
+  it('writes everything at once (with a trailing newline) when disabled', async () => {
+    let out = '';
+    const fake = { write: (s: string) => { out += s; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    await revealLines('a\nb\nc', { stream: fake });
+    expect(out).toBe('a\nb\nc\n');
+  });
+
+  it('gates animation on a TTY and a clean env', () => {
+    const tty = { isTTY: true } as unknown as NodeJS.WriteStream;
+    const notty = { isTTY: false } as unknown as NodeJS.WriteStream;
+    expect(animationEnabled(notty, {})).toBe(false);
+    expect(animationEnabled(tty, { CI: '1' })).toBe(false);
+    expect(animationEnabled(tty, { NO_COLOR: '1' })).toBe(false);
+    expect(animationEnabled(tty, { AUTOMEM_NO_ANIM: '1' })).toBe(false);
+    expect(animationEnabled(tty, {})).toBe(true);
   });
 });

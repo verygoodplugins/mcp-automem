@@ -34,6 +34,25 @@ build, so `npm pack` without `npm run build` ships stale `dist/`. The Node harne
 runs against the packed tarball via `npx -y file:<tarball>`, which is byte-for-byte
 the code a user would `npx`.
 
+## Interactive routes (PTY)
+
+`run-matrix.sh` drives the **headless** path (`--yes` / flags) and never touches the
+prompts. `interactive.mjs` covers the gap: it spawns the installer in a real PTY
+(via `node-pty`) and drives each route by sending keystrokes, asserting the rendered
+plan. Every scenario runs `install --dry-run` in a throwaway `HOME` + `cwd`, so there
+are no writes and no Docker/agent side effects.
+
+```bash
+npm run build                       # interactive.mjs runs against dist/index.js
+node tests/e2e/interactive.mjs      # all routes (existing/cloud/local × plugin/settings)
+node tests/e2e/interactive.mjs claude   # filter by name substring
+```
+
+Routes covered: `existing-cursor`, `existing-claude-plugin`, `existing-claude-settings`,
+`cloud`, `local`. It self-heals node-pty's `spawn-helper` executable bit (a common
+post-install quirk that otherwise throws `posix_spawnp failed`). PTY allocation may be
+unavailable in some CI sandboxes, so this stays a local/dev gate, not a CI gate.
+
 ## Files
 
 | File | Role |
