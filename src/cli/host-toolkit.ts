@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { execSync } from 'child_process';
 
@@ -33,13 +34,16 @@ export interface WriteResult {
 export function writeFileWithBackup(
   targetPath: string,
   content: string,
-  opts: Pick<CommonOptions, 'dryRun' | 'quiet'>,
+  // `secret: true` restricts the file (and its backup) to 0o600 — pass it for
+  // secret-bearing files like a .env carrying an API key or server token.
+  opts: Pick<CommonOptions, 'dryRun' | 'quiet'> & { secret?: boolean },
 ): WriteResult {
   if (opts.dryRun) {
     log(`[DRY RUN] Would write: ${targetPath}`, opts.quiet);
     return { status: 'dry-run' };
   }
 
+  const mode = opts.secret ? 0o600 : undefined;
   const dir = path.dirname(targetPath);
   fs.mkdirSync(dir, { recursive: true });
 
@@ -52,12 +56,80 @@ export function writeFileWithBackup(
     }
     const backup = backupPath(targetPath);
     fs.copyFileSync(targetPath, backup);
+    if (mode !== undefined) {
+      try {
+        fs.chmodSync(backup, mode);
+      } catch {
+        // best-effort: a permission tightening failure must not abort the write
+      }
+    }
     log(`📦 Backup created: ${backup}`, opts.quiet);
   }
 
-  fs.writeFileSync(targetPath, content, 'utf8');
+  fs.writeFileSync(targetPath, content, mode !== undefined ? { encoding: 'utf8', mode } : 'utf8');
+  if (mode !== undefined) {
+    // writeFileSync's `mode` only applies when the file is created; chmod ensures
+    // an existing (possibly world-readable) file is tightened too.
+    try {
+      fs.chmodSync(targetPath, mode);
+    } catch {
+      // best-effort
+    }
+  }
   log(`✅ ${existed ? 'Updated' : 'Created'}: ${path.basename(targetPath)}`, opts.quiet);
   return { status: existed ? 'updated' : 'created' };
+}
+
+// Quote .env values that would otherwise break dotenv parsing — empty strings and
+// anything outside a conservative safe set (so whitespace, #, quotes, and shell
+// metacharacters like $ ; {} stay inert). Shared by the setup and install writers
+// so a value serializes identically regardless of which command wrote it.
+export function formatEnvValue(value: string): string {
+  if (value === '' || /[^A-Za-z0-9_@/:.,+-]/.test(value)) {
+    const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return `"${escaped}"`;
+  }
+  return value;
+}
+
+// Merge KEY=value updates into an existing .env body without clobbering unrelated
+// keys, comments, or blank lines: existing keys are rewritten in place and new keys
+// appended. Uses hasOwnProperty (not `key in updates`) so a pre-existing line whose
+// key collides with an Object.prototype member (e.g. `constructor`, `toString`) is
+// preserved verbatim instead of corrupted. Pure (no I/O) so callers own the write.
+export function mergeEnvContent(existing: string, updates: Record<string, string>): string {
+  const lines: Array<{ key?: string; line: string }> = [];
+  if (existing) {
+    for (const line of existing.split(/\r?\n/)) {
+      if (!line.trim()) {
+        lines.push({ line });
+        continue;
+      }
+      const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
+      if (match) {
+        lines.push({ key: match[1], line });
+      } else {
+        lines.push({ line });
+      }
+    }
+  }
+
+  const updatedKeys = new Set<string>();
+  for (const entry of lines) {
+    if (entry.key && Object.prototype.hasOwnProperty.call(updates, entry.key)) {
+      entry.line = `${entry.key}=${formatEnvValue(updates[entry.key])}`;
+      updatedKeys.add(entry.key);
+    }
+  }
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (!updatedKeys.has(key)) {
+      lines.push({ key, line: `${key}=${formatEnvValue(value)}` });
+    }
+  }
+
+  const content = lines.map((entry) => entry.line).join(os.EOL).replace(/\s+$/, '');
+  return content.length ? `${content}${os.EOL}` : '';
 }
 
 export function readJsonFile<T = unknown>(filePath: string): T | null {

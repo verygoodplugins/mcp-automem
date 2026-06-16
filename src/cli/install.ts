@@ -8,7 +8,9 @@ import { applyCursorSetup } from './cursor.js';
 import { applyHermesSetup, type HermesInstallMode } from './hermes.js';
 import { applyOpenClawSetup } from './openclaw.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
-import { writeFileWithBackup } from './host-toolkit.js';
+import { mergeEnvContent, writeFileWithBackup } from './host-toolkit.js';
+// Re-exported so existing importers (and install.test.ts) keep a stable path.
+export { formatEnvValue } from './host-toolkit.js';
 import { playInstallerSplash, shouldUseInstallerAnimation } from './install-ui.js';
 import { makeTheme } from './ui/theme.js';
 import { keyValueRows, type TableRow } from './ui/table.js';
@@ -330,7 +332,14 @@ export function parseInstallArgs(
 
 function defaultCommandExists(command: string): boolean {
   try {
-    execFileSync(command, ['--version'], { stdio: 'ignore' });
+    // On Windows, npm/docker/git are `.cmd`/`.bat` shims that execFileSync cannot
+    // resolve without a shell, so probing 'npm' directly always throws and the
+    // prerequisite check reports it missing. The command list is fixed (node, npm,
+    // docker, git — never user input), so enabling the shell on win32 is safe.
+    execFileSync(command, ['--version'], {
+      stdio: 'ignore',
+      shell: process.platform === 'win32',
+    });
     return true;
   } catch {
     return false;
@@ -433,7 +442,21 @@ export function buildInstallPlan(params: {
 }): InstallPlan {
   const { options, environment } = params;
   const localDir = options.localDir ?? defaultLocalDir(environment.homeDir);
-  const endpoint = options.endpoint ?? (options.target === 'local' ? DEFAULT_AUTOMEM_API_URL : undefined);
+  // The local server always binds DEFAULT_AUTOMEM_API_URL (docker compose). A custom
+  // --endpoint with --target local would be shown in the approved plan but silently
+  // discarded at write time, so reject the contradiction up front rather than
+  // persisting a different endpoint than the user approved.
+  if (
+    options.target === 'local' &&
+    options.endpoint &&
+    options.endpoint.replace(/\/$/, '') !== DEFAULT_AUTOMEM_API_URL.replace(/\/$/, '')
+  ) {
+    throw new InstallError(
+      `--endpoint is not supported with --target local — the local server always binds ${DEFAULT_AUTOMEM_API_URL}.`,
+      'Use --target existing to point AutoMem at a custom endpoint.'
+    );
+  }
+  const endpoint = options.target === 'local' ? DEFAULT_AUTOMEM_API_URL : options.endpoint;
   const actions: InstallAction[] = [];
 
   if (options.target === 'local') {
@@ -669,40 +692,39 @@ export async function waitForAutoMemEndpoint(
   };
 }
 
-// Quote values that would otherwise break dotenv parsing (whitespace, #, quotes)
-// so endpoints/keys with special characters stay valid in .env.
-export function formatEnvValue(value: string): string {
-  if (value === '' || /[\s#"']/.test(value)) {
-    return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-  }
-  return value;
-}
-
 function mergeEnvFile(filePath: string, updates: Record<string, string>, dryRun: boolean): void {
   const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
-  const lines = existing ? existing.split(/\r?\n/) : [];
-  const seen = new Set<string>();
-  const next = lines.map((line) => {
-    const match = line.match(/^([A-Za-z0-9_]+)=/);
-    if (!match) return line;
-    const key = match[1];
-    if (!(key in updates)) return line;
-    seen.add(key);
-    return `${key}=${formatEnvValue(updates[key])}`;
+  // .env files written by the installer carry secrets — the project .env can hold
+  // AUTOMEM_API_KEY and the local server .env holds AUTOMEM_API_TOKEN/ADMIN_API_TOKEN
+  // — so restrict them to 0o600, matching the uninstall path's perms.
+  writeFileWithBackup(filePath, mergeEnvContent(existing, updates), {
+    dryRun,
+    quiet: true,
+    secret: true,
   });
-
-  for (const [key, value] of Object.entries(updates)) {
-    if (!seen.has(key)) next.push(`${key}=${formatEnvValue(value)}`);
-  }
-
-  const content = `${next.filter((line, index) => line.trim() || index < next.length - 1).join(os.EOL).replace(/\s+$/, '')}${os.EOL}`;
-  writeFileWithBackup(filePath, content, { dryRun, quiet: true });
 }
 
 function randomToken(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(24)))
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
+}
+
+// Read a single KEY's value from an existing .env (unwrapping a quoted value) so a
+// re-run can reuse previously-written secrets instead of regenerating them. `key`
+// is always a fixed literal here, so embedding it in the regex is safe.
+function readEnvFileValue(filePath: string, key: string): string | undefined {
+  if (!fs.existsSync(filePath)) return undefined;
+  const line = fs
+    .readFileSync(filePath, 'utf8')
+    .split(/\r?\n/)
+    .find((candidate) => new RegExp(`^\\s*${key}\\s*=`).test(candidate));
+  if (!line) return undefined;
+  let value = line.slice(line.indexOf('=') + 1).trim();
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    value = value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  }
+  return value || undefined;
 }
 
 function defaultRunCommand(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): void {
@@ -720,8 +742,13 @@ export async function prepareLocalServer(params: {
   runCommand?: CommandRunner;
 }): Promise<{ endpoint: string; apiKey: string }> {
   const runCommand = params.runCommand ?? defaultRunCommand;
-  const apiKey = params.apiKey || randomToken();
-  const adminToken = randomToken();
+  const envFile = path.join(params.localDir, '.env');
+  // Re-running a local install must not rotate the server tokens: a fresh token
+  // would invalidate every agent .env already pointing at this server. Reuse the
+  // existing localDir/.env tokens when present; generate only when absent, or when
+  // an explicit --api-key overrides the stored AutoMem token.
+  const apiKey = params.apiKey || readEnvFileValue(envFile, 'AUTOMEM_API_TOKEN') || randomToken();
+  const adminToken = readEnvFileValue(envFile, 'ADMIN_API_TOKEN') || randomToken();
 
   if (params.dryRun) {
     return { endpoint: DEFAULT_AUTOMEM_API_URL, apiKey };
@@ -1110,6 +1137,19 @@ async function applyAgentInstall(client: AgentClient, params: {
 }
 
 export async function runInstallCommand(args: string[] = []): Promise<void> {
+  // parseInstallArgs (and the splash/header) run before the main pipeline's own
+  // try/catch, so a bad flag value would otherwise escape as a raw Node stack
+  // trace from the top-level-await dispatch in index.ts. Wrap the whole run so
+  // those throws render as a clean themed line too.
+  try {
+    await runGuidedInstall(args);
+  } catch (err) {
+    process.stderr.write(formatInstallError(err));
+    process.exit(1);
+  }
+}
+
+async function runGuidedInstall(args: string[] = []): Promise<void> {
   const parsed = parseInstallArgs(args);
   const environment = detectInstallEnvironment();
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
