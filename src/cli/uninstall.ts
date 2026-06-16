@@ -11,7 +11,7 @@ import {
 } from './hermes-config.js';
 
 interface UninstallOptions {
-  platform: 'cursor' | 'claude-code' | 'hermes';
+  platform: 'cursor' | 'claude-code' | 'codex' | 'hermes';
   projectDir?: string;
   rulesPath?: string;
   cleanAll?: boolean;
@@ -304,7 +304,9 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
     } else {
       const before = raw.slice(0, startIdx).replace(/\s+$/, '');
       const after = raw.slice(endIdx + end.length).replace(/^\s+/, '');
-      const next = before && after ? `${before}\n\n${after}\n` : `${before}${after}`.replace(/\n+$/, '') + '\n';
+      // Collapse trailing newlines to exactly one (`after` keeps its own).
+      const joined = before && after ? `${before}\n\n${after}` : `${before}${after}`;
+      const next = `${joined.replace(/\n+$/, '')}\n`;
       const backupPath = `${rulesFile}.backup.${Date.now()}`;
       fs.copyFileSync(rulesFile, backupPath);
       fs.writeFileSync(rulesFile, next, 'utf8');
@@ -337,6 +339,50 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
   } else if (!options.dryRun) {
     log('\nℹ️  Nothing to remove for Hermes AutoMem', options.quiet);
   }
+}
+
+async function uninstallCodex(options: UninstallOptions): Promise<void> {
+  // Plugin-first codex install is rules-only: it writes a single marked AutoMem
+  // block into AGENTS.md (cwd by default, or --rules). Uninstall strips that
+  // block — symmetric with the `codex` setup command and with uninstallHermes.
+  const projectDir = options.projectDir ?? process.cwd();
+  const rulesFile = options.rulesPath ?? path.join(projectDir, 'AGENTS.md');
+
+  log('\n🗑️  Uninstalling Codex AutoMem...', options.quiet);
+
+  if (!fs.existsSync(rulesFile)) {
+    log(`ℹ️  No rules file at ${rulesFile}`, options.quiet);
+    return;
+  }
+
+  const start = '<!-- BEGIN AUTOMEM CODEX RULES -->';
+  const end = '<!-- END AUTOMEM CODEX RULES -->';
+  const raw = fs.readFileSync(rulesFile, 'utf8');
+  const startIdx = raw.indexOf(start);
+  const endIdx = raw.indexOf(end);
+
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+    log(`ℹ️  No AutoMem rule block in ${rulesFile}`, options.quiet);
+    return;
+  }
+
+  if (options.dryRun) {
+    log(`[DRY RUN] Would strip AutoMem block from: ${rulesFile}`, options.quiet);
+    return;
+  }
+
+  const before = raw.slice(0, startIdx).replace(/\s+$/, '');
+  const after = raw.slice(endIdx + end.length).replace(/^\s+/, '');
+  // `after` keeps its own trailing newline, so collapse any trailing newlines to
+  // exactly one — otherwise a block with content after it leaves a blank EOF line.
+  const joined = before && after ? `${before}\n\n${after}` : `${before}${after}`;
+  const next = `${joined.replace(/\n+$/, '')}\n`;
+  const backupPath = `${rulesFile}.backup.${Date.now()}`;
+  fs.copyFileSync(rulesFile, backupPath);
+  fs.writeFileSync(rulesFile, next, 'utf8');
+  log(`🗑️  Stripped AutoMem block from ${rulesFile}`, options.quiet);
+  log(`   Backup: ${backupPath}`, options.quiet);
+  log('\n✅ Codex AutoMem configuration removed', options.quiet);
 }
 
 async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
@@ -471,6 +517,8 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
     await uninstallCursor(options);
   } else if (options.platform === 'claude-code') {
     await uninstallClaudeCode(options);
+  } else if (options.platform === 'codex') {
+    await uninstallCodex(options);
   } else if (options.platform === 'hermes') {
     await uninstallHermes(options);
   }
@@ -496,10 +544,10 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
 }
 
 export function parseUninstallArgs(args: string[]): UninstallOptions | null {
-  const allowed = ['cursor', 'claude-code', 'hermes'] as const;
+  const allowed = ['cursor', 'claude-code', 'codex', 'hermes'] as const;
   if (args.length === 0 || !allowed.includes(args[0] as typeof allowed[number])) {
-    console.error('❌ Error: Platform required (cursor, claude-code, or hermes)');
-    console.error('Usage: mcp-automem uninstall <cursor|claude-code|hermes> [options]');
+    console.error('❌ Error: Platform required (cursor, claude-code, codex, or hermes)');
+    console.error('Usage: mcp-automem uninstall <cursor|claude-code|codex|hermes> [options]');
     return null;
   }
 

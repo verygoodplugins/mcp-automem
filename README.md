@@ -128,7 +128,20 @@ Then add the paste-ready Personal Preferences starter from [`templates/CLAUDE_DE
 Connect your AI tools to the AutoMem service you just started.
 
 ```bash
-# Guided setup - creates .env and prints config for your AI platform
+# Guided install - pick where AutoMem runs, verify it, write .env, and
+# configure your agents (Codex, Claude Code, Cursor, OpenClaw, Hermes)
+npx @verygoodplugins/mcp-automem install
+```
+
+Every change is shown in a review plan before anything is written, and each
+modified file keeps a `.bak` backup. Add `--dry-run` to preview, `--yes` to
+apply non-interactively. See the [Installation Guide](INSTALLATION.md#guided-install-fastest)
+for all flags.
+
+Just need the `.env` + config snippets without the agent setup? Use the lighter wizard:
+
+```bash
+# Creates .env and prints config for your AI platform
 npx @verygoodplugins/mcp-automem setup
 ```
 

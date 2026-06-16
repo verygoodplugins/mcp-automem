@@ -11,6 +11,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { config } from "dotenv";
 import { runConfig, runSetup } from "./cli/setup.js";
+import { runInstallCommand } from "./cli/install.js";
 import { runClaudeCodeSetup } from "./cli/claude-code.js";
 import { runCursorSetup } from "./cli/cursor.js";
 import { runCodexSetup } from "./cli/codex.js";
@@ -43,7 +44,9 @@ const isMachineReadableCommand =
   command === "config" && process.argv.slice(3).some(
     (arg) => arg === "--json" || arg === "--format=json" || arg === "--format"
   );
-const shouldSilenceDotenv = isServerMode || isMachineReadableCommand;
+// The guided installer renders a branded splash + curated review; the dotenv
+// banner would corrupt that output, so silence it here too.
+const shouldSilenceDotenv = isServerMode || isMachineReadableCommand || command === "install";
 
 // Prevent dotenv from writing its banner to stdout when the caller expects clean
 // machine-readable output (stdio server mode, or `config --format=json`).
@@ -112,6 +115,7 @@ USAGE:
 
 COMMANDS:
   setup              Interactive setup for .env configuration
+  install            Guided installer for local/cloud AutoMem + agent setup
   config             Show configuration snippets
   claude-code        Set up AutoMem for Claude Code
   cursor             Set up AutoMem for Cursor
@@ -163,11 +167,11 @@ MIGRATION:
     --yes, -y             Skip confirmation
 
 UNINSTALL:
-  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|hermes> [options]
+  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes> [options]
 
   Options:
     --dir <path>          Project / hermes-home directory
-    --rules <path>        Hermes rules file to strip (default: <hermes-home>/AGENTS.md)
+    --rules <path>        Rules file to strip (default: codex <project>/AGENTS.md, hermes <hermes-home>/AGENTS.md)
     --clean-all          Also remove MCP server config (Cursor/Claude Desktop)
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation
@@ -239,6 +243,23 @@ OPENCLAW SETUP:
     --dry-run                   Show what would be changed
     --quiet                     Suppress output
 
+GUIDED INSTALL:
+  npx @verygoodplugins/mcp-automem install [options]
+
+  Walks you through where AutoMem runs (Hosted Cloud / Local Docker / Existing
+  Endpoint), verifies the endpoint, writes .env, and configures your agents.
+  For Claude Code it offers the plugin (recommended) or a settings-level install.
+
+  Options:
+    --target <local|cloud|existing>  Where AutoMem runs
+    --clients <list>                 Comma-separated agents: codex,claude-code,cursor,openclaw,hermes
+    --endpoint <url>                 Existing or hosted AutoMem endpoint
+    --api-key <key>                  API key for authenticated endpoints
+    --local-dir <path>               Local server directory (default: ~/.automem/server)
+    --dry-run                        Show the review plan without writing files
+    --yes, -y                        Apply without confirmation
+    --no-agent-install               Configure endpoint only; skip agent writes
+
 For more information, visit:
 https://github.com/verygoodplugins/mcp-automem
 `);
@@ -248,6 +269,12 @@ https://github.com/verygoodplugins/mcp-automem
 if (command === "setup") {
   await runSetup(process.argv.slice(3));
   process.exit(0);
+}
+
+if (command === "install") {
+  await runInstallCommand(process.argv.slice(3));
+  // Honor a non-zero exit set for a partial install (some agents need a manual step).
+  process.exit(process.exitCode ?? 0);
 }
 
 if (command === "config") {

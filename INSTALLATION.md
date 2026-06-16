@@ -12,7 +12,47 @@ You need a running **[AutoMem service](https://github.com/verygoodplugins/autome
 
 ## Quick Start
 
-Follow these two steps:
+### Guided install (fastest)
+
+One command walks you through everything — where AutoMem runs, endpoint
+verification, writing `.env`, and configuring each agent:
+
+```bash
+npx @verygoodplugins/mcp-automem install
+```
+
+It asks where AutoMem should run (**Hosted Cloud**, **Local Docker**, or an
+**Existing Endpoint**), verifies the endpoint (`/health` + an authenticated
+recall probe when you supply a key), then offers to configure your agents
+(Codex, Claude Code, Cursor, OpenClaw, Hermes). For Claude Code it offers the
+**plugin** (recommended — bundles the MCP server + hooks and auto-updates) or a
+**settings-level** install. Every change is shown in a review plan before
+anything is written, and each modified file keeps a `<file>.bak` backup.
+
+Non-interactive / scriptable use:
+
+```bash
+# Preview the plan without writing anything
+npx @verygoodplugins/mcp-automem install --dry-run --target existing \
+  --endpoint https://your-automem.example --api-key "$AUTOMEM_API_KEY"
+
+# Apply without prompts (CI / dotfiles)
+npx @verygoodplugins/mcp-automem install --yes --target existing \
+  --endpoint https://your-automem.example --clients codex,cursor \
+  --claude-code-mode settings
+```
+
+Flags: `--target <local|cloud|existing>`, `--clients <list>`, `--endpoint`,
+`--api-key`, `--local-dir`, `--claude-code-mode <plugin|settings>`,
+`--hermes-mode <mcp|provider|both>`, `--dry-run`, `--yes`, `--no-agent-install`.
+The same values can be passed as `AUTOMEM_*` environment variables.
+
+> Without a TTY and without `--yes`/`--dry-run`, `install` prints the review
+> plan and stops without writing — re-run with `--yes` to apply.
+
+### Manual setup
+
+Prefer to do it by hand? Follow these two steps:
 
 1. **[Set up AutoMem service](#automem-service-setup)** - Deploy the backend (see options above)
 2. **[Install MCP client](#mcp-client-setup)** - Connect your AI platforms
