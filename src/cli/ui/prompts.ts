@@ -13,11 +13,14 @@ export type PromptOption<T> = {
 
 function goldTheme(stream: NodeJS.WriteStream = process.stdout) {
   const t = makeTheme(stream);
+  // ASCII fallbacks when unicode is off, consistent with the rest of the toolkit.
+  const idlePrefix = t.unicode ? '◆' : '?';
+  const spinnerFrames = t.unicode ? ['◐', '◓', '◑', '◒'] : ['-', '\\', '|', '/'];
   return {
-    prefix: { idle: t.style.gold('◆'), done: t.style.gold(t.symbol.check) },
+    prefix: { idle: t.style.gold(idlePrefix), done: t.style.gold(t.symbol.check) },
     spinner: {
       interval: 80,
-      frames: ['◐', '◓', '◑', '◒'].map((f) => t.style.gold(f)),
+      frames: spinnerFrames.map((f) => t.style.gold(f)),
     },
     style: {
       answer: (s: string) => t.style.gold(s),
@@ -88,7 +91,7 @@ export function promptPassword(opts: {
 }): Promise<string> {
   return password({
     message: opts.message,
-    mask: '•',
+    mask: makeTheme(process.stdout).unicode ? '•' : '*',
     validate: opts.validate,
     theme: goldTheme(),
   });

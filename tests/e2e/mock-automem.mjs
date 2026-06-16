@@ -14,6 +14,7 @@
 //   401       -> /health 200 but /recall 401 (bad/missing token path)
 //   malformed -> /health 200 with non-JSON body and wrong content-type
 import http from 'node:http';
+import { pathToFileURL } from 'node:url';
 
 /**
  * Start a mock AutoMem endpoint.
@@ -88,8 +89,9 @@ export function createMock(opts = {}) {
   });
 }
 
-// CLI mode: only when run directly, not when imported.
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+// CLI mode: only when run directly, not when imported. Normalize argv[1] to a
+// file URL so this also matches when invoked with a relative path.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const mode = process.env.MOCK_MODE || 'healthy';
   const expectToken = process.env.MOCK_EXPECT_TOKEN || '';

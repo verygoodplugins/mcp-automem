@@ -19,7 +19,7 @@ FalkorDB/Qdrant containers are **never** in the write surface.
 ## Run it
 
 ```bash
-# build + pack a fresh tarball, then run all 11 scenarios
+# build + pack a fresh tarball, then run all 12 scenarios
 ./tests/e2e/run-matrix.sh
 
 # reuse the already-staged tarball (fast iteration — skips build+pack)
