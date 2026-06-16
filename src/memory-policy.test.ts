@@ -139,6 +139,11 @@ describe('shared AutoMem memory policy', () => {
 
       Project slug: $PROJECT
 
+      During work - store durable memories when triggers fire:
+      - Do not wait for a Stop hook or session end. When a durable correction, stabilized decision, articulated pattern, or root-cause insight appears, run recall -> store -> verify -> associate in that same turn.
+      - Use type, importance, confidence, and bare tags on every store; verify by recalling a distinctive phrase; associate when a plausible related memory exists.
+      - Skip storage for session summaries, progress notes, confirmations, temporary output, and speculative context.
+
       Notes:
       - Tags are a HARD GATE - they filter before scoring. Use only the tag sets above; never invent topic tags. Bare tags only - no namespace prefixes (\`project/*\`, \`lang/*\`).
       - Debugging recall is ON-DEMAND: when the user reports an error symptom, recall with the symptom as a semantic query and NO tags (a tag gate hides cross-corpus fixes), limit 20.
@@ -149,6 +154,15 @@ describe('shared AutoMem memory policy', () => {
       - If recall fails or returns nothing, continue without memory - do not mention the failure to the user.
       </automem_session_context>"
     `);
+  });
+
+  it('nudges Claude Code to store, verify, and associate during normal work', () => {
+    const prompt = renderClaudeCodeSessionStartPrompt('$PROJECT');
+
+    expect(prompt).toContain('During work - store durable memories when triggers fire');
+    expect(prompt).toContain('Do not wait for a Stop hook or session end');
+    expect(prompt).toContain('recall -> store -> verify -> associate');
+    expect(prompt).toContain('associate when a plausible related memory exists');
   });
 
   it('renders the OpenClaw policy block from shared defaults', () => {
@@ -213,25 +227,28 @@ describe('shared AutoMem memory policy', () => {
     // Claude Code rejects Stop-hook JSON whose hookSpecificOutput lacks
     // hookEventName — the exact bug that motivated this hook's design.
     expect(hook).toContain('"hookEventName":"%s"');
-    // suppressOutput:true hides the raw JSON stdout from transcript view. It
-    // does NOT hide the injected context: Claude Code renders Stop-hook
-    // additionalContext as a visible "Stop hook feedback" block and rewakes
-    // Claude for one closing turn (verified on 2.1.175).
+    // suppressOutput:true hides raw JSON stdout. The injected context itself
+    // must stay factual so Claude Code can keep it hidden where supported and
+    // so older Stop behavior has little user-visible text if surfaced.
     expect(hook).toContain('"suppressOutput":true');
     expect(hook).toContain(JSON.stringify(renderClaudeCodeStopNudgePrompt()));
   });
 
-  it('gates the storage nudge to substantive sessions and keeps it one visible line', () => {
+  it('gates the storage nudge to substantive sessions and keeps it neutral', () => {
     const hook = renderClaudeCodeStopNudgeHook();
     // The gate reads transcript_path from hook stdin and counts human prompts
     // (type:"user" entries that are neither tool results nor meta entries).
     expect(hook).toContain('transcript_path');
     expect(hook).toContain(`-lt ${AUTOMEM_STOP_NUDGE_MIN_HUMAN_TURNS}`);
-    // The whole prompt is rendered verbatim in the "Stop hook feedback" block,
-    // so it must stay a single line and close the forced rewake turn tersely.
+    // Keep the prompt a single factual line: enough state for Claude, minimal
+    // text if an older host still surfaces Stop context.
     const prompt = renderClaudeCodeStopNudgePrompt();
     expect(prompt).not.toContain('\n');
-    expect(prompt).toContain('Nothing durable to store');
+    expect(prompt).toContain('AutoMem status: no memory has been stored this session.');
+    expect(prompt).toContain('Durable candidates: corrections');
+    expect(prompt).toContain('Non-candidates: session summaries');
+    expect(prompt).not.toMatch(/store it now/i);
+    expect(prompt).not.toMatch(/reply with exactly/i);
     expect(prompt).toMatch(/session summaries/i);
   });
 

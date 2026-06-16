@@ -44,6 +44,11 @@ Phase 2 - Task context (ONE semantic query from the user's actual nouns; project
 
 Project slug: $PROJECT
 
+During work - store durable memories when triggers fire:
+- Do not wait for a Stop hook or session end. When a durable correction, stabilized decision, articulated pattern, or root-cause insight appears, run recall -> store -> verify -> associate in that same turn.
+- Use type, importance, confidence, and bare tags on every store; verify by recalling a distinctive phrase; associate when a plausible related memory exists.
+- Skip storage for session summaries, progress notes, confirmations, temporary output, and speculative context.
+
 Notes:
 - Tags are a HARD GATE - they filter before scoring. Use only the tag sets above; never invent topic tags. Bare tags only - no namespace prefixes (\`project/*\`, \`lang/*\`).
 - Debugging recall is ON-DEMAND: when the user reports an error symptom, recall with the symptom as a semantic query and NO tags (a tag gate hides cross-corpus fixes), limit 20.
