@@ -5,6 +5,8 @@ import path from 'path';
 import {
   backupPath,
   detectProjectName,
+  formatEnvValue,
+  mergeEnvContent,
   parseCommonFlags,
   readJsonFile,
   replaceTemplateVars,
@@ -183,6 +185,76 @@ describe('host-toolkit', () => {
     it('ignores unknown flags that match inherited object properties', () => {
       expect(() => parseCommonFlags(['toString', '--dry-run'])).not.toThrow();
       expect(parseCommonFlags(['toString', '--dry-run']).dryRun).toBe(true);
+    });
+  });
+
+  describe('formatEnvValue', () => {
+    it('leaves safe values unquoted and quotes the rest', () => {
+      expect(formatEnvValue('https://automem.example')).toBe('https://automem.example');
+      expect(formatEnvValue('sk_live_abc123')).toBe('sk_live_abc123');
+      expect(formatEnvValue('has space')).toBe('"has space"');
+      expect(formatEnvValue('a#b')).toBe('"a#b"');
+      expect(formatEnvValue('with"quote')).toBe('"with\\"quote"');
+      expect(formatEnvValue('')).toBe('""');
+    });
+
+    it('quotes shell metacharacters that the loose quoter used to miss', () => {
+      // Regression guard for the install/setup divergence: $, ;, {} must be quoted
+      // so a dotenv parser cannot expand or mis-split them.
+      expect(formatEnvValue('a$b')).toBe('"a$b"');
+      expect(formatEnvValue('a;b')).toBe('"a;b"');
+      expect(formatEnvValue('a{b}')).toBe('"a{b}"');
+    });
+  });
+
+  describe('mergeEnvContent', () => {
+    it('preserves foreign keys, comments, and blank lines while updating in place', () => {
+      const existing = ['# header comment', 'FOO=bar', '', 'AUTOMEM_API_URL=http://old:1'].join('\n') + '\n';
+      const merged = mergeEnvContent(existing, { AUTOMEM_API_URL: 'http://new:2' });
+      const lines = merged.split(/\r?\n/);
+      expect(lines).toContain('# header comment');
+      expect(lines).toContain('FOO=bar');
+      expect(lines).toContain('AUTOMEM_API_URL=http://new:2');
+      // updated in place, not duplicated
+      expect(lines.filter((l) => l.startsWith('AUTOMEM_API_URL=')).length).toBe(1);
+      expect(merged).not.toContain('http://old:1');
+    });
+
+    it('appends new keys that were not already present', () => {
+      const merged = mergeEnvContent('FOO=bar\n', { AUTOMEM_API_KEY: 'sk-test' });
+      expect(merged).toContain('FOO=bar');
+      expect(merged).toContain('AUTOMEM_API_KEY=sk-test');
+    });
+
+    it('does not corrupt a pre-existing key that collides with an Object.prototype member', () => {
+      // `key in updates` would treat `constructor`/`toString` as present (prototype
+      // chain) and rewrite them to garbage; hasOwnProperty must keep them verbatim.
+      const existing = 'constructor=foo\ntoString=bar\n';
+      const merged = mergeEnvContent(existing, { AUTOMEM_API_URL: 'http://x:1' });
+      expect(merged).toContain('constructor=foo');
+      expect(merged).toContain('toString=bar');
+      expect(merged).toContain('AUTOMEM_API_URL=http://x:1');
+    });
+  });
+
+  describe('writeFileWithBackup secret mode', () => {
+    // POSIX permission bits only — Windows does not honor chmod's mode the same way.
+    it.skipIf(process.platform === 'win32')('writes a secret file as 0o600', () => {
+      const target = path.join(tmpDir, '.env');
+      writeFileWithBackup(target, 'AUTOMEM_API_KEY=sk-secret\n', { quiet: true, secret: true });
+      const mode = fs.statSync(target).mode & 0o777;
+      expect(mode).toBe(0o600);
+    });
+
+    it.skipIf(process.platform === 'win32')('tightens an existing world-readable secret file and its backup to 0o600', () => {
+      const target = path.join(tmpDir, '.env');
+      fs.writeFileSync(target, 'AUTOMEM_API_KEY=old\n', { mode: 0o644 });
+      fs.chmodSync(target, 0o644);
+      writeFileWithBackup(target, 'AUTOMEM_API_KEY=new\n', { quiet: true, secret: true });
+      expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+      const backup = `${target}.bak`;
+      expect(fs.existsSync(backup)).toBe(true);
+      expect(fs.statSync(backup).mode & 0o777).toBe(0o600);
     });
   });
 });

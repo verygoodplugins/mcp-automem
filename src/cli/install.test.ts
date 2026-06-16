@@ -491,6 +491,41 @@ describe('guided install helpers', () => {
     ]);
   });
 
+  it('rejects a 200 whose body is not JSON (captive portal / login wall)', async () => {
+    const fetchFn = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error('Unexpected token < in JSON');
+      },
+    });
+    const result = await verifyAutoMemEndpoint({ endpoint: 'https://wall.example', fetchFn });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain('not JSON');
+  });
+
+  it('rejects a 200 JSON body without an AutoMem status field', async () => {
+    const fetchFn = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ hello: 'world' }),
+    });
+    const result = await verifyAutoMemEndpoint({ endpoint: 'https://other.example', fetchFn });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain('AutoMem status field');
+  });
+
+  it('rejects a non-ok /health response', async () => {
+    const fetchFn = async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    });
+    const result = await verifyAutoMemEndpoint({ endpoint: 'https://down.example', fetchFn });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain('HTTP 500');
+  });
+
   it('fails fast with a clean message when the endpoint hangs (abort timeout)', async () => {
     // A fetch that never resolves on its own, but rejects when the abort fires.
     const hangingFetch = (_url: string, init?: { signal?: AbortSignal }) =>
@@ -595,5 +630,49 @@ describe('guided install helpers', () => {
     const out = formatInstallError(new Error('Command failed: docker compose up'), process.stderr);
     expect(out).not.toContain('Command failed');
     expect(out).toContain('AutoMem install failed');
+  });
+
+  it('rejects a custom --endpoint with target local so the plan matches what is written', () => {
+    const environment = detectInstallEnvironment();
+    expect(() =>
+      buildInstallPlan({
+        options: { ...parseInstallArgs([]), target: 'local', endpoint: 'http://custom:9000' },
+        environment,
+      })
+    ).toThrow(/not supported with --target local/);
+  });
+
+  it('pins the local endpoint to the default in the plan', () => {
+    const environment = detectInstallEnvironment();
+    const plan = buildInstallPlan({
+      options: { ...parseInstallArgs([]), target: 'local' },
+      environment,
+    });
+    expect(plan.endpoint).toBe('http://127.0.0.1:8001');
+  });
+
+  it('reuses the existing local .env token on re-run instead of rotating it', async () => {
+    const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-'));
+    try {
+      fs.writeFileSync(
+        path.join(localDir, '.env'),
+        'AUTOMEM_API_TOKEN=preexisting-token\nADMIN_API_TOKEN=preexisting-admin\n'
+      );
+      const result = await prepareLocalServer({ localDir, dryRun: true });
+      expect(result.apiKey).toBe('preexisting-token');
+    } finally {
+      fs.rmSync(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it('honors an explicit apiKey over the stored local token', async () => {
+    const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-'));
+    try {
+      fs.writeFileSync(path.join(localDir, '.env'), 'AUTOMEM_API_TOKEN=preexisting-token\n');
+      const result = await prepareLocalServer({ localDir, apiKey: 'explicit-key', dryRun: true });
+      expect(result.apiKey).toBe('explicit-key');
+    } finally {
+      fs.rmSync(localDir, { recursive: true, force: true });
+    }
   });
 });
