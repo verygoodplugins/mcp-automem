@@ -34,6 +34,18 @@ describe('ui/theme', () => {
     expect(makeTheme(stream, { symbols: 'ascii' }).symbol.arrow).toBe('->');
   });
 
+  it('auto mode never colors a non-TTY even when FORCE_COLOR is set', () => {
+    const prev = process.env.FORCE_COLOR;
+    process.env.FORCE_COLOR = '1';
+    try {
+      const notty = { isTTY: false } as unknown as NodeJS.WriteStream;
+      expect(makeTheme(notty, {}).color).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.FORCE_COLOR;
+      else process.env.FORCE_COLOR = prev;
+    }
+  });
+
   it('measures and pads by visible width, ignoring ANSI', () => {
     const colored = makeTheme(stream, { color: 'always' }).style.gold('abc');
     expect(visibleLength(colored)).toBe(3);
@@ -122,6 +134,23 @@ describe('ui/brand', () => {
 });
 
 describe('ui/checklist', () => {
+  it('degrades pending/running glyphs to ASCII when unicode is off', () => {
+    const prev = process.env.AUTOMEM_ASCII;
+    process.env.AUTOMEM_ASCII = '1';
+    try {
+      let out = '';
+      const fake = { write: (s: string) => { out += s; }, isTTY: true, columns: 80 } as unknown as NodeJS.WriteStream;
+      const list = startChecklist([{ key: 'a', label: 'Step A' }], fake);
+      list.stop();
+      expect(out).toContain('o'); // ascii pending glyph
+      expect(out).not.toContain('○'); // never the unicode circle
+      expect(out).not.toContain('◐'); // never the unicode spinner
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMEM_ASCII;
+      else process.env.AUTOMEM_ASCII = prev;
+    }
+  });
+
   it('prints one clean line per completed step on a non-TTY (no cursor escapes)', () => {
     let out = '';
     const fake = { write: (s: string) => { out += s; }, isTTY: false } as unknown as NodeJS.WriteStream;

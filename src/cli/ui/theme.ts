@@ -70,7 +70,8 @@ function shouldColor(stream: NodeJS.WriteStream, mode: ColorMode): boolean {
   if (mode === 'always') return true;
   if (mode === 'never') return false;
   if (process.env.NO_COLOR) return false;
-  if (process.env.FORCE_COLOR) return true;
+  // In auto mode, no TTY → no color (deterministic, clean piped/CI output).
+  // Callers that genuinely want color in a pipe pass color: 'always'.
   return stream.isTTY === true;
 }
 

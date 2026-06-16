@@ -17,7 +17,8 @@ export type Checklist = {
   stop(): void;
 };
 
-const RUNNING_FRAMES = ['◐', '◓', '◑', '◒'];
+const RUNNING_FRAMES_UNICODE = ['◐', '◓', '◑', '◒'];
+const RUNNING_FRAMES_ASCII = ['-', '\\', '|', '/'];
 
 export function startChecklist(
   steps: ChecklistStep[],
@@ -25,6 +26,10 @@ export function startChecklist(
 ): Checklist {
   const theme = makeTheme(stream);
   const live = stream.isTTY === true;
+  // Degrade the spinner + pending glyphs to ASCII when unicode is off (Windows
+  // without WT_SESSION, AUTOMEM_ASCII=1, TERM=dumb) so they don't render as mojibake.
+  const runningFrames = theme.unicode ? RUNNING_FRAMES_UNICODE : RUNNING_FRAMES_ASCII;
+  const pendingGlyph = theme.unicode ? '○' : 'o';
   const state = new Map<string, { label: string; status: Status }>(
     steps.map((s) => [s.key, { label: s.label, status: 'pending' as Status }])
   );
@@ -37,9 +42,9 @@ export function startChecklist(
       case 'fail':
         return theme.style.red(theme.symbol.cross);
       case 'running':
-        return theme.style.gold(RUNNING_FRAMES[spinFrame % RUNNING_FRAMES.length]);
+        return theme.style.gold(runningFrames[spinFrame % runningFrames.length]);
       case 'pending':
-        return theme.style.dim('○');
+        return theme.style.dim(pendingGlyph);
     }
   };
 

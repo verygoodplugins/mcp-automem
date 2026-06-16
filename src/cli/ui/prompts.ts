@@ -3,7 +3,6 @@
 // of Railway's `inquire`) and drive its theme from our shared palette — which
 // keeps NO_COLOR / non-TTY behavior consistent with the rest of the UI.
 import { checkbox, confirm, input, password, select } from '@inquirer/prompts';
-import { ExitPromptError } from '@inquirer/core';
 import { makeTheme } from './theme.js';
 
 export type PromptOption<T> = {
@@ -39,12 +38,14 @@ function goldTheme(stream: NodeJS.WriteStream = process.stdout) {
 }
 
 // inquirer rejects with ExitPromptError on Ctrl-C. Mirror clack's cancel(): print
-// a terse line and exit cleanly so a cancel is never an error stack trace.
+// a terse line and exit cleanly so a cancel is never an error stack trace. We match
+// by error name rather than importing @inquirer/core (a transitive dep, not a
+// direct one) so this stays resolvable under strict layouts (pnpm, Yarn PnP).
 export async function cancelable<T>(promise: Promise<T>): Promise<T> {
   try {
     return await promise;
   } catch (err) {
-    if (err instanceof ExitPromptError) {
+    if (err instanceof Error && err.name === 'ExitPromptError') {
       const t = makeTheme(process.stdout);
       process.stdout.write(`\n${t.style.dim('AutoMem install canceled.')}\n`);
       process.exit(0);
