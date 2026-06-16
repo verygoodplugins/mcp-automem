@@ -50,6 +50,17 @@ Notes:
 ### CLI Commands (via npx or global install)
 
 ```bash
+# Guided installer: pick target (local/cloud/existing), verify the endpoint,
+# write .env, and configure agents. Claude Code defaults to the plugin (a guided
+# manual step) or --claude-code-mode settings for the file writer. Gold-themed
+# @inquirer/prompts (clack's green accent isn't themable); branded UI toolkit in
+# src/cli/ui/* (theme/table/messages/brand/tasks/animate/prompts) + the mascot in
+# src/cli/install-ui.ts. Interactive prompt routes are tested with a node-pty
+# harness: `node tests/e2e/interactive.mjs` (drives each route in a PTY, dry-run).
+npx @verygoodplugins/mcp-automem install
+npx @verygoodplugins/mcp-automem install --dry-run                # Preview the plan
+npx @verygoodplugins/mcp-automem install --yes --target existing --endpoint <url>
+
 # Guided setup wizard (creates .env, prints config snippets)
 npx @verygoodplugins/mcp-automem setup
 
