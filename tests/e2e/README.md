@@ -74,12 +74,13 @@ Machine-generated evidence is written to
 | `AUTOMEM_INSTALL_SH` | `automem-website/public/install.sh` under the workspace root (two levels up — this repo lives under `<workspace>/mcp-servers/`) | The website bootstrap script. If absent, the `website-bootstrap-install-sh` scenario is **skipped** (not failed) and the rest of the matrix still runs. |
 | `AUTOMEM_PACKAGE_SPEC` | `file:<staged tarball>` | The `npx` package spec under test. |
 
-## Scenarios (11)
+## Scenarios (12)
 
 | Scenario | What it pins |
 |---|---|
 | `codex-existing-headless` | Headless existing-target install for Codex against a healthy endpoint. |
 | `claude-existing-headless` | Sibling client (Claude Code) — proves the symmetric writer exists. |
+| `claude-plugin-default` | Claude Code defaults to the plugin install (recommended) — the plan shows the `/plugin` commands, not settings-file writes. |
 | `dry-run-no-writes` | `--dry-run` produces a plan and changes nothing. |
 | `no-agent-install` | `--no-agent-install` writes only `.env`, no client integration files. |
 | `non-tty-no-yes-preview` | Non-interactive **without** `--yes`/`--dry-run` previews only — writes nothing. |
