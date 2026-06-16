@@ -17,6 +17,7 @@
     "postbuild": "node scripts/build-openclaw-plugin-package.mjs && chmod +x dist/index.js",
     "sync-versions": "node scripts/sync-template-versions.mjs",
     "docs:hermes": "node scripts/build-hermes-demos.mjs",
+    "probe:claude-stop-context": "node scripts/probe-claude-stop-additional-context.mjs",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint .",
     "prepare": "husky",
