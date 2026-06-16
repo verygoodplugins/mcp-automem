@@ -15,6 +15,7 @@ export function writeJson(value: unknown, stream: NodeJS.WriteStream = process.s
 }
 
 export function escapeCliText(value: string): string {
+  // eslint-disable-next-line no-control-regex -- intentional: escape C0/C1 control chars + DEL for safe CLI output
   return value.replace(/[\x00-\x1F\x7F]/g, (char) => {
     switch (char) {
       case '\n':

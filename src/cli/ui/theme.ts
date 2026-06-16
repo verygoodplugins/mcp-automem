@@ -126,6 +126,7 @@ export function makeTheme(
 }
 
 export function stripAnsi(value: string): string {
+  // eslint-disable-next-line no-control-regex -- intentional: matches the ANSI escape (ESC) sequence to strip it
   return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
 }
 
