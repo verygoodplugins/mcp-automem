@@ -8,6 +8,7 @@ import {
   InstallError,
   buildInstallPlan,
   detectInstallEnvironment,
+  formatEnvValue,
   formatInstallError,
   manualFixHint,
   parseInstallArgs,
@@ -117,6 +118,17 @@ describe('guided install helpers', () => {
     expect(preChecked).toContain('hermes');
     // The old defaults-only filter would have dropped it (the bug being fixed).
     expect(DEFAULT_AGENT_CLIENTS.filter((client) => detected.has(client))).not.toContain('hermes');
+  });
+
+  it('quotes .env values only when they would break dotenv parsing', () => {
+    // Plain url-safe values pass through unquoted.
+    expect(formatEnvValue('https://automem.example')).toBe('https://automem.example');
+    expect(formatEnvValue('sk_live_abc123')).toBe('sk_live_abc123');
+    // Whitespace, #, and quotes force quoting (with embedded quotes/backslashes escaped).
+    expect(formatEnvValue('has space')).toBe('"has space"');
+    expect(formatEnvValue('a#b')).toBe('"a#b"');
+    expect(formatEnvValue('with"quote')).toBe('"with\\"quote"');
+    expect(formatEnvValue('')).toBe('""');
   });
 
   it('gives a manual-fix command for every agent client', () => {

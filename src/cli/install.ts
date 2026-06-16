@@ -648,6 +648,15 @@ export async function waitForAutoMemEndpoint(
   };
 }
 
+// Quote values that would otherwise break dotenv parsing (whitespace, #, quotes)
+// so endpoints/keys with special characters stay valid in .env.
+export function formatEnvValue(value: string): string {
+  if (value === '' || /[\s#"']/.test(value)) {
+    return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  }
+  return value;
+}
+
 function mergeEnvFile(filePath: string, updates: Record<string, string>, dryRun: boolean): void {
   const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
   const lines = existing ? existing.split(/\r?\n/) : [];
@@ -658,11 +667,11 @@ function mergeEnvFile(filePath: string, updates: Record<string, string>, dryRun:
     const key = match[1];
     if (!(key in updates)) return line;
     seen.add(key);
-    return `${key}=${updates[key]}`;
+    return `${key}=${formatEnvValue(updates[key])}`;
   });
 
   for (const [key, value] of Object.entries(updates)) {
-    if (!seen.has(key)) next.push(`${key}=${value}`);
+    if (!seen.has(key)) next.push(`${key}=${formatEnvValue(value)}`);
   }
 
   const content = `${next.filter((line, index) => line.trim() || index < next.length - 1).join(os.EOL).replace(/\s+$/, '')}${os.EOL}`;
@@ -1221,12 +1230,18 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
       list.done('verify', `Endpoint verified (${endpoint.replace(/\/$/, '')})`);
 
       list.start('env');
-      mergeEnvFile(
-        path.join(environment.cwd, '.env'),
-        { AUTOMEM_API_URL: endpoint, ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}) },
-        false
-      );
-      list.done('env', `Wrote ${tildify(path.join(environment.cwd, '.env'))}`);
+      const envPath = path.join(environment.cwd, '.env');
+      const envUpdates: Record<string, string> = {
+        AUTOMEM_API_URL: endpoint,
+        ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}),
+      };
+      // Keep the deprecated AUTOMEM_ENDPOINT alias in sync if the file already uses
+      // it, so it can't diverge from AUTOMEM_API_URL.
+      if (fs.existsSync(envPath) && /^AUTOMEM_ENDPOINT=/m.test(fs.readFileSync(envPath, 'utf8'))) {
+        envUpdates.AUTOMEM_ENDPOINT = endpoint;
+      }
+      mergeEnvFile(envPath, envUpdates, false);
+      list.done('env', `Wrote ${tildify(envPath)}`);
 
       // Each agent installs independently: a failure (e.g. the openclaw CLI hanging
       // or absent) marks just that step ✗ and is collected for a manual-fix note —

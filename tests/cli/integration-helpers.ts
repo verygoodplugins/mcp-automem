@@ -26,7 +26,10 @@ export function expectNoFiles(paths: string[]): void {
 export function expectOutsideRealHermesHome(paths: string[]): void {
   const realHermesHome = path.join(os.homedir(), '.hermes');
   for (const filePath of paths) {
-    expect(path.resolve(filePath).startsWith(`${realHermesHome}${path.sep}`)).toBe(false);
+    const resolved = path.resolve(filePath);
+    // Reject both ~/.hermes itself and anything under it.
+    const insideRealHome = resolved === realHermesHome || resolved.startsWith(`${realHermesHome}${path.sep}`);
+    expect(insideRealHome, `${filePath} must not touch the real ~/.hermes`).toBe(false);
   }
 }
 
