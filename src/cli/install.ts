@@ -131,12 +131,14 @@ type DetectOptions = {
 type VerifyEndpointOptions = {
   endpoint: string;
   apiKey?: string;
-  fetchFn?: (url: string, init?: { headers?: Record<string, string> }) => Promise<{
+  fetchFn?: (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{
     ok: boolean;
     status: number;
     json?: () => Promise<unknown>;
     text?: () => Promise<string>;
   }>;
+  /** Per-request network timeout (ms). Default 10000. */
+  timeoutMs?: number;
 };
 
 type WaitEndpointOptions = VerifyEndpointOptions & {
@@ -567,8 +569,25 @@ export async function verifyAutoMemEndpoint(options: VerifyEndpointOptions): Pro
     return { ok: false, message: 'fetch is not available in this Node runtime.' };
   }
 
+  // Bound every probe with an AbortController (same pattern as automem-client.ts)
+  // so a hung endpoint (bad DNS, stalled connect, dead proxy) fails fast instead
+  // of blocking the installer at the verify step.
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const withTimeout = async (
+    url: string,
+    init?: { headers?: Record<string, string> }
+  ): Promise<{ ok: boolean; status: number; json?: () => Promise<unknown>; text?: () => Promise<string> }> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetchFn(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   try {
-    const health = await fetchFn(`${endpoint}/health`);
+    const health = await withTimeout(`${endpoint}/health`);
     if (!health.ok) {
       return { ok: false, message: `Health check failed with HTTP ${health.status}.` };
     }
@@ -596,7 +615,7 @@ export async function verifyAutoMemEndpoint(options: VerifyEndpointOptions): Pro
     }
 
     if (options.apiKey) {
-      const recall = await fetchFn(`${endpoint}/recall?limit=1`, {
+      const recall = await withTimeout(`${endpoint}/recall?limit=1`, {
         headers: {
           Authorization: `Bearer ${options.apiKey}`,
         },
@@ -608,7 +627,9 @@ export async function verifyAutoMemEndpoint(options: VerifyEndpointOptions): Pro
 
     return { ok: true };
   } catch (error) {
-    return { ok: false, message: `Could not reach AutoMem endpoint: ${(error as Error).message}` };
+    const err = error as Error;
+    const reason = err.name === 'AbortError' ? `timed out after ${timeoutMs / 1000}s` : err.message;
+    return { ok: false, message: `Could not reach AutoMem endpoint: ${reason}` };
   }
 }
 

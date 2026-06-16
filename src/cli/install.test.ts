@@ -491,6 +491,26 @@ describe('guided install helpers', () => {
     ]);
   });
 
+  it('fails fast with a clean message when the endpoint hangs (abort timeout)', async () => {
+    // A fetch that never resolves on its own, but rejects when the abort fires.
+    const hangingFetch = (_url: string, init?: { signal?: AbortSignal }) =>
+      new Promise<never>((_, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+
+    const result = await verifyAutoMemEndpoint({
+      endpoint: 'https://stalled.example',
+      fetchFn: hangingFetch,
+      timeoutMs: 20,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain('timed out');
+  });
+
   it('waits for a local endpoint to become healthy before continuing', async () => {
     let attempts = 0;
     const fetchFn = async () => {
