@@ -11,7 +11,7 @@ Migration note: if you previously had a local, gitignored `AGENTS.md`, delete it
 **Core Purpose:**
 - Translate MCP tool calls into AutoMem API requests
 - Provide memory management for AI assistants (storage, hybrid search, relationships)
-- Support Claude Code integration with session-recall and storage-nudge hooks
+- Support Claude Code integration with session-recall and opt-in storage-nudge hooks
 
 ## Build & Development
 
@@ -121,8 +121,9 @@ src/
 
 templates/
 ├── claude-code/
-│   ├── hooks/            # SessionStart recall prompt, Stop storage nudge, store tracker
-│   └── settings.json     # Default hook config (merged into ~/.claude/settings.json)
+│   ├── hooks/            # SessionStart recall prompt, store tracker, opt-in Stop storage nudge
+│   ├── settings.json     # Default (silent) hook config: SessionStart + PostToolUse only
+│   └── settings.stop-nudge.json  # Extra Stop-hook registration, merged in by --profile nudged
 ├── CLAUDE_CODE_INTEGRATION.md   # Complete hook system documentation
 └── CLAUDE_MD_MEMORY_RULES.md    # Memory rules template for ~/.claude/CLAUDE.md
 ```
@@ -151,21 +152,21 @@ The server exposes 6 tools to AI assistants. Several are mode-multiplexed — th
 
 Two install modes ship the same policy-generated behavior:
 
-- **Plugin (recommended for users):** the marketplace payload in `plugins/automem/` + the catalog at `.claude-plugin/marketplace.json`. Bundles the MCP server (plugin tool names are namespaced: `mcp__plugin_automem_memory__*`), the three hooks via `hooks/hooks.json`, the memory-management skill, and slash commands. `userConfig` in `plugin.json` prompts for the API URL/key at enable time; Claude Code exports the answers as `CLAUDE_PLUGIN_OPTION_*` env vars, which the server resolves in `src/env.ts` (between `AUTOMEM_API_URL` and the deprecated `AUTOMEM_ENDPOINT` — never wire them through the plugin's `.mcp.json` env, see `tests/installer/plugin-mcp-config.test.ts`).
-- **CLI installer (settings-level alternative + migration path):** the `claude-code` command writes hook scripts into `~/.claude/hooks/` and merges hook registrations plus exactly the six `mcp__memory__*` permissions into `~/.claude/settings.json` — nothing else (no `Bash(*)` grants, env, or deny/ask blocks; re-runs strip the retired hook-era grants via `RETIRED_PERMISSIONS`).
+- **Plugin (recommended for users):** the marketplace payload in `plugins/automem/` + the catalog at `.claude-plugin/marketplace.json`. Bundles the MCP server (plugin tool names are namespaced: `mcp__plugin_automem_memory__*`), two hooks via `hooks/hooks.json` (SessionStart recall + PostToolUse store tracker — the Stop nudge is not registered by the plugin), the memory-management skill, and slash commands. `userConfig` in `plugin.json` prompts for the API URL/key at enable time; Claude Code exports the answers as `CLAUDE_PLUGIN_OPTION_*` env vars, which the server resolves in `src/env.ts` (between `AUTOMEM_API_URL` and the deprecated `AUTOMEM_ENDPOINT` — never wire them through the plugin's `.mcp.json` env, see `tests/installer/plugin-mcp-config.test.ts`).
+- **CLI installer (settings-level alternative + migration path):** the `claude-code` command writes hook scripts into `~/.claude/hooks/` and merges hook registrations plus exactly the six `mcp__memory__*` permissions into `~/.claude/settings.json` — nothing else (no `Bash(*)` grants, env, or deny/ask blocks; re-runs strip the retired hook-era grants via `RETIRED_PERMISSIONS`). By default (`--profile silent`) it registers only SessionStart + PostToolUse; pass `--profile nudged` to also merge `settings.stop-nudge.json` and register the Stop storage-nudge hook.
 
-The hooks are built around LLM-judged storage — the model decides what is durable; hooks only prompt and observe, never write memories themselves:
-- **SessionStart** (`automem-session-start.sh`): injects the two-phase recall prompt
+The hooks are built around LLM-judged storage — the model decides what is durable; hooks only prompt and observe, never write memories themselves. The default install registers two hooks; the Stop nudge is opt-in (see below):
+- **SessionStart** (`automem-session-start.sh`): injects the two-phase recall prompt plus in-turn recall→store→verify→associate guidance for normal work
 - **PostToolUse** on `mcp__.*__store_memory` (`automem-track-store.sh`): writes a per-session sentinel recording that a store happened
-- **Stop** (`automem-stop-nudge.sh`): if no store happened this session AND the transcript shows a substantive session (≥5 human prompts, counted from `transcript_path` excluding tool-result and meta entries), emits a one-line `hookSpecificOutput.additionalContext` (with the required `hookEventName`) nudging Claude once to store durable facts — or close tersely. Below the threshold the hook exits without burning its once-per-session sentinel, so it can still fire later in the same session. Note: Claude Code renders Stop-hook `additionalContext` as a visible "Stop hook feedback" block and rewakes Claude for one closing turn — there is no silent variant (`suppressOutput: true` only hides the hook's raw stdout, verified empirically on 2.1.175). The one-line nudge + substantive-session gate exist to keep that visible cost rare.
+- **Stop** (`automem-stop-nudge.sh`) — **opt-in, not registered by default**: added only by the CLI installer's `--profile nudged` (the plugin never registers it; the script is still bundled but inert). When registered, it fires at most once per session, and only if no store happened AND the transcript shows a substantive session (≥5 human prompts, counted from `transcript_path` excluding tool-result and meta entries); it then emits a one-line, neutral-factual `hookSpecificOutput.additionalContext` (with the required `hookEventName`) noting nothing has been stored and listing durable vs non-durable candidates. Below the threshold it exits without burning its once-per-session sentinel, so it can still fire later in the same session. It is opt-in because Claude Code renders Stop-hook `additionalContext` as a visible "Stop hook feedback" block and rewakes Claude for one closing turn — a firing Stop hook cannot be made silent (`suppressOutput: true` only hides the hook's raw stdout, verified empirically on 2.1.175); the default install keeps session end quiet by not registering it at all.
 
-The three installed hooks are pure bash+sed+grep — the integration no longer requires Python or jq.
+The installed hooks are pure bash+sed+grep — the integration no longer requires Python or jq.
 
 **Retired (auto-removed from existing installs on re-run, settings entries AND files):** the mechanical `capture-build-result.sh` / `capture-test-pattern.sh` / `capture-deployment.sh` PostToolUse hooks (templated "Build succeeded…" / "Deployed X to production…" one-liners were corpus noise that outranked real memories), the `session-memory.sh` Stop hook (#130) with its `process-session-memory.py` / `memory-filters.json` support chain, the queue Stop machinery (`queue-cleanup.sh` + the npx queue drainer + `python-command.sh`) — nothing writes to the queue once the capture hooks are gone — and the four hook-era permission grants that existed only for that machinery (`Bash(python3:*)`, `Bash(python:*)`, `Bash(py:*)`, `Bash(jq:*)`; `RETIRED_PERMISSIONS` in `src/cli/claude-code.ts`). Generic grants earlier templates shipped (`Bash(git:*)`, `Edit`, …) are user-owned and never stripped. `smart-notify.sh` is no longer shipped but is never removed from user machines.
 
 **Modified Files:**
 - `~/.claude/settings.json` - Merges tool permissions and hook configurations
-- `~/.claude/hooks/*.sh` - Hook scripts (triggered by SessionStart, PostToolUse, Stop)
+- `~/.claude/hooks/*.sh` - Hook scripts (triggered by SessionStart and PostToolUse; plus Stop when installed via `--profile nudged`)
 
 **Key Implementation Details:**
 - `npx mcp-automem queue` remains as a manual-only CLI: it drains a JSONL queue file you point it at and stores entries via `store_memory`. No hook registers it.

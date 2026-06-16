@@ -34,7 +34,7 @@ Migrating from the CLI installer? Remove the settings-level install first (`npx 
 npx @verygoodplugins/mcp-automem claude-code
 ```
 
-For environments without plugin support, or when you want the hooks and permissions written directly into `~/.claude/`. This merges the six `mcp__memory__*` permissions and the three hook registrations into `~/.claude/settings.json` and installs the canonical hook scripts from `templates/claude-code/` — nothing else (no `Bash(*)` grants, no deny/ask blocks). Re-running it migrates legacy installs: retired hooks, retired script files, and the retired hook-era `Bash(python*/jq)` permission grants are removed automatically.
+For environments without plugin support, or when you want the hooks and permissions written directly into `~/.claude/`. This merges the six `mcp__memory__*` permissions and the default silent hook registrations into `~/.claude/settings.json` and installs the canonical hook scripts from `templates/claude-code/` — nothing else (no `Bash(*)` grants, no deny/ask blocks). Re-running it migrates legacy installs: retired hooks, retired script files, and the retired hook-era `Bash(python*/jq)` permission grants are removed automatically.
 
 Windows compatibility for either mode is limited to POSIX shell environments such as Git Bash, MSYS2, or WSL. Only `bash` must be available — the hooks are pure bash+sed, with no Python or jq dependency. This is not full native Windows hook support.
 
@@ -132,21 +132,45 @@ Claude stores significant events as they stabilize (per the memory rules):
 
 ### Session End
 
-If no `store_memory` call happened during the session (tracked by the
-`automem-track-store.sh` PostToolUse sentinel) and the session is substantive
-(≥5 human prompts in the transcript — tool results and meta entries don't
-count), the `automem-stop-nudge.sh` Stop hook asks Claude once, in a single
-line, to store any durable facts that emerged — a correction, a stabilized
-decision, an articulated pattern, or a debugging root cause. If nothing
-qualifies, Claude closes with one terse line; the nudge never blocks and
-explicitly forbids session-summary dumps.
+The default Claude Code integration is silent at session end. SessionStart
+guidance tells Claude to store, verify, and associate durable memories during
+normal work when the trigger fires; the PostToolUse tracker observes whether
+`store_memory` was called, but no default Stop hook injects feedback into the
+chat stream.
 
-Claude Code renders Stop-hook context as a visible "Stop hook feedback"
-block and gives Claude one extra closing turn — that display can't be
-suppressed, which is exactly why the nudge is one line and short sessions
-are never nudged at all. Below the threshold the hook also leaves its
-once-per-session sentinel unburned, so a session that grows past 5 prompts
-can still get its one nudge later.
+The optional `automem-stop-nudge.sh` Stop hook still ships for users who
+prefer an explicit end-of-session reminder. It is registered only by the CLI
+installer's nudged profile:
+
+```bash
+npx @verygoodplugins/mcp-automem claude-code --profile nudged
+```
+
+When enabled, if no `store_memory` call happened during the session (tracked
+by the `automem-track-store.sh` PostToolUse sentinel) and the session is
+substantive (≥5 human prompts in the transcript — tool results and meta
+entries don't count), the Stop hook sends Claude one neutral
+`additionalContext` line: no memory was stored, durable candidates are
+corrections/stabilized decisions/articulated patterns/root-cause insights,
+and session summaries/progress notes/confirmations/temporary output are not
+candidates. The nudge never blocks, but current Claude Code interactive UI may
+show a small "Stop hook feedback" block and an extra assistant response.
+
+The wording is deliberately factual instead of command-like. Claude Code's
+hook docs say `additionalContext` is hidden from chat, while also warning
+that out-of-band command phrasing may be surfaced by prompt-injection
+defenses. Maintainers can compare real host behavior with:
+
+```bash
+npm run probe:claude-stop-context
+```
+
+The probe runs three Stop-hook variants under temp project settings via
+`claude -p --verbose --output-format stream-json --include-hook-events --debug-file ...`:
+current imperative text, neutral factual context, and a plain-stdout negative
+control. Below the threshold the optional hook leaves its once-per-session
+sentinel unburned, so a session that grows past 5 prompts can still get its
+one nudge later.
 
 Historical note: earlier versions mechanically captured build/test/deploy
 results into a JSONL memory queue drained by Stop hooks. That whole pipeline

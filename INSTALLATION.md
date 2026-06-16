@@ -384,7 +384,7 @@ When you enable the plugin, Claude Code prompts for:
 - **AutoMem API URL** — e.g. `http://127.0.0.1:8001` or your Railway URL. Leave empty to use `AUTOMEM_API_URL` from your environment; falls back to `http://127.0.0.1:8001`.
 - **AutoMem API key** — only if your deployment requires auth. Stored in the system keychain.
 
-The plugin bundles the MCP server, the three integration hooks (SessionStart recall, store tracking, Stop storage nudge), and the memory-management skill plus `/memory-recall`, `/memory-store`, and `/memory-health` commands.
+The plugin bundles the MCP server, silent integration hooks (SessionStart recall plus store tracking), and the memory-management skill plus `/memory-recall`, `/memory-store`, and `/memory-health` commands. It does not register a Stop hook by default, so normal sessions end without AutoMem feedback in the chat stream.
 
 > Tool naming: Claude Code namespaces plugin MCP tools, so they appear as `mcp__plugin_automem_memory__store_memory` (etc.) rather than `mcp__memory__*`. Approve each tool on first use, or pre-approve by adding the `mcp__plugin_automem_memory__*` names to `permissions.allow` in `~/.claude/settings.json`.
 
@@ -423,9 +423,15 @@ Add AutoMem to `~/.claude.json`:
 npx @verygoodplugins/mcp-automem claude-code
 ```
 
-This installs the three hook scripts and merges the six `mcp__memory__*` tool permissions into `~/.claude/settings.json` so Claude can use memory tools without asking. That permission list is everything the installer grants — it no longer ships any `Bash(*)`, file-tool, or `deny`/`ask` entries.
+This installs the hook scripts and merges the six `mcp__memory__*` tool permissions into `~/.claude/settings.json` so Claude can use memory tools without asking. The default profile registers only SessionStart recall and PostToolUse store tracking; the Stop storage nudge script is installed but not registered, so session end stays silent. That permission list is everything the installer grants — it no longer ships any `Bash(*)`, file-tool, or `deny`/`ask` entries.
 
-Re-running setup is also the supported migration path for legacy installs: the merge removes retired hooks in every historical spelling — the old `session-memory.sh` Stop entry, the mechanical `capture-*.sh` PostToolUse hooks, and the queue Stop machinery (`queue-cleanup.sh` plus the `mcp-automem queue` drainer in its npx and bare-CLI forms; nothing writes to the queue anymore, so draining it per-session was dead weight). It also deletes the retired script files those hooks used from `~/.claude/hooks` and `~/.claude/scripts`, collapses duplicate hook registrations, and strips the four hook-era permission grants the old template shipped for that machinery (`Bash(python3:*)`, `Bash(python:*)`, `Bash(py:*)`, `Bash(jq:*)`). Generic grants like `Bash(git:*)` or `Edit` that earlier templates added are treated as user-owned and never touched — remove them yourself if you don't want them. Hooks the installer didn't author are never touched, and a backup (`settings.json.bak`, numbered if needed) is written before any change. The `mcp-automem queue` CLI remains available for manually draining a queue file.
+To opt back into the visible Stop storage nudge:
+
+```bash
+npx @verygoodplugins/mcp-automem claude-code --profile nudged
+```
+
+Re-running setup is also the supported migration path for legacy installs: the default silent merge removes the managed AutoMem Stop nudge from settings unless you pass `--profile nudged`, and removes retired hooks in every historical spelling — the old `session-memory.sh` Stop entry, the mechanical `capture-*.sh` PostToolUse hooks, and the queue Stop machinery (`queue-cleanup.sh` plus the `mcp-automem queue` drainer in its npx and bare-CLI forms; nothing writes to the queue anymore, so draining it per-session was dead weight). It also deletes the retired script files those hooks used from `~/.claude/hooks` and `~/.claude/scripts`, collapses duplicate hook registrations, and strips the four hook-era permission grants the old template shipped for that machinery (`Bash(python3:*)`, `Bash(python:*)`, `Bash(py:*)`, `Bash(jq:*)`). Generic grants like `Bash(git:*)` or `Edit` that earlier templates added are treated as user-owned and never touched — remove them yourself if you don't want them. Hooks the installer didn't author are never touched, and a backup (`settings.json.bak`, numbered if needed) is written before any change. The `mcp-automem queue` CLI remains available for manually draining a queue file.
 
 > Windows compatibility note: the Claude Code hook payload remains Bash-based. On Windows, use a POSIX shell environment such as Git Bash, MSYS2, or WSL with `bash` available (the hooks are pure bash+sed — Python and jq are no longer required). This is not full native Windows hook support yet.
 

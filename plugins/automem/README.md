@@ -45,9 +45,8 @@ Then install the plugin as above.
 2. **During Work (Store)** — Claude stores decisions, patterns, and fixes via
    the MCP tools as they stabilize; a PostToolUse hook tracks that a store
    happened
-3. **Session End (Storage nudge)** — if nothing was stored in a substantive
-   session (≥5 prompts), a Stop hook asks Claude once, in a single line,
-   whether any durable facts emerged; trivial sessions are never nudged
+3. **Silent Session End** — the plugin does not register a Stop hook by
+   default, so AutoMem does not add end-of-session feedback to the chat stream
 
 The hooks are pure bash+sed+grep — no Python or jq required.
 

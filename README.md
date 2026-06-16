@@ -19,6 +19,14 @@ npx @verygoodplugins/mcp-automem setup
 
 Your AI assistant now remembers everything. Forever. Across every conversation.
 
+<div align="center">
+
+https://github.com/user-attachments/assets/fd79112b-5158-4320-a054-8c18ab1ea314
+
+</div>
+
+<p align="center"><sub><b>The guided installer</b> — <code>npx @verygoodplugins/mcp-automem setup</code> walks you through local, hosted, or existing-endpoint setup.</sub></p>
+
 Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex**, **Google Antigravity** - any MCP-compatible AI platform.
 
 ## The Problem We Solve
@@ -145,7 +153,7 @@ The wizard will:
 /plugin install automem@verygoodplugins-mcp-automem
 ```
 
-Claude Code prompts for your AutoMem URL and API key at enable time, bundles the MCP server and hooks, and auto-updates. Prefer hooks and permissions written directly into `~/.claude/` instead? Run `npx @verygoodplugins/mcp-automem claude-code`.
+Claude Code prompts for your AutoMem URL and API key at enable time, bundles the MCP server and silent recall/store-tracking hooks, and auto-updates. Prefer hooks and permissions written directly into `~/.claude/` instead? Run `npx @verygoodplugins/mcp-automem claude-code`.
 
 On Windows, the hook payload assumes a POSIX shell environment such as Git Bash, MSYS2, or WSL — only `bash` is required (the hooks are pure bash+sed).
 
@@ -260,8 +268,8 @@ mcp__memory__recall_memory({
 
 #### Claude Code
 
-- ✅ **Native plugin** - MCP server, hooks, and skill in one `/plugin install`, with enable-time config prompts and auto-updates
-- ✅ **LLM-judged storage** - session-start recall prompt + stop-nudge hook; Claude decides what's durable
+- ✅ **Native plugin** - MCP server, silent hooks, and skill in one `/plugin install`, with enable-time config prompts and auto-updates
+- ✅ **LLM-judged storage** - session-start guidance nudges Claude to store, verify, and associate durable memories during normal work
 - ✅ **Memory rules** in CLAUDE.md guide Claude's memory usage
 
 #### Claude Desktop

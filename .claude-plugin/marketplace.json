@@ -13,7 +13,7 @@
     {
       "name": "automem",
       "source": "./plugins/automem",
-      "description": "Persistent memory for Claude Code: session-start recall, LLM-judged storage nudge, and the AutoMem MCP memory tools.",
+      "description": "Persistent memory for Claude Code: silent session-start recall, in-turn storage guidance, and the AutoMem MCP memory tools.",
       "version": "0.14.0",
       "author": {
         "name": "Very Good Plugins"
