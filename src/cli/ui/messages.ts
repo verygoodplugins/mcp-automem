@@ -21,11 +21,16 @@ export function sectionTitle(title: string, theme: Theme): string {
 
 export function makeLogger(stream: NodeJS.WriteStream = process.stdout): Logger {
   const theme = makeTheme(stream);
+  // Diagnostics go to stderr so human stdout and --json both stay clean. Style
+  // them with a stderr-derived theme — its TTY/color capabilities can differ from
+  // stdout (e.g. one is redirected), so reusing the stdout theme could leak ANSI
+  // into a pipe or drop color unexpectedly.
+  const errStream = process.stderr;
+  const errTheme = errStream === stream ? theme : makeTheme(errStream);
   return {
     info: (message) => stream.write(`${theme.style.dim(theme.symbol.arrow)} ${message}\n`),
     warn: (message) => stream.write(`${theme.style.yellow(theme.symbol.warn)} ${message}\n`),
-    // Diagnostics go to stderr so human stdout and --json both stay clean.
-    error: (message) => process.stderr.write(`${theme.style.red(theme.symbol.cross)} ${message}\n`),
+    error: (message) => errStream.write(`${errTheme.style.red(errTheme.symbol.cross)} ${message}\n`),
     ok: (message) => stream.write(`${theme.style.gold(theme.symbol.check)} ${message}\n`),
     raw: (text) => stream.write(text),
   };

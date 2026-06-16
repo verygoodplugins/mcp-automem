@@ -7,7 +7,7 @@ import {
   visibleLength,
 } from './theme.js';
 import { bulletList, keyValueRows, statusMark } from './table.js';
-import { badge, noteBox, sectionTitle } from './messages.js';
+import { badge, makeLogger, noteBox, sectionTitle } from './messages.js';
 import { renderSuccessCard, renderSuccessOutro } from './brand.js';
 import { escapeCliText, formatJson, joinCliList, truncateCliText } from './output.js';
 import { animationEnabled, revealHeroLine, revealLines } from './animate.js';
@@ -93,6 +93,26 @@ describe('ui/messages', () => {
     expect(badge('verify', theme, 'dim')).toBe('[verify]');
     expect(badge('automem', theme)).toBe('[automem]'); // inverseGold falls back to brackets
     expect(sectionTitle('Stages', theme)).toContain('Stages');
+  });
+
+  it('routes makeLogger diagnostics to stderr, everything else to the out stream', () => {
+    let outBuf = '';
+    let errBuf = '';
+    const fakeOut = { write: (s: string) => { outBuf += s; return true; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    const origErrWrite = process.stderr.write.bind(process.stderr);
+    (process.stderr as unknown as { write: (s: string) => boolean }).write = (s: string) => { errBuf += s; return true; };
+    try {
+      const logger = makeLogger(fakeOut);
+      logger.info('info-line');
+      logger.ok('ok-line');
+      logger.error('error-line');
+      expect(outBuf).toContain('info-line');
+      expect(outBuf).toContain('ok-line');
+      expect(outBuf).not.toContain('error-line'); // diagnostics never touch stdout
+      expect(errBuf).toContain('error-line');
+    } finally {
+      (process.stderr as unknown as { write: typeof origErrWrite }).write = origErrWrite;
+    }
   });
 
   it('frames a note box with rules', () => {
