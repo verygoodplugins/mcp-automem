@@ -56,6 +56,7 @@ describe('installer mascot UI', () => {
       })
     ).toBe(false);
 
+    // NO_COLOR / AUTOMEM_NO_ANIM disable the splash too, matching ui/animate.ts.
     expect(
       shouldUseInstallerAnimation({
         stdinIsTTY: true,
@@ -63,7 +64,16 @@ describe('installer mascot UI', () => {
         env: { NO_COLOR: '1' },
         args: [],
       })
-    ).toBe(true);
+    ).toBe(false);
+
+    expect(
+      shouldUseInstallerAnimation({
+        stdinIsTTY: true,
+        stdoutIsTTY: true,
+        env: { AUTOMEM_NO_ANIM: '1' },
+        args: [],
+      })
+    ).toBe(false);
 
     expect(
       shouldUseInstallerAnimation({

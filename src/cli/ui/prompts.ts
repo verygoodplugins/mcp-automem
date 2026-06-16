@@ -2,7 +2,7 @@
 // a hardcoded green with no theme hook, so we use inquirer (the Node equivalent
 // of Railway's `inquire`) and drive its theme from our shared palette — which
 // keeps NO_COLOR / non-TTY behavior consistent with the rest of the UI.
-import { checkbox, confirm, input, select } from '@inquirer/prompts';
+import { checkbox, confirm, input, password, select } from '@inquirer/prompts';
 import { ExitPromptError } from '@inquirer/core';
 import { makeTheme } from './theme.js';
 
@@ -74,6 +74,20 @@ export function promptText(opts: {
   return input({
     message: opts.message,
     default: opts.defaultValue,
+    validate: opts.validate,
+    theme: goldTheme(),
+  });
+}
+
+// Masked input for secrets (API keys/tokens) so they never echo in cleartext.
+// Empty input is allowed by default — callers treat blank as "no key required".
+export function promptPassword(opts: {
+  message: string;
+  validate?: (value: string) => boolean | string;
+}): Promise<string> {
+  return password({
+    message: opts.message,
+    mask: '•',
     validate: opts.validate,
     theme: goldTheme(),
   });

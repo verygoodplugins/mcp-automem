@@ -22,6 +22,7 @@ import {
   promptConfirm,
   promptMultiselect,
   promptSelect,
+  promptPassword,
   promptText,
 } from './ui/prompts.js';
 
@@ -940,8 +941,9 @@ async function resolveInteractiveOptions(
   }
 
   if ((target === 'cloud' || target === 'existing') && !apiKey) {
+    // Masked: the key must never echo in cleartext as the user types.
     const entered = (
-      await cancelable(promptText({
+      await cancelable(promptPassword({
         message: 'AutoMem API key (leave blank if this endpoint does not require one)',
       }))
     ).trim();

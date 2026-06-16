@@ -188,6 +188,9 @@ export function renderInstallerSplash(options: {
 export function shouldUseInstallerAnimation(options: AnimationOptions): boolean {
   if (!options.stdinIsTTY || !options.stdoutIsTTY) return false;
   if (options.env.CI || options.env.CODEX || options.env.CLAUDE_CODE) return false;
+  // Honor the same animation kill-switches as ui/animate.ts so NO_COLOR (and the
+  // explicit opt-out) reliably produce static, non-animated output.
+  if (options.env.NO_COLOR || options.env.AUTOMEM_NO_ANIM) return false;
   const modeIndex = options.args.indexOf('--mode');
   if (modeIndex >= 0 && options.args[modeIndex + 1] === 'agent') return false;
   if (options.args.includes('--mode=agent')) return false;
