@@ -11,17 +11,6 @@
         ]
       }
     ],
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$HOME/.claude/hooks/automem-stop-nudge.sh\""
-          }
-        ]
-      }
-    ],
     "SessionStart": [
       {
         "matcher": "startup|clear",

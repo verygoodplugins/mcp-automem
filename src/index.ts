@@ -145,7 +145,11 @@ CLAUDE CODE SETUP:
 
   Options:
     --dir <path>           Target directory (default: ~/.claude)
+    --profile <name>       silent (default) or nudged. 'nudged' also registers
+                           the Stop storage-nudge hook; 'silent' leaves the
+                           session end quiet (SessionStart recall + store tracker only)
     --dry-run             Show what would be changed
+    --quiet               Suppress output
     --yes, -y             Skip confirmation prompts
 
 MIGRATION:

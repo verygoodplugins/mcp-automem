@@ -536,7 +536,7 @@ describe('mergeSettings (legacy Stop-hook migration end-to-end)', () => {
     },
   });
 
-  it('migrates the real-machine Stop block: strips retired + queue hooks, keeps foreign hook, registers the nudge', () => {
+  it('migrates the real-machine Stop block: strips retired + queue hooks, keeps only foreign hooks by default', () => {
     const merged = mergeSettings(liveStopFixture(), realTemplate);
     const stop = merged.hooks.Stop;
     expect(stop).toHaveLength(1);
@@ -547,7 +547,7 @@ describe('mergeSettings (legacy Stop-hook migration end-to-end)', () => {
     expect(commands.join(' ')).not.toContain('queue-cleanup.sh');
     expect(commands.filter((c: string) => /mcp-automem\s+queue|@verygoodplugins\/mcp-automem queue/.test(c))).toHaveLength(0);
     expect(commands).toContain(`node "${home}/.claude/hooks/awtrix-event.js"`);
-    expect(commands).toContain('bash "$HOME/.claude/hooks/automem-stop-nudge.sh"');
+    expect(commands).not.toContain('bash "$HOME/.claude/hooks/automem-stop-nudge.sh"');
   });
 
   it('is idempotent over the legacy fixture', () => {
@@ -568,10 +568,11 @@ describe('mergeSettings (legacy Stop-hook migration end-to-end)', () => {
     expect(merged.hooks.SubagentStop).toBeUndefined();
   });
 
-  // Mechanical build/test/deploy capture retired in favor of the LLM-judged
-  // stop nudge: a pre-switch install (wrapped + legacy spellings) must come
-  // out captureless with the nudge + tracker registered.
-  it('strips retired capture hooks and registers the stop-nudge replacement', () => {
+  // Mechanical build/test/deploy capture retired in favor of LLM-judged
+  // in-turn storage. A pre-switch install (wrapped + legacy spellings) must
+  // come out captureless with store tracking registered, but no default Stop
+  // nudge.
+  it('strips retired capture hooks and does not register the Stop nudge by default', () => {
     const settings = {
       hooks: {
         PostToolUse: [
@@ -602,8 +603,8 @@ describe('mergeSettings (legacy Stop-hook migration end-to-end)', () => {
     expect(allCommands.join(' ')).not.toContain('queue-cleanup.sh');
     // Foreign user hook survives.
     expect(allCommands).toContain(`node "${home}/.claude/hooks/awtrix-event.js"`);
-    // Replacement architecture is registered from the template.
-    expect(allCommands).toContain('bash "$HOME/.claude/hooks/automem-stop-nudge.sh"');
+    // Silent default architecture is registered from the template.
+    expect(allCommands).not.toContain('bash "$HOME/.claude/hooks/automem-stop-nudge.sh"');
     expect(allCommands).toContain('bash "$HOME/.claude/hooks/automem-track-store.sh"');
   });
 });

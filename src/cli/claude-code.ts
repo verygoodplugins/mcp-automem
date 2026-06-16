@@ -8,11 +8,14 @@ interface ClaudeCodeSetupOptions {
   dryRun?: boolean;
   yes?: boolean;
   quiet?: boolean;
+  profile?: 'silent' | 'nudged';
 }
 
 const TEMPLATE_ROOT = path.resolve(
   fileURLToPath(new URL('../../templates/claude-code', import.meta.url))
 );
+const DEFAULT_SETTINGS_TEMPLATE = 'settings.json';
+const STOP_NUDGE_SETTINGS_TEMPLATE = 'settings.stop-nudge.json';
 const HOOK_SCRIPTS = [
   'automem-session-start.sh',
   'automem-stop-nudge.sh',
@@ -564,9 +567,26 @@ function removeRetiredFiles(targetDir: string, options: ClaudeCodeSetupOptions) 
   }
 }
 
-function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
-  const templateSettingsPath = path.join(TEMPLATE_ROOT, 'settings.json');
+function loadTemplateSettings(profile: ClaudeCodeSetupOptions['profile'] = 'silent') {
+  const templateSettingsPath = path.join(TEMPLATE_ROOT, DEFAULT_SETTINGS_TEMPLATE);
   const templateSettings = JSON.parse(fs.readFileSync(templateSettingsPath, 'utf8'));
+  if (profile !== 'nudged') {
+    return templateSettings;
+  }
+
+  const stopNudgeTemplatePath = path.join(TEMPLATE_ROOT, STOP_NUDGE_SETTINGS_TEMPLATE);
+  const stopNudgeSettings = JSON.parse(fs.readFileSync(stopNudgeTemplatePath, 'utf8'));
+  return {
+    ...templateSettings,
+    hooks: {
+      ...(templateSettings.hooks ?? {}),
+      ...(stopNudgeSettings.hooks ?? {}),
+    },
+  };
+}
+
+function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
+  const templateSettings = loadTemplateSettings(options.profile);
   const targetPath = path.join(targetDir, 'settings.json');
 
   if (!fs.existsSync(targetPath)) {
@@ -615,7 +635,7 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   );
   if (removedCapture.length > 0) {
     log(
-      `migrated: removed retired capture hooks (${removedCapture.join(', ')}) — storage is now LLM-judged via automem-stop-nudge.sh`,
+      `migrated: removed retired capture hooks (${removedCapture.join(', ')}) — storage is now LLM-judged during normal work; Stop nudge is opt-in`,
       options.quiet
     );
   }
@@ -658,6 +678,15 @@ function parseClaudeArgs(args: string[]): ClaudeCodeSetupOptions {
       case '--quiet':
         options.quiet = true;
         break;
+      case '--profile': {
+        const profile = args[i + 1];
+        if (profile !== 'silent' && profile !== 'nudged') {
+          throw new Error('--profile must be "silent" or "nudged"');
+        }
+        options.profile = profile;
+        i += 1;
+        break;
+      }
       default:
         break;
     }
@@ -669,6 +698,7 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
   const options: ClaudeCodeSetupOptions = {
     ...cliOptions,
     targetDir: cliOptions.targetDir ?? path.join(os.homedir(), '.claude'),
+    profile: cliOptions.profile ?? 'silent',
   };
 
   const targetDir = options.targetDir ?? path.join(os.homedir(), '.claude');
@@ -689,7 +719,12 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
   removeRetiredFiles(targetDir, options);
 
   log('', options.quiet);
-  log('✓ Hook scripts installed (session recall, store tracking, stop nudge)', options.quiet);
+  log(
+    options.profile === 'nudged'
+      ? '✓ Hook scripts installed (session recall, store tracking, opt-in stop nudge)'
+      : '✓ Hook scripts installed (session recall, store tracking; Stop nudge is opt-in)',
+    options.quiet
+  );
   log('✓ MCP permissions and hooks added to settings.json', options.quiet);
   log('', options.quiet);
   log('Next steps:', options.quiet);

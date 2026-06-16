@@ -45,8 +45,19 @@ function shippedCommands(configPath: string): string[] {
   return commands;
 }
 
+function shippedHookEvents(configPath: string): string[] {
+  const config = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, configPath), 'utf8')
+  ) as HookConfig;
+  return Object.keys(config.hooks ?? {});
+}
+
 describe.each(CONFIGS)('%s', (configPath) => {
   const commands = shippedCommands(configPath);
+
+  it('does not register the Stop nudge by default', () => {
+    expect(shippedHookEvents(configPath)).not.toContain('Stop');
+  });
 
   it('does not reference the retired session-memory.sh', () => {
     expect(commands.join('\n')).not.toContain('session-memory.sh');

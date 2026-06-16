@@ -70,7 +70,17 @@ describe('installer permission hygiene', () => {
     expect(settings.env).toBeUndefined();
     expect(settings.permissions?.deny).toBeUndefined();
     expect(settings.permissions?.ask).toBeUndefined();
-    // The three hooks still register.
+    // Default profile is silent at session end: no Stop hook registration.
+    expect(Object.keys(settings.hooks ?? {}).sort()).toEqual([
+      'PostToolUse',
+      'SessionStart',
+    ]);
+  });
+
+  it('nudged profile opts back into the Stop storage nudge', async () => {
+    await applyClaudeCodeSetup({ targetDir, quiet: true, profile: 'nudged' });
+
+    const settings = readSettings();
     expect(Object.keys(settings.hooks ?? {}).sort()).toEqual([
       'PostToolUse',
       'SessionStart',
