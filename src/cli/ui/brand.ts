@@ -8,7 +8,9 @@ const TAGLINE = "your agents' memory, everywhere";
 // plain/non-color stream it returns nothing so it never clutters piped output.
 export function renderWorkingMascot(stream: NodeJS.WriteStream = process.stdout): string {
   const theme = makeTheme(stream);
-  if (!theme.color) return '';
+  // The mascot is Unicode box art — skip it entirely on plain/ASCII streams so it
+  // never renders as mojibake (and stays clean in pipes).
+  if (!theme.color || !theme.unicode) return '';
   return `\n${renderMascot({ state: 'working', color: theme.color, pct: 66 })}\n`;
 }
 
@@ -21,7 +23,9 @@ export function renderBrandHeader(
   options: { compact?: boolean } = {}
 ): string {
   const theme = makeTheme(stream);
-  if (options.compact || theme.width < 60 || !theme.color) {
+  // The wide header's mascot is Unicode box art — collapse to the one-line badge
+  // when unicode is off (ASCII/dumb terminals) as well as the existing cases.
+  if (options.compact || theme.width < 60 || !theme.color || !theme.unicode) {
     return `${badge('automem', theme)} ${theme.style.bold('AutoMem')} ${theme.style.dim(TAGLINE)}\n`;
   }
   return [

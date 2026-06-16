@@ -884,7 +884,7 @@ export function renderInstallPlan(
   }
 
   if (writesFiles) {
-    out.push('', `  ${theme.style.dim('backups → each changed file keeps a .bak copy')}`);
+    out.push('', `  ${theme.style.dim(`backups ${theme.symbol.arrow} each changed file keeps a .bak copy`)}`);
   }
 
   return out.join('\n');
@@ -1087,12 +1087,15 @@ export async function runInstallCommand(args: string[] = []): Promise<void> {
   const hermesModeExplicit = argsSpecifyHermesMode(args);
   const claudeCodeModeExplicit = argsSpecifyClaudeCodeMode(args);
 
-  const animate = shouldUseInstallerAnimation({
-    stdinIsTTY: Boolean(process.stdin.isTTY),
-    stdoutIsTTY: Boolean(process.stdout.isTTY),
-    env: process.env,
-    args,
-  });
+  // The splash is Unicode mascot art, so only animate when the terminal can
+  // render unicode — otherwise fall through to the plain one-line brand header.
+  const animate =
+    shouldUseInstallerAnimation({
+      stdinIsTTY: Boolean(process.stdin.isTTY),
+      stdoutIsTTY: Boolean(process.stdout.isTTY),
+      env: process.env,
+      args,
+    }) && makeTheme(process.stdout).unicode;
   await playInstallerSplash({ enabled: animate, color: !process.env.NO_COLOR });
   // The animated splash only fires on an interactive TTY; everywhere else lead
   // with a one-line branded header so dry-runs and pipes still identify the tool.
