@@ -50,6 +50,12 @@ The same values can be passed as `AUTOMEM_*` environment variables.
 > Without a TTY and without `--yes`/`--dry-run`, `install` prints the review
 > plan and stops without writing — re-run with `--yes` to apply.
 
+**Removing AutoMem:** uninstall is per-agent —
+`npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes>`
+(add `--clean-all` to also drop the MCP server config). OpenClaw owns its own
+plugin lifecycle, so remove the AutoMem plugin from OpenClaw directly with
+`openclaw plugins uninstall automem` rather than the `uninstall` command above.
+
 ### Manual setup
 
 Prefer to do it by hand? Follow these two steps:

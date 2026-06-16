@@ -55,6 +55,12 @@ jobs:
         run: npm run test:coverage
         continue-on-error: true
 
+      # Headless installer e2e matrix (builds+packs a tarball, runs install/uninstall
+      # scenarios against an in-process mock — no docker, no node-pty, no network).
+      # Gates the risky write/abort/idempotency paths the unit tests don't reach.
+      - name: E2E install scenarios
+        run: npm run test:e2e
+
   hooks-windows:
     name: Hook commands (windows-latest)
     runs-on: windows-latest
