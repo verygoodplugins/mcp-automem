@@ -48,9 +48,11 @@ const SPEC = `file:${TARBALL}`;
 const NPM_CACHE = path.join(HARNESS, 'npm-cache');
 const ART = path.join(HARNESS, 'artifacts', 'matrix');
 const SANDBOX_ROOT = path.join(HARNESS, 'sandboxes');
-// The website install.sh (curl|sh entrypoint) lives in a SIBLING repo. Default to the
-// conventional sibling checkout; override with AUTOMEM_INSTALL_SH. When absent, the
-// website-bootstrap scenario is skipped (the rest of the matrix still runs).
+// The website install.sh (curl|sh entrypoint) lives in the automem-website repo,
+// checked out under the shared workspace root — two levels up from this repo (which
+// sits under <workspace>/mcp-servers/), i.e. <workspace>/automem-website/. Override
+// with AUTOMEM_INSTALL_SH. When absent, the website-bootstrap scenario is skipped
+// (the rest of the matrix still runs).
 const INSTALL_SH = process.env.AUTOMEM_INSTALL_SH ||
   path.resolve(REPO_ROOT, '..', '..', 'automem-website', 'public', 'install.sh');
 // The website-bootstrap scenario runs `npx -y file:<tarball>` TWICE (install.sh

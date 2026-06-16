@@ -71,7 +71,7 @@ Machine-generated evidence is written to
 | `SKIP_BUILD` | `0` | `1` reuses the staged tarball (skips `npm run build` + `npm pack`). |
 | `AUTOMEM_REPO_ROOT` | two levels up from `tests/e2e/` | The installer repo to build/pack and resolve the built bin from. |
 | `AUTOMEM_E2E_SCRATCH` | `/tmp/automem-installer-harness` | Scratch root, **outside** the repo (tarball, sandboxes, artifacts). |
-| `AUTOMEM_INSTALL_SH` | sibling `automem-website/public/install.sh` | The website bootstrap script. If absent, the `website-bootstrap-install-sh` scenario is **skipped** (not failed) and the rest of the matrix still runs. |
+| `AUTOMEM_INSTALL_SH` | `automem-website/public/install.sh` under the workspace root (two levels up — this repo lives under `<workspace>/mcp-servers/`) | The website bootstrap script. If absent, the `website-bootstrap-install-sh` scenario is **skipped** (not failed) and the rest of the matrix still runs. |
 | `AUTOMEM_PACKAGE_SPEC` | `file:<staged tarball>` | The `npx` package spec under test. |
 
 ## Scenarios (11)

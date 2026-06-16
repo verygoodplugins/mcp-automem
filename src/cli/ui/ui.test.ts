@@ -12,6 +12,7 @@ import { renderSuccessCard, renderSuccessOutro } from './brand.js';
 import { escapeCliText, formatJson, joinCliList, truncateCliText } from './output.js';
 import { animationEnabled, revealHeroLine, revealLines } from './animate.js';
 import { startChecklist } from './checklist.js';
+import { startSpinner } from './tasks.js';
 import { WORDMARK_WIDTH, centerBlock, centerLine } from '../install-ui.js';
 
 const stream = process.stdout;
@@ -167,6 +168,24 @@ describe('ui/checklist', () => {
     expect(out).toContain('Write .env');
     expect(out).not.toContain('\x1b[?25l'); // no hide-cursor / redraw region on a non-TTY
     expect(out).not.toContain('\x1b[2K'); // no clear-line redraws
+  });
+});
+
+describe('ui/tasks', () => {
+  it('uses ASCII spinner frames when unicode is off', () => {
+    const prev = process.env.AUTOMEM_ASCII;
+    process.env.AUTOMEM_ASCII = '1';
+    try {
+      let out = '';
+      const fake = { write: (s: string) => { out += s; }, isTTY: true, columns: 80 } as unknown as NodeJS.WriteStream;
+      const sp = startSpinner('Working', fake);
+      sp.stop('Done');
+      expect(out).not.toContain('◐'); // never a unicode frame
+      expect(/[-\\|/]/.test(out)).toBe(true); // an ascii frame was rendered
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMEM_ASCII;
+      else process.env.AUTOMEM_ASCII = prev;
+    }
   });
 });
 
