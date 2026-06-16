@@ -433,6 +433,22 @@ describe('guided install helpers', () => {
         environment
       )
     ).toEqual([]);
+
+    // Endpoint-only run: noAgentInstall is false but no agents were selected, so
+    // there is no npx command to honor — npm must not be required.
+    expect(
+      validateInstallPrerequisites(
+        {
+          target: 'existing',
+          clients: [],
+          hermesMode: 'mcp',
+          dryRun: false,
+          yes: true,
+          noAgentInstall: false,
+        },
+        environment
+      )
+    ).toEqual([]);
   });
 
   it('verifies health and authenticated recall with bearer auth', async () => {

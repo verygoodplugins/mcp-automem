@@ -189,17 +189,21 @@ async function run(scenario) {
       }
     }
     await Promise.race([exited, sleep(10000)]);
+    // A null exitCode means the installer never exited within the race window —
+    // treat that as a failure (a hang/regression), not a pass.
+    const timedOut = exitCode === null;
     const out = strip(buf);
     const missing = (scenario.expect || []).filter((re) => !re.test(out));
     const unexpected = (scenario.notExpect || []).filter((re) => re.test(out));
-    const ok = missing.length === 0 && unexpected.length === 0 && (exitCode === 0 || exitCode === null);
+    const ok = !timedOut && exitCode === 0 && missing.length === 0 && unexpected.length === 0;
     return {
       name: scenario.name,
       ok,
       exitCode,
+      timedOut,
       missing: missing.map((r) => r.source),
       unexpected: unexpected.map((r) => r.source),
-      tail: ok ? '' : out.slice(-700),
+      tail: ok ? '' : `${timedOut ? '[did not exit within 10s]\n' : ''}${out.slice(-700)}`,
     };
   } finally {
     try {
@@ -231,6 +235,7 @@ for (const scenario of selected) {
   } else {
     failed += 1;
     console.log('FAIL');
+    if (result.timedOut) console.log('   timed out: installer did not exit within 10s');
     if (result.missing.length) console.log(`   missing: ${result.missing.join(' | ')}`);
     if (result.unexpected.length) console.log(`   unexpected: ${result.unexpected.join(' | ')}`);
     if (result.exitCode != null && result.exitCode !== 0) console.log(`   exit: ${result.exitCode}`);

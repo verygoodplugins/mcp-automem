@@ -541,7 +541,11 @@ export function validateInstallPrerequisites(
 ): string[] {
   const missing: string[] = [];
 
-  if (!options.noAgentInstall && !environment.prerequisites.npm) {
+  // npm is only needed for the agent installs (their configs launch the server via
+  // `npx`). An endpoint-only run (no agents selected) just verifies + writes .env,
+  // so it must not be blocked on npm.
+  const installingAgents = !options.noAgentInstall && options.clients.length > 0;
+  if (installingAgents && !environment.prerequisites.npm) {
     missing.push('npm');
   }
   if (options.target === 'local') {
