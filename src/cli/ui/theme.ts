@@ -45,6 +45,8 @@ export type Theme = {
     arrow: string;
     line: string;
   };
+  /** OSC 8 terminal hyperlink — clickable where supported, plain text elsewhere. */
+  link(url: string, label?: string): string;
 };
 
 const ANSI = {
@@ -122,12 +124,19 @@ export function makeTheme(
       arrow: unicode ? '→' : '->',
       line: unicode ? '─' : '-',
     },
+    link: hyperlink,
   };
 }
 
 export function stripAnsi(value: string): string {
-  // eslint-disable-next-line no-control-regex -- intentional: matches the ANSI escape (ESC) sequence to strip it
-  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+  // Remove OSC sequences (e.g. hyperlinks OSC 8 ... ST, and other OSC terminated by BEL or ST)
+  // then classic CSI/ESC sequences. This keeps visibleLength and any machine logs correct
+  // when hyperlinks or other OSC are present in themed output.
+  return value
+    // eslint-disable-next-line no-control-regex -- intentional: OSC hyperlink/escape sequences (see visibleLength + harness contract)
+    .replace(/\x1B][^\x07\x1B]*(\x07|\x1B\\)/g, '')
+    // eslint-disable-next-line no-control-regex -- intentional: classic ESC/CSI sequences
+    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
 }
 
 export function visibleLength(value: string): number {
@@ -142,4 +151,38 @@ export function padEndVisible(value: string, target: number): string {
 
 export function repeatVisible(char: string, count: number): string {
   return Array.from({ length: Math.max(0, count) }, () => char).join('');
+}
+
+/**
+ * Terminal hyperlink (OSC 8).
+ * Renders as a clickable link in modern terminals (iTerm2, VS Code, Windows Terminal, recent macOS Terminal, etc.).
+ * Gracefully degrades everywhere else: stripAnsi/visibleLength turn it into the plain label text.
+ *
+ * Safety: only emits OSC for well-formed http/https URLs. Anything else (placeholders like
+ * "<prompted>", non-URLs, or values containing control characters) is returned as plain text
+ * to avoid terminal escape injection or broken output. Callers should prefer `theme.link(...)`
+ * for automatic capability awareness.
+ */
+export function hyperlink(url: string, label?: string): string {
+  const rawText = label && label.length > 0 ? label : url;
+
+  let safeUrl: string;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      return rawText;
+    }
+    safeUrl = u.href; // normalized + percent-encoded
+  } catch {
+    return rawText;
+  }
+
+  // Explicitly strip control characters from both URL (already done by URL) and label/text
+  const stripControls = (s: string) =>
+    s.replace(/[\x00-\x1F\x7F]/g, (c) => encodeURIComponent(c));
+
+  const safeText = stripControls(rawText);
+
+  // OSC 8 ; ; <url> ST <text> OSC 8 ; ; ST
+  return `\x1b]8;;${safeUrl}\x1b\\${safeText}\x1b]8;;\x1b\\`;
 }
