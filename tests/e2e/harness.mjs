@@ -16,7 +16,7 @@
 // sandboxes, npm cache, artifacts) lives OUTSIDE the repo so it never pollutes git.
 // Env overrides: AUTOMEM_REPO_ROOT, AUTOMEM_E2E_SCRATCH, AUTOMEM_INSTALL_SH.
 import { spawn } from 'node:child_process';
-import { mkdtemp, readdir, readFile, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, mkdir, writeFile, chmod, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -72,6 +72,21 @@ function baseEnv(home) {
     NO_COLOR: '1',
     TMPDIR: process.env.TMPDIR || '/tmp',
   };
+}
+
+// Stub-bin so claude-presence is deterministic regardless of the host: the
+// installer's plugin path auto-installs via `claude plugin …` when `claude` is on
+// PATH, else falls back to printed /plugin commands. By default we shadow any real
+// `claude` with a stub that exits non-zero (commandExists -> absent). A scenario can
+// pass a recording stub to exercise the auto-install path. Created before the home
+// snapshot so the bin never counts as a "new" file.
+async function setupStubBin(home, claudeStub) {
+  const binDir = path.join(home, '.e2e-bin');
+  await mkdir(binDir, { recursive: true });
+  const claudePath = path.join(binDir, 'claude');
+  await writeFile(claudePath, claudeStub || '#!/bin/sh\nexit 127\n', { mode: 0o755 });
+  await chmod(claudePath, 0o755);
+  return binDir;
 }
 
 function runProcess(cmd, argv, { cwd, env }) {
@@ -148,6 +163,8 @@ function A(name, ok, detail = '') {
 
 async function runStep(step, ctx) {
   const env = { ...baseEnv(ctx.home), ...(step.env || {}) };
+  // Prepend the per-scenario stub bin so the controlled `claude` shadows any real one.
+  if (ctx.binDir) env.PATH = `${ctx.binDir}${path.delimiter}${env.PATH}`;
   if (step.kind === 'bootstrap') {
     env.AUTOMEM_PACKAGE_SPEC = SPEC;
     return runProcess('sh', [INSTALL_SH], { cwd: ctx.cwd, env });
@@ -254,9 +271,10 @@ const SCENARIOS = [
   },
 
   {
-    name: 'claude-plugin-default',
-    description: 'Claude Code defaults to the recommended plugin: a guided manual step, not a ~/.claude write.',
+    name: 'claude-plugin-fallback',
+    description: 'Plugin mode with no `claude` on PATH falls back to the guided /plugin commands, not a ~/.claude write.',
     mock: { mode: 'healthy', expectToken: TOKEN },
+    // Default stub bin shadows any real claude with an exit-127 stub -> claude absent.
     steps: (ctx) => [
       {
         kind: 'direct',
@@ -270,10 +288,40 @@ const SCENARIOS = [
       r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
       const env = await readEnvFile(ctx.cwd);
       r.push(A('.env still written with endpoint', env && env.AUTOMEM_API_URL === ctx.mock.url));
-      r.push(A('no ~/.claude writes in plugin mode',
+      r.push(A('no ~/.claude writes in plugin fallback',
         !ctx.homeNew.some((f) => f.startsWith('.claude/')), ctx.homeNew.join(', ') || '(none)'));
       r.push(A('stdout surfaces the /plugin install command',
         /\/plugin install automem@verygoodplugins-mcp-automem/.test(last.stdout)));
+      return r;
+    },
+    findings: () => [],
+  },
+
+  {
+    name: 'claude-plugin-autoinstall',
+    description: 'Plugin mode with `claude` on PATH installs + configures the plugin via `claude plugin install --config`.',
+    mock: { mode: 'healthy', expectToken: TOKEN },
+    // Recording stub: claude is "present", logs every invocation, prints nothing for
+    // `marketplace list` (so the installer adds it), and exits 0 for every call.
+    claudeStub: '#!/bin/sh\necho "$@" >> "$HOME/.e2e-claude-calls.log"\nexit 0\n',
+    steps: (ctx) => [
+      {
+        kind: 'direct',
+        argv: ['install', '--yes', '--target', 'existing', '--endpoint', ctx.mock.url,
+          '--api-key', TOKEN, '--clients', 'claude-code'],
+      },
+    ],
+    assert: async (ctx) => {
+      const r = [];
+      const last = ctx.steps.at(-1);
+      r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
+      const log = await readFile(path.join(ctx.home, '.e2e-claude-calls.log'), 'utf8').catch(() => '');
+      r.push(A('ran `claude plugin marketplace add verygoodplugins/mcp-automem`',
+        /plugin marketplace add verygoodplugins\/mcp-automem/.test(log), log.trim() || '(no calls)'));
+      r.push(A('ran `claude plugin install` threading --config api_url',
+        new RegExp(`plugin install automem@verygoodplugins-mcp-automem .*--config api_url=${ctx.mock.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(log)));
+      r.push(A('threaded the api key via --config api_key', /--config api_key=mocktoken-e2e/.test(log)));
+      r.push(A('did NOT print the manual /plugin command', !/\/plugin install/.test(last.stdout)));
       return r;
     },
     findings: () => [],
@@ -659,11 +707,13 @@ const SCENARIOS = [
 async function attemptScenario(scn) {
   const home = await mkdtemp(path.join(SANDBOX_ROOT, `${scn.name}.home.`));
   const cwd = await mkdtemp(path.join(SANDBOX_ROOT, `${scn.name}.cwd.`));
+  // Created before the home snapshot below so the stub bin isn't counted as new.
+  const binDir = await setupStubBin(home, scn.claudeStub);
   let mock = null;
   if (scn.mock) {
     mock = await createMock(scn.mock);
   }
-  const ctx = { name: scn.name, home, cwd, mock, steps: [] };
+  const ctx = { name: scn.name, home, cwd, mock, steps: [], binDir };
 
   const homeBefore = await listFiles(home);
   const cwdBefore = await listFiles(cwd);
