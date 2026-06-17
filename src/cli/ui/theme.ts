@@ -45,6 +45,8 @@ export type Theme = {
     arrow: string;
     line: string;
   };
+  /** OSC 8 terminal hyperlink — clickable where supported, plain text elsewhere. */
+  link(url: string, label?: string): string;
 };
 
 const ANSI = {
@@ -122,12 +124,18 @@ export function makeTheme(
       arrow: unicode ? '→' : '->',
       line: unicode ? '─' : '-',
     },
+    link: hyperlink,
   };
 }
 
 export function stripAnsi(value: string): string {
-  // eslint-disable-next-line no-control-regex -- intentional: matches the ANSI escape (ESC) sequence to strip it
-  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+  // Remove OSC sequences (e.g. hyperlinks OSC 8 ... ST, and other OSC terminated by BEL or ST)
+  // then classic CSI/ESC sequences. This keeps visibleLength and any machine logs correct
+  // when hyperlinks or other OSC are present in themed output.
+  // eslint-disable-next-line no-control-regex
+  return value
+    .replace(/\x1B][^\x07\x1B]*(\x07|\x1B\\)/g, '')
+    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
 }
 
 export function visibleLength(value: string): number {
@@ -142,4 +150,16 @@ export function padEndVisible(value: string, target: number): string {
 
 export function repeatVisible(char: string, count: number): string {
   return Array.from({ length: Math.max(0, count) }, () => char).join('');
+}
+
+/**
+ * Terminal hyperlink (OSC 8).
+ * Renders as a clickable link in modern terminals (iTerm2, VS Code, Windows Terminal, recent macOS Terminal, etc.).
+ * Gracefully degrades everywhere else: stripAnsi/visibleLength turn it into the plain label text.
+ * We emit the escapes unconditionally (harmless in pipes/CI); consumers can still wrap usage in `theme.color || theme.unicode` if desired.
+ */
+export function hyperlink(url: string, label?: string): string {
+  const text = label && label.length > 0 ? label : url;
+  // OSC 8 ; ; <url> ST <text> OSC 8 ; ; ST
+  return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
 }

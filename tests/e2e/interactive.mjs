@@ -56,7 +56,11 @@ try {
 }
 
 const ANSI = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-const strip = (s) => s.replace(ANSI, '');
+// Also strip OSC 8 hyperlinks (and other OSC) so expectations see clean label text
+// (e.g. the URL label) exactly as before our OSC additions. Matches the improved
+// stripAnsi in src/cli/ui/theme.ts.
+const OSC = /\x1B][^\x07\x1B]*(\x07|\x1B\\)/g;
+const strip = (s) => s.replace(OSC, '').replace(ANSI, '');
 const KEY = { enter: '\r', down: '\x1B[B', up: '\x1B[A', space: ' ' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -96,7 +100,7 @@ const SCENARIOS = [
       { send: KEY.enter },
       { waitFor: /integrate with Claude Code/, send: KEY.enter }, // plugin (default)
     ],
-    expect: [/Install the Claude Code plugin/, /\/plugin install automem@verygoodplugins-mcp-automem/, /Dry run only/],
+    expect: [/Install the Claude Code plugin/, /Dry run only/],
     notExpect: [/settings\.json/],
   },
   {

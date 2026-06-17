@@ -12,7 +12,7 @@ import { mergeEnvContent, writeFileWithBackup } from './host-toolkit.js';
 // Re-exported so existing importers (and install.test.ts) keep a stable path.
 export { formatEnvValue } from './host-toolkit.js';
 import { playInstallerSplash, shouldUseInstallerAnimation } from './install-ui.js';
-import { makeTheme } from './ui/theme.js';
+import { hyperlink, makeTheme } from './ui/theme.js';
 import { keyValueRows, type TableRow } from './ui/table.js';
 import { noteBox, sectionTitle } from './ui/messages.js';
 import { renderBrandHeader, renderSuccessCard, renderWorkingMascot } from './ui/brand.js';
@@ -226,6 +226,8 @@ type VerifyEndpointOptions = {
 type WaitEndpointOptions = VerifyEndpointOptions & {
   attempts?: number;
   intervalMs?: number;
+  /** Optional progress for live UIs (e.g. spinner label with attempt counter). */
+  onAttempt?: (attempt: number, total: number) => void;
 };
 
 type CommandRunner = (command: string, args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }) => void;
@@ -770,6 +772,7 @@ export async function waitForAutoMemEndpoint(
   };
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    options.onAttempt?.(attempt, attempts);
     last = await verifyAutoMemEndpoint({
       endpoint: options.endpoint,
       apiKey: options.apiKey,
@@ -987,7 +990,7 @@ function renderActionDetail(action: InstallAction, plan: InstallPlan, theme: Ren
   const endpoint = (plan.endpoint ?? '<prompted>').replace(/\/$/, '');
   switch (action.kind) {
     case 'verify-endpoint':
-      return [detail(`${endpoint}/health${plan.apiKeyProvided ? '  + auth probe' : ''}`)];
+      return [detail(`${theme.link(`${endpoint}/health`)}${plan.apiKeyProvided ? '  + auth probe' : ''}`)];
     case 'write-env':
       return [detail(`AUTOMEM_API_URL=${plan.endpoint ?? '<prompted>'}${plan.apiKeyProvided ? '  + API key' : ''}`)];
     case 'prepare-local':
@@ -1040,7 +1043,12 @@ export function renderInstallPlan(
     out.push(`  ${tagStyle(theme, action.kind)(`[${actionTag(action)}]`)} ${theme.style.bold(title)}`);
     out.push(...renderActionDetail(action, plan, theme));
     for (const cmd of action.commands ?? []) {
-      out.push(`     ${theme.style.gold('$')} ${cmd}`);
+      const displayed = cmd.replace(/(https?:\/\/\S+)/g, (u) => theme.link(u));
+      out.push(`     ${theme.style.gold('$')} ${displayed}`);
+    }
+    if (action.command && (action.kind === 'prepare-local' || action.kind === 'manual-step')) {
+      const displayed = action.command.replace(/(https?:\/\/\S+)/g, (u) => theme.link(u));
+      out.push(`     ${theme.style.gold('$')} ${displayed}`);
     }
     // One dim path line per file — no per-file backup line (mentioned once below).
     for (const filePath of action.paths) {
@@ -1084,8 +1092,8 @@ async function resolveInteractiveOptions(
     process.stdout.write(
       noteBox('Hosted setup', [
         'Deploy AutoMem on InstaPods or Railway first:',
-        'https://instapods.com/apps/automem/?ref=jack',
-        'https://railway.com/deploy/automem-ai-memory-service',
+        hyperlink('https://instapods.com/apps/automem/?ref=jack'),
+        hyperlink('https://railway.com/deploy/automem-ai-memory-service'),
       ])
     );
   }
@@ -1266,6 +1274,14 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
   const hermesModeExplicit = argsSpecifyHermesMode(args);
   const claudeCodeModeExplicit = argsSpecifyClaudeCodeMode(args);
 
+  // Friendly early signal of smart defaults (only in interactive TTY so it doesn't
+  // pollute dry-run previews or pipes).
+  if (interactive && environment.detectedClients.length > 0) {
+    const t = makeTheme(process.stdout);
+    const names = environment.detectedClients.map((c) => clientLabel(c.client)).join(', ');
+    process.stdout.write(`  ${t.style.dim(`Detected on this machine: ${names}`)}\n`);
+  }
+
   // The splash is Unicode mascot art, so only animate when the terminal can
   // render unicode — otherwise fall through to the plain one-line brand header.
   const animate =
@@ -1361,7 +1377,10 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       process.stdout.write(`  ${theme.style.gold(theme.symbol.check)} Local AutoMem server ready\n`);
 
       const spin = startSpinner('Waiting for AutoMem to come online…');
-      const ready = await waitForAutoMemEndpoint({ endpoint });
+      const ready = await waitForAutoMemEndpoint({
+        endpoint,
+        onAttempt: (n, total) => spin.update(`Waiting for AutoMem to come online… (${n}/${total})`),
+      });
       if (!ready.ok) {
         spin.error('AutoMem did not come online');
         throw new InstallError('AutoMem did not become healthy in time.', ready.message);
@@ -1465,7 +1484,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       throw applyErr;
     }
 
-    const nextSteps: string[] = [`endpoint  ${endpoint}`];
+    const nextSteps: string[] = [`endpoint  ${theme.link(endpoint)}`];
     // Only surface the manual /plugin commands when the auto-install didn't run or
     // didn't succeed — i.e. the `claude` binary was absent, or the install failed.
     const pluginAutoInstallFailed = agentFailures.some((failure) => failure.client === 'claude-code');
@@ -1499,6 +1518,17 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       lineBeatMs: 75,
       structuralBeatMs: 120,
     });
+
+    // Fast end-to-end verification (health + auth probe). Gives users immediate
+    // "it works" confidence with the done mascot vibe. Non-fatal; just nice flair.
+    if (interactive) {
+      const finalProbe = await verifyAutoMemEndpoint({ endpoint, apiKey });
+      if (finalProbe.ok) {
+        const t = makeTheme(process.stdout);
+        process.stdout.write(`\n${t.style.gold('✦')} ${t.style.dim('Connectivity + auth verified — memory graph is reachable.')}\n`);
+      }
+    }
+
     // A partial install (some agents needed a manual step) still completes the
     // rest, but exits non-zero so scripts/CI notice the follow-ups.
     if (agentFailures.length > 0) process.exitCode = 1;
