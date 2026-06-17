@@ -157,10 +157,23 @@ export function repeatVisible(char: string, count: number): string {
  * Terminal hyperlink (OSC 8).
  * Renders as a clickable link in modern terminals (iTerm2, VS Code, Windows Terminal, recent macOS Terminal, etc.).
  * Gracefully degrades everywhere else: stripAnsi/visibleLength turn it into the plain label text.
- * We emit the escapes unconditionally (harmless in pipes/CI); consumers can still wrap usage in `theme.color || theme.unicode` if desired.
+ *
+ * Safety: only emits OSC for well-formed http/https URLs. Anything else (placeholders like
+ * "<prompted>", non-URLs, or values containing control characters) is returned as plain text
+ * to avoid terminal escape injection or broken output. Callers should prefer `theme.link(...)`
+ * for automatic capability awareness.
  */
 export function hyperlink(url: string, label?: string): string {
   const text = label && label.length > 0 ? label : url;
+  // Only produce a real hyperlink for safe http(s) URLs.
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      return text;
+    }
+  } catch {
+    return text;
+  }
   // OSC 8 ; ; <url> ST <text> OSC 8 ; ; ST
   return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
 }

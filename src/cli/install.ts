@@ -12,7 +12,7 @@ import { mergeEnvContent, writeFileWithBackup } from './host-toolkit.js';
 // Re-exported so existing importers (and install.test.ts) keep a stable path.
 export { formatEnvValue } from './host-toolkit.js';
 import { playInstallerSplash, shouldUseInstallerAnimation } from './install-ui.js';
-import { hyperlink, makeTheme } from './ui/theme.js';
+import { makeTheme } from './ui/theme.js';
 import { keyValueRows, type TableRow } from './ui/table.js';
 import { noteBox, sectionTitle } from './ui/messages.js';
 import { renderBrandHeader, renderSuccessCard, renderWorkingMascot } from './ui/brand.js';
@@ -1089,11 +1089,12 @@ async function resolveInteractiveOptions(
   let localDir = parsed.localDir ?? defaultLocalDir(environment.homeDir);
 
   if (target === 'cloud') {
+    const th = makeTheme(process.stdout);
     process.stdout.write(
       noteBox('Hosted setup', [
         'Deploy AutoMem on InstaPods or Railway first:',
-        hyperlink('https://instapods.com/apps/automem/?ref=jack'),
-        hyperlink('https://railway.com/deploy/automem-ai-memory-service'),
+        th.link('https://instapods.com/apps/automem/?ref=jack'),
+        th.link('https://railway.com/deploy/automem-ai-memory-service'),
       ])
     );
   }
@@ -1274,9 +1275,9 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
   const hermesModeExplicit = argsSpecifyHermesMode(args);
   const claudeCodeModeExplicit = argsSpecifyClaudeCodeMode(args);
 
-  // Friendly early signal of smart defaults (only in interactive TTY so it doesn't
-  // pollute dry-run previews or pipes).
-  if (interactive && environment.detectedClients.length > 0) {
+  // Friendly early signal of smart defaults (only in interactive TTY and non-dry-run
+  // so it doesn't pollute dry-run previews or pipes).
+  if (interactive && !parsed.dryRun && environment.detectedClients.length > 0) {
     const t = makeTheme(process.stdout);
     const names = environment.detectedClients.map((c) => clientLabel(c.client)).join(', ');
     process.stdout.write(`  ${t.style.dim(`Detected on this machine: ${names}`)}\n`);
@@ -1525,7 +1526,8 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       const finalProbe = await verifyAutoMemEndpoint({ endpoint, apiKey });
       if (finalProbe.ok) {
         const t = makeTheme(process.stdout);
-        process.stdout.write(`\n${t.style.gold('✦')} ${t.style.dim('Connectivity + auth verified — memory graph is reachable.')}\n`);
+        const prefix = t.unicode ? `${t.style.gold('✦')} ` : '';
+        process.stdout.write(`\n${prefix}${t.style.dim('Connectivity + auth verified — memory graph is reachable.')}\n`);
       }
     }
 
