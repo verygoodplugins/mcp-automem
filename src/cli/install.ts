@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { applyClaudeCodeSetup } from './claude-code.js';
 import { applyCodexSetup } from './codex.js';
 import { applyCursorSetup } from './cursor.js';
@@ -30,12 +30,91 @@ import {
 
 // Claude Code is plugin-first: the marketplace plugin bundles the MCP server +
 // hooks and is the recommended path. The settings-level write (applyClaudeCodeSetup)
-// stays available as the scriptable alternative. The CLI can't run Claude Code's
-// /plugin slash commands, so plugin mode surfaces them as a guided manual step.
+// stays available as the scriptable alternative. The CLI can't run the in-TUI
+// /plugin slash commands, but when the `claude` binary is on PATH it CAN drive the
+// supported `claude plugin …` subcommands, so plugin mode installs + configures the
+// plugin directly and only falls back to printing these commands when `claude` is
+// absent (or the install fails).
 export const CLAUDE_CODE_PLUGIN_COMMANDS = [
   '/plugin marketplace add verygoodplugins/mcp-automem',
   '/plugin install automem@verygoodplugins-mcp-automem',
 ] as const;
+
+// Identity for the `claude plugin …` CLI path (the supported, non-interactive way to
+// add the marketplace + install the plugin, distinct from the in-TUI slash commands).
+export const CLAUDE_CODE_MARKETPLACE_SOURCE = 'verygoodplugins/mcp-automem';
+export const CLAUDE_CODE_PLUGIN_REF = 'automem@verygoodplugins-mcp-automem';
+
+export function claudePluginMarketplaceAddArgs(): string[] {
+  return ['plugin', 'marketplace', 'add', CLAUDE_CODE_MARKETPLACE_SOURCE];
+}
+
+// `--config api_url=…/api_key=…` matches the plugin.json userConfig keys; Claude Code
+// stores them via the same path as the interactive /plugin configure flow. api_key is
+// sensitive, so it's only passed when the user actually supplied one.
+export function claudePluginInstallArgs(params: { endpoint: string; apiKey?: string }): string[] {
+  const args = [
+    'plugin',
+    'install',
+    CLAUDE_CODE_PLUGIN_REF,
+    '--scope',
+    'user',
+    '--config',
+    `api_url=${params.endpoint}`,
+  ];
+  if (params.apiKey) {
+    args.push('--config', `api_key=${params.apiKey}`);
+  }
+  return args;
+}
+
+export type PluginCommandResult = { code: number; stdout: string; stderr: string };
+export type PluginCommandRunner = (command: string, args: string[]) => PluginCommandResult;
+
+// A re-run that re-adds the marketplace or re-installs the plugin may exit non-zero
+// just because it's already there — tolerate that rather than falling back to the
+// manual commands every time.
+function isAlreadyPresent(result: PluginCommandResult): boolean {
+  return /already (installed|added|exists|registered|enabled)/i.test(
+    `${result.stdout}\n${result.stderr}`,
+  );
+}
+
+// Drive `claude plugin …` to add the marketplace and install + configure the plugin
+// non-interactively. Idempotent (skips the add when the marketplace is already
+// registered; tolerates an already-installed plugin) and throws on any other failure
+// so the caller can fall back to printing the /plugin slash commands.
+export async function installClaudeCodePlugin(params: {
+  endpoint: string;
+  apiKey?: string;
+  dryRun: boolean;
+  runCommand: PluginCommandRunner;
+}): Promise<void> {
+  if (params.dryRun) return;
+  const { runCommand } = params;
+
+  const marketplaces = runCommand('claude', ['plugin', 'marketplace', 'list']);
+  const hasMarketplace =
+    marketplaces.stdout.includes(CLAUDE_CODE_MARKETPLACE_SOURCE) ||
+    /verygoodplugins[-/]mcp-automem/.test(marketplaces.stdout);
+  if (!hasMarketplace) {
+    const added = runCommand('claude', claudePluginMarketplaceAddArgs());
+    if (added.code !== 0 && !isAlreadyPresent(added)) {
+      throw new InstallError(
+        "Couldn't add the AutoMem marketplace via `claude plugin marketplace add`.",
+        'Run the two /plugin commands inside Claude Code instead (shown below).',
+      );
+    }
+  }
+
+  const installed = runCommand('claude', claudePluginInstallArgs(params));
+  if (installed.code !== 0 && !isAlreadyPresent(installed)) {
+    throw new InstallError(
+      "Couldn't install the Claude Code plugin via `claude plugin install`.",
+      'Run the two /plugin commands inside Claude Code instead (shown below).',
+    );
+  }
+}
 
 // How the guided installer wires Claude Code. Defaults to the recommended plugin.
 export type ClaudeCodeMode = 'plugin' | 'settings';
@@ -96,6 +175,7 @@ export type InstallEnvironment = {
     npm: boolean;
     docker: boolean;
     git: boolean;
+    claude: boolean;
   };
   detectedClients: DetectedClient[];
 };
@@ -376,6 +456,9 @@ export function detectInstallEnvironment(options: DetectOptions = {}): InstallEn
       npm: commandExists('npm'),
       docker: commandExists('docker'),
       git: commandExists('git'),
+      // Soft prerequisite: only the plugin auto-install path uses it, and that path
+      // falls back to printed /plugin commands when claude is absent. Never required.
+      claude: commandExists('claude'),
     },
     detectedClients: candidates.filter((client) => client.exists),
   };
@@ -506,14 +589,28 @@ export function buildInstallPlan(params: {
       // /plugin slash commands inside Claude Code), so it's a guided manual step
       // instead of a file write. Settings mode keeps the scriptable path.
       if (client === 'claude-code' && options.claudeCodeMode === 'plugin') {
-        actions.push({
-          kind: 'manual-step',
-          title: 'Install the Claude Code plugin (recommended)',
-          detail: 'Run these inside Claude Code — the plugin bundles the MCP server, hooks, and auto-updates.',
-          client,
-          paths: [],
-          commands: [...CLAUDE_CODE_PLUGIN_COMMANDS],
-        });
+        if (environment.prerequisites.claude) {
+          // `claude` is on PATH — install + configure the plugin directly via the
+          // supported `claude plugin …` CLI instead of a copy-paste hand-off.
+          actions.push({
+            kind: 'install-agent',
+            title: 'Install the Claude Code plugin (recommended)',
+            detail:
+              'Add the marketplace and install + configure the plugin via `claude plugin install` — the MCP server, hooks, and skill come bundled and auto-update.',
+            client,
+            paths: [],
+          });
+        } else {
+          // No `claude` binary — fall back to the guided copy-paste slash commands.
+          actions.push({
+            kind: 'manual-step',
+            title: 'Install the Claude Code plugin (recommended)',
+            detail: 'Run these inside Claude Code — the plugin bundles the MCP server, hooks, and auto-updates.',
+            client,
+            paths: [],
+            commands: [...CLAUDE_CODE_PLUGIN_COMMANDS],
+          });
+        }
         continue;
       }
       actions.push({
@@ -733,6 +830,18 @@ function defaultRunCommand(command: string, args: string[], options: { cwd?: str
     env: options.env ?? process.env,
     stdio: 'inherit',
   });
+}
+
+// Capturing runner for the `claude plugin …` calls: needs the exit code + output
+// (not inherited stdio) so installClaudeCodePlugin can read marketplace/plugin state
+// and tolerate "already installed". spawnSync never throws on a non-zero exit.
+function defaultPluginCommand(command: string, args: string[]): PluginCommandResult {
+  const result = spawnSync(command, args, { encoding: 'utf8' });
+  return {
+    code: typeof result.status === 'number' ? result.status : 1,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+  };
 }
 
 export async function prepareLocalServer(params: {
@@ -1309,7 +1418,28 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       // it never aborts the others. Only verify/env above are fatal.
       for (const { client, key } of agentSteps) {
         if (client === 'claude-code' && resolved.claudeCodeMode === 'plugin') {
-          list.done(key); // plugin is a guided manual step; commands are in the outro
+          // Plugin mode: auto-install via `claude plugin …` when the binary is on
+          // PATH; otherwise leave it for the /plugin commands printed in the outro.
+          if (!environment.prerequisites.claude) {
+            list.done(key);
+            continue;
+          }
+          list.start(key);
+          try {
+            await installClaudeCodePlugin({
+              endpoint,
+              apiKey,
+              dryRun: false,
+              runCommand: defaultPluginCommand,
+            });
+            list.done(key, `${clientGlyph(client, theme)} Claude Code plugin installed`);
+          } catch (pluginErr) {
+            list.fail(key, `${clientGlyph(client, theme)} Claude Code plugin needs a manual step`);
+            agentFailures.push({
+              client,
+              message: pluginErr instanceof Error ? pluginErr.message : String(pluginErr),
+            });
+          }
           continue;
         }
         list.start(key);
@@ -1336,10 +1466,14 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     }
 
     const nextSteps: string[] = [`endpoint  ${endpoint}`];
+    // Only surface the manual /plugin commands when the auto-install didn't run or
+    // didn't succeed — i.e. the `claude` binary was absent, or the install failed.
+    const pluginAutoInstallFailed = agentFailures.some((failure) => failure.client === 'claude-code');
     if (
       !resolved.noAgentInstall &&
       resolved.clients.includes('claude-code') &&
-      resolved.claudeCodeMode === 'plugin'
+      resolved.claudeCodeMode === 'plugin' &&
+      (!environment.prerequisites.claude || pluginAutoInstallFailed)
     ) {
       nextSteps.push('Claude Code plugin — run these inside Claude Code:');
       for (const cmd of CLAUDE_CODE_PLUGIN_COMMANDS) {

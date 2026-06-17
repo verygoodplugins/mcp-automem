@@ -7,9 +7,12 @@ import {
   DEFAULT_AGENT_CLIENTS,
   InstallError,
   buildInstallPlan,
+  claudePluginInstallArgs,
+  claudePluginMarketplaceAddArgs,
   detectInstallEnvironment,
   formatEnvValue,
   formatInstallError,
+  installClaudeCodePlugin,
   manualFixHint,
   parseInstallArgs,
   prepareLocalServer,
@@ -242,7 +245,7 @@ describe('guided install helpers', () => {
     expect(() => parseInstallArgs(['--claude-code-mode', 'nope'])).toThrow(/invalid Claude Code mode/i);
   });
 
-  it('plans Claude Code as a plugin manual step by default (no settings write)', () => {
+  it('plans Claude Code as a plugin manual step when claude is not on PATH (no settings write)', () => {
     const homeDir = '/Users/tester';
     const cwd = '/repo/project';
     const plan = buildInstallPlan({
@@ -259,7 +262,9 @@ describe('guided install helpers', () => {
       environment: detectInstallEnvironment({
         homeDir,
         cwd,
-        commandExists: () => true,
+        // claude absent → the fallback path (printed /plugin commands). The
+        // auto-install path (claude present) is covered separately.
+        commandExists: (cmd) => cmd !== 'claude',
         pathExists: () => true,
       }),
     });
@@ -674,5 +679,142 @@ describe('guided install helpers', () => {
     } finally {
       fs.rmSync(localDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('claude plugin auto-install', () => {
+  it('builds marketplace-add args for the AutoMem GitHub source', () => {
+    expect(claudePluginMarketplaceAddArgs()).toEqual([
+      'plugin',
+      'marketplace',
+      'add',
+      'verygoodplugins/mcp-automem',
+    ]);
+  });
+
+  it('builds install args with api_url always and api_key only when provided', () => {
+    expect(claudePluginInstallArgs({ endpoint: 'http://127.0.0.1:8001' })).toEqual([
+      'plugin',
+      'install',
+      'automem@verygoodplugins-mcp-automem',
+      '--scope',
+      'user',
+      '--config',
+      'api_url=http://127.0.0.1:8001',
+    ]);
+    expect(claudePluginInstallArgs({ endpoint: 'https://x.example', apiKey: 'sk-1' })).toEqual([
+      'plugin',
+      'install',
+      'automem@verygoodplugins-mcp-automem',
+      '--scope',
+      'user',
+      '--config',
+      'api_url=https://x.example',
+      '--config',
+      'api_key=sk-1',
+    ]);
+  });
+
+  function recordingRunner(responder: (args: string[]) => { code: number; stdout?: string; stderr?: string }) {
+    const calls: string[][] = [];
+    const run = (_cmd: string, args: string[]) => {
+      calls.push(args);
+      const r = responder(args);
+      return { code: r.code, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+    };
+    return { run, calls };
+  }
+
+  it('adds the marketplace then installs with config when neither is present', async () => {
+    const { run, calls } = recordingRunner((args) => {
+      if (args[1] === 'marketplace' && args[2] === 'list') return { code: 0, stdout: '' };
+      return { code: 0 };
+    });
+    await installClaudeCodePlugin({
+      endpoint: 'http://127.0.0.1:8001',
+      apiKey: 'sk-1',
+      dryRun: false,
+      runCommand: run,
+    });
+    expect(calls).toEqual([
+      ['plugin', 'marketplace', 'list'],
+      ['plugin', 'marketplace', 'add', 'verygoodplugins/mcp-automem'],
+      [
+        'plugin',
+        'install',
+        'automem@verygoodplugins-mcp-automem',
+        '--scope',
+        'user',
+        '--config',
+        'api_url=http://127.0.0.1:8001',
+        '--config',
+        'api_key=sk-1',
+      ],
+    ]);
+  });
+
+  it('skips marketplace add when the marketplace is already registered', async () => {
+    const { run, calls } = recordingRunner((args) => {
+      if (args[1] === 'marketplace' && args[2] === 'list') {
+        return { code: 0, stdout: 'verygoodplugins-mcp-automem  github  ...' };
+      }
+      return { code: 0 };
+    });
+    await installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run });
+    expect(calls.some((a) => a[2] === 'add')).toBe(false);
+    expect(calls.some((a) => a[1] === 'install')).toBe(true);
+  });
+
+  it('throws (to trigger the manual fallback) when the install hard-fails', async () => {
+    const { run } = recordingRunner((args) => {
+      if (args[1] === 'marketplace' && args[2] === 'list') return { code: 0, stdout: '' };
+      if (args[1] === 'install') return { code: 1, stderr: 'network unreachable' };
+      return { code: 0 };
+    });
+    await expect(
+      installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
+    ).rejects.toThrow();
+  });
+
+  it('treats an already-installed non-zero exit as success', async () => {
+    const { run } = recordingRunner((args) => {
+      if (args[1] === 'marketplace' && args[2] === 'list') return { code: 0, stdout: '' };
+      if (args[1] === 'install') return { code: 1, stderr: 'Plugin automem is already installed' };
+      return { code: 0 };
+    });
+    await expect(
+      installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
+    ).resolves.toBeUndefined();
+  });
+
+  it('runs nothing on dry-run', async () => {
+    const { run, calls } = recordingRunner(() => ({ code: 0 }));
+    await installClaudeCodePlugin({ endpoint: 'http://x', dryRun: true, runCommand: run });
+    expect(calls).toEqual([]);
+  });
+
+  it('detects the claude binary as a prerequisite', () => {
+    const env = detectInstallEnvironment({ commandExists: (c) => c === 'claude' });
+    expect(env.prerequisites.claude).toBe(true);
+  });
+
+  it('plans a real plugin install (install-agent) when claude is on PATH', () => {
+    const env = detectInstallEnvironment({ commandExists: (c) => c === 'claude' });
+    const plan = buildInstallPlan({
+      options: { ...parseInstallArgs([]), target: 'existing', endpoint: 'http://x' },
+      environment: env,
+    });
+    const action = plan.actions.find((a) => a.client === 'claude-code');
+    expect(action?.kind).toBe('install-agent');
+  });
+
+  it('falls back to a manual step for the plugin when claude is absent', () => {
+    const env = detectInstallEnvironment({ commandExists: () => false });
+    const plan = buildInstallPlan({
+      options: { ...parseInstallArgs([]), target: 'existing', endpoint: 'http://x' },
+      environment: env,
+    });
+    const action = plan.actions.find((a) => a.client === 'claude-code');
+    expect(action?.kind).toBe('manual-step');
   });
 });
