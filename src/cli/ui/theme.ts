@@ -132,9 +132,10 @@ export function stripAnsi(value: string): string {
   // Remove OSC sequences (e.g. hyperlinks OSC 8 ... ST, and other OSC terminated by BEL or ST)
   // then classic CSI/ESC sequences. This keeps visibleLength and any machine logs correct
   // when hyperlinks or other OSC are present in themed output.
-  // eslint-disable-next-line no-control-regex
   return value
+    // eslint-disable-next-line no-control-regex -- intentional: OSC hyperlink/escape sequences (see visibleLength + harness contract)
     .replace(/\x1B][^\x07\x1B]*(\x07|\x1B\\)/g, '')
+    // eslint-disable-next-line no-control-regex -- intentional: classic ESC/CSI sequences
     .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
 }
 
