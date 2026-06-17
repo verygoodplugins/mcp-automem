@@ -491,6 +491,21 @@ describe('Template Generation', () => {
     ).toEqual([]);
   });
 
+  it('postbuild should not depend on a shell chmod command', () => {
+    const repoRoot = path.resolve(__dirname, '../..');
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+    const postbuild = pkg.scripts?.postbuild ?? '';
+
+    expect(postbuild).toBe('node scripts/build-openclaw-plugin-package.mjs');
+    expect(postbuild).not.toMatch(/\bchmod\b/);
+
+    const openclawBuildScript = fs.readFileSync(
+      path.join(repoRoot, 'scripts/build-openclaw-plugin-package.mjs'),
+      'utf8'
+    );
+    expect(openclawBuildScript).toContain("chmodSync(join(DIST_ROOT, 'index.js'), 0o755)");
+  });
+
   it('cursor project template should include operational memory workflow (3.0.0 playbook)', () => {
     const cursorTemplate = fs.readFileSync(
       path.resolve(__dirname, '../../templates/cursor/automem.mdc.template'),

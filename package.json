@@ -14,7 +14,7 @@
   "scripts": {
     "prebuild": "tsx scripts/sync-memory-policy.ts && node scripts/sync-template-versions.mjs",
     "build": "tsc",
-    "postbuild": "node scripts/build-openclaw-plugin-package.mjs && chmod +x dist/index.js",
+    "postbuild": "node scripts/build-openclaw-plugin-package.mjs",
     "sync-versions": "node scripts/sync-template-versions.mjs",
     "docs:hermes": "node scripts/build-hermes-demos.mjs",
     "probe:claude-stop-context": "node scripts/probe-claude-stop-additional-context.mjs",

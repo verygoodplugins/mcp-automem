@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -52,6 +52,12 @@ for (const filename of runtimeFiles) {
   const targetPath = join(OUTPUT_DIST, filename);
   mkdirSync(dirname(targetPath), { recursive: true });
   cpSync(join(DIST_ROOT, filename), targetPath);
+}
+
+try {
+  chmodSync(join(DIST_ROOT, 'index.js'), 0o755);
+} catch (error) {
+  if (process.platform !== 'win32') throw error;
 }
 
 console.log(`✓ staged lean OpenClaw plugin package in ${join('dist', 'openclaw-plugin-package')}`);
