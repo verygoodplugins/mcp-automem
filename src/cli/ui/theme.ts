@@ -164,16 +164,25 @@ export function repeatVisible(char: string, count: number): string {
  * for automatic capability awareness.
  */
 export function hyperlink(url: string, label?: string): string {
-  const text = label && label.length > 0 ? label : url;
-  // Only produce a real hyperlink for safe http(s) URLs.
+  const rawText = label && label.length > 0 ? label : url;
+
+  let safeUrl: string;
   try {
     const u = new URL(url);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-      return text;
+      return rawText;
     }
+    safeUrl = u.href; // normalized + percent-encoded
   } catch {
-    return text;
+    return rawText;
   }
+
+  // Explicitly strip control characters from both URL (already done by URL) and label/text
+  const stripControls = (s: string) =>
+    s.replace(/[\x00-\x1F\x7F]/g, (c) => encodeURIComponent(c));
+
+  const safeText = stripControls(rawText);
+
   // OSC 8 ; ; <url> ST <text> OSC 8 ; ; ST
-  return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
+  return `\x1b]8;;${safeUrl}\x1b\\${safeText}\x1b]8;;\x1b\\`;
 }
