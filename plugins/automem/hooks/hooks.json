@@ -6,18 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/track-store.sh"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stop-nudge.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/track-store.sh"
           }
         ]
       }
@@ -28,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/session-start.sh"
           }
         ]
       }

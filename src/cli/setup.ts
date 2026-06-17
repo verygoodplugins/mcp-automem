@@ -1,10 +1,10 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildHermesSnippet, buildMcpConfigJson, buildSummaryInstructions, DEFAULT_AUTOMEM_API_URL } from './templates.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
+import { mergeEnvContent } from './host-toolkit.js';
 
 interface SetupOptions {
   envPath?: string;
@@ -103,50 +103,9 @@ function loadEnvValues(filePath: string): Record<string, string> {
   return result;
 }
 
-function formatEnvValue(value: string): string {
-  const needsQuotes = /[^A-Za-z0-9_@/:.,+-]/.test(value);
-  if (!needsQuotes) {
-    return value;
-  }
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  return `"${escaped}"`;
-}
-
 function mergeEnvFile(filePath: string, updates: Record<string, string>) {
-  const lines: Array<{ key?: string; line: string }> = [];
-  if (fs.existsSync(filePath)) {
-    const existing = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
-    for (const line of existing) {
-      if (!line.trim()) {
-        lines.push({ line });
-        continue;
-      }
-      const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
-      if (match) {
-        lines.push({ key: match[1].trim(), line });
-      } else {
-        lines.push({ line });
-      }
-    }
-  }
-
-  const updatedKeys = new Set<string>();
-  for (const entry of lines) {
-    if (entry.key && Object.prototype.hasOwnProperty.call(updates, entry.key)) {
-      entry.line = `${entry.key}=${formatEnvValue(updates[entry.key] ?? '')}`;
-      updatedKeys.add(entry.key);
-    }
-  }
-
-  for (const [key, value] of Object.entries(updates)) {
-    if (!updatedKeys.has(key)) {
-      lines.push({ key, line: `${key}=${formatEnvValue(value)}` });
-    }
-  }
-
-  const content = lines.map((entry) => entry.line).join(os.EOL).replace(/\s+$/, '');
-  const finalContent = content.length ? `${content}${os.EOL}` : '';
-  fs.writeFileSync(filePath, finalContent, 'utf8');
+  const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+  fs.writeFileSync(filePath, mergeEnvContent(existing, updates), 'utf8');
 }
 
 async function promptValue(prompt: string, fallback: string, prefilled?: string): Promise<string> {

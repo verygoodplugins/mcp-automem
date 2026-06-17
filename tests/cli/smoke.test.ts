@@ -604,7 +604,7 @@ describe('Template Generation', () => {
     expect(guidance).toContain('tests/helpers/host-specs.ts');
   });
 
-  it('Claude Code docs should prefer the CLI installer and mark the plugin deprecated', () => {
+  it('Claude Code docs should prefer the plugin and keep the CLI installer as the settings-level alternative', () => {
     const readme = fs.readFileSync(path.resolve(__dirname, '../../README.md'), 'utf8');
     const pluginReadme = fs.readFileSync(path.resolve(__dirname, '../../plugins/automem/README.md'), 'utf8');
     const deprecations = fs.readFileSync(path.resolve(__dirname, '../../DEPRECATION.md'), 'utf8');
@@ -621,26 +621,43 @@ describe('Template Generation', () => {
       'utf8'
     );
 
-    expect(readme).toContain('#### Option A: CLI Setup (Recommended)');
-    expect(readme).toContain('#### Option B: Plugin (Deprecated)');
-    expect(readme).toContain('DEPRECATION.md');
+    // The plugin is the recommended Claude Code install path (June 2026
+    // reversal of the v0.14 deprecation — see DEPRECATION.md).
+    expect(readme).toContain('/plugin install automem@verygoodplugins-mcp-automem');
+    expect(readme).not.toContain('Option B: Plugin (Deprecated)');
     expect(readme).toContain('Git Bash, MSYS2, or WSL');
+    // The hooks are pure bash+sed; jq/Python must never be claimed as required.
+    expect(readme).not.toMatch(/`bash`, `jq`, and Python/);
 
-    expect(pluginReadme).toContain('Deprecated');
-    expect(pluginReadme).toContain('npx @verygoodplugins/mcp-automem claude-code');
+    expect(pluginReadme).not.toMatch(/deprecated/i);
+    expect(pluginReadme).toContain('/plugin install automem@verygoodplugins-mcp-automem');
 
+    expect(claudeCodeGuide).toContain('/plugin install automem@verygoodplugins-mcp-automem');
     expect(claudeCodeGuide).toContain('npx @verygoodplugins/mcp-automem claude-code');
-    expect(claudeCodeGuide).toContain('deprecated');
     expect(claudeCodeGuide).toContain('Git Bash, MSYS2, or WSL');
 
+    expect(installationGuide).toContain('/plugin install automem@verygoodplugins-mcp-automem');
     expect(installationGuide).toContain('Git Bash, MSYS2, or WSL');
 
-    expect(claudeSettings).toContain('Bash(python3:*)');
-    expect(claudeSettings).toContain('Bash(python:*)');
-    expect(claudeSettings).toContain('Bash(py:*)');
+    // The settings template ships only the six MCP permissions — no Bash
+    // grants, no env block, no deny/ask. The old broad allow-list was a
+    // personal-dev-environment snapshot, never part of the integration.
+    expect(claudeSettings).not.toContain('Bash(');
+    const parsedSettings = JSON.parse(claudeSettings) as {
+      env?: unknown;
+      permissions: { allow: string[]; deny?: unknown; ask?: unknown };
+    };
+    expect(parsedSettings.permissions.allow).toHaveLength(6);
+    expect(parsedSettings.permissions.allow.every((p) => p.startsWith('mcp__memory__'))).toBe(
+      true
+    );
+    expect(parsedSettings.env).toBeUndefined();
+    expect(parsedSettings.permissions.deny).toBeUndefined();
+    expect(parsedSettings.permissions.ask).toBeUndefined();
 
+    // DEPRECATION.md records the reversal honestly.
     expect(deprecations).toContain('Claude Code Plugin');
-    expect(deprecations).toContain('npx @verygoodplugins/mcp-automem claude-code');
+    expect(deprecations).toMatch(/reversed/i);
   });
 
   it('OpenClaw templates should follow semantic-first recall and bare-tag guidance', () => {

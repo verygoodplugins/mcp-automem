@@ -20,7 +20,7 @@ Store important information for future recall:
 
 3. **Store with Tags**:
    ```javascript
-   mcp__memory__store_memory({
+   store_memory({
      content: "[formatted content]",
      type: "[Decision|Insight|Pattern|Preference|Context]",
      importance: [0.5-1.0],
@@ -37,7 +37,7 @@ Store important information for future recall:
 
 4. **Create Associations** (if related memories exist):
    ```javascript
-   mcp__memory__associate_memories({
+   associate_memories({
      memory1_id: "[related-memory-id]",
      memory2_id: "[new-memory-id]",
      type: "[INVALIDATED_BY|PREFERS_OVER|EXEMPLIFIES|LEADS_TO]",

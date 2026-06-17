@@ -8,6 +8,7 @@ import {
   AUTOMEM_POLICY_DEFAULTS,
   AUTOMEM_POLICY_PROFILES,
   AUTOMEM_PROVIDER_EXPLICIT_RECALL_LIMIT,
+  AUTOMEM_STOP_NUDGE_MIN_HUMAN_TURNS,
   looksLikeExplicitRecallPrompt,
   renderClaudeDesktopInstructions,
   renderClaudeMdMemoryRules,
@@ -122,14 +123,14 @@ describe('shared AutoMem memory policy', () => {
       MEMORY RECALL - run both recalls before your first substantive response. They are independent: issue them in parallel in a single message.
 
       Phase 1 - Preferences (tag-only, no time filter, no query):
-        mcp__memory__recall_memory({
+        recall_memory({
           tags: ["preference"],
           limit: 20,
           sort: "updated_desc"
         })
 
       Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; 90-day window):
-        mcp__memory__recall_memory({
+        recall_memory({
           query: "<proper nouns, product names, people, tools, specific topics from the user's message>",
           tags: ["$PROJECT"],    // drop if slug collides with a common word
           time_query: "last 90 days",
@@ -137,6 +138,11 @@ describe('shared AutoMem memory policy', () => {
         })
 
       Project slug: $PROJECT
+
+      During work - store durable memories when triggers fire:
+      - Do not wait for a Stop hook or session end. When a durable correction, stabilized decision, articulated pattern, or root-cause insight appears, run recall -> store -> verify -> associate in that same turn.
+      - Use type, importance, confidence, and bare tags on every store; verify by recalling a distinctive phrase; associate when a plausible related memory exists.
+      - Skip storage for session summaries, progress notes, confirmations, temporary output, and speculative context.
 
       Notes:
       - Tags are a HARD GATE - they filter before scoring. Use only the tag sets above; never invent topic tags. Bare tags only - no namespace prefixes (\`project/*\`, \`lang/*\`).
@@ -148,6 +154,15 @@ describe('shared AutoMem memory policy', () => {
       - If recall fails or returns nothing, continue without memory - do not mention the failure to the user.
       </automem_session_context>"
     `);
+  });
+
+  it('nudges Claude Code to store, verify, and associate during normal work', () => {
+    const prompt = renderClaudeCodeSessionStartPrompt('$PROJECT');
+
+    expect(prompt).toContain('During work - store durable memories when triggers fire');
+    expect(prompt).toContain('Do not wait for a Stop hook or session end');
+    expect(prompt).toContain('recall -> store -> verify -> associate');
+    expect(prompt).toContain('associate when a plausible related memory exists');
   });
 
   it('renders the OpenClaw policy block from shared defaults', () => {
@@ -212,11 +227,29 @@ describe('shared AutoMem memory policy', () => {
     // Claude Code rejects Stop-hook JSON whose hookSpecificOutput lacks
     // hookEventName — the exact bug that motivated this hook's design.
     expect(hook).toContain('"hookEventName":"%s"');
-    // suppressOutput:true keeps the nudge JSON out of the user-visible transcript
-    // while Claude still receives additionalContext.
+    // suppressOutput:true hides raw JSON stdout. The injected context itself
+    // must stay factual so Claude Code can keep it hidden where supported and
+    // so older Stop behavior has little user-visible text if surfaced.
     expect(hook).toContain('"suppressOutput":true');
     expect(hook).toContain(JSON.stringify(renderClaudeCodeStopNudgePrompt()));
-    expect(renderClaudeCodeStopNudgePrompt()).toContain('stop normally');
+  });
+
+  it('gates the storage nudge to substantive sessions and keeps it neutral', () => {
+    const hook = renderClaudeCodeStopNudgeHook();
+    // The gate reads transcript_path from hook stdin and counts human prompts
+    // (type:"user" entries that are neither tool results nor meta entries).
+    expect(hook).toContain('transcript_path');
+    expect(hook).toContain(`-lt ${AUTOMEM_STOP_NUDGE_MIN_HUMAN_TURNS}`);
+    // Keep the prompt a single factual line: enough state for Claude, minimal
+    // text if an older host still surfaces Stop context.
+    const prompt = renderClaudeCodeStopNudgePrompt();
+    expect(prompt).not.toContain('\n');
+    expect(prompt).toContain('AutoMem status: no memory has been stored this session.');
+    expect(prompt).toContain('Durable candidates: corrections');
+    expect(prompt).toContain('Non-candidates: session summaries');
+    expect(prompt).not.toMatch(/store it now/i);
+    expect(prompt).not.toMatch(/reply with exactly/i);
+    expect(prompt).toMatch(/session summaries/i);
   });
 
   it('keeps generated host rule artifacts exactly aligned with shared renderers', () => {

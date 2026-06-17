@@ -11,6 +11,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { config } from "dotenv";
 import { runConfig, runSetup } from "./cli/setup.js";
+import { runInstallCommand } from "./cli/install.js";
 import { runClaudeCodeSetup } from "./cli/claude-code.js";
 import { runCursorSetup } from "./cli/cursor.js";
 import { runCodexSetup } from "./cli/codex.js";
@@ -21,7 +22,7 @@ import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
 import { AutoMemClient } from "./automem-client.js";
 import { parseWatchdogIntervalMs, startParentWatchdog } from "./lifecycle.js";
-import { readAutoMemApiKeyFromEnv } from "./env.js";
+import { readAutoMemApiKeyFromEnv, resolveAutoMemApiUrl } from "./env.js";
 import { buildRecallMemoryResponse } from "./recall-memory.js";
 import { AUTHORABLE_RELATION_TYPES, MEMORY_TYPES, RELATION_TYPE_METADATA } from "./types.js";
 import type {
@@ -43,7 +44,9 @@ const isMachineReadableCommand =
   command === "config" && process.argv.slice(3).some(
     (arg) => arg === "--json" || arg === "--format=json" || arg === "--format"
   );
-const shouldSilenceDotenv = isServerMode || isMachineReadableCommand;
+// The guided installer renders a branded splash + curated review; the dotenv
+// banner would corrupt that output, so silence it here too.
+const shouldSilenceDotenv = isServerMode || isMachineReadableCommand || command === "install";
 
 // Prevent dotenv from writing its banner to stdout when the caller expects clean
 // machine-readable output (stdio server mode, or `config --format=json`).
@@ -112,6 +115,7 @@ USAGE:
 
 COMMANDS:
   setup              Interactive setup for .env configuration
+  install            Guided installer for local/cloud AutoMem + agent setup
   config             Show configuration snippets
   claude-code        Set up AutoMem for Claude Code
   cursor             Set up AutoMem for Cursor
@@ -138,11 +142,18 @@ COMMANDS:
 
 CLAUDE CODE SETUP:
   npx @verygoodplugins/mcp-automem claude-code [options]
-  
+
+  Settings-level install. Recommended alternative: the AutoMem plugin
+  (/plugin marketplace add verygoodplugins/mcp-automem, then
+  /plugin install automem@verygoodplugins-mcp-automem).
+
   Options:
     --dir <path>           Target directory (default: ~/.claude)
-    --profile <lean|extras> Use a predefined profile
+    --profile <name>       silent (default) or nudged. 'nudged' also registers
+                           the Stop storage-nudge hook; 'silent' leaves the
+                           session end quiet (SessionStart recall + store tracker only)
     --dry-run             Show what would be changed
+    --quiet               Suppress output
     --yes, -y             Skip confirmation prompts
 
 MIGRATION:
@@ -156,11 +167,11 @@ MIGRATION:
     --yes, -y             Skip confirmation
 
 UNINSTALL:
-  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|hermes> [options]
+  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes> [options]
 
   Options:
     --dir <path>          Project / hermes-home directory
-    --rules <path>        Hermes rules file to strip (default: <hermes-home>/AGENTS.md)
+    --rules <path>        Rules file to strip (default: codex <project>/AGENTS.md, hermes <hermes-home>/AGENTS.md)
     --clean-all          Also remove MCP server config (Cursor/Claude Desktop)
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation
@@ -180,8 +191,8 @@ RECALL:
           # Set up with custom project name
           npx @verygoodplugins/mcp-automem cursor --name my-project
 
-          # Set up Claude Code with lean profile
-          npx @verygoodplugins/mcp-automem claude-code --profile lean
+          # Preview Claude Code setup without changing anything
+          npx @verygoodplugins/mcp-automem claude-code --dry-run
 
           # Migrate manual memory usage to Cursor
           npx @verygoodplugins/mcp-automem migrate --from manual --to cursor
@@ -232,6 +243,23 @@ OPENCLAW SETUP:
     --dry-run                   Show what would be changed
     --quiet                     Suppress output
 
+GUIDED INSTALL:
+  npx @verygoodplugins/mcp-automem install [options]
+
+  Walks you through where AutoMem runs (Hosted Cloud / Local Docker / Existing
+  Endpoint), verifies the endpoint, writes .env, and configures your agents.
+  For Claude Code it offers the plugin (recommended) or a settings-level install.
+
+  Options:
+    --target <local|cloud|existing>  Where AutoMem runs
+    --clients <list>                 Comma-separated agents: codex,claude-code,cursor,openclaw,hermes
+    --endpoint <url>                 Existing or hosted AutoMem endpoint
+    --api-key <key>                  API key for authenticated endpoints
+    --local-dir <path>               Local server directory (default: ~/.automem/server)
+    --dry-run                        Show the review plan without writing files
+    --yes, -y                        Apply without confirmation
+    --no-agent-install               Configure endpoint only; skip agent writes
+
 For more information, visit:
 https://github.com/verygoodplugins/mcp-automem
 `);
@@ -241,6 +269,12 @@ https://github.com/verygoodplugins/mcp-automem
 if (command === "setup") {
   await runSetup(process.argv.slice(3));
   process.exit(0);
+}
+
+if (command === "install") {
+  await runInstallCommand(process.argv.slice(3));
+  // Honor a non-zero exit set for a partial install (some agents need a manual step).
+  process.exit(process.exitCode ?? 0);
 }
 
 if (command === "config") {
@@ -289,10 +323,7 @@ if (command === "queue") {
 }
 
 if (command === "recall") {
-  const AUTOMEM_API_URL =
-    process.env.AUTOMEM_API_URL ||
-    process.env.AUTOMEM_ENDPOINT ||
-    "http://127.0.0.1:8001";
+  const AUTOMEM_API_URL = resolveAutoMemApiUrl().url;
   const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
   const client = new AutoMemClient({
@@ -326,19 +357,16 @@ if (command === "recall") {
   }
 }
 
-const AUTOMEM_API_URL =
-  process.env.AUTOMEM_API_URL ||
-  process.env.AUTOMEM_ENDPOINT ||
-  "http://127.0.0.1:8001";
+const { url: AUTOMEM_API_URL, source: automemApiUrlSource } = resolveAutoMemApiUrl();
 const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
-if (!process.env.AUTOMEM_API_URL && !process.env.AUTOMEM_ENDPOINT) {
+if (automemApiUrlSource === "default") {
   if (isInteractiveTerminal()) {
     console.warn(
       "⚠️  AUTOMEM_API_URL not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting."
     );
   }
-} else if (!process.env.AUTOMEM_API_URL && process.env.AUTOMEM_ENDPOINT) {
+} else if (automemApiUrlSource === "AUTOMEM_ENDPOINT") {
   console.warn(
     "⚠️  AUTOMEM_ENDPOINT is deprecated; rename it to AUTOMEM_API_URL. The old name still works for now."
   );

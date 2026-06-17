@@ -5,15 +5,15 @@
     "email": "info@verygoodplugins.com",
     "url": "https://github.com/verygoodplugins"
   },
-  "description": "Deprecated AutoMem Claude Code plugin. Use the mcp-automem CLI installer instead.",
+  "description": "AutoMem plugin for Claude Code: persistent memory via the AutoMem MCP server.",
   "metadata": {
-    "description": "Deprecated marketplace catalog for the AutoMem Claude Code plugin. Use npx @verygoodplugins/mcp-automem claude-code."
+    "description": "Marketplace catalog for the AutoMem Claude Code plugin. Install with /plugin install automem@verygoodplugins-mcp-automem."
   },
   "plugins": [
     {
       "name": "automem",
       "source": "./plugins/automem",
-      "description": "Deprecated Claude Code plugin for AutoMem. Use npx @verygoodplugins/mcp-automem claude-code.",
+      "description": "Persistent memory for Claude Code: silent session-start recall, in-turn storage guidance, and the AutoMem MCP memory tools.",
       "version": "0.14.0",
       "author": {
         "name": "Very Good Plugins"

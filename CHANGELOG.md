@@ -18,39 +18,6 @@ All notable changes to this project will be documented in this file.
 * improve Claude Code Windows Python compatibility ([#102](https://github.com/verygoodplugins/mcp-automem/issues/102)) ([f0a4a0b](https://github.com/verygoodplugins/mcp-automem/commit/f0a4a0bc2659845599488850bca95fbda7b89f78))
 * recover dependabot workflow compatibility ([#104](https://github.com/verygoodplugins/mcp-automem/issues/104)) ([22208a2](https://github.com/verygoodplugins/mcp-automem/commit/22208a20fa648f552bd61237bf66d037f974758f))
 
-## [Unreleased]
-
-### Bug Fixes
-
-- **hooks:** disable session-summary Stop hook by default. `session-memory.sh` was emitting "Claude session in X on branch Y. Modified Z files…" rollups that violate AutoMem's "never store session summaries" guideline, polluting recall results with low-signal noise (~74% of recent project-tagged corpus memories were hook-emitted, dominated by these rollups). At the time only the `session-memory.sh` entry was removed from the `Stop` matcher; the rest of the capture/queue pipeline (and the script files themselves) were retired later in this release — see the queue-pipeline entry under Features. **Migration for existing users:** re-run `npx @verygoodplugins/mcp-automem claude-code` — the installer removes the retired hooks automatically (see the installer auto-migration feature below).
-
-### Features
-
-- **hooks:** replace mechanical build/test/deploy capture with an LLM-judged stop nudge. The `capture-build-result.sh` / `capture-test-pattern.sh` / `capture-deployment.sh` PostToolUse hooks queued templated one-liners ("Build succeeded in X using npm", "Deployed X to production on unknown") at importance up to 0.95 — on a ~9,400-memory production corpus they accounted for 600+ entries that outranked real preferences and decisions in ranked recall, polluted the graph with junk `PRECEDED_BY` edges, and frequently misdetected the platform. This finishes the cleanup the session-summary retirement (#130) started. The replacement keeps storage curation in the model, where the shared memory policy already defines it: a new policy-generated `automem-stop-nudge.sh` Stop hook emits `hookSpecificOutput.additionalContext` (with the required `hookEventName`) asking Claude once per session to consider storing durable facts — but only when no `mcp__memory__store_memory` call happened, tracked by the new `automem-track-store.sh` PostToolUse sentinel. The nudge never blocks, never repeats (sentinel-guarded against the Stop→continue→Stop loop), and explicitly licenses stopping without a store. **Migration for existing users:** re-run `npx @verygoodplugins/mcp-automem claude-code` — the installer strips the retired capture hooks in every historical spelling (wrapped, unwrapped env-prefix, absolute-path, and plugin forms) and registers the replacement hooks. (The queue Stop machinery initially survived this change; it is retired by the queue-pipeline entry below.)
-
-- **hooks:** retire the queue Stop machinery and delete the legacy script files — the Claude Code integration is now exactly three pure-bash hooks. With the capture hooks gone, nothing wrote to `~/.claude/scripts/memory-queue.jsonl` anymore, yet every session Stop still ran `queue-cleanup.sh` (a bash+jq+Python dedup pass over a permanently empty file) plus an `npx … queue` drainer spawn. Both Stop entries are retired in every historical spelling (the cleanup script in `$HOME`/absolute/plugin forms; the drainer as `npx` with or without `-y`/`--limit` and the bare-CLI `mcp-automem queue` form), and the orphaned scripts are deleted from the repo: `session-memory.sh`, `process-session-memory.py`, `memory-filters.json`, `python-command.sh`, `queue-cleanup.sh`, plus the unrelated `smart-notify.sh` desktop-notification shim (existing user copies of smart-notify are left untouched). The shipped surface is now SessionStart recall + PostToolUse store tracker + Stop nudge, with **no Python or jq dependency**. The `mcp-automem queue` CLI remains as a manual-only transport for draining a queue file you point it at. **Migration for existing users:** re-run `npx @verygoodplugins/mcp-automem claude-code` — the merge strips the queue Stop entries and now also **deletes retired script files** from `~/.claude/hooks` and `~/.claude/scripts` (each removal is logged; `--dry-run` previews without deleting). If you deliberately auto-drain a queue file on Stop, re-register it via a wrapper script that does not invoke the `mcp-automem` CLI name directly, or the next re-run will strip it again. `uninstall claude-code` now also removes all AutoMem-owned hook/script files (current and retired), not just settings entries.
-
-- **installer:** auto-migrate legacy Claude Code hook entries on re-run of `npx @verygoodplugins/mcp-automem claude-code`. The settings merge now (1) removes retired hooks (the `session-memory.sh` Stop entry) in every historical spelling, (2) recognizes the globally-installed `mcp-automem queue …` drainer as the same hook as the `npx -y @verygoodplugins/mcp-automem queue …` template form, collapsing the double-drain that stored duplicate memories, and (3) rewrites exact known-legacy command spellings to the current template form. Hooks the installer didn't author are never touched, user-customized commands (e.g. a different `--limit`) are never rewritten, and `settings.json` is backed up before any change. `uninstall claude-code` now also removes AutoMem hook entries (current and retired spellings), not just MCP permissions.
-
-- parity with AutoMem service v0.15.2 — exposed via mode-multiplexed parameters on existing tools (no new tools, surface stays at 6):
-  - `recall_memory` gains three modes: ID fetch (`memory_id`), tag enumeration (`exhaustive: true` + `tags`, paginated via `limit`/`offset`, returns `has_more`), and ranked retrieval (default, now also supports `exclude_tags`).
-  - `store_memory` gains batch mode (`memories: [...]`, ≤500 items) routed to `POST /memory/batch`. Per-item `id`/`embedding`/`t_valid`/`t_invalid` are not supported in batch mode by design.
-  - `delete_memory` gains bulk-by-tag mode (`tags: [...]`) routed to `DELETE /memory/by-tag`. Exact-match, case-insensitive, no dry-run.
-- the OpenClaw plugin's six `automem_*` tools mirror the new modes via extended schemas; batch store applies the configured `defaultTags` per item, while bulk-delete-by-tag never injects defaults.
-
-
-### Bug Fixes
-
-- wrap hook commands in `bash -c '…'` so they execute correctly on Windows Git Bash. Claude Code on Windows invokes hook commands via `CreateProcess` (no parent shell), which couldn't parse the previous inline `CLAUDE_HOOK_TYPE=… bash …` prefix and broke `PostToolUse:Bash` and `Stop` hooks with `bash: CLAUDE_HOOK_TYPE=…: No such file or directory` ([#108](https://github.com/verygoodplugins/mcp-automem/issues/108)). Affects `templates/claude-code/settings.json` and `plugins/automem/hooks/hooks.json`. The wrapped form is a no-op on macOS/Linux. Adds a `windows-latest` CI job that exercises the wrapped commands via Node `child_process` to catch future regressions.
-
-### Changes
-
-- rename the AutoMem service URL env var from `AUTOMEM_ENDPOINT` to `AUTOMEM_API_URL`. The old name still works (the server, queue processor, install script, and OpenClaw resolver all read it as a fallback), but a one-line deprecation warning is logged when only the old name is set. Re-running `npx @verygoodplugins/mcp-automem setup` migrates a `.env` file in place; templates and docs now advertise the new name.
-- `mcp-automem config` now accepts `--format=json` (single-arg form) and `--json` as shorthand, and silences the dotenv banner for machine-readable output so the JSON is safe to pipe into `jq`.
-- deprecate the standalone Claude Code plugin in favor of `npx @verygoodplugins/mcp-automem claude-code`
-- sync plugin-distributed Claude Code runtime scripts with the canonical copies under `templates/claude-code/`
-- add plugin migration guidance in `DEPRECATION.md`
-
 ## [0.13.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.12.0...mcp-automem-v0.13.0) (2026-03-25)
 
 
@@ -196,22 +163,6 @@ See [OpenClaw Setup Guide](./templates/openclaw/OPENCLAW_SETUP.md) for details.
 * resolve MD033 linter warnings for HTML elements ([bc2a4a5](https://github.com/verygoodplugins/mcp-automem/commit/bc2a4a5996ba8fb63941d53517b3ab45d16f953d))
 * use correct better-npm-audit version (3.11.0) ([31db0ab](https://github.com/verygoodplugins/mcp-automem/commit/31db0aba8fc7a77c7296779310f5f908cb22d372))
 
-## [Unreleased]
-
-### Added
-
-- **Claude Code Plugin**: Native plugin for Claude Code with `/plugin install` support
-  - New plugin structure at `plugins/automem/` with proper Claude Code plugin spec
-  - **Memory Management Skill**: Teaches Claude the 3-phase memory pattern (Recall → Store → Summarize)
-  - **Slash Commands**: `/memory-recall`, `/memory-store`, `/memory-health`
-  - **SessionStart Hook**: Automatic memory recall prompt at session start
-  - **MCP Server Configuration**: Pre-configured connection to AutoMem service
-  - **Marketplace Support**: Install via `/plugin marketplace add verygoodplugins/mcp-automem`
-
-### Changed
-
-- Updated package.json to include `plugins/` and `.claude-plugin/` directories
-- Updated README with plugin installation instructions for Claude Code
 ## 0.9.1 - 2025-12-10
 
 ### Fixed

@@ -134,14 +134,14 @@ export function renderClaudeCodeSessionStartPrompt(projectExpression: string): s
     'MEMORY RECALL - run both recalls before your first substantive response. They are independent: issue them in parallel in a single message.',
     '',
     'Phase 1 - Preferences (tag-only, no time filter, no query):',
-    '  mcp__memory__recall_memory({',
+    '  recall_memory({',
     '    tags: ["preference"],',
     `    limit: ${AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit},`,
     '    sort: "updated_desc"',
     '  })',
     '',
     `Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays}-day window):`,
-    '  mcp__memory__recall_memory({',
+    '  recall_memory({',
     '    query: "<proper nouns, product names, people, tools, specific topics from the user\'s message>",',
     `    tags: ["${projectExpression}"],    // drop if slug collides with a common word`,
     `    time_query: "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days",`,
@@ -149,6 +149,11 @@ export function renderClaudeCodeSessionStartPrompt(projectExpression: string): s
     '  })',
     '',
     `Project slug: ${projectExpression}`,
+    '',
+    'During work - store durable memories when triggers fire:',
+    '- Do not wait for a Stop hook or session end. When a durable correction, stabilized decision, articulated pattern, or root-cause insight appears, run recall -> store -> verify -> associate in that same turn.',
+    '- Use type, importance, confidence, and bare tags on every store; verify by recalling a distinctive phrase; associate when a plausible related memory exists.',
+    '- Skip storage for session summaries, progress notes, confirmations, temporary output, and speculative context.',
     '',
     'Notes:',
     '- Tags are a HARD GATE - they filter before scoring. Use only the tag sets above; never invent topic tags. Bare tags only - no namespace prefixes (`project/*`, `lang/*`).',
@@ -202,24 +207,25 @@ export function renderClaudeCodeSessionStartHook(): string {
   ].join('\n');
 }
 
-export const AUTOMEM_STOP_NUDGE_TRIGGER_LINES = [
-  '- A user correction or preference override -> type "Preference", importance 0.9, tag "correction"',
-  '- A decision that survived discussion -> type "Decision", importance 0.85-0.9',
-  '- A pattern the user articulated -> type "Pattern", importance 0.8',
-  '- A root-cause insight from debugging -> type "Insight", importance 0.75, tags "bugfix" + "solution"',
-] as const;
+/**
+ * Minimum human prompts in the session transcript before the Stop nudge may
+ * fire. Below this the session is too short to plausibly contain a durable
+ * fact, and the Stop hook context cost is pure noise on hosts that still show
+ * or immediately act on Stop additionalContext. Mirrored in
+ * tests/hooks/automem-stop-nudge.test.ts.
+ */
+export const AUTOMEM_STOP_NUDGE_MIN_HUMAN_TURNS = 5;
 
 export function renderClaudeCodeStopNudgePrompt(): string {
-  return [
-    'Before stopping: no memories were stored this session. Check whether any durable facts emerged.',
-    '',
-    'Store via mcp__memory__store_memory ONLY if one of these fired:',
-    ...AUTOMEM_STOP_NUDGE_TRIGGER_LINES,
-    '',
-    'Use bare tags (category + project slug). Run the atomic ritual: recall related -> store -> verify -> associate.',
-    '',
-    'If nothing durable came up, stop normally - do NOT store session summaries, progress reports, or confirmations.',
-  ].join('\n');
+  // One factual line on purpose: Claude Code's docs say additionalContext is
+  // hidden context, but command-like wording can trigger prompt-injection
+  // defenses and older Stop behavior has surfaced the text. Keep this phrased
+  // as environment state rather than an imperative instruction.
+  return (
+    'AutoMem status: no memory has been stored this session. ' +
+    'Durable candidates: corrections, stabilized decisions, articulated patterns, and root-cause insights. ' +
+    'Non-candidates: session summaries, progress notes, confirmations, and temporary output.'
+  );
 }
 
 const STDIN_FIELD_SED = (field: string): string =>
@@ -233,20 +239,23 @@ export function renderClaudeCodeStopNudgeHook(): string {
   return [
     '#!/bin/bash',
     '# AutoMem Stop hook - one-shot LLM-judged storage nudge.',
-    '# If no mcp__memory__store_memory call happened this session (tracked by',
-    '# automem-track-store.sh via the automem-stored-<session_id> sentinel),',
-    '# emits hookSpecificOutput.additionalContext asking Claude once to consider',
-    '# storing durable facts. The top-level suppressOutput:true keeps the JSON out',
-    '# of the user-visible transcript while Claude still receives the nudge.',
+    '# If no store_memory call happened this session (tracked by',
+    '# automem-track-store.sh via the automem-stored-<session_id> sentinel) and',
+    `# the transcript shows a substantive session (>= ${AUTOMEM_STOP_NUDGE_MIN_HUMAN_TURNS} human prompts), emits`,
+    '# hookSpecificOutput.additionalContext with neutral AutoMem state. The',
+    '# wording is factual, not command-like, so hosts that support hidden Stop',
+    '# context can pass it silently; older hosts may still surface or act on it.',
     '# Advisory only: never blocks, never exits 2.',
     '# Generated by scripts/sync-memory-policy.ts. Do not edit by hand.',
     '',
     'SESSION_ID=""',
     'EVENT_NAME="Stop"',
+    'TRANSCRIPT_PATH=""',
     'if [ ! -t 0 ]; then',
     '  HOOK_INPUT=$(cat 2>/dev/null || true)',
     `  SESSION_ID=$(printf '%s' "$HOOK_INPUT" | ${STDIN_FIELD_SED('session_id')} | tr -cd 'A-Za-z0-9_-')`,
     `  EVENT_RAW=$(printf '%s' "$HOOK_INPUT" | ${STDIN_FIELD_SED('hook_event_name')})`,
+    `  TRANSCRIPT_PATH=$(printf '%s' "$HOOK_INPUT" | ${STDIN_FIELD_SED('transcript_path')})`,
     '  if [ "$EVENT_RAW" = "SubagentStop" ]; then',
     '    EVENT_NAME="SubagentStop"',
     '  fi',
@@ -265,6 +274,27 @@ export function renderClaudeCodeStopNudgeHook(): string {
     'if [ -e "$STORED_SENTINEL" ] || [ -e "$NUDGED_SENTINEL" ]; then',
     '  exit 0',
     'fi',
+    '',
+    '# Substantive-session gate: even hidden context costs processing and older',
+    '# hosts may still surface Stop context, so it only fires once the session',
+    '# has enough human prompts to plausibly contain something durable. Human prompts ~=',
+    '# transcript user entries that are neither tool results nor meta entries.',
+    '# No readable transcript or an unparseable count -> stay silent (silence is',
+    '# the safe failure; Windows transcript paths arrive JSON-escaped and',
+    '# unreadable here, so the gate is effectively POSIX-only).',
+    'if [ -z "$TRANSCRIPT_PATH" ] || [ ! -r "$TRANSCRIPT_PATH" ]; then',
+    '  exit 0',
+    'fi',
+    'HUMAN_TURNS=$(grep \'"type"[[:space:]]*:[[:space:]]*"user"\' "$TRANSCRIPT_PATH" 2>/dev/null | grep -v \'tool_use_id\' | grep -cv \'"isMeta"[[:space:]]*:[[:space:]]*true\')',
+    'case "$HUMAN_TURNS" in',
+    "  ''|*[!0-9]*) exit 0 ;;",
+    'esac',
+    '# Below the threshold: exit WITHOUT writing the nudged sentinel so a later',
+    '# Stop in this session can still nudge once the conversation crosses it.',
+    `if [ "$HUMAN_TURNS" -lt ${AUTOMEM_STOP_NUDGE_MIN_HUMAN_TURNS} ]; then`,
+    '  exit 0',
+    'fi',
+    '',
     '# Write the sentinel before emitting so a re-entrant Stop sees it. If it',
     "# can't be created (e.g. TMPDIR not writable), the once-per-session guarantee",
     '# is gone, so stay silent rather than nudge on every Stop.',
@@ -284,9 +314,9 @@ export function renderClaudeCodeStopNudgeHook(): string {
 export function renderClaudeCodeTrackStoreHook(): string {
   return [
     '#!/bin/bash',
-    '# AutoMem PostToolUse tracker for mcp__memory__store_memory.',
-    '# Writes a session sentinel so the Stop-hook storage nudge',
-    '# (automem-stop-nudge.sh) knows a store already happened and stays quiet.',
+    '# AutoMem PostToolUse tracker for store_memory calls (any MCP prefix).',
+    '# Writes a session sentinel so the optional Stop-hook storage nudge',
+    '# (automem-stop-nudge.sh) can stay quiet when it is enabled.',
     '# Side-effect only: no output, always exits 0.',
     '# Generated by scripts/sync-memory-policy.ts. Do not edit by hand.',
     '',

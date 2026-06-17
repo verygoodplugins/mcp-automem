@@ -45,8 +45,19 @@ function shippedCommands(configPath: string): string[] {
   return commands;
 }
 
+function shippedHookEvents(configPath: string): string[] {
+  const config = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, configPath), 'utf8')
+  ) as HookConfig;
+  return Object.keys(config.hooks ?? {});
+}
+
 describe.each(CONFIGS)('%s', (configPath) => {
   const commands = shippedCommands(configPath);
+
+  it('does not register the Stop nudge by default', () => {
+    expect(shippedHookEvents(configPath)).not.toContain('Stop');
+  });
 
   it('does not reference the retired session-memory.sh', () => {
     expect(commands.join('\n')).not.toContain('session-memory.sh');
@@ -65,7 +76,11 @@ describe.each(CONFIGS)('%s', (configPath) => {
 });
 
 describe('plugin hook commands', () => {
-  const commands = shippedCommands('plugins/automem/hooks/hooks.json');
+  // Shell-form commands quote ${CLAUDE_PLUGIN_ROOT} per the plugin docs so
+  // cache paths with spaces survive; strip quotes before path inspection.
+  const commands = shippedCommands('plugins/automem/hooks/hooks.json').map((command) =>
+    command.replace(/"/g, '')
+  );
 
   it.each(commands.filter((command) => command.startsWith('${CLAUDE_PLUGIN_ROOT}/')))(
     'direct plugin command points at an executable packaged script: %s',
@@ -75,4 +90,12 @@ describe('plugin hook commands', () => {
       expect(mode & 0o111, `${relativeScript} is invoked directly and must be executable`).not.toBe(0);
     }
   );
+
+  it('every plugin hook command is exercised by the exec-bit check above', () => {
+    // If a future command stops matching the ${CLAUDE_PLUGIN_ROOT}/ prefix
+    // (e.g. a wrapper form), the filter would silently skip it.
+    expect(
+      commands.every((command) => command.startsWith('${CLAUDE_PLUGIN_ROOT}/'))
+    ).toBe(true);
+  });
 });

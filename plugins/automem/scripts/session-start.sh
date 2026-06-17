@@ -28,14 +28,14 @@ cat << EOF
 MEMORY RECALL - run both recalls before your first substantive response. They are independent: issue them in parallel in a single message.
 
 Phase 1 - Preferences (tag-only, no time filter, no query):
-  mcp__memory__recall_memory({
+  recall_memory({
     tags: ["preference"],
     limit: 20,
     sort: "updated_desc"
   })
 
 Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; 90-day window):
-  mcp__memory__recall_memory({
+  recall_memory({
     query: "<proper nouns, product names, people, tools, specific topics from the user's message>",
     tags: ["$PROJECT"],    // drop if slug collides with a common word
     time_query: "last 90 days",
@@ -43,6 +43,11 @@ Phase 2 - Task context (ONE semantic query from the user's actual nouns; project
   })
 
 Project slug: $PROJECT
+
+During work - store durable memories when triggers fire:
+- Do not wait for a Stop hook or session end. When a durable correction, stabilized decision, articulated pattern, or root-cause insight appears, run recall -> store -> verify -> associate in that same turn.
+- Use type, importance, confidence, and bare tags on every store; verify by recalling a distinctive phrase; associate when a plausible related memory exists.
+- Skip storage for session summaries, progress notes, confirmations, temporary output, and speculative context.
 
 Notes:
 - Tags are a HARD GATE - they filter before scoring. Use only the tag sets above; never invent topic tags. Bare tags only - no namespace prefixes (\`project/*\`, \`lang/*\`).

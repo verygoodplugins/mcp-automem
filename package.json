@@ -17,6 +17,7 @@
     "postbuild": "node scripts/build-openclaw-plugin-package.mjs && chmod +x dist/index.js",
     "sync-versions": "node scripts/sync-template-versions.mjs",
     "docs:hermes": "node scripts/build-hermes-demos.mjs",
+    "probe:claude-stop-context": "node scripts/probe-claude-stop-additional-context.mjs",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint .",
     "prepare": "husky",
@@ -25,6 +26,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "bash tests/e2e/run-matrix.sh",
     "test:all": "vitest run && vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm run test",
@@ -54,6 +56,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@inquirer/prompts": "^7.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^17.4.2",
     "node-fetch": "^3.3.2",
@@ -61,6 +64,7 @@
   },
   "devDependencies": {
     "@commitlint/cli": "^21.0.1",
+    "node-pty": "^1.0.0",
     "@commitlint/config-conventional": "^21.0.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.6.0",

@@ -8,6 +8,14 @@ description: |
   - Learning user preferences or code style
   - Debugging issues (search for similar past problems)
 allowed-tools:
+  # Plugin-bundled MCP server (Claude Code namespaces plugin tools)
+  - mcp__plugin_automem_memory__store_memory
+  - mcp__plugin_automem_memory__recall_memory
+  - mcp__plugin_automem_memory__associate_memories
+  - mcp__plugin_automem_memory__update_memory
+  - mcp__plugin_automem_memory__delete_memory
+  - mcp__plugin_automem_memory__check_database_health
+  # User-level `memory` MCP server (CLI/manual installs)
   - mcp__memory__store_memory
   - mcp__memory__recall_memory
   - mcp__memory__associate_memories
@@ -20,7 +28,9 @@ allowed-tools:
 
 Use AutoMem to maintain persistent context across Claude Code sessions.
 
-> Deprecated compatibility note: this plugin skill is kept only for one release while users migrate to `npx @verygoodplugins/mcp-automem claude-code`. It should mirror the canonical Claude Code templates.
+Tool examples below use short names (`recall_memory`, `store_memory`); call
+them on whichever AutoMem MCP server is wired in (plugin installs namespace
+them as `mcp__plugin_automem_memory__*`, user-level servers as `mcp__memory__*`).
 
 This skill teaches the current AutoMem playbook: **Recall early, store durable outcomes, avoid session-summary noise.**
 
@@ -53,14 +63,14 @@ This skill teaches the current AutoMem playbook: **Recall early, store durable o
 
 ```javascript
 // Preferences first
-mcp__memory__recall_memory({
+recall_memory({
   tags: ["preference"],
   limit: 20,
   sort: "updated_desc"
 })
 
 // Task context recall
-mcp__memory__recall_memory({
+recall_memory({
   query: "authentication timeout PostgreSQL auth.ts retry logic",
   tags: ["myapp"],   // drop if ambiguous
   time_query: "last 90 days",
@@ -68,7 +78,7 @@ mcp__memory__recall_memory({
 })
 
 // Debug similar errors (no tag gate — a hard gate hides cross-corpus fixes)
-mcp__memory__recall_memory({
+recall_memory({
   query: "TimeoutError authentication request timed out",
   limit: 20
 })
@@ -100,7 +110,7 @@ Use bare tags only. Do not add platform tags or date tags.
 
 **Decision:**
 ```javascript
-mcp__memory__store_memory({
+store_memory({
   content: "Chose PostgreSQL over MongoDB. Need ACID guarantees for transactions. Impact: Ensures data consistency.",
   type: "Decision",
   tags: ["decision", "myapp", "database"],
@@ -115,7 +125,7 @@ mcp__memory__store_memory({
 
 **Bug Fix:**
 ```javascript
-mcp__memory__store_memory({
+store_memory({
   content: "Auth timeout on slow connections. Root: Missing retry logic. Solution: Added exponential backoff with 3 retries.",
   type: "Insight",
   tags: ["bugfix", "solution", "myapp", "auth"],
@@ -131,7 +141,7 @@ mcp__memory__store_memory({
 
 **User Preference:**
 ```javascript
-mcp__memory__store_memory({
+store_memory({
   content: "User prefers early returns over nested conditionals in validation code.",
   type: "Preference",
   tags: ["preference", "code-style"],
@@ -145,7 +155,7 @@ mcp__memory__store_memory({
 Link related memories to build a knowledge graph:
 
 ```javascript
-mcp__memory__associate_memories({
+associate_memories({
   memory1_id: "related-memory-id",
   memory2_id: "new-memory-id",
   type: "INVALIDATED_BY",  // or PREFERS_OVER, LEADS_TO, EXEMPLIFIES

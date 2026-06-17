@@ -284,7 +284,16 @@ describe('uninstall claude-code', () => {
       JSON.stringify(
         {
           permissions: {
-            allow: ['mcp__memory__store_memory', 'mcp__memory__recall_memory', 'Bash(ls:*)'],
+            // Bash(python3:*)/Bash(jq:*) are retired hook-era grants the old
+            // template shipped; uninstall removes them along with the MCP
+            // permissions. Bash(ls:*) stands in for a user-owned grant.
+            allow: [
+              'mcp__memory__store_memory',
+              'mcp__memory__recall_memory',
+              'Bash(python3:*)',
+              'Bash(jq:*)',
+              'Bash(ls:*)',
+            ],
           },
           hooks: {
             Stop: [
@@ -412,5 +421,110 @@ describe('uninstall claude-code', () => {
         `${rel} must survive a failed settings update`
       ).toBe(true);
     }
+  });
+});
+
+describe('uninstall codex', () => {
+  let tmpDir: string;
+
+  const CODEX_BLOCK = [
+    '# Project',
+    '',
+    'Some existing project guidance.',
+    '',
+    '<!-- BEGIN AUTOMEM CODEX RULES -->',
+    'AutoMem rules go here.',
+    '<!-- END AUTOMEM CODEX RULES -->',
+    '',
+  ].join('\n');
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-uninstall-codex-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('accepts codex as a platform target', () => {
+    expect(parseUninstallArgs(['codex'])?.platform).toBe('codex');
+    expect(parseUninstallArgs(['codex', '--dir', '/x', '--yes'])).toMatchObject({
+      platform: 'codex',
+      projectDir: '/x',
+      yes: true,
+    });
+  });
+
+  it('strips the AutoMem block from AGENTS.md and leaves a backup', async () => {
+    const agents = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(agents, CODEX_BLOCK, 'utf8');
+
+    await runUninstall({ platform: 'codex', projectDir: tmpDir, yes: true, quiet: true });
+
+    const after = fs.readFileSync(agents, 'utf8');
+    expect(after).not.toContain('BEGIN AUTOMEM CODEX RULES');
+    expect(after).toContain('Some existing project guidance.');
+    expect(fs.readdirSync(tmpDir).filter((f) => f.includes('AGENTS.md.backup.'))).toHaveLength(1);
+  });
+
+  it('leaves a single trailing newline when content follows the block', async () => {
+    const agents = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(
+      agents,
+      [
+        '# Project',
+        '',
+        '<!-- BEGIN AUTOMEM CODEX RULES -->',
+        'AutoMem rules.',
+        '<!-- END AUTOMEM CODEX RULES -->',
+        '',
+        'Trailing project notes.',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+
+    await runUninstall({ platform: 'codex', projectDir: tmpDir, yes: true, quiet: true });
+
+    const after = fs.readFileSync(agents, 'utf8');
+    expect(after).not.toContain('BEGIN AUTOMEM CODEX RULES');
+    expect(after).toContain('Trailing project notes.');
+    expect(after.endsWith('\n')).toBe(true);
+    expect(after.endsWith('\n\n')).toBe(false);
+  });
+
+  it('reduces a block-only AGENTS.md to an empty file', async () => {
+    const agents = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(
+      agents,
+      '<!-- BEGIN AUTOMEM CODEX RULES -->\nAutoMem rules.\n<!-- END AUTOMEM CODEX RULES -->\n',
+      'utf8'
+    );
+
+    await runUninstall({ platform: 'codex', projectDir: tmpDir, yes: true, quiet: true });
+
+    const after = fs.readFileSync(agents, 'utf8');
+    expect(after).not.toContain('AUTOMEM');
+    expect(after).toBe('\n');
+  });
+
+  it('is a no-op (no backup) when there is no AutoMem block', async () => {
+    const agents = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(agents, '# Project\n\nNo AutoMem here.\n', 'utf8');
+
+    await runUninstall({ platform: 'codex', projectDir: tmpDir, yes: true, quiet: true });
+
+    expect(fs.readdirSync(tmpDir).filter((f) => f.includes('.backup.'))).toEqual([]);
+    expect(fs.readFileSync(agents, 'utf8')).toContain('No AutoMem here.');
+  });
+
+  it('does not write under --dry-run', async () => {
+    const agents = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(agents, CODEX_BLOCK, 'utf8');
+
+    await runUninstall({ platform: 'codex', projectDir: tmpDir, yes: true, dryRun: true, quiet: true });
+
+    expect(fs.readFileSync(agents, 'utf8')).toContain('BEGIN AUTOMEM CODEX RULES');
+    expect(fs.readdirSync(tmpDir).filter((f) => f.includes('.backup.'))).toEqual([]);
   });
 });

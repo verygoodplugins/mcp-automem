@@ -8,11 +8,14 @@ interface ClaudeCodeSetupOptions {
   dryRun?: boolean;
   yes?: boolean;
   quiet?: boolean;
+  profile?: 'silent' | 'nudged';
 }
 
 const TEMPLATE_ROOT = path.resolve(
   fileURLToPath(new URL('../../templates/claude-code', import.meta.url))
 );
+const DEFAULT_SETTINGS_TEMPLATE = 'settings.json';
+const STOP_NUDGE_SETTINGS_TEMPLATE = 'settings.stop-nudge.json';
 const HOOK_SCRIPTS = [
   'automem-session-start.sh',
   'automem-stop-nudge.sh',
@@ -124,6 +127,20 @@ const RETIRED_HOOK_KEYS = new Set<string>([
   'script:queue-cleanup.sh',
   'mcp-automem:queue',
 ]);
+
+// Permission grants the old template shipped solely for retired hook
+// machinery: the Python session-memory/queue chain (#102 added the python/py
+// aliases for it) and the jq-based queue cleanup. The hooks are pure bash+sed
+// now, so a re-run strips exactly these. Generic dev grants (Bash(git:*),
+// Edit, ...) cannot be attributed to AutoMem vs the user and are never
+// touched — only entries that existed for AutoMem's own retired machinery
+// belong here.
+export const RETIRED_PERMISSIONS: ReadonlyArray<string> = [
+  'Bash(python3:*)',
+  'Bash(python:*)',
+  'Bash(py:*)',
+  'Bash(jq:*)',
+];
 
 // Exact historical template spellings (normalized before comparison). A hook
 // command is rewritten to the current template spelling ONLY when it matches
@@ -486,15 +503,22 @@ export function mergeSettings(targetSettings: any, templateSettings: any): any {
   merged.permissions.allow = mergeUniqueStrings(
     merged.permissions.allow ?? [],
     templatePermissions.allow ?? []
-  );
-  merged.permissions.deny = mergeUniqueStrings(
-    merged.permissions.deny ?? [],
-    templatePermissions.deny ?? []
-  );
-  merged.permissions.ask = mergeUniqueStrings(
-    merged.permissions.ask ?? [],
-    templatePermissions.ask ?? []
-  );
+  ).filter((permission: string) => !RETIRED_PERMISSIONS.includes(permission));
+  // deny/ask are user-owned; the template no longer ships any. Merge only
+  // when one side actually has entries so the installer stops planting empty
+  // blocks in user settings.
+  if (merged.permissions.deny !== undefined || (templatePermissions.deny?.length ?? 0) > 0) {
+    merged.permissions.deny = mergeUniqueStrings(
+      merged.permissions.deny ?? [],
+      templatePermissions.deny ?? []
+    );
+  }
+  if (merged.permissions.ask !== undefined || (templatePermissions.ask?.length ?? 0) > 0) {
+    merged.permissions.ask = mergeUniqueStrings(
+      merged.permissions.ask ?? [],
+      templatePermissions.ask ?? []
+    );
+  }
 
   return merged;
 }
@@ -543,9 +567,26 @@ function removeRetiredFiles(targetDir: string, options: ClaudeCodeSetupOptions) 
   }
 }
 
-function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
-  const templateSettingsPath = path.join(TEMPLATE_ROOT, 'settings.json');
+function loadTemplateSettings(profile: ClaudeCodeSetupOptions['profile'] = 'silent') {
+  const templateSettingsPath = path.join(TEMPLATE_ROOT, DEFAULT_SETTINGS_TEMPLATE);
   const templateSettings = JSON.parse(fs.readFileSync(templateSettingsPath, 'utf8'));
+  if (profile !== 'nudged') {
+    return templateSettings;
+  }
+
+  const stopNudgeTemplatePath = path.join(TEMPLATE_ROOT, STOP_NUDGE_SETTINGS_TEMPLATE);
+  const stopNudgeSettings = JSON.parse(fs.readFileSync(stopNudgeTemplatePath, 'utf8'));
+  return {
+    ...templateSettings,
+    hooks: {
+      ...(templateSettings.hooks ?? {}),
+      ...(stopNudgeSettings.hooks ?? {}),
+    },
+  };
+}
+
+function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
+  const templateSettings = loadTemplateSettings(options.profile);
   const targetPath = path.join(targetDir, 'settings.json');
 
   if (!fs.existsSync(targetPath)) {
@@ -594,7 +635,7 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   );
   if (removedCapture.length > 0) {
     log(
-      `migrated: removed retired capture hooks (${removedCapture.join(', ')}) — storage is now LLM-judged via automem-stop-nudge.sh`,
+      `migrated: removed retired capture hooks (${removedCapture.join(', ')}) — storage is now LLM-judged during normal work; Stop nudge is opt-in`,
       options.quiet
     );
   }
@@ -603,6 +644,15 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   if (hadQueueHooks && !hasQueueHooks) {
     log(
       'migrated: removed retired queue Stop hooks (queue-cleanup.sh, queue drainer) — the memory queue is manual-only via `npx @verygoodplugins/mcp-automem queue`',
+      options.quiet
+    );
+  }
+  const removedPermissions = RETIRED_PERMISSIONS.filter(
+    (permission) => raw.includes(`"${permission}"`) && !output.includes(`"${permission}"`)
+  );
+  if (removedPermissions.length > 0) {
+    log(
+      `migrated: removed retired hook-era permissions (${removedPermissions.join(', ')}) — the bash-only hooks no longer need Python or jq`,
       options.quiet
     );
   }
@@ -628,6 +678,15 @@ function parseClaudeArgs(args: string[]): ClaudeCodeSetupOptions {
       case '--quiet':
         options.quiet = true;
         break;
+      case '--profile': {
+        const profile = args[i + 1];
+        if (profile !== 'silent' && profile !== 'nudged') {
+          throw new Error('--profile must be "silent" or "nudged"');
+        }
+        options.profile = profile;
+        i += 1;
+        break;
+      }
       default:
         break;
     }
@@ -639,6 +698,7 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
   const options: ClaudeCodeSetupOptions = {
     ...cliOptions,
     targetDir: cliOptions.targetDir ?? path.join(os.homedir(), '.claude'),
+    profile: cliOptions.profile ?? 'silent',
   };
 
   const targetDir = options.targetDir ?? path.join(os.homedir(), '.claude');
@@ -659,13 +719,25 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
   removeRetiredFiles(targetDir, options);
 
   log('', options.quiet);
-  log('✓ Hook scripts installed (session recall, store tracking, stop nudge)', options.quiet);
+  log(
+    options.profile === 'nudged'
+      ? '✓ Hook scripts installed (session recall, store tracking, opt-in stop nudge)'
+      : '✓ Hook scripts installed (session recall, store tracking; Stop nudge is opt-in)',
+    options.quiet
+  );
   log('✓ MCP permissions and hooks added to settings.json', options.quiet);
   log('', options.quiet);
   log('Next steps:', options.quiet);
   log('1. Add MCP server to ~/.claude.json (see INSTALLATION.md)', options.quiet);
   log('2. Add memory rules: cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md', options.quiet);
   log('3. Restart Claude Code', options.quiet);
+  log('', options.quiet);
+  log(
+    'Tip: the AutoMem plugin is the recommended install for Claude Code — it bundles the MCP server and these hooks, prompts for your endpoint, and auto-updates:',
+    options.quiet
+  );
+  log('  /plugin marketplace add verygoodplugins/mcp-automem', options.quiet);
+  log('  /plugin install automem@verygoodplugins-mcp-automem', options.quiet);
 }
 
 export async function runClaudeCodeSetup(args: string[] = []): Promise<void> {

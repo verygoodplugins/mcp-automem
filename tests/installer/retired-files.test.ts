@@ -109,7 +109,7 @@ describe('installer retired-file cleanup', () => {
     }
   });
 
-  it('installs no legacy scripts and registers only the nudge on Stop for a fresh dir', async () => {
+  it('installs no legacy scripts and leaves Stop unregistered by default', async () => {
     await applyClaudeCodeSetup({ targetDir, quiet: true });
 
     expect(fs.existsSync(path.join(targetDir, 'hooks', 'session-memory.sh'))).toBe(false);
@@ -118,6 +118,15 @@ describe('installer retired-file cleanup', () => {
     expect(fs.existsSync(path.join(targetDir, 'scripts', 'process-session-memory.py'))).toBe(false);
     expect(fs.existsSync(path.join(targetDir, 'scripts', 'memory-filters.json'))).toBe(false);
     expect(fs.existsSync(path.join(targetDir, 'scripts', 'smart-notify.sh'))).toBe(false);
+
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(targetDir, 'settings.json'), 'utf8')
+    ) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
+    expect(settings.hooks.Stop).toBeUndefined();
+  });
+
+  it('registers the Stop nudge only for the nudged profile', async () => {
+    await applyClaudeCodeSetup({ targetDir, quiet: true, profile: 'nudged' });
 
     const settings = JSON.parse(
       fs.readFileSync(path.join(targetDir, 'settings.json'), 'utf8')
