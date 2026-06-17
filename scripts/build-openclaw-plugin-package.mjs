@@ -54,6 +54,10 @@ for (const filename of runtimeFiles) {
   cpSync(join(DIST_ROOT, filename), targetPath);
 }
 
-chmodSync(join(DIST_ROOT, 'index.js'), 0o755);
+try {
+  chmodSync(join(DIST_ROOT, 'index.js'), 0o755);
+} catch (error) {
+  if (process.platform !== 'win32') throw error;
+}
 
 console.log(`✓ staged lean OpenClaw plugin package in ${join('dist', 'openclaw-plugin-package')}`);
