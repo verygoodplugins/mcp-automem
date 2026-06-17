@@ -51,8 +51,11 @@ Notes:
 
 ```bash
 # Guided installer: pick target (local/cloud/existing), verify the endpoint,
-# write .env, and configure agents. Claude Code defaults to the plugin (a guided
-# manual step) or --claude-code-mode settings for the file writer. Gold-themed
+# write .env, and configure agents. Claude Code defaults to the plugin: when the
+# `claude` CLI is on PATH the installer runs `claude plugin install` directly
+# (threading the endpoint/key as --config; see installClaudeCodePlugin), else it
+# falls back to printing the /plugin commands. --claude-code-mode settings selects
+# the file writer instead. Gold-themed
 # @inquirer/prompts (clack's green accent isn't themable); branded UI toolkit in
 # src/cli/ui/* (theme/table/messages/brand/tasks/animate/prompts) + the mascot in
 # src/cli/install-ui.ts. Interactive prompt routes are tested with a node-pty
