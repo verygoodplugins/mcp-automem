@@ -65,15 +65,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TOKEN = 'demo-railway-token';
 const WATCH = process.argv.includes('--watch') || process.env.DEMO_WATCH === '1';
 
-// A fake `railway` CLI. The installer first tries the terminal fast path (init →
-// status → GraphQL deploy); with no token in the throwaway HOME, readAccessToken
-// returns undefined, so the provider falls back to the browser flow this fake
-// supports (login/link) — and domain/variable hand back the LOCAL mock URL + token so
-// verify passes. init/status are still answered so the fast path reaches the (token)
-// failure point that triggers the fallback rather than erroring early.
+// A fake `railway` CLI. `--version` answers the installer's CLI-presence probe so it
+// treats the CLI as installed (the real path the demo exercises). The installer then
+// tries the terminal fast path (init → status → GraphQL deploy); with no token in the
+// throwaway HOME, readAccessToken returns undefined, so the provider falls back to the
+// browser flow this fake supports (login/link) — and domain/variable hand back the
+// LOCAL mock URL + token so verify passes. init/status are still answered so the fast
+// path reaches the (token) failure point that triggers the fallback rather than
+// erroring early.
 function writeFakeRailway(binDir, mockUrl) {
   const script = `#!/usr/bin/env bash
 case "$1 $2" in
+  "--version"*)        echo "railway 3.x (fake)";;
   "whoami "*)          echo '{"name":"demo","workspaces":[{"id":"ws-demo","name":"Demo"}]}';;
   "login "*|"login ")  echo "Logged in (fake)";;
   "init "*)            echo '{"id":"proj-demo","name":"automem"}';;

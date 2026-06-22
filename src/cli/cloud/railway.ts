@@ -15,11 +15,17 @@
 // attach the CLI with an interactive `railway link` and read the same way. `railway`
 // runs in an isolated temp workdir so we never link the user's real cwd.
 //
+// CLI-presence front-half: the whole guided path assumes `railway` is on PATH. The
+// bridge (installer-bridge.ts) detects it first via defaultIsRailwayCliPresent and, if
+// missing, offers to install it with defaultInstallRailwayCli (`npm i -g @railway/cli`)
+// before any authorize() runs — so a brand-new user without the CLI still reaches the
+// fast path instead of dropping straight to a manual paste.
+//
 // All shell-outs go through an injectable RailwayCommandRunner and the GraphQL deploy
 // through an injectable deployViaApi, so the whole provider is unit-testable without the
 // real CLI or network.
 
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
@@ -72,6 +78,36 @@ function defaultRailwayRunner(args: string[], opts: RailwayCommandOptions = {}):
   const result = opts.interactive
     ? spawnSync('railway', args, { stdio: 'inherit', cwd: opts.cwd })
     : spawnSync('railway', args, { encoding: 'utf8', cwd: opts.cwd });
+  if (result.error) throw result.error;
+  const asString = (v: string | Buffer | null | undefined): string => (typeof v === 'string' ? v : '');
+  return { code: result.status ?? 1, stdout: asString(result.stdout), stderr: asString(result.stderr) };
+}
+
+// Injectable CLI-presence check + installer, mirroring RailwayCommandRunner: thin
+// system wrappers with defaults, so the consuming logic (ensureRailwayCli) is unit-
+// testable with fakes and never touches the real PATH or npm.
+export type RailwayCliPresenceCheck = () => boolean;
+export type RailwayCliInstaller = () => RailwayCommandResult;
+
+// Detect `railway` on PATH (models src/cli/install.ts defaultCommandExists): a missing
+// binary makes execFileSync throw (ENOENT), which we report as "not present".
+export function defaultIsRailwayCliPresent(): boolean {
+  try {
+    execFileSync('railway', ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Install the CLI the most portable way — the user already has Node/npm (they ran our
+// npx installer). A spawn error (e.g. npm missing) throws so the caller treats it as a
+// failed install and falls back.
+export function defaultInstallRailwayCli(): RailwayCommandResult {
+  const result = spawnSync('npm', ['install', '--global', '@railway/cli'], {
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  });
   if (result.error) throw result.error;
   const asString = (v: string | Buffer | null | undefined): string => (typeof v === 'string' ? v : '');
   return { code: result.status ?? 1, stdout: asString(result.stdout), stderr: asString(result.stderr) };

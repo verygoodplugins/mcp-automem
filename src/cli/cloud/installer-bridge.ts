@@ -13,7 +13,13 @@ import { noteBox } from '../ui/messages.js';
 import { cancelable, promptConfirm, promptPassword, promptSelect, promptText } from '../ui/prompts.js';
 import { openInSystemBrowser } from './browser-auth.js';
 import { executeCloudIntent, selectCloudIntent } from './orchestrate.js';
-import { createRailwayProvider, RAILWAY_DEPLOY_URL } from './railway.js';
+import {
+  createRailwayProvider,
+  defaultInstallRailwayCli,
+  defaultIsRailwayCliPresent,
+  RAILWAY_DEPLOY_URL,
+  type RailwayCommandResult,
+} from './railway.js';
 import {
   CloudProvisionAbort,
   type AuthorizeOptions,
@@ -182,17 +188,150 @@ export async function provisionViaProvider(
   }
 }
 
+// The Railway-CLI front-half. Detect the CLI; if it's missing, offer to install it
+// (consented — a global npm install is a system side effect) so a brand-new user still
+// reaches the guided fast path instead of dropping to a manual paste. Returns ok when
+// the CLI is usable (already present or freshly installed); otherwise a reason the
+// caller maps to the browser/paste fallback. Pure decision logic over injected
+// primitives — no real prompt, PATH, or npm here, so it unit-tests without the system.
+export interface EnsureRailwayCliParams {
+  interactive: boolean;
+  isCliPresent: () => boolean;
+  installCli: () => RailwayCommandResult;
+  confirmInstall: () => Promise<boolean>;
+  log: (line: string) => void;
+}
+export type EnsureRailwayCliResult =
+  | { ok: true; via: 'present' | 'installed' }
+  | { ok: false; reason: 'declined' | 'install-failed' | 'non-interactive' };
+
+export async function ensureRailwayCli(
+  params: EnsureRailwayCliParams
+): Promise<EnsureRailwayCliResult> {
+  if (params.isCliPresent()) return { ok: true, via: 'present' };
+  // Without a TTY there's no way to consent to a global install (cli-installer-ux rule).
+  if (!params.interactive) return { ok: false, reason: 'non-interactive' };
+  if (!(await params.confirmInstall())) return { ok: false, reason: 'declined' };
+
+  params.log('  → Installing the Railway CLI (npm i -g @railway/cli) — this can take a moment…');
+  let result: RailwayCommandResult;
+  try {
+    result = params.installCli();
+  } catch (err) {
+    params.log(`  ✗ Could not install the Railway CLI (${err instanceof Error ? err.message : String(err)}).`);
+    return { ok: false, reason: 'install-failed' };
+  }
+  // Re-check PATH: guard the rare exit-0-but-not-resolvable case.
+  if (result.code !== 0 || !params.isCliPresent()) {
+    params.log(`  ✗ Could not install the Railway CLI (${result.stderr.trim() || `exit ${result.code}`}).`);
+    return { ok: false, reason: 'install-failed' };
+  }
+  params.log('  ✓ Railway CLI installed.');
+  return { ok: true, via: 'installed' };
+}
+
+// No-CLI fallback (interactive only): we can't drive Railway from the terminal, so let
+// the user deploy via the browser Deploy-Now page and paste the generated URL + key, or
+// paste an existing one. Mirrors provisionViaInstaPodsLink.
+async function railwayDeployOrPaste(params: {
+  reason: string;
+  log: (line: string) => void;
+  openUrl: (url: string) => void | Promise<void>;
+}): Promise<ProvisionResult> {
+  const { log, openUrl } = params;
+  log(
+    noteBox('Railway setup', [
+      params.reason,
+      'You can deploy AutoMem in your browser instead, then paste its URL + key.',
+    ])
+  );
+
+  const choice = await cancelable(
+    promptSelect<'open' | 'paste'>({
+      message: 'Set up AutoMem on Railway',
+      options: [
+        {
+          value: 'open',
+          label: 'Open the Railway deploy page',
+          hint: 'deploys AutoMem; copy its URL + API key when every service is green',
+        },
+        {
+          value: 'paste',
+          label: 'I already have my URL + key',
+          hint: 'skip the browser and paste them now',
+        },
+      ],
+      initialValue: 'open',
+    })
+  );
+
+  if (choice === 'open') {
+    await openUrl(RAILWAY_DEPLOY_URL);
+    log(
+      noteBox('Finish your Railway deploy in the browser', [
+        'On the page that just opened:',
+        '  1. Click "Deploy" (set an embedding key if you have one — blank is fine).',
+        '  2. Wait until every service shows green.',
+        '  3. Open the "automem" service → Variables, copy its public URL + AUTOMEM_API_KEY.',
+        '',
+        'Then paste them below.',
+        '',
+        RAILWAY_DEPLOY_URL,
+      ])
+    );
+  }
+
+  return promptManualCredentials();
+}
+
 export interface ProvisionViaRailwayParams {
   interactive: boolean;
   log?: (line: string) => void;
   /** Injected in tests. */
   provider?: CloudProvider;
+  /** Injected in tests; defaults to checking the real PATH. */
+  isCliPresent?: () => boolean;
+  /** Injected in tests; defaults to `npm i -g @railway/cli`. */
+  installCli?: () => RailwayCommandResult;
+  /** Injected in tests; defaults to a gold confirm prompt. */
+  confirmInstall?: () => Promise<boolean>;
+  /** Injected in tests; defaults to opening the system browser. */
+  openUrl?: (url: string) => void | Promise<void>;
 }
 
 export async function provisionViaRailway(
   params: ProvisionViaRailwayParams
 ): Promise<ProvisionResult> {
   const log = params.log ?? ((line: string) => process.stdout.write(`${line}\n`));
+  const openUrl = params.openUrl ?? openInSystemBrowser;
+
+  // Front-half: make sure the railway CLI is usable before the guided flow needs it.
+  const cli = await ensureRailwayCli({
+    interactive: params.interactive,
+    isCliPresent: params.isCliPresent ?? defaultIsRailwayCliPresent,
+    installCli: params.installCli ?? defaultInstallRailwayCli,
+    confirmInstall:
+      params.confirmInstall ??
+      (() =>
+        cancelable(
+          promptConfirm({
+            message: "The Railway CLI isn't installed. Install it now with npm (npm i -g @railway/cli)?",
+            initialValue: true,
+          })
+        )),
+    log,
+  });
+
+  if (!cli.ok) {
+    // No usable CLI → we can't drive Railway from the terminal.
+    if (!params.interactive) {
+      throw new Error('The Railway CLI is not available and cannot be installed without a TTY.');
+    }
+    const reason =
+      cli.reason === 'declined' ? 'Skipped installing the Railway CLI.' : 'Could not install the Railway CLI.';
+    return railwayDeployOrPaste({ reason, log, openUrl });
+  }
+
   let provider = params.provider;
   if (!provider) {
     // The provider deploys straight from the terminal by default (railway init + the

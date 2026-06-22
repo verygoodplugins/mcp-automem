@@ -86,7 +86,10 @@ This rule exists because open Copilot comments on merged PRs create technical de
 # emails the URL+key, then the user pastes it (apply phase); InstaPods has no
 # app-deploy API/CLI so this is link+paste, NOT API-driven. Railway IS guided and
 # deploys straight from the terminal (the FAST PATH, src/cli/cloud/railway.ts +
-# railway-api.ts): `railway login` (browser hand-off; also signs up new accounts) →
+# railway-api.ts). FRONT-HALF (installer-bridge.ts ensureRailwayCli): detect the CLI on
+# PATH (defaultIsRailwayCliPresent, `railway --version`); if it's missing, offer to install
+# it with `npm i -g @railway/cli` behind a gold confirm (declined/failed → browser/paste).
+# Then the fast path: `railway login` (browser hand-off; also signs up new accounts) →
 # `railway init --name automem --workspace <id> --json` (create+link, in an isolated
 # temp workdir so the user's cwd is never linked) → `railway status --json` (read
 # projectId/environmentId) → fire Railway's GraphQL `templateDeployV2` directly
@@ -107,7 +110,7 @@ This rule exists because open Copilot comments on merged PRs create technical de
 # behind the provider-agnostic CloudProvider interface (src/cli/cloud/*, reusable for
 # AutoMem's own API-driven cloud). `other` = paste an existing endpoint+token up front
 # (resolve phase). Railway/InstaPods degrade to a manual paste; the Railway deploy runs
-# in apply (after plan approval); --dry-run never auths/deploys/charges.
+# in apply (after plan approval); --dry-run never installs the CLI/auths/deploys/charges.
 # AUTOMEM_NO_BROWSER=1 suppresses the browser open (CI / the demo). Gold-themed
 # @inquirer/prompts (clack's green accent isn't themable); branded UI toolkit in
 # src/cli/ui/* (theme/table/messages/brand/tasks/animate/prompts) + the mascot in

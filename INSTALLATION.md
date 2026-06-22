@@ -27,13 +27,14 @@ It asks where AutoMem should run (**Hosted Cloud**, **Local Docker**, or an
 - **InstaPods** — opens the InstaPods setup page in your browser. It deploys
   AutoMem (Grow plan) and emails you your API URL + key; you paste them back into
   the installer. Already have them? Skip the browser and paste directly.
-- **Railway** — signs you in via the `railway` CLI (a browser hand-off that also
-  creates an account if you're new), then deploys the AutoMem template **straight from
-  the terminal** — no browser tab for the deploy itself — and reads back the service
-  domain + API token automatically. Needs the `railway` CLI on your PATH (it falls
-  back to paste otherwise). If the terminal deploy can't complete, it falls back to
-  the template's **Deploy Now** page in your browser, then runs `railway link` to
-  capture the credentials.
+- **Railway** — if the `railway` CLI isn't on your PATH, the installer offers to
+  install it for you with `npm i -g @railway/cli` (with your confirmation — you already
+  have Node from running this installer). It then signs you in via the CLI (a browser
+  hand-off that also creates an account if you're new) and deploys the AutoMem template
+  **straight from the terminal** — no browser tab for the deploy itself — reading back
+  the service domain + API token automatically. If you decline the CLI install, or the
+  terminal deploy can't complete, it falls back to the template's **Deploy Now** page in
+  your browser, then captures the credentials (via `railway link`, or by paste).
 - **Other** — already deployed AutoMem somewhere? Paste your endpoint + token and
   the installer takes it from there.
 
@@ -67,7 +68,7 @@ Flags: `--target <local|cloud|existing>`, `--cloud-provider <instapods|railway|o
 `AUTOMEM_*` environment variables. For non-interactive InstaPods runs, set
 `INSTAPODS_TOKEN` to skip the browser hand-off (Railway uses your existing
 `railway` CLI auth or `RAILWAY_API_TOKEN`). `--dry-run` never opens a browser,
-runs the railway CLI, deploys, or charges anything — it only prints the plan.
+installs or runs the railway CLI, deploys, or charges anything — it only prints the plan.
 
 > Without a TTY and without `--yes`/`--dry-run`, `install` prints the review
 > plan and stops without writing — re-run with `--yes` to apply.
