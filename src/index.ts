@@ -40,13 +40,31 @@ function isInteractiveTerminal(): boolean {
 
 const command = (process.argv[2] || "").toLowerCase();
 const isServerMode = command.length === 0;
+const KNOWN_COMMANDS = new Set([
+  "help",
+  "--help",
+  "-h",
+  "setup",
+  "install",
+  "config",
+  "claude-code",
+  "cursor",
+  "codex",
+  "openclaw",
+  "hermes",
+  "migrate",
+  "uninstall",
+  "queue",
+  "recall",
+]);
 const isMachineReadableCommand =
   command === "config" && process.argv.slice(3).some(
     (arg) => arg === "--json" || arg === "--format=json" || arg === "--format"
   );
 // The guided installer renders a branded splash + curated review; the dotenv
 // banner would corrupt that output, so silence it here too.
-const shouldSilenceDotenv = isServerMode || isMachineReadableCommand || command === "install";
+const shouldSilenceDotenv =
+  isServerMode || isMachineReadableCommand || command === "install" || !KNOWN_COMMANDS.has(command);
 
 // Prevent dotenv from writing its banner to stdout when the caller expects clean
 // machine-readable output (stdio server mode, or `config --format=json`).
@@ -105,6 +123,57 @@ function getPackageVersion(): string {
 }
 
 const PACKAGE_VERSION = getPackageVersion();
+
+const ASSOCIATION_PROPERTY_SCHEMAS = {
+  context: {
+    type: "string",
+    description: "Relation-specific context for PREFERS_OVER or PART_OF associations.",
+  },
+  reason: {
+    type: "string",
+    description:
+      "Relation-specific reason for PREFERS_OVER, CONTRADICTS, INVALIDATED_BY, or EVOLVED_INTO associations.",
+  },
+  pattern_type: {
+    type: "string",
+    description: "Relation-specific pattern label for EXEMPLIFIES associations.",
+  },
+  confidence: {
+    type: "number",
+    minimum: 0,
+    maximum: 1,
+    description: "Relation-specific confidence for EXEMPLIFIES, EVOLVED_INTO, or DERIVED_FROM.",
+  },
+  resolution: {
+    type: "string",
+    description: "Relation-specific resolution for CONTRADICTS associations.",
+  },
+  observations: {
+    type: "array",
+    items: { type: "string" },
+    description: "Relation-specific observations for REINFORCES associations.",
+  },
+  timestamp: {
+    type: "string",
+    description: "Relation-specific timestamp for INVALIDATED_BY associations.",
+  },
+  transformation: {
+    type: "string",
+    description: "Relation-specific transformation note for DERIVED_FROM associations.",
+  },
+  role: {
+    type: "string",
+    description: "Relation-specific role for PART_OF associations.",
+  },
+} as const;
+
+function formatHealthComponent(value: unknown): string {
+  if (value && typeof value === "object" && "status" in value) {
+    const status = (value as { status?: unknown }).status;
+    return typeof status === "string" ? status : JSON.stringify(value);
+  }
+  return String(value);
+}
 
 if (command === "help" || command === "--help" || command === "-h") {
   console.log(`
@@ -355,6 +424,12 @@ if (command === "recall") {
     console.error("❌ Recall failed:", error);
     process.exit(1);
   }
+}
+
+if (!isServerMode) {
+  console.error(`Unknown command: ${command}`);
+  console.error("Run `mcp-automem help` for available commands.");
+  process.exit(1);
 }
 
 const { url: AUTOMEM_API_URL, source: automemApiUrlSource } = resolveAutoMemApiUrl();
@@ -696,6 +771,11 @@ const tools: Tool[] = [
           description:
             "Follow graph relationships from seed results to find related memories.",
         },
+        expand_respect_tags: {
+          type: "boolean",
+          description:
+            "Ranked-mode only. When true, graph/entity expansion stays within the original tag scope; when false, expansion may include related context outside the tags.",
+        },
         auto_decompose: {
           type: "boolean",
           description:
@@ -740,6 +820,35 @@ const tools: Tool[] = [
           default: false,
           description:
             "Ranked-mode only. Include state-filter suppression/replacement IDs and reasons when current_only is true.",
+        },
+        state_mode: {
+          type: "string",
+          enum: ["current", "history"],
+          description:
+            "Ranked-mode only. `current` returns active memories; `history` allows superseded/invalidated memories for audit timelines. Prefer this over current_only for new clients.",
+        },
+        recency_bias: {
+          type: "string",
+          enum: ["auto", "on", "off"],
+          description:
+            "Ranked-mode only. Controls service recency boosting: auto lets the service infer, on forces boosting, off disables it.",
+        },
+        scope_fallback: {
+          type: "boolean",
+          description:
+            "Ranked-mode only. Allow fallback outside the requested tag scope when scoped recall has weak evidence; diagnostics report tag_scope and outside_tag_scope.",
+        },
+        min_score: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description:
+            "Ranked-mode only. Minimum final score threshold before results are returned.",
+        },
+        adaptive_floor: {
+          type: "boolean",
+          description:
+            "Ranked-mode only. Enable the service's adaptive score floor when filtering weak matches.",
         },
         context: {
           type: "string",
@@ -864,6 +973,27 @@ const tools: Tool[] = [
               match_type: { type: "string" },
               created_at: { type: "string" },
               updated_at: { type: "string" },
+              deduped_from: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "Result IDs merged into this result during multi-query deduplication.",
+              },
+              outside_tag_scope: {
+                type: "boolean",
+                description:
+                  "True when scope_fallback admitted this result outside the requested tag scope.",
+              },
+              jit_enriched: {
+                type: "boolean",
+                description:
+                  "True when the service enriched the memory during recall.",
+              },
+              state_replaces: {
+                type: "string",
+                description:
+                  "ID of the suppressed memory this result replaced during current-state filtering.",
+              },
             },
           },
         },
@@ -877,10 +1007,70 @@ const tools: Tool[] = [
           description:
             "Number of duplicate results removed (when using multiple queries)",
         },
+        query: {
+          type: "string",
+          description: "Query text executed by ranked recall.",
+        },
+        sort: {
+          type: "string",
+          description: "Sort mode applied by the service.",
+        },
+        exclude_tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Tags excluded from ranked recall.",
+        },
         state_filter: {
           type: "object",
           description:
             "Current-state filtering diagnostics. Includes aggregate counts by default and detailed IDs/reasons only when state_debug=true.",
+        },
+        state_mode: {
+          type: "string",
+          enum: ["current", "history"],
+          description: "State mode applied by ranked recall.",
+        },
+        tag_scope: {
+          type: "object",
+          description:
+            "Tag-scope diagnostics including whether scoped evidence was strong enough.",
+        },
+        scope_fallback: {
+          type: "boolean",
+          description:
+            "True when recall allowed outside-scope fallback results.",
+        },
+        recency_bias: {
+          type: "string",
+          enum: ["auto", "on", "off"],
+          description: "Recency bias mode applied by the service.",
+        },
+        score_filter: {
+          type: "object",
+          description:
+            "Score filtering diagnostics such as min_score, adaptive_floor, and filtered_count.",
+        },
+        queries: {
+          type: "array",
+          items: { type: "string" },
+          description: "Query variants executed by the service.",
+        },
+        vector_search: {
+          type: "object",
+          description: "Vector-search diagnostics from the service.",
+        },
+        jit_enriched_count: {
+          type: "integer",
+          description: "Number of memories enriched inline during recall.",
+        },
+        query_time_ms: {
+          type: "number",
+          description: "Service recall latency in milliseconds.",
+        },
+        entities: {
+          type: "array",
+          items: { type: "object" },
+          description: "Entity identity diagnostics injected by the service.",
         },
       },
       required: ["count", "results"],
@@ -889,7 +1079,7 @@ const tools: Tool[] = [
   {
     name: "associate_memories",
     title: "Associate Memories",
-    description: `Create a typed relationship between two memories. This builds a knowledge graph that improves recall by surfacing related context.
+    description: `Create typed relationships between memories. This builds a knowledge graph that improves recall by surfacing related context. Supports single-pair mode or batch mode with associations[] (max 500).
 
 **When to use:**
 - After storing a new memory: link it to related existing memories
@@ -905,7 +1095,8 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
 
 **Examples:**
 - associate_memories({ memory1_id: "bug-fix-123", memory2_id: "feature-456", type: "RELATES_TO", strength: 0.9 })
-- associate_memories({ memory1_id: "new-decision", memory2_id: "old-decision", type: "EVOLVED_INTO", strength: 0.8 })`,
+- associate_memories({ memory1_id: "new-decision", memory2_id: "old-decision", type: "EVOLVED_INTO", strength: 0.8 })
+- associate_memories({ associations: [{ memory1_id: "a", memory2_id: "b", type: "RELATES_TO", strength: 0.8 }] })`,
     annotations: {
       title: "Associate Memories",
       readOnlyHint: false,
@@ -938,19 +1129,75 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
           description:
             "Relationship strength: 0.9+ direct causation, 0.7-0.9 strong relation, 0.5-0.7 moderate",
         },
+        ...ASSOCIATION_PROPERTY_SCHEMAS,
+        associations: {
+          type: "array",
+          minItems: 1,
+          maxItems: 500,
+          description:
+            "Batch mode. Up to 500 associations. Do not combine with top-level memory1_id/memory2_id/type/strength.",
+          items: {
+            type: "object",
+            properties: {
+              memory1_id: {
+                type: "string",
+                description: "ID of the source memory",
+              },
+              memory2_id: {
+                type: "string",
+                description: "ID of the target memory",
+              },
+              type: {
+                type: "string",
+                enum: [...AUTHORABLE_RELATION_TYPES],
+                description: "Relationship type between the two memories",
+              },
+              strength: {
+                type: "number",
+                minimum: 0,
+                maximum: 1,
+                description: "Relationship strength from 0 to 1",
+              },
+              ...ASSOCIATION_PROPERTY_SCHEMAS,
+            },
+            required: ["memory1_id", "memory2_id", "type", "strength"],
+          },
+        },
       },
-      required: ["memory1_id", "memory2_id", "type", "strength"],
     },
     outputSchema: {
       type: "object",
       properties: {
         success: {
           type: "boolean",
-          description: "Whether the association was created",
+          description:
+            "Whether every requested association was created. False for partial batch responses.",
         },
         message: {
           type: "string",
           description: "Confirmation message",
+        },
+        created_count: {
+          type: "integer",
+          description: "Batch mode: number of associations created.",
+        },
+        failed_count: {
+          type: "integer",
+          description: "Batch mode: number of associations that failed.",
+        },
+        succeeded: {
+          type: "array",
+          description: "Batch mode: successful association records.",
+          items: { type: "object" },
+        },
+        failed: {
+          type: "array",
+          description: "Batch mode: failed association records with errors.",
+          items: { type: "object" },
+        },
+        summary: {
+          type: "string",
+          description: "Batch mode: service summary.",
         },
       },
       required: ["success", "message"],
@@ -1147,8 +1394,9 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
       properties: {
         status: {
           type: "string",
-          enum: ["healthy", "error"],
-          description: "Overall health status",
+          enum: ["healthy", "degraded", "error"],
+          description:
+            "Overall health status. degraded means the service is reachable but a backend or sync check needs attention.",
         },
         backend: {
           type: "string",
@@ -1156,7 +1404,8 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
         },
         statistics: {
           type: "object",
-          description: "Database statistics (memory counts, etc.)",
+          description:
+            "Database statistics and diagnostics, including memory/vector counts, sync_status, vector_dimensions, and enrichment state when provided.",
         },
         error: {
           type: "string",
@@ -1307,12 +1556,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "associate_memories": {
         const associateArgs = args as unknown as AssociateMemoryArgs;
         const result = await client.associateMemories(associateArgs);
-        const output = { success: true, message: result.message };
+        const output = {
+          success: result.success,
+          message: result.message,
+          created_count: result.created_count,
+          failed_count: result.failed_count,
+          succeeded: result.succeeded,
+          failed: result.failed,
+          summary: result.summary,
+        };
+        const batchSuffix =
+          typeof result.created_count === "number" || typeof result.failed_count === "number"
+            ? `\n\nCreated: ${result.created_count ?? 0}\nFailed: ${result.failed_count ?? 0}`
+            : "";
         return {
           content: [
             {
               type: "text",
-              text: `Association created successfully!\n\nMessage: ${result.message}`,
+              text: `${result.success ? "Association created successfully!" : "Association completed with failures."}\n\nMessage: ${result.message}${batchSuffix}`,
             },
           ],
           structuredContent: output,
@@ -1377,17 +1638,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "check_database_health": {
         const health = await client.checkHealth();
-        const statusEmoji = health.status === "healthy" ? "✅" : "❌";
+        const statusEmoji =
+          health.status === "healthy" ? "✅" : health.status === "degraded" ? "⚠️" : "❌";
 
         let statsText = "";
         if (health.statistics.falkordb) {
-          statsText += `\nFalkorDB: ${health.statistics.falkordb}`;
+          statsText += `\nFalkorDB: ${formatHealthComponent(health.statistics.falkordb)}`;
         }
         if (health.statistics.qdrant) {
-          statsText += `\nQdrant: ${health.statistics.qdrant}`;
+          statsText += `\nQdrant: ${formatHealthComponent(health.statistics.qdrant)}`;
         }
         if (health.statistics.graph) {
           statsText += `\nGraph: ${health.statistics.graph}`;
+        }
+        if (typeof health.statistics.memory_count === "number") {
+          statsText += `\nMemory count: ${health.statistics.memory_count}`;
+        }
+        if (typeof health.statistics.vector_count === "number") {
+          statsText += `\nVector count: ${health.statistics.vector_count}`;
+        }
+        if (health.statistics.sync_status) {
+          statsText += `\nSync status: ${health.statistics.sync_status}`;
+        }
+        if (health.statistics.enrichment?.status) {
+          statsText += `\nEnrichment: ${health.statistics.enrichment.status}`;
         }
         if (health.statistics.timestamp) {
           statsText += `\nTimestamp: ${health.statistics.timestamp}`;

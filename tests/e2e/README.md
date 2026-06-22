@@ -53,6 +53,18 @@ Routes covered: `existing-cursor`, `existing-claude-plugin`, `existing-claude-se
 post-install quirk that otherwise throws `posix_spawnp failed`). PTY allocation may be
 unavailable in some CI sandboxes, so this stays a local/dev gate, not a CI gate.
 
+## Railway guided apply guard
+
+`railway-guided-install.mjs` exercises the non-dry-run Railway apply path with a
+fake `railway` CLI and mock AutoMem endpoint. It does not use a real Railway
+account, deploy anything, or touch user config.
+
+```bash
+npm run build
+npm run test:e2e:railway
+npm run test:e2e:railway:watch
+```
+
 ## Files
 
 | File | Role |
@@ -60,6 +72,7 @@ unavailable in some CI sandboxes, so this stays a local/dev gate, not a CI gate.
 | `run-matrix.sh` | Entrypoint. Derives the repo root from its own location, builds+packs (unless `SKIP_BUILD=1`), then runs the harness. |
 | `harness.mjs` | Scenario-matrix runner: fresh `HOME`+`cwd` per scenario, write-surface diffing, per-scenario assertions + findings. |
 | `mock-automem.mjs` | In-process adversarial endpoint (`healthy` / `500` / `401` / `malformed` modes). No real AutoMem server needed. |
+| `railway-guided-install.mjs` | Fake Railway CLI + mock AutoMem guard for the guided Railway apply path. |
 
 Machine-generated evidence is written to
 `$AUTOMEM_E2E_SCRATCH/artifacts/matrix/{report.md,results.json}` after every run.

@@ -181,6 +181,9 @@ function buildStructuredRecallItem(
     ...(budgeted ? compactRelations(item.relations) : { relations: item.relations }),
     deduped_from: item.deduped_from,
     expanded_from_entity: item.expanded_from_entity,
+    outside_tag_scope: item.outside_tag_scope,
+    jit_enriched: item.jit_enriched,
+    state_replaces: item.state_replaces,
   };
   return { structuredItem, displayText, contentTruncated, summaryShown: useSummary };
 }
@@ -198,11 +201,30 @@ function buildStructuredEnvelope(recallResult: RecallResult): Record<string, unk
     ...(typeof recallResult.dedup_removed === 'number'
       ? { dedup_removed: recallResult.dedup_removed }
       : {}),
+    ...(recallResult.query ? { query: recallResult.query } : {}),
+    ...(recallResult.sort ? { sort: recallResult.sort } : {}),
     ...(recallResult.keywords ? { keywords: recallResult.keywords } : {}),
     ...(recallResult.time_window ? { time_window: recallResult.time_window } : {}),
     ...(recallResult.tags ? { tags: recallResult.tags } : {}),
+    ...(recallResult.exclude_tags ? { exclude_tags: recallResult.exclude_tags } : {}),
     ...(recallResult.tag_mode ? { tag_mode: recallResult.tag_mode } : {}),
     ...(recallResult.tag_match ? { tag_match: recallResult.tag_match } : {}),
+    ...(recallResult.state_mode ? { state_mode: recallResult.state_mode } : {}),
+    ...(recallResult.tag_scope ? { tag_scope: recallResult.tag_scope } : {}),
+    ...(typeof recallResult.scope_fallback === 'boolean'
+      ? { scope_fallback: recallResult.scope_fallback }
+      : {}),
+    ...(recallResult.recency_bias ? { recency_bias: recallResult.recency_bias } : {}),
+    ...(recallResult.score_filter ? { score_filter: recallResult.score_filter } : {}),
+    ...(recallResult.queries ? { queries: recallResult.queries } : {}),
+    ...(recallResult.vector_search ? { vector_search: recallResult.vector_search } : {}),
+    ...(typeof recallResult.jit_enriched_count === 'number'
+      ? { jit_enriched_count: recallResult.jit_enriched_count }
+      : {}),
+    ...(typeof recallResult.query_time_ms === 'number'
+      ? { query_time_ms: recallResult.query_time_ms }
+      : {}),
+    ...(recallResult.entities ? { entities: recallResult.entities } : {}),
     ...(recallResult.expansion ? { expansion: recallResult.expansion } : {}),
     ...(recallResult.entity_expansion
       ? { entity_expansion: recallResult.entity_expansion }
@@ -370,6 +392,13 @@ export async function buildRecallMemoryResponse(
     notes.push(
       `state filter suppressed ${recallResult.state_filter.suppressed_count}, replacements ${recallResult.state_filter.replacement_count}`
     );
+  }
+  if (recallResult.scope_fallback) {
+    notes.push('scope fallback included outside-scope results');
+  }
+  const filteredCount = recallResult.score_filter?.filtered_count;
+  if (typeof filteredCount === 'number' && filteredCount > 0) {
+    notes.push(`score filter removed ${filteredCount}`);
   }
   if (recallResult.mode === 'enumeration') {
     const offset = recallResult.offset ?? 0;

@@ -22,15 +22,33 @@ npx @verygoodplugins/mcp-automem install
 ```
 
 It asks where AutoMem should run (**Hosted Cloud**, **Local Docker**, or an
-**Existing Endpoint**), verifies the endpoint (`/health` + an authenticated
+**Existing Endpoint**). For **Hosted Cloud** you pick a provider:
+
+- **InstaPods** — opens the InstaPods setup page in your browser. It deploys
+  AutoMem (Grow plan) and emails you your API URL + key; you paste them back into
+  the installer. Already have them? Skip the browser and paste directly.
+- **Railway** — if the `railway` CLI isn't on your PATH, the installer offers to
+  install it for you with `npm i -g @railway/cli` (with your confirmation — you already
+  have Node from running this installer). It then signs you in via the CLI (a browser
+  hand-off that also creates an account if you're new) and deploys the AutoMem template
+  **straight from the terminal** — no browser tab for the deploy itself — reading back
+  the service domain + API token automatically. If you decline the CLI install, or the
+  terminal deploy can't complete, it falls back to the template's **Deploy Now** page in
+  your browser, then captures the credentials (via `railway link`, or by paste).
+- **Other** — already deployed AutoMem somewhere? Paste your endpoint + token and
+  the installer takes it from there.
+
+It then verifies the endpoint (`/health` + an authenticated
 recall probe when you supply a key), then offers to configure your agents
 (Codex, Claude Code, Cursor, OpenClaw, Hermes). For Claude Code it offers the
 **plugin** (recommended — bundles the MCP server + hooks and auto-updates) or a
 **settings-level** install. When the `claude` CLI is on your PATH, the installer
-runs `claude plugin install` for you — threading the verified endpoint and key in
-as plugin config — so there's nothing to paste; otherwise it prints the two
-`/plugin` commands to run inside Claude Code. Every change is shown in a review
-plan before anything is written, and each modified file keeps a `<file>.bak` backup.
+runs `claude plugin install` for you and passes the verified endpoint as plugin
+config; API keys are not passed in process arguments, so configure the key through
+Claude Code's plugin UI or `AUTOMEM_API_KEY`. If `claude` is unavailable, it
+prints the two `/plugin` commands to run inside Claude Code. Every change is shown
+in a review plan before anything is written, and each modified file keeps a
+`<file>.bak` backup.
 
 Non-interactive / scriptable use:
 
@@ -45,10 +63,17 @@ npx @verygoodplugins/mcp-automem install --yes --target existing \
   --claude-code-mode settings
 ```
 
-Flags: `--target <local|cloud|existing>`, `--clients <list>`, `--endpoint`,
-`--api-key`, `--local-dir`, `--claude-code-mode <plugin|settings>`,
-`--hermes-mode <mcp|provider|both>`, `--dry-run`, `--yes`, `--no-agent-install`.
-The same values can be passed as `AUTOMEM_*` environment variables.
+Flags: `--target <local|cloud|existing>`, `--cloud-provider <instapods|railway|other>`,
+`--clients <list>`, `--endpoint`, `--api-key`, `--local-dir`,
+`--claude-code-mode <plugin|settings>`, `--hermes-mode <mcp|provider|both>`,
+`--dry-run`, `--yes`, `--no-agent-install`. The same values can be passed as
+`AUTOMEM_*` environment variables. For CI/dotfiles, prefer `--target existing`
+with `--endpoint` and `--api-key`; InstaPods is an interactive browser+paste flow.
+Railway can run non-interactively only when the `railway` CLI is already installed
+and either signed in or authenticated with `RAILWAY_API_TOKEN`, and
+`--yes --cloud-provider railway` is supplied. `--dry-run` never opens a browser,
+installs or runs the railway CLI, deploys, or charges anything — it only prints
+the plan.
 
 > Without a TTY and without `--yes`/`--dry-run`, `install` prints the review
 > plan and stops without writing — re-run with `--yes` to apply.
@@ -1166,6 +1191,11 @@ Retrieve memories using hybrid search with semantic, keyword, tag, time, and gra
 - `tags` (optional): Hard tag filter (e.g., `["preference"]` or `["my-project"]`)
 - `tag_mode` (optional): `any` (default) or `all`
 - `tag_match` (optional): `exact` or `prefix` (prefix supports namespaces)
+- `state_mode` (optional): `current` or `history`; use `history` for audits that need superseded/invalidated memories
+- `recency_bias` (optional): `auto`, `on`, or `off`
+- `min_score` (optional): Minimum final score threshold
+- `adaptive_floor` (optional): Let the service apply an adaptive score floor
+- `scope_fallback` (optional): Allow outside-tag fallback when scoped recall has weak evidence; fallback results are marked `outside_tag_scope`
 
 **Time Filters:**
 
@@ -1176,7 +1206,8 @@ Retrieve memories using hybrid search with semantic, keyword, tag, time, and gra
 **Graph Expansion (Advanced):**
 
 - `expand_entities` (optional): Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. **Use for complex questions like "What is Sarah's sister's job?"**
-- `expand_relations` (optional): Follow graph relationships from seed results to find connected memories. Drop tag gates first if you want traversal to work well.
+- `expand_relations` (optional): Follow graph relationships from seed results to find connected memories.
+- `expand_respect_tags` (optional): Keep graph/entity expansion inside the original tag scope when true; leave false or drop tags when broader graph context is intended.
 - `auto_decompose` (optional): Auto-extract entities and topics from query to generate supplementary searches. Prefer `false` for focused recalls; use only for genuinely multi-topic requests.
 - `expansion_limit` (optional): Max total expanded memories (default: 25)
 - `relation_limit` (optional): Max relations per seed memory (default: 5)
@@ -1191,6 +1222,10 @@ Retrieve memories using hybrid search with semantic, keyword, tag, time, and gra
 - `context_tags` (optional): Priority tags to boost in results (e.g., `["coding-style", "preferences"]`)
 - `context_types` (optional): Priority memory types to boost (e.g., `["Style", "Preference"]`)
 - `priority_ids` (optional): Specific memory IDs to ensure are included in results
+
+**Diagnostics:**
+
+Ranked recall preserves service diagnostics in structured output when present: `state_mode`, `tag_scope`, `scope_fallback`, `recency_bias`, `score_filter`, `queries`, `query_time_ms`, `vector_search`, `jit_enriched_count`, `entities`, and per-result `outside_tag_scope`, `deduped_from`, `state_replaces`, and enrichment/provenance flags.
 
 **Examples:**
 
@@ -1254,12 +1289,18 @@ recall_memory({
 
 Create relationships between memories to build a knowledge graph.
 
-**Parameters:**
+**Single Mode Parameters:**
 
 - `memory1_id` (required): Source memory ID (from store_memory response or recall results)
 - `memory2_id` (required): Target memory ID to link to
 - `type` (required): Relationship type (see below)
 - `strength` (required): Association strength 0-1 (0.9+ direct causation, 0.7-0.9 strong, 0.5-0.7 moderate)
+- Relation-specific optional props: `reason`, `context`, `resolution`, `observations`, `transformation`, `role`, `pattern_type`, `confidence`, `timestamp`
+
+**Batch Mode:**
+
+- `associations` (required): Array of up to 500 association objects with `memory1_id`, `memory2_id`, `type`, `strength`, and the same relation-specific optional props.
+- Batch responses include `created_count`, `failed_count`, `succeeded`, `failed`, and `summary`. Partial service responses are surfaced instead of thrown away.
 
 **Relationship Types:**
 
@@ -1286,6 +1327,18 @@ associate_memories({
   memory2_id: "feature-456",
   type: "RELATES_TO",
   strength: 0.9,
+});
+
+associate_memories({
+  associations: [
+    {
+      memory1_id: "new-decision",
+      memory2_id: "old-decision",
+      type: "INVALIDATED_BY",
+      strength: 0.9,
+      reason: "Superseded by the 0.15 release plan",
+    },
+  ],
 });
 ```
 
@@ -1315,23 +1368,24 @@ update_memory({
 
 #### `delete_memory`
 
-Permanently delete a memory and its embedding. Use sparingly—consider updating instead.
+Delete one memory by ID or bulk-delete all memories with any exact tag match. Use sparingly—consider updating instead.
 
 **Parameters:**
 
-- `memory_id` (required): Memory to delete
+- `memory_id` (single mode): Memory to delete
+- `tags` (bulk-by-tag mode): Deletes all memories matching ANY tag exactly, case-insensitive. No dry-run; verify first with `recall_memory({ tags, exhaustive: true })`.
 
 **When to use:**
 
 - Memory contains incorrect information that can't be corrected
 - Memory is a duplicate
-- Memory contains sensitive information that shouldn't persist
+- Cleanup of test/benchmark data under a verified tag
 
 ### System Monitoring
 
 #### `check_database_health`
 
-Check AutoMem service and database status (FalkorDB graph + Qdrant vectors).
+Check AutoMem service and database status (FalkorDB graph + Qdrant vectors). The `status` can be `healthy`, `degraded`, or `error`; structured output preserves sync counts, vector dimensions, and enrichment diagnostics when the service provides them.
 
 **Example:**
 

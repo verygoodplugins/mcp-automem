@@ -96,7 +96,7 @@ const SCENARIOS = [
       { send: KEY.enter },
       { waitFor: /integrate with Claude Code/, send: KEY.enter }, // plugin (default)
     ],
-    expect: [/Install the Claude Code plugin/, /\/plugin install automem@verygoodplugins-mcp-automem/, /Dry run only/],
+    expect: [/Install the Claude Code plugin/, /recommended/, /Dry run only/],
     notExpect: [/settings\.json/],
   },
   {
@@ -119,17 +119,48 @@ const SCENARIOS = [
     notExpect: [/Install the Claude Code plugin/],
   },
   {
-    name: 'cloud',
-    description: 'hosted cloud: shows the hosted note, then URL → key → no agents',
+    name: 'cloud-instapods',
+    description: 'hosted cloud → InstaPods: provider select → no resolve paste → setup-page plan',
     steps: [
       { waitFor: /Where should AutoMem run/, send: KEY.enter }, // cloud (default)
-      { waitFor: /AutoMem API URL/, send: ENDPOINT },
-      { send: KEY.enter },
-      { waitFor: /AutoMem API key/, send: KEY.enter },
+      { waitFor: /stand up your hosted AutoMem/, send: KEY.enter }, // InstaPods (default)
       { waitFor: /which agents/, send: KEY.enter }, // none selected
     ],
-    expect: [/Hosted setup/, /Install review/, /mode\s+cloud/, /Dry run only/],
-    notExpect: [/AutoMem install canceled/],
+    // InstaPods opens the setup page + pastes during apply, so dry-run shows the
+    // provision step and never prompts for a URL/token in resolve.
+    expect: [/Set up AutoMem on InstaPods/, /Install review/, /mode\s+cloud/, /Dry run only/],
+    notExpect: [/AutoMem API URL/, /AutoMem install canceled/],
+  },
+  {
+    name: 'cloud-other',
+    description: 'hosted cloud → Other: provider select → paste URL + key up front',
+    steps: [
+      { waitFor: /Where should AutoMem run/, send: KEY.enter }, // cloud (default)
+      { waitFor: /stand up your hosted AutoMem/, send: KEY.down }, // InstaPods → Railway
+      { send: KEY.down }, // Railway → Other
+      { send: KEY.enter },
+      { waitFor: /AutoMem API URL/, send: ENDPOINT },
+      { send: KEY.enter },
+      { waitFor: /AutoMem API key/, send: KEY.enter }, // blank
+      { waitFor: /which agents/, send: KEY.enter }, // none selected
+    ],
+    // 'other' pastes up front like an existing endpoint — verify, no provision step.
+    expect: [/Verify AutoMem endpoint/, /Install review/, /mode\s+cloud/, /Dry run only/],
+    notExpect: [/Set up AutoMem on InstaPods/, /Deploy AutoMem on Railway/, /AutoMem install canceled/],
+  },
+  {
+    name: 'cloud-railway',
+    description: 'hosted cloud → Railway (guided): provider select → no paste → provision plan',
+    steps: [
+      { waitFor: /Where should AutoMem run/, send: KEY.enter }, // cloud (default)
+      { waitFor: /stand up your hosted AutoMem/, send: KEY.down }, // InstaPods → Railway
+      { send: KEY.enter },
+      { waitFor: /which agents/, send: KEY.enter }, // none selected
+    ],
+    // Railway provisions endpoint+token during apply (via the railway CLI), so
+    // dry-run shows the provision step and never prompts for a URL/token.
+    expect: [/Deploy AutoMem on Railway/, /Install review/, /mode\s+cloud/, /Dry run only/],
+    notExpect: [/AutoMem API URL/, /Deploy AutoMem on InstaPods/, /AutoMem install canceled/],
   },
   {
     name: 'local',
@@ -152,6 +183,19 @@ async function run(scenario) {
   delete env.NO_COLOR;
   delete env.CLAUDE_CODE;
   delete env.CODEX;
+  delete env.AUTOMEM_API_URL;
+  delete env.AUTOMEM_ENDPOINT;
+  delete env.AUTOMEM_API_KEY;
+  delete env.AUTOMEM_API_TOKEN;
+  delete env.AUTOMEM_INSTALL_TARGET;
+  delete env.AUTOMEM_CLOUD_PROVIDER;
+  delete env.AUTOMEM_CLIENTS;
+  delete env.AUTOMEM_LOCAL_DIR;
+  delete env.AUTOMEM_CLAUDE_CODE_MODE;
+  delete env.AUTOMEM_HERMES_MODE;
+  delete env.AUTOMEM_DRY_RUN;
+  delete env.AUTOMEM_YES;
+  delete env.AUTOMEM_NO_AGENT_INSTALL;
 
   const term = spawn(process.execPath, [DIST, 'install', '--dry-run'], {
     name: 'xterm-color',

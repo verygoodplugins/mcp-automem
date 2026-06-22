@@ -7,7 +7,9 @@ import type {
   StoreMemoryArgs,
   StoreMemoryResult,
   RecallMemoryArgs,
+  AssociationInput,
   AssociateMemoryArgs,
+  AssociateMemoryResult,
   UpdateMemoryArgs,
   DeleteMemoryArgs,
   DeleteMemoryResult,
@@ -34,6 +36,32 @@ const BATCH_TOP_LEVEL_SINGLE_FIELDS = [
   'supersede_reason',
 ] as const;
 const BATCH_MAX_ITEMS = 500;
+const ASSOCIATION_BATCH_TOP_LEVEL_SINGLE_FIELDS = [
+  'memory1_id',
+  'memory2_id',
+  'type',
+  'strength',
+  'context',
+  'reason',
+  'pattern_type',
+  'confidence',
+  'resolution',
+  'observations',
+  'timestamp',
+  'transformation',
+  'role',
+] as const;
+const ASSOCIATION_OPTIONAL_PROP_FIELDS = [
+  'context',
+  'reason',
+  'pattern_type',
+  'confidence',
+  'resolution',
+  'observations',
+  'timestamp',
+  'transformation',
+  'role',
+] as const;
 const SUPERSEDE_RELATIONS: readonly SupersedeRelationType[] = [
   'INVALIDATED_BY',
   'EVOLVED_INTO',
@@ -75,6 +103,47 @@ function wrapMemoryAsRecallResult(raw: any): RecallResult['results'][number] {
     score_components: {},
     relations: [],
     memory: memory as any,
+  };
+}
+
+function sanitizeAssociationInput(
+  association: Partial<AssociationInput>,
+  indexLabel: string
+): AssociationInput {
+  const memory1Id =
+    typeof association.memory1_id === 'string' ? association.memory1_id.trim() : '';
+  const memory2Id =
+    typeof association.memory2_id === 'string' ? association.memory2_id.trim() : '';
+  const type = association.type;
+  const strength = association.strength;
+
+  if (!memory1Id) {
+    throw new Error(`associate_memories: ${indexLabel} memory1_id is required`);
+  }
+  if (!memory2Id) {
+    throw new Error(`associate_memories: ${indexLabel} memory2_id is required`);
+  }
+  if (!type) {
+    throw new Error(`associate_memories: ${indexLabel} type is required`);
+  }
+  if (typeof strength !== 'number' || !Number.isFinite(strength)) {
+    throw new Error(`associate_memories: ${indexLabel} strength is required`);
+  }
+  if (strength < 0 || strength > 1) {
+    throw new Error(`associate_memories: ${indexLabel} strength must be between 0 and 1`);
+  }
+
+  return {
+    memory1_id: memory1Id,
+    memory2_id: memory2Id,
+    type,
+    strength,
+    ...Object.fromEntries(
+      ASSOCIATION_OPTIONAL_PROP_FIELDS.flatMap((field) => {
+        const value = association[field];
+        return value === undefined ? [] : [[field, value]];
+      })
+    ),
   };
 }
 
@@ -395,6 +464,12 @@ export class AutoMemClient {
         'expand_min_strength',
         'current_only',
         'state_debug',
+        'state_mode',
+        'recency_bias',
+        'scope_fallback',
+        'expand_respect_tags',
+        'min_score',
+        'adaptive_floor',
         'sort',
       ];
       const conflicting = rankedOnlyParams.filter((key) => {
@@ -464,6 +539,10 @@ export class AutoMemClient {
       params.set('expand_relations', String(args.expand_relations));
     }
 
+    if (typeof args.expand_respect_tags === 'boolean') {
+      params.set('expand_respect_tags', String(args.expand_respect_tags));
+    }
+
     if (typeof args.expand_entities === 'boolean') {
       params.set('expand_entities', String(args.expand_entities));
     }
@@ -495,6 +574,26 @@ export class AutoMemClient {
 
     if (typeof args.state_debug === 'boolean') {
       params.set('state_debug', String(args.state_debug));
+    }
+
+    if (args.state_mode && (args.state_mode === 'current' || args.state_mode === 'history')) {
+      params.set('state_mode', args.state_mode);
+    }
+
+    if (args.recency_bias && ['auto', 'on', 'off'].includes(args.recency_bias)) {
+      params.set('recency_bias', args.recency_bias);
+    }
+
+    if (typeof args.scope_fallback === 'boolean') {
+      params.set('scope_fallback', String(args.scope_fallback));
+    }
+
+    if (typeof args.min_score === 'number') {
+      params.set('min_score', String(args.min_score));
+    }
+
+    if (typeof args.adaptive_floor === 'boolean') {
+      params.set('adaptive_floor', String(args.adaptive_floor));
     }
 
     // Context hints for smarter recall
@@ -555,7 +654,11 @@ export class AutoMemClient {
         // Servers may send either key; normalize to one so the formatter never
         // serializes the same relation list twice.
         relations: result.relations || result.related_to || [],
+        deduped_from: result.deduped_from,
         expanded_from_entity: result.expanded_from_entity,
+        outside_tag_scope: result.outside_tag_scope,
+        jit_enriched: result.jit_enriched,
+        state_replaces: result.state_replaces,
         memory: {
           memory_id: result.id,
           content: result.memory?.content || '',
@@ -567,16 +670,30 @@ export class AutoMemClient {
           metadata: result.memory?.metadata || {},
           type: result.memory?.type,
           confidence: result.memory?.confidence,
+          last_accessed: result.memory?.last_accessed,
         },
       })),
       count: response.count || (response.results ? response.results.length : 0),
       mode: 'ranked',
       dedup_removed: response.dedup_removed,
+      query: response.query,
+      sort: response.sort,
       keywords: response.keywords,
       time_window: response.time_window,
       tags: response.tags,
+      exclude_tags: response.exclude_tags,
       tag_mode: response.tag_mode,
       tag_match: response.tag_match,
+      state_mode: response.state_mode,
+      tag_scope: response.tag_scope,
+      scope_fallback: response.scope_fallback,
+      recency_bias: response.recency_bias,
+      score_filter: response.score_filter,
+      queries: response.queries,
+      vector_search: response.vector_search,
+      jit_enriched_count: response.jit_enriched_count,
+      query_time_ms: response.query_time_ms,
+      entities: response.entities,
       expansion: response.expansion,
       entity_expansion: response.entity_expansion,
       context_priority: response.context_priority,
@@ -624,34 +741,89 @@ export class AutoMemClient {
     };
   }
 
-  async associateMemories(args: AssociateMemoryArgs): Promise<{ success: boolean; message: string }> {
-    const response = await this.makeRequest('POST', 'associate', {
-      memory1_id: args.memory1_id,
-      memory2_id: args.memory2_id,
-      type: args.type,
-      strength: args.strength,
-    });
+  async associateMemories(args: AssociateMemoryArgs): Promise<AssociateMemoryResult> {
+    if (Array.isArray(args.associations)) {
+      const conflictingFields = ASSOCIATION_BATCH_TOP_LEVEL_SINGLE_FIELDS.filter(
+        (field) => args[field] !== undefined
+      );
+      if (conflictingFields.length > 0) {
+        throw new Error(
+          `associate_memories: \`associations\` batch mode cannot be combined with single-association fields. Remove top-level single-mode field(s): ${conflictingFields.join(', ')}`
+        );
+      }
+      if (args.associations.length === 0) {
+        throw new Error('associate_memories: `associations` must contain at least one item');
+      }
+      if (args.associations.length > BATCH_MAX_ITEMS) {
+        throw new Error(`associate_memories: \`associations\` exceeds max ${BATCH_MAX_ITEMS} items`);
+      }
+
+      const associations = args.associations.map((association, index) =>
+        sanitizeAssociationInput(association, `associations[${index}]`)
+      );
+      const response = await this.makeRequest('POST', 'associate', { associations });
+      const createdCount =
+        typeof response.created_count === 'number'
+          ? response.created_count
+          : Array.isArray(response.succeeded)
+            ? response.succeeded.length
+            : undefined;
+      const failedCount =
+        typeof response.failed_count === 'number'
+          ? response.failed_count
+          : Array.isArray(response.failed)
+            ? response.failed.length
+            : 0;
+      const summary =
+        response.summary ||
+        response.message ||
+        `Created ${createdCount ?? associations.length} association${(createdCount ?? associations.length) === 1 ? '' : 's'}`;
+
+      return {
+        success: failedCount === 0 && response.status !== 'partial_success',
+        message: summary,
+        status: response.status,
+        created_count: createdCount,
+        failed_count: failedCount,
+        succeeded: response.succeeded,
+        failed: response.failed,
+        summary,
+      };
+    }
+
+    const association = sanitizeAssociationInput(args, 'single association');
+    const response = await this.makeRequest('POST', 'associate', association);
 
     return {
       success: true,
-      message: response.message || 'Association created successfully',
+      message: response.message || response.summary || 'Association created successfully',
+      status: response.status,
     };
   }
 
   async checkHealth(): Promise<HealthStatus> {
     try {
       const response = await this.makeRequest('GET', 'health');
-      
+      const serviceStatus =
+        response.status === 'healthy' || response.status === 'degraded'
+          ? response.status
+          : 'error';
+
       return {
-        status: response.status === 'healthy' ? 'healthy' : 'error',
+        status: serviceStatus,
         backend: 'automem',
         statistics: {
           falkordb: response.falkordb,
           qdrant: response.qdrant,
           graph: response.graph,
           timestamp: response.timestamp,
+          memory_count: response.memory_count,
+          vector_count: response.vector_count,
+          sync_status: response.sync_status,
+          vector_dimensions: response.vector_dimensions,
+          enrichment: response.enrichment,
         },
-        error: response.status !== 'healthy' ? 'Service unhealthy' : undefined,
+        error: serviceStatus === 'error' ? 'Service unhealthy' : undefined,
       };
     } catch (error) {
       return {

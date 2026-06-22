@@ -45,21 +45,43 @@ Notes:
 - PR titles must be Conventional Commit format because we squash-merge and the PR title becomes the merge commit message.
 - A git `commit-msg` hook (Husky + Commitlint) is included to catch mistakes locally, and CI enforces PR titles.
 
+## Pull Request & Copilot Review Process (Mandatory)
+
+**Copilot Review Completeness Rule** (applies to every agent, including Claude Code, Cursor, Codex, Grok, etc.):
+
+- Every PR must receive a GitHub Copilot review.
+- When opening a PR in a **published / ready (non-draft) state**, immediately trigger review with the `/copilot-review` comment (our standard convention):
+  ```bash
+  gh pr comment <PR> --body "/copilot-review"
+  ```
+- A PR is **not ready for human merge** until:
+  - Copilot has submitted a completed review on the current head.
+  - **Zero** unresolved, non-outdated Copilot review threads remain.
+  - Every thread was either:
+    - Fixed with the smallest correct code change, replied to, and resolved, **or**
+    - Well-addressed with a specific, code-based reply explaining why no change was made (resolved where appropriate).
+  - **If a comment identifies a real issue, fix it.** Strong bias toward making the fix.
+
+- After any fix push on the PR branch, re-trigger with `/copilot-review` and repeat the process.
+- Use the `copilot-review` skill (or equivalent systematic process) to walk threads when they exist.
+- In the final PR summary / handoff, explicitly state how many threads were addressed and confirm the review is clean.
+
+This rule exists because open Copilot comments on merged PRs create technical debt and surprise the next person who touches the code.
+
+**Grok's personal standing rule (internalized as default behavior):** I will never hand off a PR I'm involved with while Copilot threads are dangling. I treat the review as a hard gate. "Well-addressed" always includes an actual reply + resolution. If a fix is warranted, I make the fix. I re-trigger `/copilot-review` after pushes until the review is clean on the final head. I use the `copilot-review` skill (or equivalent) to systematically process threads rather than doing ad-hoc fixes.
+
 ## Key Commands
 
 ### CLI Commands (via npx or global install)
 
 ```bash
-# Guided installer: pick target (local/cloud/existing), verify the endpoint,
-# write .env, and configure agents. Claude Code defaults to the plugin: when the
-# `claude` CLI is on PATH the installer runs `claude plugin install` directly
-# (threading the endpoint/key as --config; see installClaudeCodePlugin), else it
-# falls back to printing the /plugin commands. --claude-code-mode settings selects
-# the file writer instead. Gold-themed
-# @inquirer/prompts (clack's green accent isn't themable); branded UI toolkit in
-# src/cli/ui/* (theme/table/messages/brand/tasks/animate/prompts) + the mascot in
-# src/cli/install-ui.ts. Interactive prompt routes are tested with a node-pty
-# harness: `node tests/e2e/interactive.mjs` (drives each route in a PTY, dry-run).
+# Guided installer: pick target (local/cloud/existing), verify endpoint, write .env,
+# and configure agents. Claude Code defaults to plugin mode: if `claude` is on PATH
+# the installer runs `claude plugin install`; otherwise it prints the /plugin commands.
+# `--target cloud` supports `--cloud-provider instapods|railway|other`: InstaPods is
+# browser + paste, Railway is guided through the `railway` CLI with browser/paste
+# fallback, and `other` is an existing endpoint/token. Cloud setup runs only during
+# apply; `--dry-run` never installs CLIs, authenticates, deploys, or charges.
 npx @verygoodplugins/mcp-automem install
 npx @verygoodplugins/mcp-automem install --dry-run                # Preview the plan
 npx @verygoodplugins/mcp-automem install --yes --target existing --endpoint <url>
@@ -131,7 +153,13 @@ src/
     ├── setup.ts          # Setup wizard (creates .env, prints config)
     ├── claude-code.ts    # Claude Code hook installation
     ├── queue.ts          # Memory queue processor (drains queue → AutoMem)
-    └── templates.ts      # Config snippet generation
+    ├── templates.ts      # Config snippet generation
+    └── cloud/            # Hosted-cloud provisioning (install --target cloud)
+        ├── types.ts          # CloudProvider interface + shared types (provider-agnostic)
+        ├── orchestrate.ts    # selectCloudIntent (resolve) + executeCloudIntent (apply)
+        ├── browser-auth.ts   # openInSystemBrowser (+ reserved loopback OAuth helpers)
+        ├── railway.ts        # Railway CloudProvider (drives `railway` CLI; argv/JSON = CONFIRM-pending)
+        └── installer-bridge.ts # provisionViaInstaPodsLink (link+paste) + provisionViaProvider/provisionViaRailway + promptManualCredentials
 
 templates/
 ├── claude-code/
@@ -152,13 +180,13 @@ The server exposes 6 tools to AI assistants. Several are mode-multiplexed — th
 2. **recall_memory** — Three modes:
    - **ID fetch:** `memory_id` → routes to `GET /memory/{id}` and ignores other params.
    - **Tag enumeration:** `tags` + `exhaustive: true` → routes to `GET /memory/by-tag` for paginated exact-match listing. Pair with `limit` (≤200) and `offset`. Returns `has_more`/`limit`/`offset`. Use this for cleanup/audit workflows where ranked recall undercounts.
-   - **Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency, and graph expansion. Supports `query`/`queries`, `embedding`, `limit`, `time_query`, `tags`, `tag_mode`, `tag_match`, `exclude_tags`, expansion options, context hints, and pagination (`offset`, `sort`, `format`). Responses are token-budgeted (default ~18k estimated tokens, override via `AUTOMEM_RECALL_TOKEN_BUDGET`) to stay under MCP client caps: `text`/`items`/`detailed` formats are summary-first (the stored summary replaces the content preview when present), relations collapse to `{id, type, strength, summary}` stubs, and metadata collapses to `metadata_keys`. `format: "json"` and ID fetches keep full per-field passthrough.
-3. **associate_memories** — Create relationships (11 public authorable types only).
+   - **Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency/state controls, score filters, and graph expansion. Supports `query`/`queries`, `embedding`, `limit`, `time_query`, `tags`, `tag_mode`, `tag_match`, `exclude_tags`, expansion options including `expand_respect_tags`, `state_mode`, `recency_bias`, `scope_fallback`, `min_score`, `adaptive_floor`, context hints, and pagination (`offset`, `sort`, `format`). Responses preserve diagnostics such as `state_mode`, `tag_scope`, `scope_fallback`, `recency_bias`, `score_filter`, `queries`, `query_time_ms`, `vector_search`, `jit_enriched_count`, `entities`, plus per-result `outside_tag_scope`, `deduped_from`, `state_replaces`, and enrichment/provenance flags. Responses are token-budgeted (default ~18k estimated tokens, override via `AUTOMEM_RECALL_TOKEN_BUDGET`) to stay under MCP client caps: `text`/`items`/`detailed` formats are summary-first (the stored summary replaces the content preview when present), relations collapse to `{id, type, strength, summary}` stubs, and metadata collapses to `metadata_keys`. `format: "json"` and ID fetches keep full per-field passthrough.
+3. **associate_memories** — Create relationships (11 public authorable types only). Supports single-pair mode or batch mode via `associations: [...]` (≤500), with relation-specific props such as `reason`, `context`, `resolution`, `observations`, `transformation`, and `role`.
 4. **update_memory** — Update existing memory fields (supports `MEMORY_TYPES` enum for `type`).
 5. **delete_memory** — Two modes:
    - **Single (default):** `memory_id` → deletes one memory + its embedding.
    - **Bulk-by-tag:** `tags: [...]` → bulk-deletes ALL memories matching ANY tag (exact, case-insensitive). No dry-run; verify with `recall_memory({ tags, exhaustive: true })` first.
-6. **check_database_health** — Check FalkorDB/Qdrant connection status.
+6. **check_database_health** — Check FalkorDB/Qdrant connection status, degraded state, sync counts, vector dimensions, and enrichment diagnostics when the service provides them.
 
 **Note:** `search_by_tag` tool removed in v0.2.0; use `recall_memory` with `tags` parameter instead. The `get_memory`, `list_memories_by_tag`, `delete_memories_by_tag`, and `store_memories_batch` capabilities ship as parameter-extended modes on the tools above (per the global "Resist Tool Bloat" guidance) rather than as separate tools.
 
@@ -346,3 +374,144 @@ System/internal relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHAR
 - MCP specification: https://modelcontextprotocol.io/
 - Full integration guide: `templates/CLAUDE_CODE_INTEGRATION.md`
 - Memory rules template: `templates/CLAUDE_MD_MEMORY_RULES.md`
+
+<!-- BEGIN AUTOMEM CODEX RULES -->
+<!-- automem-template-version: 0.15.0 -->
+
+## Memory - AutoMem (persistent context for mcp-automem)
+
+AutoMem is wired as the `memory` MCP server (see `~/.codex/config.toml`). Tools are `mcp__memory__*`. Use this layer proactively for continuity across turns.
+
+## Tool's real behavior (validated against production corpus)
+
+- **Tags are a hard gate** - memories without matching tags are excluded before scoring. Use tags for stable categories like `preference` and `bugfix`; do not guess topic tags.
+- **One good query beats `queries[]` + `auto_decompose`** for focused tasks. Use `queries[]` only for genuinely multi-topic questions.
+- **`limit` caps at 50.** Routine recall should use enough budget to be useful.
+- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id })`.
+- **`store_memory` can silently fail.** Verify important stores by recalling a distinctive phrase; retry once if missing.
+- **Bare tag convention** - use `automem`, not `project/automem`; no `lang/` prefixes, platform tags, or date-stamped tags. `entity:*:*` tags are server-injected.
+
+### Slug-collision rule
+
+Drop the project tag gate when the slug collides with common topic words: `api`, `app`, `test`, `video`. Use semantic query alone in that case.
+
+## Session start — two-phase recall
+
+Standardized defaults: preferences limit 20, task-context limit 30, 90-day task window.
+
+Preferences and task context are independent recalls - issue them in parallel in a single message.
+
+Preferences first:
+
+```javascript
+mcp__memory__recall_memory({
+  tags: ["preference"],
+  limit: 20,
+  sort: "updated_desc"
+})
+```
+
+Task context: one semantic query built from proper nouns, products, files, error strings, tools, and specific topics in the user message.
+
+```javascript
+mcp__memory__recall_memory({
+  query: "<proper nouns, product names, people, tools, specific topics from the user's message>",
+  tags: ["mcp-automem"],        // drop if slug collides with a common word
+  time_query: "last 90 days",
+  limit: 30,
+  language: "<typescript|python|go|rust|...>" // optional ranker
+})
+```
+
+Skip task-context recall for pure syntax questions, trivial edits, one-off calculations, direct factual queries about current files, or casual openings.
+
+Debug context, only when actively investigating a concrete symptom:
+
+```javascript
+mcp__memory__recall_memory({
+  query: "<error symptom or exact message>",
+  limit: 20
+})
+```
+
+No tag gate on debug recall - bugfix/solution tagging is incomplete and a hard gate hides cross-corpus fixes.
+
+Don't re-recall mid-conversation unless the topic genuinely shifts, a new proper noun enters, or active debugging starts.
+
+### When recall misses
+
+Escalate only when the task-context recall comes back too broad or empty:
+
+- **Too broad** - add a tag gate (a stable category like `preference`/`bugfix`, or the unambiguous project slug) and tighten the query to the real nouns.
+- **Empty** - drop the time window first (the topic may be dormant-but-important), then broaden the query.
+- **Sparse under a tag gate** - drop the gate and rely on the semantic query alone; older memories use `project/<slug>` prefixes, so gated queries can miss historical content.
+- **Need graph traversal** - use `expand_relations: true`; add `expand_respect_tags: true` when traversal must stay inside the tag gate, or leave it false/drop tags when broader graph context is useful.
+
+## Storage Discipline
+
+Store only durable decisions, corrections, explicit preferences, bug-fix root causes, and articulated reusable patterns. Never store secrets, credentials, tokens, PII, session summaries, progress reports, confirmations, speculative context, or attentiveness notes.
+
+```javascript
+mcp__memory__store_memory({
+  content: "Brief title. Context + reasoning. Outcome.",
+  type: "Decision",
+  tags: ["<category>", "mcp-automem", "<language>"], // bare strings; NO platform tag, NO [YYYY-MM]
+  importance: 0.85,
+  confidence: 0.9
+})
+```
+
+Use content of 150-300 chars when possible; put file paths, metrics, exit codes, and other structured details in `metadata`. For facts with a shelf life, use `t_valid` and `t_invalid` instead of date tags.
+
+### Three mid-conversation triggers (and only three)
+
+1. **User correction or override.** Listen for: "actually", "no, I prefer", "not X, Y", "that's wrong", "stop doing X", "never do X", "I told you before", "we decided X already". Store as `Preference`, importance 0.9, confidence 0.95, tag `correction`, then associate `INVALIDATED_BY` the prior memory.
+2. **Decision stabilizes after at least one round of discussion.** Listen for: "let's go with X", "yeah that's the plan", "ship it", "do it that way", "final answer", "okay let's do that". Store as `Decision`, importance 0.85-0.9, then associate `PREFERS_OVER` alternatives if they came up.
+3. **Pattern articulated - not inferred.** Listen for: "I always do X", "every time", "this is how I usually", "my thing is". Store as `Pattern`, importance 0.8, then associate concrete examples with `EXEMPLIFIES`.
+
+### The atomic ritual - every store runs all four steps
+
+```javascript
+const related = await mcp__memory__recall_memory({ query: "<what is being corrected / decided / named>", limit: 5 })
+const stored = await mcp__memory__store_memory({
+  content: "Brief title. Context + reasoning. Outcome.",
+  type: "Preference",
+  tags: ["correction", "mcp-automem"],
+  importance: 0.9,
+  confidence: 0.95
+})
+await mcp__memory__recall_memory({ query: "<distinctive phrase from content>", limit: 3 })
+if (related?.results?.length) {
+  await mcp__memory__associate_memories({ memory1_id: related.results[0].id, memory2_id: stored.memory_id, type: "INVALIDATED_BY", strength: 0.9 })
+}
+```
+
+Step 4 is where the graph gets built. Skipping it is the main reason AutoMem degrades into a flat bag of notes.
+
+### Mandatory association pairings
+
+| Trigger | Store as | Then associate |
+|---|---|---|
+| User correction | `Preference`, 0.9 / 0.95 | Old memory -> `INVALIDATED_BY` |
+| Architectural decision | `Decision`, 0.9 / 0.9 | Alternatives -> `PREFERS_OVER` |
+| Bug fix | `Insight`, 0.75 / 0.85, tags `bugfix` + `solution` | Bug report -> `LEADS_TO` |
+| Pattern discovered | `Pattern`, 0.8 | Concrete examples -> `EXEMPLIFIES` |
+| Knowledge evolved | `update_memory` old + store new | Old -> `EVOLVED_INTO` |
+| Deprecated info | `update_memory` old with deprecated metadata | Old <- `INVALIDATED_BY` |
+
+Prefer mcp__memory__update_memory over a duplicate store when a fact changes in place.
+Valid relation types for mcp__memory__associate_memories: RELATES_TO, LEADS_TO, OCCURRED_BEFORE, PREFERS_OVER, EXEMPLIFIES, CONTRADICTS, REINFORCES, INVALIDATED_BY, EVOLVED_INTO, DERIVED_FROM, PART_OF.
+
+## Guidelines
+
+- Weave recalled context naturally; do not announce memory operations.
+- Prefer high-signal memories: decisions, root causes, reusable patterns, and explicit preferences.
+- Avoid wall-of-text memories; keep them atomic and focused.
+
+## Memory vs current state
+
+Recalled context is a prior, not ground truth. If a memory disagrees with the current repo state, the user's latest instruction, or a freshly read file - **current evidence wins**. Update or invalidate stale memory instead of acting on it.
+
+If recall fails or returns nothing, continue without memory and do not mention the failure to the user. Weave recalled context naturally.
+
+<!-- END AUTOMEM CODEX RULES -->

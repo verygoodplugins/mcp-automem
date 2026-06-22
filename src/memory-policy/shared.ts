@@ -392,7 +392,7 @@ function renderRecallRulesSection(params: {
     '- **Too broad** - add a tag gate (a stable category like `preference`/`bugfix`, or the unambiguous project slug) and tighten the query to the real nouns.',
     '- **Empty** - drop the time window first (the topic may be dormant-but-important), then broaden the query.',
     '- **Sparse under a tag gate** - drop the gate and rely on the semantic query alone; older memories use `project/<slug>` prefixes, so gated queries can miss historical content.',
-    '- **Need graph traversal** - drop tags before setting `expand_relations: true`; the server re-applies tag filters to expansion targets, which defeats the traversal.',
+    '- **Need graph traversal** - use `expand_relations: true`; add `expand_respect_tags: true` when traversal must stay inside the tag gate, or leave it false/drop tags when broader graph context is useful.',
   ].join('\n');
 
   return [
@@ -876,7 +876,7 @@ export function renderClaudeMdMemoryRules(params: PolicyTemplateOptions): string
     "- **`auto_decompose: true` with template queries hurts focused recalls.** Sub-queries converge on the same top scorers, dedup strips them, residuals don't clear threshold. Keep it off by default; turn it on only for genuinely multi-topic questions.",
     "- **`limit` caps at 50.** Anything under 15 is throwing away context budget you have.",
     "- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id: \"<id>\" })`.",
-    "- **`expand_relations: true` breaks under tag gates** — server re-applies the filter to expansion targets. If you want graph traversal, drop the tag.",
+    "- **Graph expansion can respect tag scope.** Use `expand_respect_tags: true` when `expand_relations: true` should stay inside the tag gate; leave it false or drop tags when you intentionally want broader graph context.",
     "- **`store_memory` can silently fail** (returns success, doesn't persist). After storing anything you care about, recall it back with a distinctive phrase to verify. Retry if gone.",
     "- **Bare tag convention** — `automem`, not `project/automem`. Older memories use `project/<slug>` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. `entity:people:*`-style tags are server-injected — don't author them.",
     "",
@@ -960,11 +960,11 @@ export function renderClaudeMdMemoryRules(params: PolicyTemplateOptions): string
     "- `recall_memory` — three modes:",
     "  - **ID fetch:** `memory_id` (ignores other params)",
     "  - **Tag enumeration:** `tags` + `exhaustive: true` (paginated, exact-match, returns `has_more`)",
-    "  - **Ranked retrieval (default):** hybrid search; supports `exclude_tags` to scope out tag namespaces",
-    "- `associate_memories` — create typed relationships between memories",
+    "  - **Ranked retrieval (default):** hybrid search; supports `exclude_tags`, `state_mode`, `recency_bias`, `scope_fallback`, `expand_respect_tags`, `min_score`, `adaptive_floor`, and diagnostics (`tag_scope`, `score_filter`, `query_time_ms`, `vector_search`, `outside_tag_scope`, `state_replaces`)",
+    "- `associate_memories` — create typed relationships between memories; supports **batch mode** via `associations: [...]` (≤500) and relation-specific props like `reason`, `context`, `resolution`, `observations`, `transformation`, and `role`",
     "- `update_memory` — modify existing memories without duplication",
     "- `delete_memory` — remove by ID, or **bulk-by-tag** with `tags: [...]` (exact, case-insensitive, no dry-run)",
-    "- `check_database_health` — FalkorDB + Qdrant status",
+    "- `check_database_health` — FalkorDB + Qdrant status, including degraded state, sync counts, vector dimensions, and enrichment diagnostics when provided",
     "",
     "### Memory schema",
     "",

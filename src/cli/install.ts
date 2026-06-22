@@ -9,12 +9,13 @@ import { applyHermesSetup, type HermesInstallMode } from './hermes.js';
 import { applyOpenClawSetup } from './openclaw.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 import { mergeEnvContent, writeFileWithBackup } from './host-toolkit.js';
+import { provisionViaInstaPodsLink, provisionViaRailway } from './cloud/installer-bridge.js';
 // Re-exported so existing importers (and install.test.ts) keep a stable path.
 export { formatEnvValue } from './host-toolkit.js';
 import { playInstallerSplash, shouldUseInstallerAnimation } from './install-ui.js';
 import { makeTheme } from './ui/theme.js';
 import { keyValueRows, type TableRow } from './ui/table.js';
-import { noteBox, sectionTitle } from './ui/messages.js';
+import { sectionTitle } from './ui/messages.js';
 import { renderBrandHeader, renderSuccessCard, renderWorkingMascot } from './ui/brand.js';
 import { startSpinner } from './ui/tasks.js';
 import { startChecklist, type ChecklistStep } from './ui/checklist.js';
@@ -39,6 +40,8 @@ export const CLAUDE_CODE_PLUGIN_COMMANDS = [
   '/plugin marketplace add verygoodplugins/mcp-automem',
   '/plugin install automem@verygoodplugins-mcp-automem',
 ] as const;
+export const CLAUDE_CODE_PLUGIN_API_KEY_HINT =
+  'Claude Code plugin: run  /plugin configure automem@verygoodplugins-mcp-automem  and set api_key, or export AUTOMEM_API_KEY before using Claude Code.';
 
 // Identity for the `claude plugin …` CLI path (the supported, non-interactive way to
 // add the marketplace + install the plugin, distinct from the in-TUI slash commands).
@@ -49,11 +52,11 @@ export function claudePluginMarketplaceAddArgs(): string[] {
   return ['plugin', 'marketplace', 'add', CLAUDE_CODE_MARKETPLACE_SOURCE];
 }
 
-// `--config api_url=…/api_key=…` matches the plugin.json userConfig keys; Claude Code
-// stores them via the same path as the interactive /plugin configure flow. api_key is
-// sensitive, so it's only passed when the user actually supplied one.
+// `--config api_url=…` matches the plugin.json userConfig key; Claude Code stores it
+// via the same path as the interactive /plugin configure flow. api_key is sensitive,
+// so it must not be passed in argv where process inspectors can see it.
 export function claudePluginInstallArgs(params: { endpoint: string; apiKey?: string }): string[] {
-  const args = [
+  return [
     'plugin',
     'install',
     CLAUDE_CODE_PLUGIN_REF,
@@ -62,14 +65,11 @@ export function claudePluginInstallArgs(params: { endpoint: string; apiKey?: str
     '--config',
     `api_url=${params.endpoint}`,
   ];
-  if (params.apiKey) {
-    args.push('--config', `api_key=${params.apiKey}`);
-  }
-  return args;
 }
 
 export type PluginCommandResult = { code: number; stdout: string; stderr: string };
 export type PluginCommandRunner = (command: string, args: string[]) => PluginCommandResult;
+export type ClaudeCodePluginInstallResult = { needsManualApiKey: boolean };
 
 // A re-run that re-adds the marketplace or re-installs the plugin may exit non-zero
 // just because it's already there — tolerate that rather than falling back to the
@@ -89,8 +89,8 @@ export async function installClaudeCodePlugin(params: {
   apiKey?: string;
   dryRun: boolean;
   runCommand: PluginCommandRunner;
-}): Promise<void> {
-  if (params.dryRun) return;
+}): Promise<ClaudeCodePluginInstallResult> {
+  if (params.dryRun) return { needsManualApiKey: false };
   const { runCommand } = params;
 
   const marketplaces = runCommand('claude', ['plugin', 'marketplace', 'list']);
@@ -114,6 +114,8 @@ export async function installClaudeCodePlugin(params: {
       'Run the two /plugin commands inside Claude Code instead (shown below).',
     );
   }
+
+  return { needsManualApiKey: Boolean(params.apiKey) };
 }
 
 // How the guided installer wires Claude Code. Defaults to the recommended plugin.
@@ -135,8 +137,14 @@ export const DEFAULT_AGENT_CLIENTS = [
   'openclaw',
 ] as const satisfies readonly AgentClient[];
 export type InstallTarget = 'local' | 'cloud' | 'existing';
+// Hosted-cloud sub-target: InstaPods (open the setup page → paste the emailed
+// URL+key), Railway (guided via the railway CLI), or 'other' (paste credentials
+// you already have). InstaPods/Railway fall back to a manual paste if needed.
+export const CLOUD_PROVIDERS = ['instapods', 'railway', 'other'] as const;
+export type CloudProviderId = (typeof CLOUD_PROVIDERS)[number];
 export type InstallActionKind =
   | 'prepare-local'
+  | 'provision-cloud'
   | 'verify-endpoint'
   | 'write-env'
   | 'install-agent'
@@ -144,6 +152,7 @@ export type InstallActionKind =
 
 export type ParsedInstallOptions = {
   target?: InstallTarget;
+  cloudProvider?: CloudProviderId;
   clients: AgentClient[];
   endpoint?: string;
   apiKey?: string;
@@ -226,6 +235,14 @@ type VerifyEndpointOptions = {
 type WaitEndpointOptions = VerifyEndpointOptions & {
   attempts?: number;
   intervalMs?: number;
+  /**
+   * Require this many CONSECUTIVE successful verifies before declaring ready
+   * (default 1). A freshly deployed service can flicker during early boot — health
+   * is up but the auth'd recall route flaps as dynamic blueprints register / the
+   * container restarts — so a single success is premature. Any failure resets the
+   * streak.
+   */
+  stableChecks?: number;
 };
 
 type CommandRunner = (command: string, args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }) => void;
@@ -306,6 +323,12 @@ function parseTarget(value: string | undefined): InstallTarget | undefined {
   throw new Error(`Invalid install target: ${value}. Expected local, cloud, or existing.`);
 }
 
+function parseCloudProvider(value: string | undefined): CloudProviderId | undefined {
+  if (!value) return undefined;
+  if ((CLOUD_PROVIDERS as readonly string[]).includes(value)) return value as CloudProviderId;
+  throw new Error(`Invalid cloud provider: ${value}. Expected ${CLOUD_PROVIDERS.join(' or ')}.`);
+}
+
 function parseHermesMode(value: string | undefined): HermesInstallMode | undefined {
   if (!value) return undefined;
   if (value === 'mcp' || value === 'provider' || value === 'both') return value;
@@ -336,6 +359,7 @@ export function parseInstallArgs(
   env: NodeJS.ProcessEnv = process.env
 ): ParsedInstallOptions {
   let target = parseTarget(env.AUTOMEM_INSTALL_TARGET);
+  let cloudProvider = parseCloudProvider(env.AUTOMEM_CLOUD_PROVIDER);
   let clients = parseClients(env.AUTOMEM_CLIENTS);
   let endpoint = env.AUTOMEM_API_URL || env.AUTOMEM_ENDPOINT;
   let apiKey = env.AUTOMEM_API_KEY || env.AUTOMEM_API_TOKEN;
@@ -351,6 +375,10 @@ export function parseInstallArgs(
     switch (arg) {
       case '--target':
         target = parseTarget(assertValue(args, i, arg));
+        i += 1;
+        break;
+      case '--cloud-provider':
+        cloudProvider = parseCloudProvider(assertValue(args, i, arg));
         i += 1;
         break;
       case '--client':
@@ -398,6 +426,7 @@ export function parseInstallArgs(
 
   return {
     target,
+    cloudProvider,
     clients: clients ?? [...DEFAULT_AGENT_CLIENTS],
     endpoint,
     apiKey,
@@ -551,11 +580,19 @@ export function buildInstallPlan(params: {
       command: `git clone ${AUTOMEM_REPO} ${localDir} && docker compose up -d --build`,
       secret: true,
     });
-  } else if (options.target === 'cloud') {
+  } else if (options.target === 'cloud' && !options.endpoint && options.cloudProvider !== 'other') {
+    // InstaPods + Railway produce the endpoint + token during apply (after this plan
+    // is approved), so they're unknown here; the plan discloses what runs and the
+    // cost, and the verify step kicks in once apply has the real endpoint. The
+    // 'other' provider pastes credentials up front, so it skips this and flows
+    // straight to verify + write-env like an existing endpoint.
+    const railway = options.cloudProvider === 'railway';
     actions.push({
-      kind: 'manual-step',
-      title: 'Create hosted AutoMem service',
-      detail: 'Open InstaPods or Railway, deploy AutoMem, then paste the generated HTTPS endpoint and API token into this wizard.',
+      kind: 'provision-cloud',
+      title: railway ? 'Deploy AutoMem on Railway' : 'Set up AutoMem on InstaPods',
+      detail: railway
+        ? 'Sign in via the railway CLI, deploy the AutoMem template straight from the terminal (usage-based, ~$1–5/mo), and capture the endpoint + API token — falling back to a browser deploy if the CLI deploy can’t complete.'
+        : 'Open the InstaPods setup page (it deploys AutoMem and emails your API URL + key, Grow plan ~$15/mo), then paste them — or paste credentials you already have.',
       paths: [],
     });
   }
@@ -749,7 +786,7 @@ export async function verifyAutoMemEndpoint(options: VerifyEndpointOptions): Pro
   } catch (error) {
     const err = error as Error;
     const reason = err.name === 'AbortError' ? `timed out after ${timeoutMs / 1000}s` : err.message;
-    return { ok: false, message: `Could not reach AutoMem endpoint: ${reason}` };
+    return { ok: false, message: `Could not reach AutoMem endpoint ${endpoint}: ${reason}` };
   }
 }
 
@@ -764,18 +801,25 @@ export async function waitForAutoMemEndpoint(
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const attempts = options.attempts ?? 30;
   const intervalMs = options.intervalMs ?? 1000;
+  const stableChecks = Math.max(1, options.stableChecks ?? 1);
   let last: { ok: true } | { ok: false; message: string } = {
     ok: false,
     message: 'AutoMem endpoint was not checked.',
   };
+  let streak = 0;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     last = await verifyAutoMemEndpoint({
       endpoint: options.endpoint,
       apiKey: options.apiKey,
       fetchFn: options.fetchFn,
+      timeoutMs: options.timeoutMs,
     });
-    if (last.ok) {
+    // Require `stableChecks` CONSECUTIVE successes so a fresh deploy that flickers
+    // during early boot (health up, auth'd recall flapping) isn't declared ready on a
+    // lucky single hit. Any failure resets the streak.
+    streak = last.ok ? streak + 1 : 0;
+    if (last.ok && streak >= stableChecks) {
       return last;
     }
     if (attempt < attempts) {
@@ -783,9 +827,12 @@ export async function waitForAutoMemEndpoint(
     }
   }
 
+  // Reaching here means we ran out of attempts. `last` may be a failure, or a success
+  // that never strung together `stableChecks` in a row (kept flickering).
+  const detail = last.ok ? `did not stay healthy for ${stableChecks} consecutive checks` : last.message;
   return {
     ok: false,
-    message: `AutoMem endpoint did not become healthy after ${attempts} attempts: ${last.message}`,
+    message: `AutoMem endpoint did not become healthy after ${attempts} attempts: ${detail}`,
   };
 }
 
@@ -937,6 +984,8 @@ function actionTag(action: InstallAction): string {
   switch (action.kind) {
     case 'prepare-local':
       return 'local';
+    case 'provision-cloud':
+      return 'cloud';
     case 'verify-endpoint':
       return 'verify';
     case 'write-env':
@@ -954,6 +1003,8 @@ type RenderTheme = ReturnType<typeof makeTheme>;
 function tagStyle(theme: RenderTheme, kind: InstallActionKind): (text: string) => string {
   switch (kind) {
     case 'prepare-local':
+      return theme.style.magenta;
+    case 'provision-cloud':
       return theme.style.magenta;
     case 'verify-endpoint':
       return theme.style.blue;
@@ -992,6 +1043,8 @@ function renderActionDetail(action: InstallAction, plan: InstallPlan, theme: Ren
       return [detail(`AUTOMEM_API_URL=${plan.endpoint ?? '<prompted>'}${plan.apiKeyProvided ? '  + API key' : ''}`)];
     case 'prepare-local':
       return [detail(`docker compose in ${tildify(plan.localDir)}`)];
+    case 'provision-cloud':
+      return [detail(action.detail)];
     case 'manual-step':
       return [detail(action.detail)];
     case 'install-agent':
@@ -1068,7 +1121,7 @@ async function resolveInteractiveOptions(
     target = await cancelable(promptSelect<InstallTarget>({
       message: 'Where should AutoMem run?',
       options: [
-        { value: 'cloud', label: 'Hosted Cloud', hint: 'InstaPods or Railway, then paste endpoint/token' },
+        { value: 'cloud', label: 'Hosted Cloud', hint: 'InstaPods or Railway — guided deploy' },
         { value: 'local', label: 'Local Docker', hint: 'Clone AutoMem and start Docker Compose on this machine' },
         { value: 'existing', label: 'Existing Endpoint', hint: 'Use an AutoMem URL you already have' },
       ],
@@ -1080,13 +1133,30 @@ async function resolveInteractiveOptions(
   let apiKey = parsed.apiKey;
   let localDir = parsed.localDir ?? defaultLocalDir(environment.homeDir);
 
-  if (target === 'cloud') {
-    process.stdout.write(
-      noteBox('Hosted setup', [
-        'Deploy AutoMem on InstaPods or Railway first:',
-        'https://instapods.com/apps/automem/?ref=jack',
-        'https://railway.com/deploy/automem-ai-memory-service',
-      ])
+  let cloudProvider = parsed.cloudProvider;
+  if (target === 'cloud' && !cloudProvider) {
+    cloudProvider = await cancelable(
+      promptSelect<CloudProviderId>({
+        message: 'How should we stand up your hosted AutoMem?',
+        options: [
+          {
+            value: 'instapods',
+            label: 'InstaPods',
+            hint: 'open the setup page — it deploys AutoMem and emails your URL + key',
+          },
+          {
+            value: 'railway',
+            label: 'Railway (guided)',
+            hint: 'sign in with the railway CLI, deploy from the terminal, then auto-capture keys',
+          },
+          {
+            value: 'other',
+            label: 'Other — I already have a URL + key',
+            hint: 'already deployed somewhere; just paste your endpoint + token',
+          },
+        ],
+        initialValue: 'instapods',
+      })
     );
   }
 
@@ -1100,7 +1170,12 @@ async function resolveInteractiveOptions(
     endpoint = endpoint ?? DEFAULT_AUTOMEM_API_URL;
   }
 
-  if ((target === 'cloud' || target === 'existing') && !endpoint) {
+  // InstaPods/Railway provision endpoint + token during apply. 'existing', and the
+  // cloud 'other' option, collect them here up front. (A cloud run with an explicit
+  // --endpoint still skips provisioning via the apply-phase `!endpoint` guard.)
+  const collectEndpointHere = target === 'existing' || (target === 'cloud' && cloudProvider === 'other');
+
+  if (collectEndpointHere && !endpoint) {
     endpoint = (
       await cancelable(promptText({
         message: 'AutoMem API URL',
@@ -1110,7 +1185,7 @@ async function resolveInteractiveOptions(
     ).trim();
   }
 
-  if ((target === 'cloud' || target === 'existing') && !apiKey) {
+  if (collectEndpointHere && !apiKey) {
     // Masked: the key must never echo in cleartext as the user types.
     const entered = (
       await cancelable(promptPassword({
@@ -1186,6 +1261,7 @@ async function resolveInteractiveOptions(
   return {
     ...parsed,
     target,
+    cloudProvider,
     endpoint,
     apiKey,
     localDir,
@@ -1369,6 +1445,46 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       spin.stop('AutoMem is online');
     }
 
+    // InstaPods (open setup page → paste) and Railway (guided railway CLI) provision
+    // interactively BEFORE the live checklist, for the same reason as local. Both
+    // degrade to a manual endpoint/token paste, so the cloud path is never worse
+    // than today. ('other' already collected its endpoint up front, so !endpoint
+    // is false here and this is skipped.)
+    if (resolved.target === 'cloud' && !endpoint) {
+      const providerLabel = resolved.cloudProvider === 'railway' ? 'Railway' : 'InstaPods';
+      process.stdout.write(
+        `  ${theme.style.dim(theme.symbol.arrow)} Setting up AutoMem on ${providerLabel}…\n`
+      );
+      const provisioned =
+        resolved.cloudProvider === 'railway'
+          ? await provisionViaRailway({ interactive, autoConfirm: resolved.yes })
+          : await provisionViaInstaPodsLink({ interactive });
+      endpoint = provisioned.endpoint;
+      apiKey = provisioned.apiKey;
+
+      // A freshly provisioned cloud deploy isn't reachable the instant the CLI
+      // returns — a Railway/InstaPods multi-service app cold-starts (build done !=
+      // serving, the embedding model downloads on first boot, and a just-generated
+      // domain needs DNS). Budget ~5 min (150 × 2s) so we don't false-fail verify on a
+      // still-booting deployment (the embedding-model download is the long pole).
+      if (endpoint) {
+        const spin = startSpinner('Waiting for AutoMem to come online (a fresh deploy can take a few minutes)…');
+        // stableChecks: a fresh deploy flickers during early boot (health up before the
+        // auth'd recall blueprint registers / the container restarts once), so require a
+        // few consecutive health+recall passes before declaring it ready.
+        const ready = await waitForAutoMemEndpoint({ endpoint, apiKey, attempts: 150, intervalMs: 2000, stableChecks: 3 });
+        if (ready.ok) {
+          spin.stop('AutoMem is online');
+        } else {
+          spin.error('AutoMem is not responding yet');
+          throw new InstallError(
+            `AutoMem deployed, but ${endpoint} isn't responding yet.`,
+            `A multi-service deploy can take a few minutes. Check the provider's logs (e.g. \`railway logs\`), then finish with:\n  npx @verygoodplugins/mcp-automem install --target existing --endpoint ${endpoint}${apiKey ? ' --api-key <token>' : ''}`
+          );
+        }
+      }
+    }
+
     if (!endpoint) {
       throw new InstallError('An AutoMem endpoint is required to continue.');
     }
@@ -1389,10 +1505,18 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     ];
 
     const list = startChecklist(steps);
-    const agentFailures: { client: AgentClient; message: string }[] = [];
+    const agentFailures: {
+      client: AgentClient;
+      message: string;
+      hint?: string;
+      showPluginCommands?: boolean;
+    }[] = [];
     try {
       list.start('verify');
-      const verify = await verifyAutoMemEndpoint({ endpoint, apiKey });
+      // Retry rather than single-shot: a just-provisioned cloud endpoint can still
+      // flicker for a beat after the warmup (the happy path passes on attempt 1, so
+      // local/existing targets see no added delay).
+      const verify = await waitForAutoMemEndpoint({ endpoint, apiKey, attempts: 8, intervalMs: 2000 });
       if (!verify.ok) {
         list.fail('verify');
         throw new InstallError("Couldn't verify the AutoMem endpoint.", verify.message);
@@ -1401,15 +1525,17 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
 
       list.start('env');
       const envPath = path.join(environment.cwd, '.env');
+      const existingEnv = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
       const envUpdates: Record<string, string> = {
         AUTOMEM_API_URL: endpoint,
+        // Canonical name is AUTOMEM_API_KEY (the service/docs are standardizing on
+        // _KEY); the server still reads the AUTOMEM_API_TOKEN alias.
         ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}),
       };
-      // Keep the deprecated AUTOMEM_ENDPOINT alias in sync if the file already uses
-      // it, so it can't diverge from AUTOMEM_API_URL.
-      if (fs.existsSync(envPath) && /^AUTOMEM_ENDPOINT=/m.test(fs.readFileSync(envPath, 'utf8'))) {
-        envUpdates.AUTOMEM_ENDPOINT = endpoint;
-      }
+      // Keep deprecated aliases in sync only if the file already uses them, so they
+      // can't diverge from the canonical names (and we don't add them on fresh files).
+      if (/^AUTOMEM_ENDPOINT=/m.test(existingEnv)) envUpdates.AUTOMEM_ENDPOINT = endpoint;
+      if (apiKey && /^AUTOMEM_API_TOKEN=/m.test(existingEnv)) envUpdates.AUTOMEM_API_TOKEN = apiKey;
       mergeEnvFile(envPath, envUpdates, false);
       list.done('env', `Wrote ${tildify(envPath)}`);
 
@@ -1426,18 +1552,30 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           }
           list.start(key);
           try {
-            await installClaudeCodePlugin({
+            const pluginInstall = await installClaudeCodePlugin({
               endpoint,
               apiKey,
               dryRun: false,
               runCommand: defaultPluginCommand,
             });
-            list.done(key, `${clientGlyph(client, theme)} Claude Code plugin installed`);
+            if (pluginInstall.needsManualApiKey) {
+              list.fail(key, `${clientGlyph(client, theme)} Claude Code plugin needs API key configuration`);
+              agentFailures.push({
+                client,
+                message:
+                  'Claude Code plugin was installed, but authenticated endpoints require an API key configured in Claude Code.',
+                hint: CLAUDE_CODE_PLUGIN_API_KEY_HINT,
+                showPluginCommands: false,
+              });
+            } else {
+              list.done(key, `${clientGlyph(client, theme)} Claude Code plugin installed`);
+            }
           } catch (pluginErr) {
             list.fail(key, `${clientGlyph(client, theme)} Claude Code plugin needs a manual step`);
             agentFailures.push({
               client,
               message: pluginErr instanceof Error ? pluginErr.message : String(pluginErr),
+              showPluginCommands: true,
             });
           }
           continue;
@@ -1468,7 +1606,9 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     const nextSteps: string[] = [`endpoint  ${endpoint}`];
     // Only surface the manual /plugin commands when the auto-install didn't run or
     // didn't succeed — i.e. the `claude` binary was absent, or the install failed.
-    const pluginAutoInstallFailed = agentFailures.some((failure) => failure.client === 'claude-code');
+    const pluginAutoInstallFailed = agentFailures.some(
+      (failure) => failure.client === 'claude-code' && failure.showPluginCommands !== false
+    );
     if (
       !resolved.noAgentInstall &&
       resolved.clients.includes('claude-code') &&
@@ -1479,13 +1619,14 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       for (const cmd of CLAUDE_CODE_PLUGIN_COMMANDS) {
         nextSteps.push(`  ${cmd}`);
       }
+      if (apiKey) nextSteps.push(`  ${CLAUDE_CODE_PLUGIN_API_KEY_HINT}`);
     }
     if (agentFailures.length > 0) {
       const subject =
         agentFailures.length === 1 ? '1 agent needs a manual step:' : `${agentFailures.length} agents need a manual step:`;
       nextSteps.push(subject);
       for (const failure of agentFailures) {
-        nextSteps.push(`  ${manualFixHint(failure.client)}`);
+        nextSteps.push(`  ${failure.hint ?? manualFixHint(failure.client)}`);
       }
     }
     nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');

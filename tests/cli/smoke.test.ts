@@ -76,6 +76,28 @@ describe('CLI Smoke Tests', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-cli-test-'));
   });
 
+  describe('command dispatch', () => {
+    it('rejects unknown commands instead of falling through to stdio server mode', () => {
+      const testDir = path.join(tempDir, 'unknown-command');
+      fs.mkdirSync(testDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(testDir, '.env'),
+        'AUTOMEM_API_URL=http://127.0.0.1:8001\nAUTOMEM_API_KEY=sk-test\n'
+      );
+
+      const result = runCli(['not-a-real-command'], {
+        cwd: testDir,
+        timeout: 1000,
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('Unknown command: not-a-real-command');
+      expect(result.stderr).toContain('mcp-automem help');
+      expect(result.stdout + result.stderr).not.toContain('injected env');
+    });
+  });
+
   describe('config command', () => {
     it('should output config with MCP server snippet', () => {
       const output = runCliExpectSuccess(['config']);
@@ -474,7 +496,9 @@ describe('Template Generation', () => {
     let totalMarkers = 0;
 
     for (const rel of tracked) {
-      const content = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+      const abs = path.join(repoRoot, rel);
+      if (!fs.existsSync(abs)) continue;
+      const content = fs.readFileSync(abs, 'utf8');
       let m: RegExpExecArray | null;
       while ((m = marker.exec(content)) !== null) {
         totalMarkers += 1;

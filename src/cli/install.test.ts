@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -71,6 +71,126 @@ describe('guided install helpers', () => {
     expect(() => parseInstallArgs(['--target', 'serverless'])).toThrow(/invalid install target/i);
     expect(() => parseInstallArgs(['--clients', 'codex,nope'])).toThrow(/invalid AutoMem client/i);
     expect(() => parseInstallArgs(['--hermes-mode', 'legacy'])).toThrow(/invalid Hermes install mode/i);
+  });
+
+  it('parses the cloud provider from the flag and the environment', () => {
+    expect(parseInstallArgs(['--cloud-provider', 'instapods']).cloudProvider).toBe('instapods');
+    expect(parseInstallArgs([], { AUTOMEM_CLOUD_PROVIDER: 'railway' }).cloudProvider).toBe('railway');
+    expect(parseInstallArgs(['--cloud-provider', 'other']).cloudProvider).toBe('other');
+    expect(() => parseInstallArgs(['--cloud-provider', 'aws'])).toThrow(/invalid cloud provider/i);
+  });
+
+  it('plans the InstaPods cloud target as a cost-disclosing provision step', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'cloud',
+        cloudProvider: 'instapods',
+        clients: [],
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: true,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+
+    const provision = plan.actions.find((action) => action.kind === 'provision-cloud');
+    expect(provision).toBeDefined();
+    expect(provision?.detail).toMatch(/instapods/i);
+    expect(provision?.detail).toMatch(/\$15\/mo/);
+    expect(provision?.detail).toMatch(/paste|setup page/i);
+    // Endpoint is unknown until apply provisions it, so there's no verify step yet.
+    expect(plan.actions.some((action) => action.kind === 'verify-endpoint')).toBe(false);
+  });
+
+  it('plans the Railway cloud target as a guided provision step (no manual paste)', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'cloud',
+        cloudProvider: 'railway',
+        clients: [],
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: true,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+
+    const provision = plan.actions.find((action) => action.kind === 'provision-cloud');
+    expect(provision).toBeDefined();
+    expect(provision?.detail).toMatch(/railway/i);
+    // Endpoint is provisioned during apply, so no manual paste and no verify yet.
+    expect(plan.actions.some((action) => action.kind === 'manual-step')).toBe(false);
+    expect(plan.actions.some((action) => action.kind === 'verify-endpoint')).toBe(false);
+  });
+
+  it('treats the cloud "other" provider like an existing endpoint (paste up front, no provision step)', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'cloud',
+        cloudProvider: 'other',
+        clients: [],
+        endpoint: 'https://already-deployed.example',
+        apiKey: 'sk-existing',
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: true,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+
+    // Credentials were pasted up front, so there's no provision step — it verifies
+    // and writes .env just like the existing-endpoint flow.
+    expect(plan.actions.some((action) => action.kind === 'provision-cloud')).toBe(false);
+    expect(plan.actions.some((action) => action.kind === 'verify-endpoint')).toBe(true);
+    expect(plan.actions.some((action) => action.kind === 'write-env')).toBe(true);
+  });
+
+  it('treats an explicit cloud endpoint as already provisioned, regardless of provider flag', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'cloud',
+        cloudProvider: 'railway',
+        clients: [],
+        endpoint: 'https://already-deployed.example',
+        apiKey: 'sk-existing',
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: true,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+
+    expect(plan.actions.some((action) => action.kind === 'provision-cloud')).toBe(false);
+    expect(plan.actions.some((action) => action.kind === 'verify-endpoint')).toBe(true);
+    expect(plan.endpoint).toBe('https://already-deployed.example');
   });
 
   it('detects supported agents and local prerequisites', () => {
@@ -573,6 +693,64 @@ describe('guided install helpers', () => {
     expect(attempts).toBe(3);
   });
 
+  it('passes a custom timeout through every wait probe', async () => {
+    vi.useFakeTimers();
+    try {
+      const hangingFetch = (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise<never>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+
+      const resultPromise = waitForAutoMemEndpoint({
+        endpoint: 'https://stalled.example',
+        fetchFn: hangingFetch,
+        attempts: 1,
+        timeoutMs: 20,
+      });
+
+      await vi.advanceTimersByTimeAsync(20);
+      // If waitForAutoMemEndpoint drops timeoutMs, the default 10s timer resolves
+      // the promise only after this extra advance and the assertion below fails.
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('timed out after 0.02s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waitForAutoMemEndpoint with stableChecks requires consecutive successes (a flicker resets the streak)', async () => {
+    let recallCalls = 0;
+    const fetchFn = async (url: string) => {
+      if (url.includes('/health')) {
+        return { ok: true, status: 200, json: async () => ({ status: 'healthy' }) };
+      }
+      // recall flickers: ok, FAIL(404), ok, ok — mirrors an early-boot blueprint flap.
+      recallCalls += 1;
+      const ok = recallCalls !== 2;
+      return { ok, status: ok ? 200 : 404, json: async () => ({}) };
+    };
+
+    await expect(
+      waitForAutoMemEndpoint({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: 'tok',
+        fetchFn,
+        attempts: 10,
+        intervalMs: 1,
+        stableChecks: 2,
+      })
+    ).resolves.toEqual({ ok: true });
+    // 1:ok(streak=1) 2:404(reset) 3:ok(streak=1) 4:ok(streak=2 → ready) = 4 recall probes.
+    expect(recallCalls).toBe(4);
+  });
+
   it('turns a docker compose failure into a clean InstallError with a port hint', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-prep-'));
     try {
@@ -641,7 +819,7 @@ describe('guided install helpers', () => {
     const environment = detectInstallEnvironment();
     expect(() =>
       buildInstallPlan({
-        options: { ...parseInstallArgs([]), target: 'local', endpoint: 'http://custom:9000' },
+        options: { ...parseInstallArgs([], {}), target: 'local', endpoint: 'http://custom:9000' },
         environment,
       })
     ).toThrow(/not supported with --target local/);
@@ -650,7 +828,7 @@ describe('guided install helpers', () => {
   it('pins the local endpoint to the default in the plan', () => {
     const environment = detectInstallEnvironment();
     const plan = buildInstallPlan({
-      options: { ...parseInstallArgs([]), target: 'local' },
+      options: { ...parseInstallArgs([], {}), target: 'local' },
       environment,
     });
     expect(plan.endpoint).toBe('http://127.0.0.1:8001');
@@ -692,7 +870,7 @@ describe('claude plugin auto-install', () => {
     ]);
   });
 
-  it('builds install args with api_url always and api_key only when provided', () => {
+  it('builds install args with api_url but never puts api_key in argv', () => {
     expect(claudePluginInstallArgs({ endpoint: 'http://127.0.0.1:8001' })).toEqual([
       'plugin',
       'install',
@@ -710,8 +888,6 @@ describe('claude plugin auto-install', () => {
       'user',
       '--config',
       'api_url=https://x.example',
-      '--config',
-      'api_key=sk-1',
     ]);
   });
 
@@ -725,17 +901,18 @@ describe('claude plugin auto-install', () => {
     return { run, calls };
   }
 
-  it('adds the marketplace then installs with config when neither is present', async () => {
+  it('adds the marketplace then installs without leaking api_key in argv', async () => {
     const { run, calls } = recordingRunner((args) => {
       if (args[1] === 'marketplace' && args[2] === 'list') return { code: 0, stdout: '' };
       return { code: 0 };
     });
-    await installClaudeCodePlugin({
+    const result = await installClaudeCodePlugin({
       endpoint: 'http://127.0.0.1:8001',
       apiKey: 'sk-1',
       dryRun: false,
       runCommand: run,
     });
+    expect(result).toEqual({ needsManualApiKey: true });
     expect(calls).toEqual([
       ['plugin', 'marketplace', 'list'],
       ['plugin', 'marketplace', 'add', 'verygoodplugins/mcp-automem'],
@@ -747,8 +924,6 @@ describe('claude plugin auto-install', () => {
         'user',
         '--config',
         'api_url=http://127.0.0.1:8001',
-        '--config',
-        'api_key=sk-1',
       ],
     ]);
   });
@@ -760,7 +935,9 @@ describe('claude plugin auto-install', () => {
       }
       return { code: 0 };
     });
-    await installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run });
+    await expect(
+      installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
+    ).resolves.toEqual({ needsManualApiKey: false });
     expect(calls.some((a) => a[2] === 'add')).toBe(false);
     expect(calls.some((a) => a[1] === 'install')).toBe(true);
   });
@@ -784,12 +961,14 @@ describe('claude plugin auto-install', () => {
     });
     await expect(
       installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ needsManualApiKey: false });
   });
 
   it('runs nothing on dry-run', async () => {
     const { run, calls } = recordingRunner(() => ({ code: 0 }));
-    await installClaudeCodePlugin({ endpoint: 'http://x', dryRun: true, runCommand: run });
+    await expect(
+      installClaudeCodePlugin({ endpoint: 'http://x', apiKey: 'sk-1', dryRun: true, runCommand: run })
+    ).resolves.toEqual({ needsManualApiKey: false });
     expect(calls).toEqual([]);
   });
 
@@ -801,7 +980,7 @@ describe('claude plugin auto-install', () => {
   it('plans a real plugin install (install-agent) when claude is on PATH', () => {
     const env = detectInstallEnvironment({ commandExists: (c) => c === 'claude' });
     const plan = buildInstallPlan({
-      options: { ...parseInstallArgs([]), target: 'existing', endpoint: 'http://x' },
+      options: { ...parseInstallArgs([], {}), target: 'existing', endpoint: 'http://x' },
       environment: env,
     });
     const action = plan.actions.find((a) => a.client === 'claude-code');
@@ -811,7 +990,7 @@ describe('claude plugin auto-install', () => {
   it('falls back to a manual step for the plugin when claude is absent', () => {
     const env = detectInstallEnvironment({ commandExists: () => false });
     const plan = buildInstallPlan({
-      options: { ...parseInstallArgs([]), target: 'existing', endpoint: 'http://x' },
+      options: { ...parseInstallArgs([], {}), target: 'existing', endpoint: 'http://x' },
       environment: env,
     });
     const action = plan.actions.find((a) => a.client === 'claude-code');

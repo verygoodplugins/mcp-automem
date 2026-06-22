@@ -175,6 +175,58 @@ describe('buildRecallMemoryResponse', () => {
     );
   });
 
+  it('surfaces recall scope, recency, score, and per-result diagnostics', async () => {
+    const recallResult = makeRecallResult({
+      state_mode: 'history',
+      tag_scope: { filtered: true, pool_size_hint: 12, gated_low_evidence: 2 },
+      scope_fallback: true,
+      recency_bias: 'on',
+      score_filter: { min_score: 0.2, adaptive_floor: 0.4, filtered_count: 3 },
+      query_time_ms: 42.5,
+      vector_search: { enabled: true, matched: true },
+      exclude_tags: ['archived'],
+      jit_enriched_count: 1,
+      entities: [{ slug: 'automem', identity: 'AutoMem memory service' }],
+      queries: ['q1', 'q2'],
+    } as any);
+    recallResult.results[0].outside_tag_scope = true;
+    recallResult.results[0].deduped_from = ['older-duplicate'];
+    recallResult.results[0].jit_enriched = true;
+    recallResult.results[0].state_replaces = 'suppressed-memory';
+
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue(recallResult),
+    };
+
+    const response = await buildRecallMemoryResponse(client, {
+      query: 'scoped memories',
+      format: 'detailed',
+    });
+
+    expect(response.structuredContent).toMatchObject({
+      state_mode: 'history',
+      tag_scope: { filtered: true, pool_size_hint: 12, gated_low_evidence: 2 },
+      scope_fallback: true,
+      recency_bias: 'on',
+      score_filter: { min_score: 0.2, adaptive_floor: 0.4, filtered_count: 3 },
+      query_time_ms: 42.5,
+      vector_search: { enabled: true, matched: true },
+      exclude_tags: ['archived'],
+      jit_enriched_count: 1,
+      entities: [{ slug: 'automem', identity: 'AutoMem memory service' }],
+      queries: ['q1', 'q2'],
+      results: [
+        {
+          memory_id: 'mem-1',
+          outside_tag_scope: true,
+          deduped_from: ['older-duplicate'],
+          jit_enriched: true,
+          state_replaces: 'suppressed-memory',
+        },
+      ],
+    });
+  });
+
   it('surfaces enumeration metadata (mode/has_more/limit/offset) when present', async () => {
     const recallResult = makeRecallResult({
       mode: 'enumeration',

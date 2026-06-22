@@ -1,5 +1,5 @@
 <!-- BEGIN AUTOMEM CODEX RULES -->
-<!-- automem-template-version: 0.14.0 -->
+<!-- automem-template-version: 0.15.0 -->
 
 ## Memory - AutoMem (persistent context for {{PROJECT_NAME}})
 
@@ -68,7 +68,7 @@ Escalate only when the task-context recall comes back too broad or empty:
 - **Too broad** - add a tag gate (a stable category like `preference`/`bugfix`, or the unambiguous project slug) and tighten the query to the real nouns.
 - **Empty** - drop the time window first (the topic may be dormant-but-important), then broaden the query.
 - **Sparse under a tag gate** - drop the gate and rely on the semantic query alone; older memories use `project/<slug>` prefixes, so gated queries can miss historical content.
-- **Need graph traversal** - drop tags before setting `expand_relations: true`; the server re-applies tag filters to expansion targets, which defeats the traversal.
+- **Need graph traversal** - use `expand_relations: true`; add `expand_respect_tags: true` when traversal must stay inside the tag gate, or leave it false/drop tags when broader graph context is useful.
 
 ## Storage Discipline
 

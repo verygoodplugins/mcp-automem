@@ -1,4 +1,4 @@
-<!-- automem-template-version: 0.14.0 -->
+<!-- automem-template-version: 0.15.0 -->
 
 # Cursor Rule Eval Set
 
