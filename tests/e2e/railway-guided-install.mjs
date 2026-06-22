@@ -6,8 +6,8 @@
 //   - a fake `railway` CLI on PATH (returns canned whoami/deploy/domain/variable)
 //   - the mock AutoMem server (so /health + authed /recall actually pass verify)
 //
-// It runs in a throwaway HOME + cwd with AUTOMEM_* stripped, so it never touches
-// real config or reads a real .env.
+// It runs in a throwaway HOME + cwd with AUTOMEM_* and RAILWAY_* stripped, so it
+// never touches real config, real Railway auth, or reads a real .env.
 //
 // Scope: this exercises the BROWSER FALLBACK apply path. The installer first tries the
 // terminal fast path (railway init → status → GraphQL templateDeployV2), but the
@@ -103,11 +103,13 @@ async function run() {
     HOME: home,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
     CI: '1',
-    AUTOMEM_NO_ANIM: '1',
-    AUTOMEM_NO_BROWSER: '1', // never pop a real browser for the Deploy-Now hand-off
     FORCE_COLOR: '1',
   };
-  for (const k of ['AUTOMEM_API_URL', 'AUTOMEM_ENDPOINT', 'AUTOMEM_API_KEY', 'AUTOMEM_API_TOKEN']) delete env[k];
+  for (const k of Object.keys(env)) {
+    if (k.startsWith('AUTOMEM_') || k.startsWith('RAILWAY_')) delete env[k];
+  }
+  env.AUTOMEM_NO_ANIM = '1';
+  env.AUTOMEM_NO_BROWSER = '1'; // never pop a real browser for the Deploy-Now hand-off
 
   const term = spawn(
     process.execPath,
