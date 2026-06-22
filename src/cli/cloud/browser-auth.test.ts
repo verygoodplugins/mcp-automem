@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   browserAuthorize,
+  buildBrowserOpenCommand,
   buildAuthorizeUrl,
   extractToken,
   startLoopbackCallbackServer,
@@ -32,6 +33,22 @@ describe('extractToken', () => {
 
   it('returns null when the token param is absent', () => {
     expect(extractToken('/callback?other=1', 'token')).toBeNull();
+  });
+});
+
+describe('buildBrowserOpenCommand', () => {
+  it('quotes Windows browser URLs so cmd does not split query strings on ampersands', () => {
+    const { command, args } = buildBrowserOpenCommand(
+      'https://app.instapods.com/dashboard/pods/create?app=automem&utm_source=automem_installer&ref=jack',
+      'win32'
+    );
+    expect(command).toBe('cmd');
+    expect(args).toEqual([
+      '/c',
+      'start',
+      '',
+      '"https://app.instapods.com/dashboard/pods/create?app=automem&utm_source=automem_installer&ref=jack"',
+    ]);
   });
 });
 

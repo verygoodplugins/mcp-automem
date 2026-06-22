@@ -5,7 +5,7 @@
 // Railway CLI. The bridge handles CLI installation prompts and browser/paste
 // fallback; this provider keeps shell/network boundaries injectable for tests.
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync, type SpawnSyncOptions } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
@@ -56,12 +56,19 @@ const DEFAULT_BILLING: CloudBilling = {
 // own checkout (which also carries Jack's template kickback attribution).
 export const RAILWAY_DEPLOY_URL = `https://railway.com/deploy/${DEFAULT_TEMPLATE_CODE}`;
 
+export function buildRailwaySpawnOptions(
+  opts: RailwayCommandOptions = {},
+  platform: NodeJS.Platform = process.platform
+): SpawnSyncOptions {
+  return opts.interactive
+    ? { stdio: 'inherit', cwd: opts.cwd, shell: platform === 'win32' }
+    : { encoding: 'utf8', cwd: opts.cwd, shell: platform === 'win32' };
+}
+
 // Default runner: invoke the real `railway` CLI. A missing binary surfaces as a
 // thrown spawn error, which the provider turns into a clean "fall back" signal.
 function defaultRailwayRunner(args: string[], opts: RailwayCommandOptions = {}): RailwayCommandResult {
-  const result = opts.interactive
-    ? spawnSync('railway', args, { stdio: 'inherit', cwd: opts.cwd })
-    : spawnSync('railway', args, { encoding: 'utf8', cwd: opts.cwd });
+  const result = spawnSync('railway', args, buildRailwaySpawnOptions(opts));
   if (result.error) throw result.error;
   const asString = (v: string | Buffer | null | undefined): string => (typeof v === 'string' ? v : '');
   return { code: result.status ?? 1, stdout: asString(result.stdout), stderr: asString(result.stderr) };

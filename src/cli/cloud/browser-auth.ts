@@ -10,6 +10,18 @@ import { spawn } from 'node:child_process';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
+export function buildBrowserOpenCommand(
+  url: string,
+  platform: NodeJS.Platform = process.platform
+): { command: string; args: string[] } {
+  if (platform === 'darwin') return { command: 'open', args: [url] };
+  if (platform === 'win32') {
+    const quotedUrl = `"${url.replace(/"/g, '%22')}"`;
+    return { command: 'cmd', args: ['/c', 'start', '', quotedUrl] };
+  }
+  return { command: 'xdg-open', args: [url] };
+}
+
 // Best-effort "open this URL in the user's default browser". Detached + stdio
 // ignored so it never blocks or pollutes the installer's output. Failures are
 // swallowed — the paste fallback (and the printed URL) cover a no-op opener.
@@ -18,9 +30,7 @@ import type { AddressInfo } from 'node:net';
 export function openInSystemBrowser(url: string): void {
   if (process.env.AUTOMEM_NO_BROWSER) return;
   try {
-    const platform = process.platform;
-    const command = platform === 'darwin' ? 'open' : platform === 'win32' ? 'cmd' : 'xdg-open';
-    const args = platform === 'win32' ? ['/c', 'start', '', url] : [url];
+    const { command, args } = buildBrowserOpenCommand(url);
     const child = spawn(command, args, { stdio: 'ignore', detached: true });
     child.on('error', () => {});
     child.unref();

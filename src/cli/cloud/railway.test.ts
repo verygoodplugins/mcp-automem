@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildRailwaySpawnOptions,
   createRailwayProvider,
   parseWorkspaceId,
   RAILWAY_DEPLOY_URL,
@@ -97,6 +98,14 @@ describe('Railway provider', () => {
 
   it('exposes the browser Deploy-Now URL for the AutoMem template (fallback path)', () => {
     expect(RAILWAY_DEPLOY_URL).toBe('https://railway.com/deploy/automem-ai-memory-service');
+  });
+
+  it('uses a shell for Railway CLI calls on Windows so npm .cmd shims launch', () => {
+    expect(buildRailwaySpawnOptions({}, 'win32')).toMatchObject({ shell: true });
+    expect(buildRailwaySpawnOptions({ interactive: true }, 'win32')).toMatchObject({
+      shell: true,
+      stdio: 'inherit',
+    });
   });
 
   // --- authorize ---
