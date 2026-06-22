@@ -97,9 +97,12 @@ export function defaultInstallRailwayCli(): RailwayCommandResult {
   return { code: result.status ?? 1, stdout: asString(result.stdout), stderr: asString(result.stderr) };
 }
 
-// Default: read the CLI session token the browser login stored. `user.token` is the
-// legacy static field (null for browser logins); the browser flow uses accessToken.
+// Default: use Railway's CI/headless token when provided; otherwise read the CLI
+// session token the browser login stored. `user.token` is the legacy static field
+// (null for browser logins); the browser flow uses accessToken.
 function defaultReadAccessToken(): string | undefined {
+  const envToken = process.env.RAILWAY_API_TOKEN?.trim();
+  if (envToken) return envToken;
   try {
     const cfg = JSON.parse(readFileSync(path.join(homedir(), '.railway', 'config.json'), 'utf8')) as {
       user?: { accessToken?: string };

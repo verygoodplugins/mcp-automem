@@ -261,6 +261,33 @@ describe('Railway provider', () => {
     });
   });
 
+  it('uses RAILWAY_API_TOKEN for headless fast-path deploy auth', async () => {
+    const previous = process.env.RAILWAY_API_TOKEN;
+    process.env.RAILWAY_API_TOKEN = 'railway-ci-token';
+    try {
+      const fake = makeFakeRailway();
+      const seen: Array<Record<string, string>> = [];
+      const provider = createRailwayProvider({
+        runCommand: fake.run,
+        deployViaApi: async (args) => {
+          seen.push(args);
+          return { workflowId: 'wf' };
+        },
+        makeWorkdir: () => '/tmp/automem-wd',
+        awaitBrowserDeploy: async () => {
+          throw new Error('browser fallback should not run');
+        },
+      });
+
+      await provider.deploy({ token: 'railway-cli', workspaceId: 'ws-1' });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.token === 'railway-ci-token').toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.RAILWAY_API_TOKEN;
+      else process.env.RAILWAY_API_TOKEN = previous;
+    }
+  });
+
   it('creates the project non-interactively with the session workspace id', async () => {
     const fake = makeFakeRailway();
     const provider = fastProvider(fake);
