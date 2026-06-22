@@ -579,7 +579,7 @@ export function buildInstallPlan(params: {
       command: `git clone ${AUTOMEM_REPO} ${localDir} && docker compose up -d --build`,
       secret: true,
     });
-  } else if (options.target === 'cloud' && options.cloudProvider !== 'other') {
+  } else if (options.target === 'cloud' && !options.endpoint && options.cloudProvider !== 'other') {
     // InstaPods + Railway produce the endpoint + token during apply (after this plan
     // is approved), so they're unknown here; the plan discloses what runs and the
     // cost, and the verify step kicks in once apply has the real endpoint. The
@@ -812,6 +812,7 @@ export async function waitForAutoMemEndpoint(
       endpoint: options.endpoint,
       apiKey: options.apiKey,
       fetchFn: options.fetchFn,
+      timeoutMs: options.timeoutMs,
     });
     // Require `stableChecks` CONSECUTIVE successes so a fresh deploy that flickers
     // during early boot (health up, auth'd recall flapping) isn't declared ready on a
@@ -1455,8 +1456,8 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       );
       const provisioned =
         resolved.cloudProvider === 'railway'
-          ? await provisionViaRailway({ interactive: true })
-          : await provisionViaInstaPodsLink({ interactive: true });
+          ? await provisionViaRailway({ interactive, autoConfirm: resolved.yes })
+          : await provisionViaInstaPodsLink({ interactive });
       endpoint = provisioned.endpoint;
       apiKey = provisioned.apiKey;
 

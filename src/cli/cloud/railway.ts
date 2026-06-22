@@ -1,29 +1,9 @@
-// Railway CloudProvider (provider #2).
+// Railway CloudProvider.
 //
-// Fast path (default, no browser): `railway deploy -t <code>` provisions the
-// template's services but then its post-deploy workflow poll returns "Unauthorized"
-// and the CLI exits 1 — a false negative (see railway-api.ts). So we drive the deploy
-// ourselves: sign in (`railway login`), create + link a fresh project (`railway init`),
-// read its project/environment ids (`railway status`), then fire Railway's GraphQL
-// `templateDeployV2` directly with the CLI session token. Readiness is gated by the
-// installer's own /health warmup, not Railway's workflow. Credentials are READ from
-// the template-generated domain + token vars (we never generate a domain — a mismatched
-// target port was the original 502).
-//
-// Browser fallback: if the fast path fails for any reason (or for a future provider
-// shape), we open the template's "Deploy Now" page, let the user finish it there, then
-// attach the CLI with an interactive `railway link` and read the same way. `railway`
-// runs in an isolated temp workdir so we never link the user's real cwd.
-//
-// CLI-presence front-half: the whole guided path assumes `railway` is on PATH. The
-// bridge (installer-bridge.ts) detects it first via defaultIsRailwayCliPresent and, if
-// missing, offers to install it with defaultInstallRailwayCli (`npm i -g @railway/cli`)
-// before any authorize() runs — so a brand-new user without the CLI still reaches the
-// fast path instead of dropping straight to a manual paste.
-//
-// All shell-outs go through an injectable RailwayCommandRunner and the GraphQL deploy
-// through an injectable deployViaApi, so the whole provider is unit-testable without the
-// real CLI or network.
+// Creates an isolated Railway project, deploys the AutoMem template via Railway's
+// GraphQL API, then reads the template-created domain and API token through the
+// Railway CLI. The bridge handles CLI installation prompts and browser/paste
+// fallback; this provider keeps shell/network boundaries injectable for tests.
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
@@ -261,9 +241,14 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
 
     // Authenticated when whoami exits 0 with a non-empty payload. Captures the
     // workspace id so the deploy can `railway init` non-interactively.
-    async authorize(_opts?: AuthorizeOptions): Promise<CloudSession> {
+    async authorize(opts?: AuthorizeOptions): Promise<CloudSession> {
       let who = railway(['whoami', '--json']);
       if (!(who.code === 0 && who.stdout.trim().length > 0)) {
+        if (opts?.preferPaste) {
+          throw new Error(
+            'Railway CLI is not signed in. Run `railway login` manually, then re-run the installer.'
+          );
+        }
         // Not signed in (or the session expired) — run `railway login` INTERACTIVELY so
         // its browser hand-off works (also creates a Railway account if the user is new).
         process.stdout.write('  → Signing in to Railway (a browser window will open)…\n');

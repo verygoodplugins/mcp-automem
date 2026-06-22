@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -164,6 +164,33 @@ describe('guided install helpers', () => {
     expect(plan.actions.some((action) => action.kind === 'provision-cloud')).toBe(false);
     expect(plan.actions.some((action) => action.kind === 'verify-endpoint')).toBe(true);
     expect(plan.actions.some((action) => action.kind === 'write-env')).toBe(true);
+  });
+
+  it('treats an explicit cloud endpoint as already provisioned, regardless of provider flag', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'cloud',
+        cloudProvider: 'railway',
+        clients: [],
+        endpoint: 'https://already-deployed.example',
+        apiKey: 'sk-existing',
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: true,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+
+    expect(plan.actions.some((action) => action.kind === 'provision-cloud')).toBe(false);
+    expect(plan.actions.some((action) => action.kind === 'verify-endpoint')).toBe(true);
+    expect(plan.endpoint).toBe('https://already-deployed.example');
   });
 
   it('detects supported agents and local prerequisites', () => {
@@ -664,6 +691,38 @@ describe('guided install helpers', () => {
       })
     ).resolves.toEqual({ ok: true });
     expect(attempts).toBe(3);
+  });
+
+  it('passes a custom timeout through every wait probe', async () => {
+    vi.useFakeTimers();
+    try {
+      const hangingFetch = (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise<never>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+
+      const resultPromise = waitForAutoMemEndpoint({
+        endpoint: 'https://stalled.example',
+        fetchFn: hangingFetch,
+        attempts: 1,
+        timeoutMs: 20,
+      });
+
+      await vi.advanceTimersByTimeAsync(20);
+      // If waitForAutoMemEndpoint drops timeoutMs, the default 10s timer resolves
+      // the promise only after this extra advance and the assertion below fails.
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('timed out after 0.02s');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('waitForAutoMemEndpoint with stableChecks requires consecutive successes (a flicker resets the streak)', async () => {

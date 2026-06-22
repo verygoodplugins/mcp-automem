@@ -496,7 +496,9 @@ describe('Template Generation', () => {
     let totalMarkers = 0;
 
     for (const rel of tracked) {
-      const content = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+      const abs = path.join(repoRoot, rel);
+      if (!fs.existsSync(abs)) continue;
+      const content = fs.readFileSync(abs, 'utf8');
       let m: RegExpExecArray | null;
       while ((m = marker.exec(content)) !== null) {
         totalMarkers += 1;

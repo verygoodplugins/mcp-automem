@@ -1,20 +1,7 @@
-// Railway GraphQL helpers for the installer's fast path.
+// Railway GraphQL helpers for the installer's guided deploy.
 //
-// Why this exists: `railway deploy -t <code>` provisions the template's services
-// fine, but then its post-deploy `wait_for_workflow` poll returns "Unauthorized"
-// and the CLI exits 1 — a false negative on an already-successful deploy. So we
-// don't shell out to `railway deploy`; we fire Railway's GraphQL `templateDeployV2`
-// ourselves (exactly what the browser "Deploy Now" button and the railway MCP do)
-// and let the installer's own /health warmup be the readiness gate.
-//
-// Two calls, mirroring the CLI's own deploy command:
-//   1. template(code){ id serializedConfig }   — PUBLIC (no auth). With a Bearer
-//      token Railway returns "Not Authorized" for a template you don't own.
-//   2. templateDeployV2(input)                  — AUTHED (Bearer = the CLI session
-//      accessToken from ~/.railway/config.json).
-//
-// fetchFn is injectable so this is unit-testable against an in-memory fake instead
-// of the network (mirrors verifyAutoMemEndpoint's pattern).
+// The template lookup is public; the deploy mutation uses the Railway CLI session
+// token. fetchFn is injectable so tests do not hit Railway.
 
 import type { FetchLike } from './types.js';
 

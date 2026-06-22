@@ -1,4 +1,4 @@
-// Railway guided-install DEMO + e2e guard (non-dry-run, fully self-contained).
+// Railway guided-install e2e guard (non-dry-run, fully self-contained).
 //
 // Unlike interactive.mjs (which runs --dry-run and stops before apply), this drives
 // the REAL apply path for the Railway provider end-to-end — without a real Railway
@@ -7,19 +7,17 @@
 //   - the mock AutoMem server (so /health + authed /recall actually pass verify)
 //
 // It runs in a throwaway HOME + cwd with AUTOMEM_* stripped, so it never touches
-// your real config or reads your real .env. Use it to WATCH the flow go green, and
-// as a CI guard for the interactive apply path.
+// real config or reads a real .env.
 //
 // Scope: this exercises the BROWSER FALLBACK apply path. The installer first tries the
 // terminal fast path (railway init → status → GraphQL templateDeployV2), but the
 // throwaway HOME has no CLI token, so the provider falls back to the browser flow this
 // fake drives. The fast path's GraphQL deploy is covered by unit tests
-// (src/cli/cloud/railway-api.test.ts, railway.test.ts) + tests/e2e/debug-railway-fastpath.mjs,
-// since it can't be faked in a subprocess without hitting the network.
+// (src/cli/cloud/railway-api.test.ts, railway.test.ts), where network and CLI
+// boundaries are injected directly.
 //
-//   node tests/e2e/demo-railway.mjs           # quiet (CI): just prints pass/FAIL
-//   node tests/e2e/demo-railway.mjs --watch   # streams the live installer UI so you
-//                                             # can WATCH the flow go green
+//   node tests/e2e/railway-guided-install.mjs           # quiet: prints pass/FAIL
+//   node tests/e2e/railway-guided-install.mjs --watch   # stream installer UI
 //   (build first: npm run build)
 
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, statSync } from 'node:fs';
@@ -62,11 +60,11 @@ const strip = (s) => s.replace(ANSI, '');
 const KEY = { enter: '\r' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const TOKEN = 'demo-railway-token';
-const WATCH = process.argv.includes('--watch') || process.env.DEMO_WATCH === '1';
+const TOKEN = 'railway-guard-token';
+const WATCH = process.argv.includes('--watch') || process.env.RAILWAY_GUARD_WATCH === '1';
 
 // A fake `railway` CLI. `--version` answers the installer's CLI-presence probe so it
-// treats the CLI as installed (the real path the demo exercises). The installer then
+// treats the CLI as installed. The installer then
 // tries the terminal fast path (init → status → GraphQL deploy); with no token in the
 // throwaway HOME, readAccessToken returns undefined, so the provider falls back to the
 // browser flow this fake supports (login/link) — and domain/variable hand back the
@@ -77,10 +75,10 @@ function writeFakeRailway(binDir, mockUrl) {
   const script = `#!/usr/bin/env bash
 case "$1 $2" in
   "--version"*)        echo "railway 3.x (fake)";;
-  "whoami "*)          echo '{"name":"demo","workspaces":[{"id":"ws-demo","name":"Demo"}]}';;
+  "whoami "*)          echo '{"name":"guard","workspaces":[{"id":"ws-guard","name":"Guard"}]}';;
   "login "*|"login ")  echo "Logged in (fake)";;
-  "init "*)            echo '{"id":"proj-demo","name":"automem"}';;
-  "status "*|"status") echo '{"id":"proj-demo","environments":{"edges":[{"node":{"id":"env-demo","name":"production"}}]}}';;
+  "init "*)            echo '{"id":"proj-guard","name":"automem"}';;
+  "status "*|"status") echo '{"id":"proj-guard","environments":{"edges":[{"node":{"id":"env-guard","name":"production"}}]}}';;
   "link "*|"link ")    echo "Linked (fake)";;
   "domain "*)          echo '{"domain":"${mockUrl}"}';;
   "variable list"*)    echo '{"AUTOMEM_API_TOKEN":"${TOKEN}"}';;
@@ -94,8 +92,8 @@ exit 0
 
 async function run() {
   const mock = await createMock({ mode: 'healthy', expectToken: TOKEN });
-  const home = mkdtempSync(path.join(os.tmpdir(), 'automem-demo-home-'));
-  const cwd = mkdtempSync(path.join(os.tmpdir(), 'automem-demo-cwd-'));
+  const home = mkdtempSync(path.join(os.tmpdir(), 'automem-railway-guard-home-'));
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'automem-railway-guard-cwd-'));
   const bin = path.join(home, 'bin');
   mkdirSync(bin, { recursive: true });
   writeFakeRailway(bin, mock.url); // mock.url is http://127.0.0.1:PORT (scheme kept as-is)
@@ -119,8 +117,8 @@ async function run() {
 
   if (WATCH) {
     process.stdout.write(
-      `\n[demo] Running the real installer against a fake railway CLI + mock AutoMem (${mock.url}).\n` +
-        `[demo] Auto-answering: confirm the (deferred) deploy, then confirm it's live.\n\n`
+      `\n[railway-guard] Running the real installer against a fake railway CLI + mock AutoMem (${mock.url}).\n` +
+        `[railway-guard] Auto-answering: confirm the deferred deploy, then confirm it's live.\n\n`
     );
   }
   let buf = '';

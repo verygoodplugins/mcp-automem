@@ -1,6 +1,31 @@
-import { describe, expect, it } from 'vitest';
-import { ensureRailwayCli, parsePodChoice, provisionViaRailway } from './installer-bridge.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  ensureRailwayCli,
+  parsePodChoice,
+  provisionViaInstaPodsLink,
+  provisionViaRailway,
+} from './installer-bridge.js';
 import type { CloudDeployment, CloudProvider } from './types.js';
+
+const promptMocks = vi.hoisted(() => ({
+  promptSelect: vi.fn(async () => {
+    throw new Error('promptSelect should not run');
+  }),
+  promptConfirm: vi.fn(async () => {
+    throw new Error('promptConfirm should not run');
+  }),
+  promptPassword: vi.fn(async () => {
+    throw new Error('promptPassword should not run');
+  }),
+  promptText: vi.fn(async () => {
+    throw new Error('promptText should not run');
+  }),
+}));
+
+vi.mock('../ui/prompts.js', () => ({
+  cancelable: (promise: Promise<unknown>) => promise,
+  ...promptMocks,
+}));
 
 const deployments: CloudDeployment[] = [
   { name: 'automem-prod', endpoint: 'https://automem-prod.example' },
@@ -28,6 +53,10 @@ describe('parsePodChoice', () => {
 // Everything is injected (is-present check, installer, consent) so no real system,
 // prompt, or network is touched — mirrors railway.test.ts's RailwayCommandRunner fakes.
 const okInstall = { code: 0, stdout: '', stderr: '' };
+
+beforeEach(() => {
+  Object.values(promptMocks).forEach((mock) => mock.mockClear());
+});
 
 describe('ensureRailwayCli', () => {
   it('reports present without prompting or installing when the CLI is on PATH', async () => {
@@ -144,12 +173,13 @@ describe('ensureRailwayCli', () => {
 
 describe('provisionViaRailway routing', () => {
   function fakeProvider(
-    creds = { endpoint: 'https://fake.example', apiKey: 'fake-key' }
+    creds = { endpoint: 'https://fake.example', apiKey: 'fake-key' },
+    billing: CloudProvider['billing'] = { mode: 'free', planLabel: 'Free plan' }
   ): CloudProvider {
     return {
       id: 'fake',
       label: 'Fake',
-      billing: { mode: 'free', planLabel: 'Free plan' }, // free → no billing confirm prompt
+      billing,
       async authorize() {
         return { token: 'tok' };
       },
@@ -198,5 +228,42 @@ describe('provisionViaRailway routing', () => {
       })
     ).rejects.toThrow(/railway cli/i);
     expect(authorized).toBe(0);
+  });
+
+  it('auto-confirms provider billing in non-interactive mode only when explicitly allowed', async () => {
+    const result = await provisionViaRailway({
+      interactive: false,
+      autoConfirm: true,
+      provider: fakeProvider(
+        { endpoint: 'https://rw.example', apiKey: 'rw-key' },
+        { mode: 'deferred', planLabel: 'Railway usage-based', priceLabel: '~$1-5/mo' }
+      ),
+      isCliPresent: () => true,
+      log: () => {},
+    });
+
+    expect(result).toEqual({ endpoint: 'https://rw.example', apiKey: 'rw-key' });
+    expect(promptMocks.promptConfirm).not.toHaveBeenCalled();
+  });
+});
+
+describe('provisionViaInstaPodsLink routing', () => {
+  it('rejects non-interactive setup before opening a prompt or browser', async () => {
+    let opened = 0;
+
+    await expect(
+      provisionViaInstaPodsLink({
+        interactive: false,
+        log: () => {},
+        openUrl: () => {
+          opened += 1;
+        },
+      })
+    ).rejects.toThrow(/requires a TTY/i);
+
+    expect(opened).toBe(0);
+    expect(promptMocks.promptSelect).not.toHaveBeenCalled();
+    expect(promptMocks.promptText).not.toHaveBeenCalled();
+    expect(promptMocks.promptPassword).not.toHaveBeenCalled();
   });
 });

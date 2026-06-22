@@ -151,6 +151,23 @@ describe('Railway provider', () => {
     await expect(provider.authorize()).rejects.toThrow(/sign-in did not complete|railway login/i);
   });
 
+  it('does not launch interactive railway login when authorization is non-interactive', async () => {
+    let loginCalls = 0;
+    const run = (args: string[], opts?: { interactive?: boolean }): RailwayCommandResult => {
+      if (args[0] === 'whoami') return { code: 1, stdout: '', stderr: 'Unauthorized' };
+      if (args[0] === 'login') {
+        loginCalls += 1;
+        expect(opts?.interactive).not.toBe(true);
+        return { code: 0, stdout: '', stderr: '' };
+      }
+      return { code: 0, stdout: '{}', stderr: '' };
+    };
+    const provider = createRailwayProvider({ runCommand: run });
+
+    await expect(provider.authorize({ preferPaste: true })).rejects.toThrow(/railway login/i);
+    expect(loginCalls).toBe(0);
+  });
+
   it('throws when the railway CLI is unavailable (so the caller can fall back)', async () => {
     const provider = createRailwayProvider({
       runCommand: () => {

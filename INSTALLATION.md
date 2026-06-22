@@ -65,10 +65,12 @@ Flags: `--target <local|cloud|existing>`, `--cloud-provider <instapods|railway|o
 `--clients <list>`, `--endpoint`, `--api-key`, `--local-dir`,
 `--claude-code-mode <plugin|settings>`, `--hermes-mode <mcp|provider|both>`,
 `--dry-run`, `--yes`, `--no-agent-install`. The same values can be passed as
-`AUTOMEM_*` environment variables. For non-interactive InstaPods runs, set
-`INSTAPODS_TOKEN` to skip the browser hand-off (Railway uses your existing
-`railway` CLI auth or `RAILWAY_API_TOKEN`). `--dry-run` never opens a browser,
-installs or runs the railway CLI, deploys, or charges anything — it only prints the plan.
+`AUTOMEM_*` environment variables. For CI/dotfiles, prefer `--target existing`
+with `--endpoint` and `--api-key`; InstaPods is an interactive browser+paste flow.
+Railway can run non-interactively only when the `railway` CLI is already installed
+and signed in, and `--yes --cloud-provider railway` is supplied. `--dry-run` never
+opens a browser, installs or runs the railway CLI, deploys, or charges anything —
+it only prints the plan.
 
 > Without a TTY and without `--yes`/`--dry-run`, `install` prints the review
 > plan and stops without writing — re-run with `--yes` to apply.

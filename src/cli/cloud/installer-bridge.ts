@@ -77,6 +77,12 @@ export async function provisionViaInstaPodsLink(
   const log = params.log ?? ((line: string) => process.stdout.write(`${line}\n`));
   const openUrl = params.openUrl ?? openInSystemBrowser;
 
+  if (!params.interactive) {
+    throw new Error(
+      'InstaPods cloud setup requires a TTY. Re-run interactively, or use --target existing with --endpoint and --api-key.'
+    );
+  }
+
   const choice = await cancelable(
     promptSelect<'open' | 'paste'>({
       message: 'Set up AutoMem on InstaPods',
@@ -115,6 +121,8 @@ export async function provisionViaInstaPodsLink(
 export interface ProvisionViaProviderParams {
   provider: CloudProvider;
   interactive: boolean;
+  /** Treat the reviewed install plan as confirmation for non-interactive deploys. */
+  autoConfirm?: boolean;
   log?: (line: string) => void;
 }
 
@@ -140,7 +148,13 @@ export async function provisionViaProvider(
   const ui: CloudProvisionUI = {
     start: (label) => log(`  → ${label}…`),
     done: (label, detail) => log(`  ✓ ${detail ?? label}`),
-    confirm: (message) => cancelable(promptConfirm({ message, initialValue: true })),
+    confirm: (message) => {
+      if (!params.interactive) {
+        if (params.autoConfirm) return Promise.resolve(true);
+        throw new CloudProvisionAbort(`${provider.label} deployment requires confirmation.`);
+      }
+      return cancelable(promptConfirm({ message, initialValue: true }));
+    },
   };
 
   const selector: CloudSelector = {
@@ -286,6 +300,8 @@ async function railwayDeployOrPaste(params: {
 
 export interface ProvisionViaRailwayParams {
   interactive: boolean;
+  /** Treat the reviewed install plan as confirmation for non-interactive deploys. */
+  autoConfirm?: boolean;
   log?: (line: string) => void;
   /** Injected in tests. */
   provider?: CloudProvider;
@@ -340,6 +356,11 @@ export async function provisionViaRailway(
     // user finish it there, then the provider attaches the CLI and reads the creds.
     // A declined gate throws, which provisionViaProvider catches → manual paste.
     const awaitBrowserDeploy = async (): Promise<void> => {
+      if (!params.interactive) {
+        throw new Error(
+          'Railway browser fallback requires a TTY. Re-run interactively, or use --target existing with --endpoint and --api-key.'
+        );
+      }
       openInSystemBrowser(RAILWAY_DEPLOY_URL);
       log(
         noteBox('Finish your Railway deploy in the browser', [
@@ -367,5 +388,10 @@ export async function provisionViaRailway(
     };
     provider = createRailwayProvider({ awaitBrowserDeploy });
   }
-  return provisionViaProvider({ provider, interactive: params.interactive, log });
+  return provisionViaProvider({
+    provider,
+    interactive: params.interactive,
+    autoConfirm: params.autoConfirm,
+    log,
+  });
 }
