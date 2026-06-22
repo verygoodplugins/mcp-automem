@@ -9,12 +9,13 @@ import { applyHermesSetup, type HermesInstallMode } from './hermes.js';
 import { applyOpenClawSetup } from './openclaw.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 import { mergeEnvContent, writeFileWithBackup } from './host-toolkit.js';
+import { provisionViaInstaPodsLink, provisionViaRailway } from './cloud/installer-bridge.js';
 // Re-exported so existing importers (and install.test.ts) keep a stable path.
 export { formatEnvValue } from './host-toolkit.js';
 import { playInstallerSplash, shouldUseInstallerAnimation } from './install-ui.js';
 import { makeTheme } from './ui/theme.js';
 import { keyValueRows, type TableRow } from './ui/table.js';
-import { noteBox, sectionTitle } from './ui/messages.js';
+import { sectionTitle } from './ui/messages.js';
 import { renderBrandHeader, renderSuccessCard, renderWorkingMascot } from './ui/brand.js';
 import { startSpinner } from './ui/tasks.js';
 import { startChecklist, type ChecklistStep } from './ui/checklist.js';
@@ -135,8 +136,14 @@ export const DEFAULT_AGENT_CLIENTS = [
   'openclaw',
 ] as const satisfies readonly AgentClient[];
 export type InstallTarget = 'local' | 'cloud' | 'existing';
+// Hosted-cloud sub-target: InstaPods (open the setup page → paste the emailed
+// URL+key), Railway (guided via the railway CLI), or 'other' (paste credentials
+// you already have). InstaPods/Railway fall back to a manual paste if needed.
+export const CLOUD_PROVIDERS = ['instapods', 'railway', 'other'] as const;
+export type CloudProviderId = (typeof CLOUD_PROVIDERS)[number];
 export type InstallActionKind =
   | 'prepare-local'
+  | 'provision-cloud'
   | 'verify-endpoint'
   | 'write-env'
   | 'install-agent'
@@ -144,6 +151,7 @@ export type InstallActionKind =
 
 export type ParsedInstallOptions = {
   target?: InstallTarget;
+  cloudProvider?: CloudProviderId;
   clients: AgentClient[];
   endpoint?: string;
   apiKey?: string;
@@ -306,6 +314,12 @@ function parseTarget(value: string | undefined): InstallTarget | undefined {
   throw new Error(`Invalid install target: ${value}. Expected local, cloud, or existing.`);
 }
 
+function parseCloudProvider(value: string | undefined): CloudProviderId | undefined {
+  if (!value) return undefined;
+  if ((CLOUD_PROVIDERS as readonly string[]).includes(value)) return value as CloudProviderId;
+  throw new Error(`Invalid cloud provider: ${value}. Expected ${CLOUD_PROVIDERS.join(' or ')}.`);
+}
+
 function parseHermesMode(value: string | undefined): HermesInstallMode | undefined {
   if (!value) return undefined;
   if (value === 'mcp' || value === 'provider' || value === 'both') return value;
@@ -336,6 +350,7 @@ export function parseInstallArgs(
   env: NodeJS.ProcessEnv = process.env
 ): ParsedInstallOptions {
   let target = parseTarget(env.AUTOMEM_INSTALL_TARGET);
+  let cloudProvider = parseCloudProvider(env.AUTOMEM_CLOUD_PROVIDER);
   let clients = parseClients(env.AUTOMEM_CLIENTS);
   let endpoint = env.AUTOMEM_API_URL || env.AUTOMEM_ENDPOINT;
   let apiKey = env.AUTOMEM_API_KEY || env.AUTOMEM_API_TOKEN;
@@ -351,6 +366,10 @@ export function parseInstallArgs(
     switch (arg) {
       case '--target':
         target = parseTarget(assertValue(args, i, arg));
+        i += 1;
+        break;
+      case '--cloud-provider':
+        cloudProvider = parseCloudProvider(assertValue(args, i, arg));
         i += 1;
         break;
       case '--client':
@@ -398,6 +417,7 @@ export function parseInstallArgs(
 
   return {
     target,
+    cloudProvider,
     clients: clients ?? [...DEFAULT_AGENT_CLIENTS],
     endpoint,
     apiKey,
@@ -551,11 +571,19 @@ export function buildInstallPlan(params: {
       command: `git clone ${AUTOMEM_REPO} ${localDir} && docker compose up -d --build`,
       secret: true,
     });
-  } else if (options.target === 'cloud') {
+  } else if (options.target === 'cloud' && options.cloudProvider !== 'other') {
+    // InstaPods + Railway produce the endpoint + token during apply (after this plan
+    // is approved), so they're unknown here; the plan discloses what runs and the
+    // cost, and the verify step kicks in once apply has the real endpoint. The
+    // 'other' provider pastes credentials up front, so it skips this and flows
+    // straight to verify + write-env like an existing endpoint.
+    const railway = options.cloudProvider === 'railway';
     actions.push({
-      kind: 'manual-step',
-      title: 'Create hosted AutoMem service',
-      detail: 'Open InstaPods or Railway, deploy AutoMem, then paste the generated HTTPS endpoint and API token into this wizard.',
+      kind: 'provision-cloud',
+      title: railway ? 'Deploy AutoMem on Railway' : 'Set up AutoMem on InstaPods',
+      detail: railway
+        ? 'Sign in to Railway in your browser, then deploy the AutoMem template (usage-based, ~$1–5/mo) and capture the endpoint + API token automatically.'
+        : 'Open the InstaPods setup page (it deploys AutoMem and emails your API URL + key, Grow plan ~$15/mo), then paste them — or paste credentials you already have.',
       paths: [],
     });
   }
@@ -937,6 +965,8 @@ function actionTag(action: InstallAction): string {
   switch (action.kind) {
     case 'prepare-local':
       return 'local';
+    case 'provision-cloud':
+      return 'cloud';
     case 'verify-endpoint':
       return 'verify';
     case 'write-env':
@@ -954,6 +984,8 @@ type RenderTheme = ReturnType<typeof makeTheme>;
 function tagStyle(theme: RenderTheme, kind: InstallActionKind): (text: string) => string {
   switch (kind) {
     case 'prepare-local':
+      return theme.style.magenta;
+    case 'provision-cloud':
       return theme.style.magenta;
     case 'verify-endpoint':
       return theme.style.blue;
@@ -992,6 +1024,8 @@ function renderActionDetail(action: InstallAction, plan: InstallPlan, theme: Ren
       return [detail(`AUTOMEM_API_URL=${plan.endpoint ?? '<prompted>'}${plan.apiKeyProvided ? '  + API key' : ''}`)];
     case 'prepare-local':
       return [detail(`docker compose in ${tildify(plan.localDir)}`)];
+    case 'provision-cloud':
+      return [detail(action.detail)];
     case 'manual-step':
       return [detail(action.detail)];
     case 'install-agent':
@@ -1068,7 +1102,7 @@ async function resolveInteractiveOptions(
     target = await cancelable(promptSelect<InstallTarget>({
       message: 'Where should AutoMem run?',
       options: [
-        { value: 'cloud', label: 'Hosted Cloud', hint: 'InstaPods or Railway, then paste endpoint/token' },
+        { value: 'cloud', label: 'Hosted Cloud', hint: 'InstaPods or Railway — guided deploy' },
         { value: 'local', label: 'Local Docker', hint: 'Clone AutoMem and start Docker Compose on this machine' },
         { value: 'existing', label: 'Existing Endpoint', hint: 'Use an AutoMem URL you already have' },
       ],
@@ -1080,13 +1114,30 @@ async function resolveInteractiveOptions(
   let apiKey = parsed.apiKey;
   let localDir = parsed.localDir ?? defaultLocalDir(environment.homeDir);
 
-  if (target === 'cloud') {
-    process.stdout.write(
-      noteBox('Hosted setup', [
-        'Deploy AutoMem on InstaPods or Railway first:',
-        'https://instapods.com/apps/automem/?ref=jack',
-        'https://railway.com/deploy/automem-ai-memory-service',
-      ])
+  let cloudProvider = parsed.cloudProvider;
+  if (target === 'cloud' && !cloudProvider) {
+    cloudProvider = await cancelable(
+      promptSelect<CloudProviderId>({
+        message: 'How should we stand up your hosted AutoMem?',
+        options: [
+          {
+            value: 'instapods',
+            label: 'InstaPods',
+            hint: 'open the setup page — it deploys AutoMem and emails your URL + key',
+          },
+          {
+            value: 'railway',
+            label: 'Railway (guided)',
+            hint: 'sign in via the railway CLI, deploy the AutoMem template, capture keys',
+          },
+          {
+            value: 'other',
+            label: 'Other — I already have a URL + key',
+            hint: 'already deployed somewhere; just paste your endpoint + token',
+          },
+        ],
+        initialValue: 'instapods',
+      })
     );
   }
 
@@ -1100,7 +1151,12 @@ async function resolveInteractiveOptions(
     endpoint = endpoint ?? DEFAULT_AUTOMEM_API_URL;
   }
 
-  if ((target === 'cloud' || target === 'existing') && !endpoint) {
+  // InstaPods/Railway provision endpoint + token during apply. 'existing', and the
+  // cloud 'other' option, collect them here up front. (A cloud run with an explicit
+  // --endpoint still skips provisioning via the apply-phase `!endpoint` guard.)
+  const collectEndpointHere = target === 'existing' || (target === 'cloud' && cloudProvider === 'other');
+
+  if (collectEndpointHere && !endpoint) {
     endpoint = (
       await cancelable(promptText({
         message: 'AutoMem API URL',
@@ -1110,7 +1166,7 @@ async function resolveInteractiveOptions(
     ).trim();
   }
 
-  if ((target === 'cloud' || target === 'existing') && !apiKey) {
+  if (collectEndpointHere && !apiKey) {
     // Masked: the key must never echo in cleartext as the user types.
     const entered = (
       await cancelable(promptPassword({
@@ -1186,6 +1242,7 @@ async function resolveInteractiveOptions(
   return {
     ...parsed,
     target,
+    cloudProvider,
     endpoint,
     apiKey,
     localDir,
@@ -1367,6 +1424,24 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         throw new InstallError('AutoMem did not become healthy in time.', ready.message);
       }
       spin.stop('AutoMem is online');
+    }
+
+    // InstaPods (open setup page → paste) and Railway (guided railway CLI) provision
+    // interactively BEFORE the live checklist, for the same reason as local. Both
+    // degrade to a manual endpoint/token paste, so the cloud path is never worse
+    // than today. ('other' already collected its endpoint up front, so !endpoint
+    // is false here and this is skipped.)
+    if (resolved.target === 'cloud' && !endpoint) {
+      const providerLabel = resolved.cloudProvider === 'railway' ? 'Railway' : 'InstaPods';
+      process.stdout.write(
+        `  ${theme.style.dim(theme.symbol.arrow)} Setting up AutoMem on ${providerLabel}…\n`
+      );
+      const provisioned =
+        resolved.cloudProvider === 'railway'
+          ? await provisionViaRailway({ interactive: true })
+          : await provisionViaInstaPodsLink({ interactive: true });
+      endpoint = provisioned.endpoint;
+      apiKey = provisioned.apiKey;
     }
 
     if (!endpoint) {

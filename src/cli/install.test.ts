@@ -73,6 +73,99 @@ describe('guided install helpers', () => {
     expect(() => parseInstallArgs(['--hermes-mode', 'legacy'])).toThrow(/invalid Hermes install mode/i);
   });
 
+  it('parses the cloud provider from the flag and the environment', () => {
+    expect(parseInstallArgs(['--cloud-provider', 'instapods']).cloudProvider).toBe('instapods');
+    expect(parseInstallArgs([], { AUTOMEM_CLOUD_PROVIDER: 'railway' }).cloudProvider).toBe('railway');
+    expect(parseInstallArgs(['--cloud-provider', 'other']).cloudProvider).toBe('other');
+    expect(() => parseInstallArgs(['--cloud-provider', 'aws'])).toThrow(/invalid cloud provider/i);
+  });
+
+  it('plans the InstaPods cloud target as a cost-disclosing provision step', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'cloud',
+        cloudProvider: 'instapods',
+        clients: [],
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: true,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+
+    const provision = plan.actions.find((action) => action.kind === 'provision-cloud');
+    expect(provision).toBeDefined();
+    expect(provision?.detail).toMatch(/instapods/i);
+    expect(provision?.detail).toMatch(/\$15\/mo/);
+    expect(provision?.detail).toMatch(/paste|setup page/i);
+    // Endpoint is unknown until apply provisions it, so there's no verify step yet.
+    expect(plan.actions.some((action) => action.kind === 'verify-endpoint')).toBe(false);
+  });
+
+  it('plans the Railway cloud target as a guided provision step (no manual paste)', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'cloud',
+        cloudProvider: 'railway',
+        clients: [],
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: true,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+
+    const provision = plan.actions.find((action) => action.kind === 'provision-cloud');
+    expect(provision).toBeDefined();
+    expect(provision?.detail).toMatch(/railway/i);
+    // Endpoint is provisioned during apply, so no manual paste and no verify yet.
+    expect(plan.actions.some((action) => action.kind === 'manual-step')).toBe(false);
+    expect(plan.actions.some((action) => action.kind === 'verify-endpoint')).toBe(false);
+  });
+
+  it('treats the cloud "other" provider like an existing endpoint (paste up front, no provision step)', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'cloud',
+        cloudProvider: 'other',
+        clients: [],
+        endpoint: 'https://already-deployed.example',
+        apiKey: 'sk-existing',
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: true,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+
+    // Credentials were pasted up front, so there's no provision step — it verifies
+    // and writes .env just like the existing-endpoint flow.
+    expect(plan.actions.some((action) => action.kind === 'provision-cloud')).toBe(false);
+    expect(plan.actions.some((action) => action.kind === 'verify-endpoint')).toBe(true);
+    expect(plan.actions.some((action) => action.kind === 'write-env')).toBe(true);
+  });
+
   it('detects supported agents and local prerequisites', () => {
     const homeDir = '/Users/tester';
     const cwd = '/repo/project';
@@ -641,7 +734,7 @@ describe('guided install helpers', () => {
     const environment = detectInstallEnvironment();
     expect(() =>
       buildInstallPlan({
-        options: { ...parseInstallArgs([]), target: 'local', endpoint: 'http://custom:9000' },
+        options: { ...parseInstallArgs([], {}), target: 'local', endpoint: 'http://custom:9000' },
         environment,
       })
     ).toThrow(/not supported with --target local/);
@@ -650,7 +743,7 @@ describe('guided install helpers', () => {
   it('pins the local endpoint to the default in the plan', () => {
     const environment = detectInstallEnvironment();
     const plan = buildInstallPlan({
-      options: { ...parseInstallArgs([]), target: 'local' },
+      options: { ...parseInstallArgs([], {}), target: 'local' },
       environment,
     });
     expect(plan.endpoint).toBe('http://127.0.0.1:8001');
@@ -801,7 +894,7 @@ describe('claude plugin auto-install', () => {
   it('plans a real plugin install (install-agent) when claude is on PATH', () => {
     const env = detectInstallEnvironment({ commandExists: (c) => c === 'claude' });
     const plan = buildInstallPlan({
-      options: { ...parseInstallArgs([]), target: 'existing', endpoint: 'http://x' },
+      options: { ...parseInstallArgs([], {}), target: 'existing', endpoint: 'http://x' },
       environment: env,
     });
     const action = plan.actions.find((a) => a.client === 'claude-code');
@@ -811,7 +904,7 @@ describe('claude plugin auto-install', () => {
   it('falls back to a manual step for the plugin when claude is absent', () => {
     const env = detectInstallEnvironment({ commandExists: () => false });
     const plan = buildInstallPlan({
-      options: { ...parseInstallArgs([]), target: 'existing', endpoint: 'http://x' },
+      options: { ...parseInstallArgs([], {}), target: 'existing', endpoint: 'http://x' },
       environment: env,
     });
     const action = plan.actions.find((a) => a.client === 'claude-code');

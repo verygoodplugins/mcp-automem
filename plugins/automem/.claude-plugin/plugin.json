@@ -1,6 +1,6 @@
 {
   "name": "automem",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Persistent memory for Claude Code via AutoMem: silent session-start recall, in-turn LLM-judged storage guidance, and the AutoMem MCP memory tools.",
   "author": {
     "name": "Very Good Plugins",

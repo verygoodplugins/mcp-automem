@@ -184,11 +184,11 @@ a queue file you point it at.
 ## Available Tools
 
 - `store_memory` - Save memories with tags, importance, metadata. Supports **batch mode** via `memories: [...]` (≤500 items)
-- `recall_memory` - Hybrid search with graph expansion and context hints. Also supports **ID fetch** (`memory_id`) and **tag enumeration** (`exhaustive: true` + `tags`, paginated)
-- `associate_memories` - Create relationships (11 public authorable types)
+- `recall_memory` - Hybrid search with graph expansion, context hints, state/recency controls, score filters, and diagnostics. Also supports **ID fetch** (`memory_id`) and **tag enumeration** (`exhaustive: true` + `tags`, paginated)
+- `associate_memories` - Create relationships (11 public authorable types), including batch mode via `associations: [...]` and relation-specific props
 - `update_memory` - Modify existing memories
 - `delete_memory` - Remove memory by ID or **bulk-by-tag** (`tags: [...]`)
-- `check_database_health` - Monitor service status
+- `check_database_health` - Monitor service status, degraded state, sync counts, vector dimensions, and enrichment diagnostics
 
 ## Tips
 

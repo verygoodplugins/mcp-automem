@@ -1,5 +1,5 @@
 <!-- BEGIN AUTOMEM HERMES RULES -->
-<!-- automem-template-version: 0.14.0 -->
+<!-- automem-template-version: 0.15.0 -->
 # Memory - AutoMem for Hermes
 
 AutoMem is installed for Hermes in this project (`{{PROJECT_NAME}}`). Use it proactively for durable memory, not as a passive reference lookup.

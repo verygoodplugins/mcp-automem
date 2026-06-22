@@ -240,13 +240,13 @@ An optional sidecar service (deployable to Railway or any Docker host) connects 
 - **`recall_memory`** — Three modes selected by which params you pass:
   - **ID fetch**: `memory_id` → fetches one memory by ID; updates `last_accessed`.
   - **Tag enumeration**: `tags` + `exhaustive: true` → paginated exact-match listing for cleanup/audit workflows where ranked recall undercounts. Pair with `limit` (≤200) and `offset`; returns `has_more`.
-  - **Ranked retrieval (default)**: hybrid search across vector, keyword, tags, recency, with optional graph expansion and `exclude_tags` to filter out unwanted scopes.
-- **`associate_memories`** — Create relationships (11 public authorable types; recall results may also include read-only system relations)
+  - **Ranked retrieval (default)**: hybrid search across vector, keyword, tags, recency/state controls, score filters, and graph expansion. Supports `state_mode`, `recency_bias`, `scope_fallback`, `expand_respect_tags`, `min_score`, `adaptive_floor`, and diagnostics such as `tag_scope`, `score_filter`, `query_time_ms`, `vector_search`, and per-result `outside_tag_scope`/`state_replaces`.
+- **`associate_memories`** — Create relationships (11 public authorable types; recall results may also include read-only system relations). Supports single-pair mode and batch mode via `associations: [...]` (≤500) with relation-specific props like `reason`, `context`, `resolution`, `observations`, `transformation`, and `role`.
 - **`update_memory`** — Modify existing memories
 - **`delete_memory`** — Two modes:
   - **Single (default)**: `memory_id` → removes one memory and its embedding.
   - **Bulk-by-tag**: `tags: [...]` → bulk-delete all memories matching ANY tag (exact, case-insensitive). No dry-run; verify with `recall_memory({ tags, exhaustive: true })` first.
-- **`check_database_health`** — Monitor service status
+- **`check_database_health`** — Monitor service health, degraded state, sync counts, vector dimensions, and enrichment diagnostics when the service provides them
 
 ### Advanced Recall (v0.8.0+)
 

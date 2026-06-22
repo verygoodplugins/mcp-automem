@@ -55,6 +55,48 @@ describe('MCP server real stdio contract', () => {
         expect(Buffer.byteLength(tool.description ?? '', 'utf8')).toBeLessThanOrEqual(2048);
       }
 
+      const recallTool = listed.tools.find((tool: { name: string }) => tool.name === 'recall_memory');
+      expect(recallTool.inputSchema.properties).toMatchObject({
+        state_mode: { type: 'string', enum: ['current', 'history'] },
+        recency_bias: { type: 'string', enum: ['auto', 'on', 'off'] },
+        scope_fallback: { type: 'boolean' },
+        expand_respect_tags: { type: 'boolean' },
+        min_score: { type: 'number' },
+        adaptive_floor: { type: 'boolean' },
+      });
+
+      const associateTool = listed.tools.find(
+        (tool: { name: string }) => tool.name === 'associate_memories',
+      );
+      expect(associateTool.inputSchema.required ?? []).toEqual([]);
+      expect(associateTool.inputSchema.properties.associations).toMatchObject({
+        type: 'array',
+        maxItems: 500,
+      });
+      expect(associateTool.inputSchema.properties).toMatchObject({
+        context: { type: 'string' },
+        reason: { type: 'string' },
+        resolution: { type: 'string' },
+        transformation: { type: 'string' },
+      });
+
+      const associationItem =
+        associateTool.inputSchema.properties.associations.items.properties;
+      expect(associationItem).toMatchObject({
+        context: { type: 'string' },
+        reason: { type: 'string' },
+        observations: { type: 'array' },
+      });
+
+      const healthTool = listed.tools.find(
+        (tool: { name: string }) => tool.name === 'check_database_health',
+      );
+      expect(healthTool.outputSchema.properties.status.enum).toEqual([
+        'healthy',
+        'degraded',
+        'error',
+      ]);
+
       const health = await client.request('tools/call', {
         name: 'check_database_health',
         arguments: {},
