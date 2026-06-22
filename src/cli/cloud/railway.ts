@@ -22,7 +22,16 @@ import type {
 } from './types.js';
 
 export type RailwayCommandResult = { code: number; stdout: string; stderr: string };
-export type RailwayCommandRunner = (args: string[]) => RailwayCommandResult;
+export type RailwayCommandOptions = {
+  // Interactive commands (railway login) must inherit the terminal so the browser
+  // hand-off works and the user can complete sign-in; we only need the exit code.
+  // JSON commands stay captured so we can parse stdout.
+  interactive?: boolean;
+};
+export type RailwayCommandRunner = (
+  args: string[],
+  opts?: RailwayCommandOptions
+) => RailwayCommandResult;
 
 const DEFAULT_TEMPLATE_CODE = 'automem-ai-memory-service';
 const DEFAULT_SERVICE_NAME = 'automem'; // the public Flask API service among the 4
@@ -37,10 +46,17 @@ const DEFAULT_BILLING: CloudBilling = {
 
 // Default runner: invoke the real `railway` CLI. A missing binary surfaces as a
 // thrown spawn error, which the provider turns into a clean "fall back" signal.
-function defaultRailwayRunner(args: string[]): RailwayCommandResult {
-  const result = spawnSync('railway', args, { encoding: 'utf8' });
+// Interactive commands inherit the terminal (browser sign-in, prompts); everything
+// else captures stdout so we can parse JSON.
+function defaultRailwayRunner(args: string[], opts: RailwayCommandOptions = {}): RailwayCommandResult {
+  const result = opts.interactive
+    ? spawnSync('railway', args, { stdio: 'inherit' })
+    : spawnSync('railway', args, { encoding: 'utf8' });
   if (result.error) throw result.error;
-  return { code: result.status ?? 1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+  // Interactive (inherited) runs don't capture stdio, so stdout/stderr are null.
+  const asString = (v: string | Buffer | null | undefined): string =>
+    typeof v === 'string' ? v : '';
+  return { code: result.status ?? 1, stdout: asString(result.stdout), stderr: asString(result.stderr) };
 }
 
 const sleep = (ms: number): Promise<void> =>
@@ -133,9 +149,9 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
 
   // Run a railway subcommand; a thrown spawn error (missing CLI) becomes a clean
   // signal so the caller falls back to manual paste.
-  const railway = (args: string[]): RailwayCommandResult => {
+  const railway = (args: string[], opts?: RailwayCommandOptions): RailwayCommandResult => {
     try {
-      return run(args);
+      return run(args, opts);
     } catch (err) {
       throw new Error(
         `The railway CLI isn't available (${err instanceof Error ? err.message : String(err)}).`,
@@ -144,19 +160,30 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
     }
   };
 
+  // Authenticated when whoami exits 0 with a non-empty payload. A stale/expired
+  // session fails one of those, so we don't proceed to deploy unauthenticated.
+  const isSignedIn = (): boolean => {
+    const who = railway(['whoami', '--json']);
+    return who.code === 0 && who.stdout.trim().length > 0;
+  };
+
   return {
     id: 'railway',
     label: 'Railway',
     billing,
 
     async authorize(_opts?: AuthorizeOptions): Promise<CloudSession> {
-      const who = railway(['whoami', '--json']);
-      if (who.code === 0) return { token: 'railway-cli' };
-      // Not signed in — `railway login` opens the browser (clean hand-off).
-      railway(['login']);
-      const after = railway(['whoami', '--json']);
-      if (after.code !== 0) {
-        throw new Error('Railway sign-in did not complete.');
+      if (isSignedIn()) return { token: 'railway-cli' };
+      // Not signed in (or the session expired) — run `railway login` INTERACTIVELY
+      // so its browser hand-off works and the user can complete sign-in. This must
+      // inherit the terminal; a captured run can't drive the browser flow, which is
+      // why an expired session previously slipped through and nothing deployed.
+      process.stdout.write('  → Signing in to Railway (a browser window will open)…\n');
+      railway(['login'], { interactive: true });
+      if (!isSignedIn()) {
+        throw new Error(
+          'Railway sign-in did not complete. Run `railway login` manually, then re-run the installer.'
+        );
       }
       return { token: 'railway-cli' };
     },
@@ -169,16 +196,18 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
     },
 
     async deploy(_session: CloudSession, _opts?: DeployOptions): Promise<CloudDeployment> {
-      // init creates + links a project; tolerate non-zero (an already-linked
-      // project still deploys).
-      railway(['init', '--name', projectName, '--json']);
+      // init + deploy run INTERACTIVELY (inherit the terminal): `railway init` can
+      // prompt for a workspace, and `railway deploy` streams build/deploy logs —
+      // captured stdio would hang on the prompt or hide all progress. We don't parse
+      // their stdout (only the exit code), so inheriting is safe.
+      railway(['init', '--name', projectName], { interactive: true });
       const args = ['deploy', '--template', templateCode];
       if (options.embeddingKey) {
         args.push('--variable', `${serviceName}.${embeddingVar}=${options.embeddingKey}`);
       }
-      const deployed = railway(args);
+      const deployed = railway(args, { interactive: true });
       if (deployed.code !== 0) {
-        throw new Error(`railway deploy failed: ${deployed.stderr || deployed.stdout}`);
+        throw new Error(`railway deploy failed (exit ${deployed.code}). Check \`railway logs\`.`);
       }
       return { name: serviceName, status: 'BUILDING' };
     },

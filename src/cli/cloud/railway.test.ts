@@ -63,19 +63,53 @@ describe('Railway provider', () => {
     expect(fake.calls.some((c) => c[0] === 'login')).toBe(false);
   });
 
-  it('runs `railway login` (browser hand-off) when not signed in', async () => {
+  it('runs `railway login` INTERACTIVELY when not signed in, then proceeds', async () => {
     let whoamiCount = 0;
-    const fake = makeFakeRailway();
-    const run = (args: string[]) => {
+    const interactive: string[] = [];
+    const run = (args: string[], opts?: { interactive?: boolean }): RailwayCommandResult => {
+      if (opts?.interactive) interactive.push(args.join(' '));
       if (args[0] === 'whoami') {
         whoamiCount += 1;
-        return { code: whoamiCount === 1 ? 1 : 0, stdout: '', stderr: '' };
+        // Not signed in on the first check; signed in after login.
+        return whoamiCount === 1
+          ? { code: 1, stdout: '', stderr: 'Unauthorized' }
+          : { code: 0, stdout: '{"name":"x"}', stderr: '' };
       }
-      return fake.run(args);
+      if (args[0] === 'login') return { code: 0, stdout: '', stderr: '' };
+      return { code: 0, stdout: '{}', stderr: '' };
+    };
+    const provider = createRailwayProvider({ runCommand: run });
+    await expect(provider.authorize()).resolves.toEqual({ token: 'railway-cli' });
+    // login must run with inherited stdio so its browser hand-off can complete.
+    expect(interactive).toContain('login');
+  });
+
+  it('does not treat an exit-0 whoami with empty output as signed in', async () => {
+    let whoamiCount = 0;
+    const interactive: string[] = [];
+    const run = (args: string[], opts?: { interactive?: boolean }): RailwayCommandResult => {
+      if (opts?.interactive) interactive.push(args.join(' '));
+      if (args[0] === 'whoami') {
+        whoamiCount += 1;
+        // exit 0 but empty payload (stale/cleared session) → must NOT count as auth.
+        return whoamiCount === 1
+          ? { code: 0, stdout: '   ', stderr: '' }
+          : { code: 0, stdout: '{"name":"x"}', stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
     };
     const provider = createRailwayProvider({ runCommand: run });
     await provider.authorize();
-    expect(fake.calls.some((c) => c[0] === 'login') || true).toBe(true); // login routed through `run`
+    expect(interactive).toContain('login');
+  });
+
+  it('throws a clear error when sign-in does not complete', async () => {
+    const run = (args: string[]): RailwayCommandResult =>
+      args[0] === 'whoami'
+        ? { code: 1, stdout: '', stderr: 'Unauthorized' }
+        : { code: 0, stdout: '', stderr: '' };
+    const provider = createRailwayProvider({ runCommand: run });
+    await expect(provider.authorize()).rejects.toThrow(/sign-in did not complete|railway login/i);
   });
 
   it('throws when the railway CLI is unavailable (so the caller can fall back)', async () => {
