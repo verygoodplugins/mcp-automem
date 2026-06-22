@@ -4,7 +4,11 @@
 // config-level AUTOMEM_API_URL would shadow a legacy user's AUTOMEM_ENDPOINT
 // (see tests/installer/plugin-mcp-config.test.ts). The exported key casing is
 // not pinned by the docs, so both spellings are accepted.
-
+//
+// Canonical name is AUTOMEM_API_KEY (matches the AutoMem service docs + repo,
+// which are standardizing on _KEY). AUTOMEM_API_TOKEN is the deprecated alias,
+// still read so the Railway template / SSE sidecar / existing deploys (which set
+// AUTOMEM_API_TOKEN) keep working.
 export function readAutoMemApiKeyFromEnv(
   env: NodeJS.ProcessEnv = process.env
 ): string | undefined {
@@ -12,6 +16,7 @@ export function readAutoMemApiKeyFromEnv(
     env.AUTOMEM_API_KEY,
     env.AUTOMEM_API_TOKEN,
     env.CLAUDE_PLUGIN_OPTION_API_KEY ?? env.CLAUDE_PLUGIN_OPTION_api_key,
+    env.CLAUDE_PLUGIN_OPTION_API_TOKEN ?? env.CLAUDE_PLUGIN_OPTION_api_token,
   ];
   for (const candidate of candidates) {
     const value = String(candidate ?? "").trim();

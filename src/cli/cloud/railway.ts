@@ -1,14 +1,19 @@
 // Railway CloudProvider (provider #2).
 //
-// Railway has no third-party OAuth-loopback or post-deploy redirect, but it ships
-// a first-class CLI + public API. The smoothest in-terminal path drives the user's
-// own `railway` CLI: `railway login` is a clean browser hand-off (no token typing),
-// and `railway deploy --template <code> --variable …` provisions the AutoMem
-// template. We shell out through an injectable RailwayCommandRunner (mirrors
-// installClaudeCodePlugin's PluginCommandRunner) so this is testable without the
-// real CLI. CLI argv + JSON parsing are isolated below and marked CONFIRM where the
-// exact `--json` shapes need a live-CLI validation pass; any unexpected output makes
-// the caller fall back to the manual endpoint/token paste.
+// Railway's AutoMem template is a marketplace template, which the CLI cannot deploy
+// (`railway deploy --template <code>` returns "Unauthorized" for marketplace
+// templates — only first-party DB templates are CLI-deployable). So the deploy
+// itself happens in the browser via the template's "Deploy Now" page; the CLI's job
+// is the capture half: sign in, let the user attach the CLI to the project they just
+// created (`railway link`), then READ the generated domain + API token. We never
+// generate a domain (a mismatched target port was the original 502) — we read what
+// the template created.
+//
+// We shell out through an injectable RailwayCommandRunner (mirrors
+// installClaudeCodePlugin's PluginCommandRunner) so this is testable without the real
+// CLI. The browser open + "press Enter once it's live" gate is injected as
+// `awaitBrowserDeploy` (the bridge wires it to the gold UI); any unexpected output or
+// a failed link makes the caller fall back to the manual endpoint/token paste.
 
 import { spawnSync } from 'node:child_process';
 import type {
@@ -23,9 +28,9 @@ import type {
 
 export type RailwayCommandResult = { code: number; stdout: string; stderr: string };
 export type RailwayCommandOptions = {
-  // Interactive commands (railway login) must inherit the terminal so the browser
-  // hand-off works and the user can complete sign-in; we only need the exit code.
-  // JSON commands stay captured so we can parse stdout.
+  // Interactive commands (railway login, railway link) must inherit the terminal so
+  // the browser hand-off / arrow-key picker works; we only need the exit code. JSON
+  // commands stay captured so we can parse stdout.
   interactive?: boolean;
 };
 export type RailwayCommandRunner = (
@@ -35,19 +40,24 @@ export type RailwayCommandRunner = (
 
 const DEFAULT_TEMPLATE_CODE = 'automem-ai-memory-service';
 const DEFAULT_SERVICE_NAME = 'automem'; // the public Flask API service among the 4
-const DEFAULT_TOKEN_VAR = 'AUTOMEM_API_TOKEN';
-const DEFAULT_EMBEDDING_VAR = 'VOYAGE_API_KEY'; // CONFIRM exact template variable name
-const DEFAULT_PROJECT_NAME = 'automem';
+// Read order is migration-proof: the template still ships AUTOMEM_API_TOKEN, but the
+// service/docs are standardizing on AUTOMEM_API_KEY — try the new name first, fall
+// back to the deprecated one. Whatever we find is stored locally as AUTOMEM_API_KEY.
+const DEFAULT_TOKEN_VARS = ['AUTOMEM_API_KEY', 'AUTOMEM_API_TOKEN'];
 const DEFAULT_BILLING: CloudBilling = {
   mode: 'deferred',
   planLabel: 'Railway (usage-based)',
   priceLabel: '~$1–5/mo',
 };
 
+// The browser "Deploy Now" page for the AutoMem template. Opening this deploys the
+// full multi-service app (and lets the user set an embedding key) without the CLI.
+export const RAILWAY_DEPLOY_URL = `https://railway.com/deploy/${DEFAULT_TEMPLATE_CODE}`;
+
 // Default runner: invoke the real `railway` CLI. A missing binary surfaces as a
 // thrown spawn error, which the provider turns into a clean "fall back" signal.
-// Interactive commands inherit the terminal (browser sign-in, prompts); everything
-// else captures stdout so we can parse JSON.
+// Interactive commands inherit the terminal (browser sign-in, project picker);
+// everything else captures stdout so we can parse JSON.
 function defaultRailwayRunner(args: string[], opts: RailwayCommandOptions = {}): RailwayCommandResult {
   const result = opts.interactive
     ? spawnSync('railway', args, { stdio: 'inherit' })
@@ -59,13 +69,7 @@ function defaultRailwayRunner(args: string[], opts: RailwayCommandOptions = {}):
   return { code: result.status ?? 1, stdout: asString(result.stdout), stderr: asString(result.stderr) };
 }
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  });
-
-// --- isolated parsers (CONFIRM-pending JSON shapes) -------------------------
+// --- isolated parsers --------------------------------------------------------
 
 export function parseDomain(stdout: string): string | undefined {
   try {
@@ -103,24 +107,6 @@ export function parseVariable(stdout: string, key: string): string | undefined {
   return undefined;
 }
 
-export function parseDeploymentStatus(stdout: string): string | undefined {
-  try {
-    const body = JSON.parse(stdout) as unknown;
-    if (Array.isArray(body)) return (body[0] as { status?: string })?.status;
-    if (body && typeof body === 'object') {
-      const obj = body as {
-        status?: string;
-        deployments?: { edges?: Array<{ node?: { status?: string } }> };
-      };
-      if (typeof obj.status === 'string') return obj.status;
-      return obj.deployments?.edges?.[0]?.node?.status;
-    }
-  } catch {
-    /* non-JSON — fall through */
-  }
-  return undefined;
-}
-
 // --- provider ----------------------------------------------------------------
 
 export interface RailwayProviderOptions {
@@ -128,24 +114,23 @@ export interface RailwayProviderOptions {
   billing?: CloudBilling;
   templateCode?: string;
   serviceName?: string;
-  tokenVar?: string;
-  embeddingKey?: string;
-  embeddingVar?: string;
-  projectName?: string;
-  pollIntervalMs?: number;
-  maxPollAttempts?: number;
+  /** Variable names to read the API token from, in priority order. */
+  tokenVars?: string[];
+  /**
+   * Browser-deploy gate: open the Deploy-Now page, show instructions, and resolve
+   * once the user confirms the deploy is live (or throw to fall back to paste). The
+   * bridge wires this to the gold UI; tests/headless inject a stub. Defaults to a
+   * no-op so a provider built without it just proceeds straight to `railway link`.
+   */
+  awaitBrowserDeploy?: () => Promise<void>;
 }
 
 export function createRailwayProvider(options: RailwayProviderOptions = {}): CloudProvider {
   const run = options.runCommand ?? defaultRailwayRunner;
   const billing = options.billing ?? DEFAULT_BILLING;
-  const templateCode = options.templateCode ?? DEFAULT_TEMPLATE_CODE;
   const serviceName = options.serviceName ?? DEFAULT_SERVICE_NAME;
-  const tokenVar = options.tokenVar ?? DEFAULT_TOKEN_VAR;
-  const embeddingVar = options.embeddingVar ?? DEFAULT_EMBEDDING_VAR;
-  const projectName = options.projectName ?? DEFAULT_PROJECT_NAME;
-  const pollIntervalMs = options.pollIntervalMs ?? 3000;
-  const maxPollAttempts = options.maxPollAttempts ?? 60;
+  const tokenVars = options.tokenVars ?? DEFAULT_TOKEN_VARS;
+  const awaitBrowserDeploy = options.awaitBrowserDeploy ?? (async () => {});
 
   // Run a railway subcommand; a thrown spawn error (missing CLI) becomes a clean
   // signal so the caller falls back to manual paste.
@@ -161,7 +146,7 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
   };
 
   // Authenticated when whoami exits 0 with a non-empty payload. A stale/expired
-  // session fails one of those, so we don't proceed to deploy unauthenticated.
+  // session fails one of those, so we don't proceed to capture unauthenticated.
   const isSignedIn = (): boolean => {
     const who = railway(['whoami', '--json']);
     return who.code === 0 && who.stdout.trim().length > 0;
@@ -175,9 +160,9 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
     async authorize(_opts?: AuthorizeOptions): Promise<CloudSession> {
       if (isSignedIn()) return { token: 'railway-cli' };
       // Not signed in (or the session expired) — run `railway login` INTERACTIVELY
-      // so its browser hand-off works and the user can complete sign-in. This must
-      // inherit the terminal; a captured run can't drive the browser flow, which is
-      // why an expired session previously slipped through and nothing deployed.
+      // so its browser hand-off works. This must inherit the terminal; a captured run
+      // can't drive the browser flow, which is why an expired session previously
+      // slipped through and the capture commands failed.
       process.stdout.write('  → Signing in to Railway (a browser window will open)…\n');
       railway(['login'], { interactive: true });
       if (!isSignedIn()) {
@@ -188,55 +173,54 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
       return { token: 'railway-cli' };
     },
 
-    // v1: always deploy fresh. Reliable reuse-detection needs template-source
-    // introspection across the account's projects; deferring it keeps the path
-    // simple (the selector is skipped, so the user just confirms a new deploy).
+    // v1: always treat as a fresh browser deploy. Reliable reuse-detection would need
+    // to enumerate the account's projects and match the template source; deferring it
+    // keeps the path simple (the selector is skipped, so the user just deploys fresh).
     async listDeployments(): Promise<CloudDeployment[]> {
       return [];
     },
 
+    // The deploy happens in the browser (marketplace templates aren't CLI-deployable).
+    // We open the Deploy-Now page, wait for the user to confirm it's live, then attach
+    // the local CLI to the new project with an interactive `railway link` so the later
+    // read commands target it.
     async deploy(_session: CloudSession, _opts?: DeployOptions): Promise<CloudDeployment> {
-      // init + deploy run INTERACTIVELY (inherit the terminal): `railway init` can
-      // prompt for a workspace, and `railway deploy` streams build/deploy logs —
-      // captured stdio would hang on the prompt or hide all progress. We don't parse
-      // their stdout (only the exit code), so inheriting is safe.
-      railway(['init', '--name', projectName], { interactive: true });
-      const args = ['deploy', '--template', templateCode];
-      if (options.embeddingKey) {
-        args.push('--variable', `${serviceName}.${embeddingVar}=${options.embeddingKey}`);
+      await awaitBrowserDeploy();
+      const linked = railway(['link'], { interactive: true });
+      if (linked.code !== 0) {
+        throw new Error(
+          'Could not link the railway CLI to your new project. Run `railway link` in this directory, then re-run the installer.'
+        );
       }
-      const deployed = railway(args, { interactive: true });
-      if (deployed.code !== 0) {
-        throw new Error(`railway deploy failed (exit ${deployed.code}). Check \`railway logs\`.`);
-      }
-      return { name: serviceName, status: 'BUILDING' };
+      return { name: serviceName, status: 'DEPLOYED' };
     },
 
+    // No CLI polling: the user already watched the deploy go green in the browser, and
+    // the installer's own /health warmup (waitForAutoMemEndpoint) is the authoritative
+    // readiness gate. Polling `railway deployment list` here would only add a fragile,
+    // redundant check on an unverified JSON shape.
     async waitUntilReady(_session: CloudSession, deployment: CloudDeployment): Promise<CloudDeployment> {
-      for (let attempt = 0; attempt < maxPollAttempts; attempt += 1) {
-        const list = railway(['deployment', 'list', '--service', serviceName, '--json']);
-        const status = parseDeploymentStatus(list.stdout);
-        if (status === 'SUCCESS') return { ...deployment, status };
-        if (status === 'FAILED' || status === 'CRASHED') {
-          throw new Error(`Railway deployment ${status.toLowerCase()}.`);
-        }
-        await sleep(pollIntervalMs);
-      }
-      throw new Error(
-        `Railway deployment did not become ready after ${maxPollAttempts} checks.`
-      );
+      return deployment;
     },
 
     async fetchCredentials(_session: CloudSession, _deployment: CloudDeployment): Promise<CloudCredentials> {
+      // READ the domain the template generated — never pass --port / never regenerate
+      // it (a mismatched target port was the original 502).
       const domainRes = railway(['domain', '--service', serviceName, '--json']);
       const domain = parseDomain(domainRes.stdout);
       if (!domain) {
-        throw new Error('Could not determine the Railway service domain.');
+        throw new Error(
+          `Could not read the Railway domain for service "${serviceName}". Open the service in Railway, copy its public URL + API token, and paste them when prompted.`
+        );
       }
       const varsRes = railway(['variable', 'list', '--service', serviceName, '--json']);
-      const token = parseVariable(varsRes.stdout, tokenVar);
-      // Railway returns a bare host; prefix https. If a value already carries a
-      // scheme (e.g. a local mock during testing), use it verbatim.
+      let token: string | undefined;
+      for (const name of tokenVars) {
+        token = parseVariable(varsRes.stdout, name);
+        if (token) break;
+      }
+      // Railway returns a bare host; prefix https. If a value already carries a scheme
+      // (e.g. a local mock during testing), use it verbatim.
       const endpoint = /^https?:\/\//i.test(domain) ? domain : `https://${domain}`;
       return { endpoint, apiKey: token ?? '' };
     },

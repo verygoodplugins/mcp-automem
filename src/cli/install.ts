@@ -582,7 +582,7 @@ export function buildInstallPlan(params: {
       kind: 'provision-cloud',
       title: railway ? 'Deploy AutoMem on Railway' : 'Set up AutoMem on InstaPods',
       detail: railway
-        ? 'Sign in to Railway in your browser, then deploy the AutoMem template (usage-based, ~$1–5/mo) and capture the endpoint + API token automatically.'
+        ? 'Sign in via the railway CLI, deploy the AutoMem template in your browser (usage-based, ~$1–5/mo), then link the railway CLI to capture the endpoint + API token.'
         : 'Open the InstaPods setup page (it deploys AutoMem and emails your API URL + key, Grow plan ~$15/mo), then paste them — or paste credentials you already have.',
       paths: [],
     });
@@ -1128,7 +1128,7 @@ async function resolveInteractiveOptions(
           {
             value: 'railway',
             label: 'Railway (guided)',
-            hint: 'sign in via the railway CLI, deploy the AutoMem template, capture keys',
+            hint: 'sign in with the railway CLI, deploy in your browser, then auto-capture keys',
           },
           {
             value: 'other',
@@ -1494,15 +1494,17 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
 
       list.start('env');
       const envPath = path.join(environment.cwd, '.env');
+      const existingEnv = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
       const envUpdates: Record<string, string> = {
         AUTOMEM_API_URL: endpoint,
+        // Canonical name is AUTOMEM_API_KEY (the service/docs are standardizing on
+        // _KEY); the server still reads the AUTOMEM_API_TOKEN alias.
         ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}),
       };
-      // Keep the deprecated AUTOMEM_ENDPOINT alias in sync if the file already uses
-      // it, so it can't diverge from AUTOMEM_API_URL.
-      if (fs.existsSync(envPath) && /^AUTOMEM_ENDPOINT=/m.test(fs.readFileSync(envPath, 'utf8'))) {
-        envUpdates.AUTOMEM_ENDPOINT = endpoint;
-      }
+      // Keep deprecated aliases in sync only if the file already uses them, so they
+      // can't diverge from the canonical names (and we don't add them on fresh files).
+      if (/^AUTOMEM_ENDPOINT=/m.test(existingEnv)) envUpdates.AUTOMEM_ENDPOINT = endpoint;
+      if (apiKey && /^AUTOMEM_API_TOKEN=/m.test(existingEnv)) envUpdates.AUTOMEM_API_TOKEN = apiKey;
       mergeEnvFile(envPath, envUpdates, false);
       list.done('env', `Wrote ${tildify(envPath)}`);
 

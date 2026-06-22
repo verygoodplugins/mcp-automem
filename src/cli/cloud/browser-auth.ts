@@ -13,7 +13,10 @@ import type { AddressInfo } from 'node:net';
 // Best-effort "open this URL in the user's default browser". Detached + stdio
 // ignored so it never blocks or pollutes the installer's output. Failures are
 // swallowed — the paste fallback (and the printed URL) cover a no-op opener.
+// AUTOMEM_NO_BROWSER=1 forces the no-op (headless servers, CI, the e2e demo) so the
+// printed URL is the only hand-off.
 export function openInSystemBrowser(url: string): void {
+  if (process.env.AUTOMEM_NO_BROWSER) return;
   try {
     const platform = process.platform;
     const command = platform === 'darwin' ? 'open' : platform === 'win32' ? 'cmd' : 'xdg-open';

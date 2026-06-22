@@ -27,11 +27,13 @@ It asks where AutoMem should run (**Hosted Cloud**, **Local Docker**, or an
 - **InstaPods** — opens the InstaPods setup page in your browser. It deploys
   AutoMem (Grow plan) and emails you your API URL + key; you paste them back into
   the installer. Already have them? Skip the browser and paste directly.
-- **Railway** — signs you in via the `railway` CLI (a browser hand-off), deploys
-  the AutoMem template (optionally with your Voyage/OpenAI embedding key — blank
-  uses the built-in FastEmbed), waits for it to go live, then reads the service
-  domain + `AUTOMEM_API_TOKEN`. Needs the `railway` CLI on your PATH (it falls back
-  to the deploy button + paste otherwise).
+- **Railway** — signs you in via the `railway` CLI (a browser hand-off), then opens
+  the AutoMem template's **Deploy Now** page in your browser. You deploy it there
+  (set a Voyage/OpenAI embedding key if you have one — blank uses the built-in
+  FastEmbed) and, once it's live, the installer runs `railway link` so you pick the
+  new project and it reads the service domain + API token automatically. Needs the
+  `railway` CLI on your PATH (it falls back to paste otherwise). The browser deploy
+  is used because Railway marketplace templates can't be deployed from the CLI.
 - **Other** — already deployed AutoMem somewhere? Paste your endpoint + token and
   the installer takes it from there.
 
@@ -58,7 +60,7 @@ npx @verygoodplugins/mcp-automem install --yes --target existing \
   --claude-code-mode settings
 ```
 
-Flags: `--target <local|cloud|existing>`, `--cloud-provider <instapods|railway>`,
+Flags: `--target <local|cloud|existing>`, `--cloud-provider <instapods|railway|other>`,
 `--clients <list>`, `--endpoint`, `--api-key`, `--local-dir`,
 `--claude-code-mode <plugin|settings>`, `--hermes-mode <mcp|provider|both>`,
 `--dry-run`, `--yes`, `--no-agent-install`. The same values can be passed as

@@ -58,16 +58,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TOKEN = 'demo-railway-token';
 const WATCH = process.argv.includes('--watch') || process.env.DEMO_WATCH === '1';
 
-// A fake `railway` CLI: whoami succeeds (skip login), deploy/poll succeed, and
-// domain/variable hand back the LOCAL mock URL + token so verify passes.
+// A fake `railway` CLI for the browser-deploy capture flow: whoami succeeds (skip
+// login), link succeeds (attach), and domain/variable hand back the LOCAL mock URL +
+// token so verify passes. The deploy itself is browser-only, so there's no deploy
+// subcommand to fake.
 function writeFakeRailway(binDir, mockUrl) {
   const script = `#!/usr/bin/env bash
 case "$1 $2" in
   "whoami "*)         echo '{"name":"demo"}';;
   "login "*|"login ") echo "Logged in (fake)";;
-  "init "*)           echo '{}';;
-  "deploy "*)         echo '{}';;
-  "deployment list"*) echo '[{"status":"SUCCESS"}]';;
+  "link "*|"link ")   echo "Linked (fake)";;
   "domain "*)         echo '{"domain":"${mockUrl}"}';;
   "variable list"*)   echo '{"AUTOMEM_API_TOKEN":"${TOKEN}"}';;
   *) echo "{}";;
@@ -92,6 +92,7 @@ async function run() {
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
     CI: '1',
     AUTOMEM_NO_ANIM: '1',
+    AUTOMEM_NO_BROWSER: '1', // never pop a real browser for the Deploy-Now hand-off
     FORCE_COLOR: '1',
   };
   for (const k of ['AUTOMEM_API_URL', 'AUTOMEM_ENDPOINT', 'AUTOMEM_API_KEY', 'AUTOMEM_API_TOKEN']) delete env[k];
@@ -105,7 +106,7 @@ async function run() {
   if (WATCH) {
     process.stdout.write(
       `\n[demo] Running the real installer against a fake railway CLI + mock AutoMem (${mock.url}).\n` +
-        `[demo] Auto-answering: blank embedding key, then confirm the deploy.\n\n`
+        `[demo] Auto-answering: confirm the (deferred) deploy, then confirm it's live.\n\n`
     );
   }
   let buf = '';
@@ -130,13 +131,13 @@ async function run() {
 
   try {
     // Apply runs because --yes skips the plan approval; drive the two apply prompts.
-    if (await waitFor(/Embedding provider API key/)) {
-      await sleep(120);
-      term.write(KEY.enter); // blank → FastEmbed
-    }
     if (await waitFor(/Continue\?|billing is deferred/)) {
       await sleep(120);
       term.write(KEY.enter); // confirm the (deferred-billing) deploy
+    }
+    if (await waitFor(/deploy live on Railway|finished deploying/)) {
+      await sleep(120);
+      term.write(KEY.enter); // confirm the browser deploy is live → link + capture
     }
     await Promise.race([exited, sleep(15000)]);
 

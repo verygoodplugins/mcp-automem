@@ -1,32 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { createRailwayProvider, type RailwayCommandResult } from './railway.js';
+import { createRailwayProvider, RAILWAY_DEPLOY_URL, type RailwayCommandResult } from './railway.js';
 
-// A fake `railway` CLI: records argv and returns canned output per subcommand.
-// The JSON shapes here are the contract the provider parses (CONFIRM-pending
-// against the live CLI); the deployment status flips to SUCCESS after one poll.
+// A fake `railway` CLI: records argv (+ whether the call was interactive) and
+// returns canned output per subcommand. The deploy is browser-driven now, so the
+// fake only needs whoami (auth), link (attach), domain, and variable.
 function makeFakeRailway(overrides: {
   whoamiCode?: number;
   variables?: Record<string, string>;
   domain?: string;
-  readyAfterPolls?: number;
+  linkCode?: number;
 } = {}) {
   const calls: string[][] = [];
-  let statusPolls = 0;
-  const readyAfterPolls = overrides.readyAfterPolls ?? 1;
-  const run = (args: string[]): RailwayCommandResult => {
+  const interactive: string[] = [];
+  const run = (args: string[], opts?: { interactive?: boolean }): RailwayCommandResult => {
     calls.push(args);
+    if (opts?.interactive) interactive.push(args.join(' '));
     const sub = args[0];
     if (sub === 'whoami') {
       return { code: overrides.whoamiCode ?? 0, stdout: '{"name":"tester"}', stderr: '' };
     }
     if (sub === 'login') return { code: 0, stdout: 'Logged in', stderr: '' };
-    if (sub === 'init') return { code: 0, stdout: '{"projectId":"proj_1"}', stderr: '' };
-    if (sub === 'deploy') return { code: 0, stdout: '{"workflowId":"wf_1"}', stderr: '' };
-    if (sub === 'deployment') {
-      statusPolls += 1;
-      const status = statusPolls >= readyAfterPolls ? 'SUCCESS' : 'BUILDING';
-      return { code: 0, stdout: JSON.stringify([{ status }]), stderr: '' };
-    }
+    if (sub === 'link') return { code: overrides.linkCode ?? 0, stdout: '', stderr: '' };
     if (sub === 'domain') {
       return {
         code: 0,
@@ -43,10 +37,11 @@ function makeFakeRailway(overrides: {
     }
     return { code: 1, stdout: '', stderr: `unknown: ${args.join(' ')}` };
   };
-  return { run, calls };
+  return { run, calls, interactive };
 }
 
 const session = { token: 'railway-cli' };
+const noGate = async (): Promise<void> => {};
 
 describe('Railway provider', () => {
   it('advertises usage-based (deferred) Railway billing', () => {
@@ -54,6 +49,10 @@ describe('Railway provider', () => {
     expect(provider.id).toBe('railway');
     expect(provider.billing.mode).toBe('deferred');
     expect(provider.billing.planLabel).toMatch(/railway/i);
+  });
+
+  it('exposes the browser Deploy-Now URL for the AutoMem template', () => {
+    expect(RAILWAY_DEPLOY_URL).toBe('https://railway.com/deploy/automem-ai-memory-service');
   });
 
   it('authorizes via whoami without logging in when already signed in', async () => {
@@ -70,7 +69,6 @@ describe('Railway provider', () => {
       if (opts?.interactive) interactive.push(args.join(' '));
       if (args[0] === 'whoami') {
         whoamiCount += 1;
-        // Not signed in on the first check; signed in after login.
         return whoamiCount === 1
           ? { code: 1, stdout: '', stderr: 'Unauthorized' }
           : { code: 0, stdout: '{"name":"x"}', stderr: '' };
@@ -80,7 +78,6 @@ describe('Railway provider', () => {
     };
     const provider = createRailwayProvider({ runCommand: run });
     await expect(provider.authorize()).resolves.toEqual({ token: 'railway-cli' });
-    // login must run with inherited stdio so its browser hand-off can complete.
     expect(interactive).toContain('login');
   });
 
@@ -91,7 +88,6 @@ describe('Railway provider', () => {
       if (opts?.interactive) interactive.push(args.join(' '));
       if (args[0] === 'whoami') {
         whoamiCount += 1;
-        // exit 0 but empty payload (stale/cleared session) → must NOT count as auth.
         return whoamiCount === 1
           ? { code: 0, stdout: '   ', stderr: '' }
           : { code: 0, stdout: '{"name":"x"}', stderr: '' };
@@ -115,44 +111,84 @@ describe('Railway provider', () => {
   it('throws when the railway CLI is unavailable (so the caller can fall back)', async () => {
     const provider = createRailwayProvider({
       runCommand: () => {
-        const err = new Error('spawn railway ENOENT');
-        throw err;
+        throw new Error('spawn railway ENOENT');
       },
     });
     await expect(provider.authorize()).rejects.toThrow(/railway/i);
   });
 
-  it('deploys the AutoMem template, passing the embedding key as a service variable', async () => {
+  it('deploy awaits the browser-deploy gate, then links the CLI interactively', async () => {
     const fake = makeFakeRailway();
-    const provider = createRailwayProvider({ runCommand: fake.run, embeddingKey: 'voyage-xyz' });
-    await provider.deploy(session);
-    const deploy = fake.calls.find((c) => c[0] === 'deploy');
-    expect(deploy).toContain('--template');
-    expect(deploy).toContain('automem-ai-memory-service');
-    expect(deploy?.join(' ')).toMatch(/--variable\s+automem\.[A-Z_]*KEY=voyage-xyz|automem\.[A-Z_]*KEY=voyage-xyz/);
+    let gateCalls = 0;
+    const provider = createRailwayProvider({
+      runCommand: fake.run,
+      awaitBrowserDeploy: async () => {
+        gateCalls += 1;
+      },
+    });
+    const deployment = await provider.deploy(session);
+    expect(gateCalls).toBe(1);
+    // `railway link` must run interactively (it shows an arrow-key project picker so
+    // the user attaches the CLI to the project they just deployed in the browser).
+    expect(fake.interactive).toContain('link');
+    expect(deployment.name).toBe('automem');
   });
 
-  it('omits the variable flag when no embedding key is provided', async () => {
+  it('does not attempt a CLI template deploy (marketplace templates are browser-only)', async () => {
+    const fake = makeFakeRailway();
+    const provider = createRailwayProvider({ runCommand: fake.run, awaitBrowserDeploy: noGate });
+    await provider.deploy(session);
+    expect(fake.calls.some((c) => c[0] === 'deploy')).toBe(false);
+    expect(fake.calls.some((c) => c[0] === 'init')).toBe(false);
+  });
+
+  it('throws when `railway link` fails so the caller can fall back to paste', async () => {
+    const fake = makeFakeRailway({ linkCode: 1 });
+    const provider = createRailwayProvider({ runCommand: fake.run, awaitBrowserDeploy: noGate });
+    await expect(provider.deploy(session)).rejects.toThrow(/link/i);
+  });
+
+  it('waitUntilReady returns the deployment without CLI polling (install.ts owns the /health wait)', async () => {
     const fake = makeFakeRailway();
     const provider = createRailwayProvider({ runCommand: fake.run });
-    await provider.deploy(session);
-    const deploy = fake.calls.find((c) => c[0] === 'deploy');
-    expect(deploy?.includes('--variable')).toBe(false);
+    const ready = await provider.waitUntilReady(session, { name: 'automem', status: 'DEPLOYED' });
+    expect(ready.name).toBe('automem');
+    expect(fake.calls.some((c) => c[0] === 'deployment')).toBe(false);
   });
 
-  it('polls deployment status until SUCCESS', async () => {
-    const fake = makeFakeRailway({ readyAfterPolls: 2 });
-    const provider = createRailwayProvider({ runCommand: fake.run, pollIntervalMs: 0, maxPollAttempts: 5 });
-    const ready = await provider.waitUntilReady(session, { name: 'automem' });
-    expect(ready.status).toBe('SUCCESS');
-  });
-
-  it('captures the automem domain + AUTOMEM_API_TOKEN as credentials', async () => {
+  it('captures the read domain + AUTOMEM_API_TOKEN as credentials', async () => {
     const fake = makeFakeRailway({ domain: 'mem.up.railway.app', variables: { AUTOMEM_API_TOKEN: 'rw-tok' } });
     const provider = createRailwayProvider({ runCommand: fake.run });
     const creds = await provider.fetchCredentials(session, { name: 'automem' });
     expect(creds.endpoint).toBe('https://mem.up.railway.app');
     expect(creds.apiKey).toBe('rw-tok');
+  });
+
+  it('prefers AUTOMEM_API_KEY over AUTOMEM_API_TOKEN when both are set (migration-proof)', async () => {
+    const fake = makeFakeRailway({ variables: { AUTOMEM_API_KEY: 'new-key', AUTOMEM_API_TOKEN: 'old-tok' } });
+    const provider = createRailwayProvider({ runCommand: fake.run });
+    const creds = await provider.fetchCredentials(session, { name: 'automem' });
+    expect(creds.apiKey).toBe('new-key');
+  });
+
+  it('reads the existing domain rather than generating one with a default port', async () => {
+    const fake = makeFakeRailway();
+    const provider = createRailwayProvider({ runCommand: fake.run });
+    await provider.fetchCredentials(session, { name: 'automem' });
+    const domainCall = fake.calls.find((c) => c[0] === 'domain');
+    expect(domainCall).toBeDefined();
+    // No --port flag: we never re-target the domain (a mismatched target port was the
+    // original 502). We read whatever the template already created.
+    expect(domainCall?.includes('--port')).toBe(false);
+  });
+
+  it('throws when the service has no domain (caller falls back to paste)', async () => {
+    const run = (args: string[]): RailwayCommandResult =>
+      args[0] === 'domain'
+        ? { code: 0, stdout: '{}', stderr: '' }
+        : { code: 0, stdout: '{"AUTOMEM_API_TOKEN":"t"}', stderr: '' };
+    const provider = createRailwayProvider({ runCommand: run });
+    await expect(provider.fetchCredentials(session, { name: 'automem' })).rejects.toThrow(/domain/i);
   });
 
   it('uses a domain that already carries a scheme as-is (enables http for local testing)', async () => {

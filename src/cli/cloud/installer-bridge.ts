@@ -13,7 +13,7 @@ import { noteBox } from '../ui/messages.js';
 import { cancelable, promptConfirm, promptPassword, promptSelect, promptText } from '../ui/prompts.js';
 import { openInSystemBrowser } from './browser-auth.js';
 import { executeCloudIntent, selectCloudIntent } from './orchestrate.js';
-import { createRailwayProvider } from './railway.js';
+import { createRailwayProvider, RAILWAY_DEPLOY_URL } from './railway.js';
 import {
   CloudProvisionAbort,
   type AuthorizeOptions,
@@ -192,23 +192,39 @@ export interface ProvisionViaRailwayParams {
 export async function provisionViaRailway(
   params: ProvisionViaRailwayParams
 ): Promise<ProvisionResult> {
+  const log = params.log ?? ((line: string) => process.stdout.write(`${line}\n`));
   let provider = params.provider;
   if (!provider) {
-    // The AutoMem template takes an embedding-provider key (blank → built-in
-    // FastEmbed). Collect it up front so deploy passes it as a template variable.
-    let embeddingKey: string | undefined;
-    if (params.interactive) {
-      const entered = (
-        await cancelable(
-          promptPassword({
-            message:
-              'Embedding provider API key (Voyage or OpenAI) — leave blank to use the built-in FastEmbed',
-          })
-        )
-      ).trim();
-      embeddingKey = entered || undefined;
-    }
-    provider = createRailwayProvider({ embeddingKey });
+    // Marketplace templates can't be deployed by the CLI, so the deploy happens in the
+    // browser: open the Deploy-Now page, let the user finish it there (including any
+    // embedding key — blank uses the built-in FastEmbed), then capture via the CLI.
+    // A declined gate throws, which provisionViaProvider catches → manual paste.
+    const awaitBrowserDeploy = async (): Promise<void> => {
+      openInSystemBrowser(RAILWAY_DEPLOY_URL);
+      log(
+        noteBox('Deploy AutoMem on Railway', [
+          'Opened the AutoMem template in your browser. On that page:',
+          '  1. Click "Deploy" (set an embedding key if you have one — blank is fine).',
+          '  2. Wait until every service shows green.',
+          '',
+          'Then come back here — I\'ll link your railway CLI to the new project and',
+          'read its URL + API token automatically.',
+          '',
+          RAILWAY_DEPLOY_URL,
+        ])
+      );
+      if (!params.interactive) return;
+      const live = await cancelable(
+        promptConfirm({
+          message: 'Is your AutoMem deploy live on Railway? (No → paste your URL + key instead)',
+          initialValue: true,
+        })
+      );
+      if (!live) {
+        throw new Error('Railway deploy not confirmed.');
+      }
+    };
+    provider = createRailwayProvider({ awaitBrowserDeploy });
   }
-  return provisionViaProvider({ provider, interactive: params.interactive, log: params.log });
+  return provisionViaProvider({ provider, interactive: params.interactive, log });
 }
