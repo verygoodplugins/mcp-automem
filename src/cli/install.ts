@@ -777,7 +777,7 @@ export async function verifyAutoMemEndpoint(options: VerifyEndpointOptions): Pro
   } catch (error) {
     const err = error as Error;
     const reason = err.name === 'AbortError' ? `timed out after ${timeoutMs / 1000}s` : err.message;
-    return { ok: false, message: `Could not reach AutoMem endpoint: ${reason}` };
+    return { ok: false, message: `Could not reach AutoMem endpoint ${endpoint}: ${reason}` };
   }
 }
 
@@ -1442,6 +1442,24 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           : await provisionViaInstaPodsLink({ interactive: true });
       endpoint = provisioned.endpoint;
       apiKey = provisioned.apiKey;
+
+      // A freshly provisioned cloud deploy isn't reachable the instant the CLI
+      // returns — a Railway/InstaPods multi-service app cold-starts (build done !=
+      // serving, and a just-generated domain needs DNS). Poll longer than local so
+      // we don't false-fail verify on a still-booting deployment.
+      if (endpoint) {
+        const spin = startSpinner('Waiting for AutoMem to come online (a fresh deploy can take a few minutes)…');
+        const ready = await waitForAutoMemEndpoint({ endpoint, apiKey, attempts: 90, intervalMs: 2000 });
+        if (ready.ok) {
+          spin.stop('AutoMem is online');
+        } else {
+          spin.error('AutoMem is not responding yet');
+          throw new InstallError(
+            `AutoMem deployed, but ${endpoint} isn't responding yet.`,
+            `A multi-service deploy can take a few minutes. Check the provider's logs (e.g. \`railway logs\`), then finish with:\n  npx @verygoodplugins/mcp-automem install --target existing --endpoint ${endpoint}${apiKey ? ' --api-key <token>' : ''}`
+          );
+        }
+      }
     }
 
     if (!endpoint) {
