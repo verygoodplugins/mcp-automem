@@ -50,11 +50,11 @@ export function claudePluginMarketplaceAddArgs(): string[] {
   return ['plugin', 'marketplace', 'add', CLAUDE_CODE_MARKETPLACE_SOURCE];
 }
 
-// `--config api_url=…/api_key=…` matches the plugin.json userConfig keys; Claude Code
-// stores them via the same path as the interactive /plugin configure flow. api_key is
-// sensitive, so it's only passed when the user actually supplied one.
+// `--config api_url=…` matches the plugin.json userConfig key; Claude Code stores it
+// via the same path as the interactive /plugin configure flow. api_key is sensitive,
+// so it must not be passed in argv where process inspectors can see it.
 export function claudePluginInstallArgs(params: { endpoint: string; apiKey?: string }): string[] {
-  const args = [
+  return [
     'plugin',
     'install',
     CLAUDE_CODE_PLUGIN_REF,
@@ -63,10 +63,6 @@ export function claudePluginInstallArgs(params: { endpoint: string; apiKey?: str
     '--config',
     `api_url=${params.endpoint}`,
   ];
-  if (params.apiKey) {
-    args.push('--config', `api_key=${params.apiKey}`);
-  }
-  return args;
 }
 
 export type PluginCommandResult = { code: number; stdout: string; stderr: string };

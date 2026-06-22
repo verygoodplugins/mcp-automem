@@ -43,10 +43,12 @@ recall probe when you supply a key), then offers to configure your agents
 (Codex, Claude Code, Cursor, OpenClaw, Hermes). For Claude Code it offers the
 **plugin** (recommended — bundles the MCP server + hooks and auto-updates) or a
 **settings-level** install. When the `claude` CLI is on your PATH, the installer
-runs `claude plugin install` for you — threading the verified endpoint and key in
-as plugin config — so there's nothing to paste; otherwise it prints the two
-`/plugin` commands to run inside Claude Code. Every change is shown in a review
-plan before anything is written, and each modified file keeps a `<file>.bak` backup.
+runs `claude plugin install` for you and passes the verified endpoint as plugin
+config; API keys are not passed in process arguments, so configure the key through
+Claude Code's plugin UI or `AUTOMEM_API_KEY`. If `claude` is unavailable, it
+prints the two `/plugin` commands to run inside Claude Code. Every change is shown
+in a review plan before anything is written, and each modified file keeps a
+`<file>.bak` backup.
 
 Non-interactive / scriptable use:
 

@@ -870,7 +870,7 @@ describe('claude plugin auto-install', () => {
     ]);
   });
 
-  it('builds install args with api_url always and api_key only when provided', () => {
+  it('builds install args with api_url but never puts api_key in argv', () => {
     expect(claudePluginInstallArgs({ endpoint: 'http://127.0.0.1:8001' })).toEqual([
       'plugin',
       'install',
@@ -888,8 +888,6 @@ describe('claude plugin auto-install', () => {
       'user',
       '--config',
       'api_url=https://x.example',
-      '--config',
-      'api_key=sk-1',
     ]);
   });
 
@@ -903,7 +901,7 @@ describe('claude plugin auto-install', () => {
     return { run, calls };
   }
 
-  it('adds the marketplace then installs with config when neither is present', async () => {
+  it('adds the marketplace then installs without leaking api_key in argv', async () => {
     const { run, calls } = recordingRunner((args) => {
       if (args[1] === 'marketplace' && args[2] === 'list') return { code: 0, stdout: '' };
       return { code: 0 };
@@ -925,8 +923,6 @@ describe('claude plugin auto-install', () => {
         'user',
         '--config',
         'api_url=http://127.0.0.1:8001',
-        '--config',
-        'api_key=sk-1',
       ],
     ]);
   });

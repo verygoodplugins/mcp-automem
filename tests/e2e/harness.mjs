@@ -299,7 +299,7 @@ const SCENARIOS = [
 
   {
     name: 'claude-plugin-autoinstall',
-    description: 'Plugin mode with `claude` on PATH installs + configures the plugin via `claude plugin install --config`.',
+    description: 'Plugin mode with `claude` on PATH installs the plugin and passes only non-secret config via argv.',
     mock: { mode: 'healthy', expectToken: TOKEN },
     // Recording stub: claude is "present", logs every invocation, prints nothing for
     // `marketplace list` (so the installer adds it), and exits 0 for every call.
@@ -320,7 +320,7 @@ const SCENARIOS = [
         /plugin marketplace add verygoodplugins\/mcp-automem/.test(log), log.trim() || '(no calls)'));
       r.push(A('ran `claude plugin install` threading --config api_url',
         new RegExp(`plugin install automem@verygoodplugins-mcp-automem .*--config api_url=${ctx.mock.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(log)));
-      r.push(A('threaded the api key via --config api_key', /--config api_key=mocktoken-e2e/.test(log)));
+      r.push(A('did NOT thread api key via argv', !/api_key=mocktoken-e2e/.test(log)));
       r.push(A('did NOT print the manual /plugin command', !/\/plugin install/.test(last.stdout)));
       return r;
     },
