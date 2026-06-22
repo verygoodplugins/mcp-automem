@@ -19,6 +19,7 @@ import {
   defaultIsRailwayCliPresent,
   RAILWAY_DEPLOY_URL,
   type RailwayCommandResult,
+  type RailwayWorkspace,
 } from './railway.js';
 import {
   CloudProvisionAbort,
@@ -386,7 +387,21 @@ export async function provisionViaRailway(
         throw new Error('Railway deploy not confirmed.');
       }
     };
-    provider = createRailwayProvider({ awaitBrowserDeploy });
+    const selectWorkspace = async (workspaces: RailwayWorkspace[]): Promise<RailwayWorkspace | undefined> => {
+      const selectedId = await cancelable(
+        promptSelect<string>({
+          message: 'Choose the Railway workspace for AutoMem',
+          options: workspaces.map((workspace) => ({
+            value: workspace.id,
+            label: workspace.name ?? workspace.id,
+            hint: workspace.name ? workspace.id : undefined,
+          })),
+          initialValue: workspaces[0]?.id,
+        })
+      );
+      return workspaces.find((workspace) => workspace.id === selectedId);
+    };
+    provider = createRailwayProvider({ awaitBrowserDeploy, selectWorkspace });
   }
   return provisionViaProvider({
     provider,

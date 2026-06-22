@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createRailwayProvider, RAILWAY_DEPLOY_URL, type RailwayCommandResult } from './railway.js';
+import {
+  createRailwayProvider,
+  parseWorkspaceId,
+  RAILWAY_DEPLOY_URL,
+  type RailwayCommandResult,
+} from './railway.js';
 
 // A fake `railway` CLI: records argv (+ whether the call was interactive, + cwd) and
 // returns canned output per subcommand. The fast path uses whoami (auth+workspace),
@@ -103,6 +108,51 @@ describe('Railway provider', () => {
     expect(session.token).toBe('railway-cli');
     expect(session.workspaceId).toBe('ws-1');
     expect(fake.calls.some((c) => c[0] === 'login')).toBe(false);
+  });
+
+  it('does not silently pick the first workspace when whoami returns several', () => {
+    const stdout = JSON.stringify({
+      workspaces: [
+        { id: 'ws-personal', name: 'Personal' },
+        { id: 'ws-team', name: 'Team' },
+      ],
+    });
+    expect(parseWorkspaceId(stdout)).toBeUndefined();
+  });
+
+  it('prompts for a Railway workspace when whoami returns several', async () => {
+    const fake = makeFakeRailway({
+      whoamiStdout: JSON.stringify({
+        name: 'tester',
+        workspaces: [
+          { id: 'ws-personal', name: 'Personal' },
+          { id: 'ws-team', name: 'Team' },
+        ],
+      }),
+    });
+    const provider = createRailwayProvider({
+      runCommand: fake.run,
+      selectWorkspace: async (workspaces) => workspaces.find((w) => w.id === 'ws-team'),
+    });
+    const session = await provider.authorize();
+    expect(session.workspaceId).toBe('ws-team');
+  });
+
+  it('throws instead of choosing a workspace in non-interactive mode', async () => {
+    const fake = makeFakeRailway({
+      whoamiStdout: JSON.stringify({
+        name: 'tester',
+        workspaces: [
+          { id: 'ws-personal', name: 'Personal' },
+          { id: 'ws-team', name: 'Team' },
+        ],
+      }),
+    });
+    const provider = createRailwayProvider({
+      runCommand: fake.run,
+      selectWorkspace: async (workspaces) => workspaces[0],
+    });
+    await expect(provider.authorize({ preferPaste: true })).rejects.toThrow(/multiple railway workspaces/i);
   });
 
   it('runs `railway login` INTERACTIVELY when not signed in, then proceeds', async () => {
@@ -324,6 +374,14 @@ describe('Railway provider', () => {
     const provider = createRailwayProvider({ runCommand: fake.run });
     const creds = await provider.fetchCredentials({ token: 'railway-cli' }, { name: 'automem' });
     expect(creds.apiKey).toBe('new-key');
+  });
+
+  it('throws when the template API token cannot be captured', async () => {
+    const fake = makeFakeRailway({ variables: {} });
+    const provider = createRailwayProvider({ runCommand: fake.run });
+    await expect(provider.fetchCredentials({ token: 'railway-cli' }, { name: 'automem' })).rejects.toThrow(
+      /api token/i
+    );
   });
 
   it('reads the existing domain rather than generating one with a default port', async () => {

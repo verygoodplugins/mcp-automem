@@ -33,6 +33,10 @@ export type RailwayCommandRunner = (
   args: string[],
   opts?: RailwayCommandOptions
 ) => RailwayCommandResult;
+export interface RailwayWorkspace {
+  id: string;
+  name?: string;
+}
 
 const DEFAULT_TEMPLATE_CODE = 'automem-ai-memory-service';
 const DEFAULT_SERVICE_NAME = 'automem'; // the public Flask API service among the 4
@@ -146,13 +150,24 @@ export function parseVariable(stdout: string, key: string): string | undefined {
   return undefined;
 }
 
-export function parseWorkspaceId(stdout: string): string | undefined {
+export function parseWorkspaces(stdout: string): RailwayWorkspace[] {
   try {
-    const body = JSON.parse(stdout) as { workspaces?: Array<{ id?: string }> };
-    return body.workspaces?.[0]?.id;
+    const body = JSON.parse(stdout) as { workspaces?: Array<{ id?: unknown; name?: unknown }> };
+    return (body.workspaces ?? [])
+      .map((workspace): RailwayWorkspace => {
+        const id = typeof workspace.id === 'string' ? workspace.id.trim() : '';
+        const name = typeof workspace.name === 'string' ? workspace.name.trim() : '';
+        return name ? { id, name } : { id };
+      })
+      .filter((workspace) => workspace.id.length > 0);
   } catch {
-    return undefined;
+    return [];
   }
+}
+
+export function parseWorkspaceId(stdout: string): string | undefined {
+  const workspaces = parseWorkspaces(stdout);
+  return workspaces.length === 1 ? workspaces[0].id : undefined;
 }
 
 export function parseStatusIds(stdout: string): { projectId?: string; environmentId?: string } {
@@ -193,6 +208,8 @@ export interface RailwayProviderOptions {
   }) => Promise<{ workflowId: string }>;
   /** Creates the isolated dir the CLI runs in (default: a temp dir). */
   makeWorkdir?: () => string;
+  /** Selects a workspace when the signed-in Railway account has more than one. */
+  selectWorkspace?: (workspaces: RailwayWorkspace[]) => Promise<RailwayWorkspace | undefined>;
   /** Sleep between domain polls (injected in tests so they don't actually wait). */
   sleep?: (ms: number) => Promise<void>;
   /** How many times to poll for the template-generated domain (default 40). */
@@ -217,6 +234,7 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
   const readAccessToken = options.readAccessToken ?? defaultReadAccessToken;
   const deployViaApi = options.deployViaApi ?? ((args) => provisionTemplate(args));
   const makeWorkdir = options.makeWorkdir ?? defaultMakeWorkdir;
+  const selectWorkspace = options.selectWorkspace;
   const awaitBrowserDeploy = options.awaitBrowserDeploy ?? (async () => {});
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const domainPollAttempts = options.domainPollAttempts ?? 40;
@@ -239,8 +257,9 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
     label: 'Railway',
     billing,
 
-    // Authenticated when whoami exits 0 with a non-empty payload. Captures the
-    // workspace id so the deploy can `railway init` non-interactively.
+    // Authenticated when whoami exits 0 with a non-empty payload. Captures a
+    // single or explicitly selected workspace id so `railway init --workspace`
+    // never defaults billing to the first workspace returned by whoami.
     async authorize(opts?: AuthorizeOptions): Promise<CloudSession> {
       let who = railway(['whoami', '--json']);
       if (!(who.code === 0 && who.stdout.trim().length > 0)) {
@@ -260,7 +279,24 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
           );
         }
       }
-      return { token: 'railway-cli', workspaceId: parseWorkspaceId(who.stdout) };
+      const workspaces = parseWorkspaces(who.stdout);
+      let workspaceId = workspaces.length === 1 ? workspaces[0].id : undefined;
+      if (workspaces.length > 1) {
+        if (opts?.preferPaste) {
+          throw new Error(
+            'Multiple Railway workspaces are available. Re-run interactively to choose one, or use --target existing with --endpoint and --api-key.'
+          );
+        }
+        if (!selectWorkspace) {
+          throw new Error('Multiple Railway workspaces are available, but no workspace selector was configured.');
+        }
+        const selected = await selectWorkspace(workspaces);
+        workspaceId = selected?.id;
+        if (!workspaceId) {
+          throw new Error('No Railway workspace selected.');
+        }
+      }
+      return { token: 'railway-cli', ...(workspaceId ? { workspaceId } : {}) };
     },
 
     // v1: always treat as a fresh deploy. Reliable reuse-detection would need to
@@ -352,10 +388,17 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
         token = parseVariable(varsRes.stdout, name);
         if (token) break;
       }
+      if (!token) {
+        throw new Error(
+          `Could not read the Railway API token (${tokenVars.join(
+            ' or '
+          )}) for service "${serviceName}". Open the service in Railway, copy its public URL + API token, and paste them when prompted.`
+        );
+      }
       // Railway returns a bare host; prefix https. If a value already carries a scheme
       // (e.g. a local mock during testing), use it verbatim.
       const endpoint = /^https?:\/\//i.test(domain) ? domain : `https://${domain}`;
-      return { endpoint, apiKey: token ?? '' };
+      return { endpoint, apiKey: token };
     },
   };
 }
