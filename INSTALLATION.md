@@ -27,13 +27,13 @@ It asks where AutoMem should run (**Hosted Cloud**, **Local Docker**, or an
 - **InstaPods** — opens the InstaPods setup page in your browser. It deploys
   AutoMem (Grow plan) and emails you your API URL + key; you paste them back into
   the installer. Already have them? Skip the browser and paste directly.
-- **Railway** — signs you in via the `railway` CLI (a browser hand-off), then opens
-  the AutoMem template's **Deploy Now** page in your browser. You deploy it there
-  (set a Voyage/OpenAI embedding key if you have one — blank uses the built-in
-  FastEmbed) and, once it's live, the installer runs `railway link` so you pick the
-  new project and it reads the service domain + API token automatically. Needs the
-  `railway` CLI on your PATH (it falls back to paste otherwise). The browser deploy
-  is used because Railway marketplace templates can't be deployed from the CLI.
+- **Railway** — signs you in via the `railway` CLI (a browser hand-off that also
+  creates an account if you're new), then deploys the AutoMem template **straight from
+  the terminal** — no browser tab for the deploy itself — and reads back the service
+  domain + API token automatically. Needs the `railway` CLI on your PATH (it falls
+  back to paste otherwise). If the terminal deploy can't complete, it falls back to
+  the template's **Deploy Now** page in your browser, then runs `railway link` to
+  capture the credentials.
 - **Other** — already deployed AutoMem somewhere? Paste your endpoint + token and
   the installer takes it from there.
 

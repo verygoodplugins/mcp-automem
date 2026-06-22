@@ -195,19 +195,21 @@ export async function provisionViaRailway(
   const log = params.log ?? ((line: string) => process.stdout.write(`${line}\n`));
   let provider = params.provider;
   if (!provider) {
-    // Marketplace templates can't be deployed by the CLI, so the deploy happens in the
-    // browser: open the Deploy-Now page, let the user finish it there (including any
-    // embedding key — blank uses the built-in FastEmbed), then capture via the CLI.
+    // The provider deploys straight from the terminal by default (railway init + the
+    // GraphQL templateDeployV2 — see railway.ts). awaitBrowserDeploy is the FALLBACK,
+    // invoked only if that fast path can't complete: open the Deploy-Now page, let the
+    // user finish it there, then the provider attaches the CLI and reads the creds.
     // A declined gate throws, which provisionViaProvider catches → manual paste.
     const awaitBrowserDeploy = async (): Promise<void> => {
       openInSystemBrowser(RAILWAY_DEPLOY_URL);
       log(
-        noteBox('Deploy AutoMem on Railway', [
-          'Opened the AutoMem template in your browser. On that page:',
+        noteBox('Finish your Railway deploy in the browser', [
+          "Couldn't drive the deploy from the terminal — let's finish it in the browser.",
+          'On the page that just opened:',
           '  1. Click "Deploy" (set an embedding key if you have one — blank is fine).',
           '  2. Wait until every service shows green.',
           '',
-          'Then come back here — I\'ll link your railway CLI to the new project and',
+          "Then come back here — I'll link your railway CLI to the new project and",
           'read its URL + API token automatically.',
           '',
           RAILWAY_DEPLOY_URL,

@@ -10,6 +10,13 @@
 // your real config or reads your real .env. Use it to WATCH the flow go green, and
 // as a CI guard for the interactive apply path.
 //
+// Scope: this exercises the BROWSER FALLBACK apply path. The installer first tries the
+// terminal fast path (railway init → status → GraphQL templateDeployV2), but the
+// throwaway HOME has no CLI token, so the provider falls back to the browser flow this
+// fake drives. The fast path's GraphQL deploy is covered by unit tests
+// (src/cli/cloud/railway-api.test.ts, railway.test.ts) + tests/e2e/debug-railway-fastpath.mjs,
+// since it can't be faked in a subprocess without hitting the network.
+//
 //   node tests/e2e/demo-railway.mjs           # quiet (CI): just prints pass/FAIL
 //   node tests/e2e/demo-railway.mjs --watch   # streams the live installer UI so you
 //                                             # can WATCH the flow go green
@@ -58,18 +65,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TOKEN = 'demo-railway-token';
 const WATCH = process.argv.includes('--watch') || process.env.DEMO_WATCH === '1';
 
-// A fake `railway` CLI for the browser-deploy capture flow: whoami succeeds (skip
-// login), link succeeds (attach), and domain/variable hand back the LOCAL mock URL +
-// token so verify passes. The deploy itself is browser-only, so there's no deploy
-// subcommand to fake.
+// A fake `railway` CLI. The installer first tries the terminal fast path (init →
+// status → GraphQL deploy); with no token in the throwaway HOME, readAccessToken
+// returns undefined, so the provider falls back to the browser flow this fake
+// supports (login/link) — and domain/variable hand back the LOCAL mock URL + token so
+// verify passes. init/status are still answered so the fast path reaches the (token)
+// failure point that triggers the fallback rather than erroring early.
 function writeFakeRailway(binDir, mockUrl) {
   const script = `#!/usr/bin/env bash
 case "$1 $2" in
-  "whoami "*)         echo '{"name":"demo"}';;
-  "login "*|"login ") echo "Logged in (fake)";;
-  "link "*|"link ")   echo "Linked (fake)";;
-  "domain "*)         echo '{"domain":"${mockUrl}"}';;
-  "variable list"*)   echo '{"AUTOMEM_API_TOKEN":"${TOKEN}"}';;
+  "whoami "*)          echo '{"name":"demo","workspaces":[{"id":"ws-demo","name":"Demo"}]}';;
+  "login "*|"login ")  echo "Logged in (fake)";;
+  "init "*)            echo '{"id":"proj-demo","name":"automem"}';;
+  "status "*|"status") echo '{"id":"proj-demo","environments":{"edges":[{"node":{"id":"env-demo","name":"production"}}]}}';;
+  "link "*|"link ")    echo "Linked (fake)";;
+  "domain "*)          echo '{"domain":"${mockUrl}"}';;
+  "variable list"*)    echo '{"AUTOMEM_API_TOKEN":"${TOKEN}"}';;
   *) echo "{}";;
 esac
 exit 0

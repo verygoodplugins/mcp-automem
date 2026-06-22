@@ -84,20 +84,31 @@ This rule exists because open Copilot comments on merged PRs create technical de
 # instapods|railway|other). InstaPods opens the create-page
 # (app.instapods.com/dashboard/pods/create?app=automem...&ref=jack) which deploys +
 # emails the URL+key, then the user pastes it (apply phase); InstaPods has no
-# app-deploy API/CLI so this is link+paste, NOT API-driven. Railway IS guided, but
-# the deploy is BROWSER-driven (marketplace templates can't be CLI-deployed —
-# `railway deploy --template` returns Unauthorized): `railway login` browser hand-off
-# → open the Deploy-Now page (railway.com/deploy/automem-ai-memory-service) → user
-# confirms it's live → `railway link` (interactive project picker) → READ the
-# template-generated domain + token (never generate a domain; a mismatched target
-# port was the original 502) → store as local AUTOMEM_API_KEY. The token read is
-# migration-proof (tries AUTOMEM_API_KEY, falls back to AUTOMEM_API_TOKEN). All of
-# this sits behind the provider-agnostic CloudProvider interface (src/cli/cloud/*,
-# reusable for AutoMem's own API-driven cloud). `other` = paste an existing
-# endpoint+token up front (resolve phase). Railway/InstaPods degrade to a manual
-# paste; the Railway deploy hand-off runs in apply (after plan approval); --dry-run
-# never auths/deploys/charges. AUTOMEM_NO_BROWSER=1 suppresses the browser open (CI /
-# the demo). Gold-themed
+# app-deploy API/CLI so this is link+paste, NOT API-driven. Railway IS guided and
+# deploys straight from the terminal (the FAST PATH, src/cli/cloud/railway.ts +
+# railway-api.ts): `railway login` (browser hand-off; also signs up new accounts) →
+# `railway init --name automem --workspace <id> --json` (create+link, in an isolated
+# temp workdir so the user's cwd is never linked) → `railway status --json` (read
+# projectId/environmentId) → fire Railway's GraphQL `templateDeployV2` directly
+# (endpoint backboard.railway.com/graphql/v2, Bearer = CLI session user.accessToken
+# from ~/.railway/config.json; serializedConfig comes from a PUBLIC `template(code)`
+# query — authed returns "Not Authorized" for templates you don't own). Why not
+# `railway deploy -t`? It provisions the services fine but its post-deploy
+# wait_for_workflow poll returns "Unauthorized" and exits 1 — a FALSE NEGATIVE on an
+# already-successful deploy, so we skip it and gate readiness on AutoMem's own /health
+# (waitForAutoMemEndpoint) instead. The published template IS Jack's referral (up to
+# 25% kickback on usage, by templateId), so an API deploy still attributes. Then READ
+# the template-generated domain + token (`railway domain`/`variable list --json`,
+# never generate a domain — a mismatched target port was the original 502) → store as
+# local AUTOMEM_API_KEY. Token read is migration-proof (tries AUTOMEM_API_KEY, falls
+# back to AUTOMEM_API_TOKEN). FALLBACK: if the fast path can't complete (no CLI token,
+# API error, …), open the Deploy-Now page (railway.com/deploy/automem-ai-memory-service)
+# → user confirms it's live → `railway link` → read the same way. All of this sits
+# behind the provider-agnostic CloudProvider interface (src/cli/cloud/*, reusable for
+# AutoMem's own API-driven cloud). `other` = paste an existing endpoint+token up front
+# (resolve phase). Railway/InstaPods degrade to a manual paste; the Railway deploy runs
+# in apply (after plan approval); --dry-run never auths/deploys/charges.
+# AUTOMEM_NO_BROWSER=1 suppresses the browser open (CI / the demo). Gold-themed
 # @inquirer/prompts (clack's green accent isn't themable); branded UI toolkit in
 # src/cli/ui/* (theme/table/messages/brand/tasks/animate/prompts) + the mascot in
 # src/cli/install-ui.ts. Interactive prompt routes are tested with a node-pty

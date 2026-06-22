@@ -234,6 +234,14 @@ type VerifyEndpointOptions = {
 type WaitEndpointOptions = VerifyEndpointOptions & {
   attempts?: number;
   intervalMs?: number;
+  /**
+   * Require this many CONSECUTIVE successful verifies before declaring ready
+   * (default 1). A freshly deployed service can flicker during early boot — health
+   * is up but the auth'd recall route flaps as dynamic blueprints register / the
+   * container restarts — so a single success is premature. Any failure resets the
+   * streak.
+   */
+  stableChecks?: number;
 };
 
 type CommandRunner = (command: string, args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }) => void;
@@ -582,7 +590,7 @@ export function buildInstallPlan(params: {
       kind: 'provision-cloud',
       title: railway ? 'Deploy AutoMem on Railway' : 'Set up AutoMem on InstaPods',
       detail: railway
-        ? 'Sign in via the railway CLI, deploy the AutoMem template in your browser (usage-based, ~$1–5/mo), then link the railway CLI to capture the endpoint + API token.'
+        ? 'Sign in via the railway CLI, deploy the AutoMem template straight from the terminal (usage-based, ~$1–5/mo), and capture the endpoint + API token — falling back to a browser deploy if the CLI deploy can’t complete.'
         : 'Open the InstaPods setup page (it deploys AutoMem and emails your API URL + key, Grow plan ~$15/mo), then paste them — or paste credentials you already have.',
       paths: [],
     });
@@ -792,10 +800,12 @@ export async function waitForAutoMemEndpoint(
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const attempts = options.attempts ?? 30;
   const intervalMs = options.intervalMs ?? 1000;
+  const stableChecks = Math.max(1, options.stableChecks ?? 1);
   let last: { ok: true } | { ok: false; message: string } = {
     ok: false,
     message: 'AutoMem endpoint was not checked.',
   };
+  let streak = 0;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     last = await verifyAutoMemEndpoint({
@@ -803,7 +813,11 @@ export async function waitForAutoMemEndpoint(
       apiKey: options.apiKey,
       fetchFn: options.fetchFn,
     });
-    if (last.ok) {
+    // Require `stableChecks` CONSECUTIVE successes so a fresh deploy that flickers
+    // during early boot (health up, auth'd recall flapping) isn't declared ready on a
+    // lucky single hit. Any failure resets the streak.
+    streak = last.ok ? streak + 1 : 0;
+    if (last.ok && streak >= stableChecks) {
       return last;
     }
     if (attempt < attempts) {
@@ -811,9 +825,12 @@ export async function waitForAutoMemEndpoint(
     }
   }
 
+  // Reaching here means we ran out of attempts. `last` may be a failure, or a success
+  // that never strung together `stableChecks` in a row (kept flickering).
+  const detail = last.ok ? `did not stay healthy for ${stableChecks} consecutive checks` : last.message;
   return {
     ok: false,
-    message: `AutoMem endpoint did not become healthy after ${attempts} attempts: ${last.message}`,
+    message: `AutoMem endpoint did not become healthy after ${attempts} attempts: ${detail}`,
   };
 }
 
@@ -1128,7 +1145,7 @@ async function resolveInteractiveOptions(
           {
             value: 'railway',
             label: 'Railway (guided)',
-            hint: 'sign in with the railway CLI, deploy in your browser, then auto-capture keys',
+            hint: 'sign in with the railway CLI, deploy from the terminal, then auto-capture keys',
           },
           {
             value: 'other',
@@ -1445,11 +1462,15 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
 
       // A freshly provisioned cloud deploy isn't reachable the instant the CLI
       // returns — a Railway/InstaPods multi-service app cold-starts (build done !=
-      // serving, and a just-generated domain needs DNS). Poll longer than local so
-      // we don't false-fail verify on a still-booting deployment.
+      // serving, the embedding model downloads on first boot, and a just-generated
+      // domain needs DNS). Budget ~5 min (150 × 2s) so we don't false-fail verify on a
+      // still-booting deployment (the embedding-model download is the long pole).
       if (endpoint) {
         const spin = startSpinner('Waiting for AutoMem to come online (a fresh deploy can take a few minutes)…');
-        const ready = await waitForAutoMemEndpoint({ endpoint, apiKey, attempts: 90, intervalMs: 2000 });
+        // stableChecks: a fresh deploy flickers during early boot (health up before the
+        // auth'd recall blueprint registers / the container restarts once), so require a
+        // few consecutive health+recall passes before declaring it ready.
+        const ready = await waitForAutoMemEndpoint({ endpoint, apiKey, attempts: 150, intervalMs: 2000, stableChecks: 3 });
         if (ready.ok) {
           spin.stop('AutoMem is online');
         } else {
@@ -1485,7 +1506,10 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     const agentFailures: { client: AgentClient; message: string }[] = [];
     try {
       list.start('verify');
-      const verify = await verifyAutoMemEndpoint({ endpoint, apiKey });
+      // Retry rather than single-shot: a just-provisioned cloud endpoint can still
+      // flicker for a beat after the warmup (the happy path passes on attempt 1, so
+      // local/existing targets see no added delay).
+      const verify = await waitForAutoMemEndpoint({ endpoint, apiKey, attempts: 8, intervalMs: 2000 });
       if (!verify.ok) {
         list.fail('verify');
         throw new InstallError("Couldn't verify the AutoMem endpoint.", verify.message);

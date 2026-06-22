@@ -666,6 +666,32 @@ describe('guided install helpers', () => {
     expect(attempts).toBe(3);
   });
 
+  it('waitForAutoMemEndpoint with stableChecks requires consecutive successes (a flicker resets the streak)', async () => {
+    let recallCalls = 0;
+    const fetchFn = async (url: string) => {
+      if (url.includes('/health')) {
+        return { ok: true, status: 200, json: async () => ({ status: 'healthy' }) };
+      }
+      // recall flickers: ok, FAIL(404), ok, ok — mirrors an early-boot blueprint flap.
+      recallCalls += 1;
+      const ok = recallCalls !== 2;
+      return { ok, status: ok ? 200 : 404, json: async () => ({}) };
+    };
+
+    await expect(
+      waitForAutoMemEndpoint({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: 'tok',
+        fetchFn,
+        attempts: 10,
+        intervalMs: 1,
+        stableChecks: 2,
+      })
+    ).resolves.toEqual({ ok: true });
+    // 1:ok(streak=1) 2:404(reset) 3:ok(streak=1) 4:ok(streak=2 → ready) = 4 recall probes.
+    expect(recallCalls).toBe(4);
+  });
+
   it('turns a docker compose failure into a clean InstallError with a port hint', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-prep-'));
     try {
