@@ -40,6 +40,8 @@ export const CLAUDE_CODE_PLUGIN_COMMANDS = [
   '/plugin marketplace add verygoodplugins/mcp-automem',
   '/plugin install automem@verygoodplugins-mcp-automem',
 ] as const;
+export const CLAUDE_CODE_PLUGIN_API_KEY_HINT =
+  'Claude Code plugin: run  /plugin configure automem@verygoodplugins-mcp-automem  and set api_key, or export AUTOMEM_API_KEY before using Claude Code.';
 
 // Identity for the `claude plugin …` CLI path (the supported, non-interactive way to
 // add the marketplace + install the plugin, distinct from the in-TUI slash commands).
@@ -67,6 +69,7 @@ export function claudePluginInstallArgs(params: { endpoint: string; apiKey?: str
 
 export type PluginCommandResult = { code: number; stdout: string; stderr: string };
 export type PluginCommandRunner = (command: string, args: string[]) => PluginCommandResult;
+export type ClaudeCodePluginInstallResult = { needsManualApiKey: boolean };
 
 // A re-run that re-adds the marketplace or re-installs the plugin may exit non-zero
 // just because it's already there — tolerate that rather than falling back to the
@@ -86,8 +89,8 @@ export async function installClaudeCodePlugin(params: {
   apiKey?: string;
   dryRun: boolean;
   runCommand: PluginCommandRunner;
-}): Promise<void> {
-  if (params.dryRun) return;
+}): Promise<ClaudeCodePluginInstallResult> {
+  if (params.dryRun) return { needsManualApiKey: false };
   const { runCommand } = params;
 
   const marketplaces = runCommand('claude', ['plugin', 'marketplace', 'list']);
@@ -111,6 +114,8 @@ export async function installClaudeCodePlugin(params: {
       'Run the two /plugin commands inside Claude Code instead (shown below).',
     );
   }
+
+  return { needsManualApiKey: Boolean(params.apiKey) };
 }
 
 // How the guided installer wires Claude Code. Defaults to the recommended plugin.
@@ -1500,7 +1505,12 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     ];
 
     const list = startChecklist(steps);
-    const agentFailures: { client: AgentClient; message: string }[] = [];
+    const agentFailures: {
+      client: AgentClient;
+      message: string;
+      hint?: string;
+      showPluginCommands?: boolean;
+    }[] = [];
     try {
       list.start('verify');
       // Retry rather than single-shot: a just-provisioned cloud endpoint can still
@@ -1542,18 +1552,30 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           }
           list.start(key);
           try {
-            await installClaudeCodePlugin({
+            const pluginInstall = await installClaudeCodePlugin({
               endpoint,
               apiKey,
               dryRun: false,
               runCommand: defaultPluginCommand,
             });
-            list.done(key, `${clientGlyph(client, theme)} Claude Code plugin installed`);
+            if (pluginInstall.needsManualApiKey) {
+              list.fail(key, `${clientGlyph(client, theme)} Claude Code plugin needs API key configuration`);
+              agentFailures.push({
+                client,
+                message:
+                  'Claude Code plugin was installed, but authenticated endpoints require an API key configured in Claude Code.',
+                hint: CLAUDE_CODE_PLUGIN_API_KEY_HINT,
+                showPluginCommands: false,
+              });
+            } else {
+              list.done(key, `${clientGlyph(client, theme)} Claude Code plugin installed`);
+            }
           } catch (pluginErr) {
             list.fail(key, `${clientGlyph(client, theme)} Claude Code plugin needs a manual step`);
             agentFailures.push({
               client,
               message: pluginErr instanceof Error ? pluginErr.message : String(pluginErr),
+              showPluginCommands: true,
             });
           }
           continue;
@@ -1584,7 +1606,9 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     const nextSteps: string[] = [`endpoint  ${endpoint}`];
     // Only surface the manual /plugin commands when the auto-install didn't run or
     // didn't succeed — i.e. the `claude` binary was absent, or the install failed.
-    const pluginAutoInstallFailed = agentFailures.some((failure) => failure.client === 'claude-code');
+    const pluginAutoInstallFailed = agentFailures.some(
+      (failure) => failure.client === 'claude-code' && failure.showPluginCommands !== false
+    );
     if (
       !resolved.noAgentInstall &&
       resolved.clients.includes('claude-code') &&
@@ -1595,13 +1619,14 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       for (const cmd of CLAUDE_CODE_PLUGIN_COMMANDS) {
         nextSteps.push(`  ${cmd}`);
       }
+      if (apiKey) nextSteps.push(`  ${CLAUDE_CODE_PLUGIN_API_KEY_HINT}`);
     }
     if (agentFailures.length > 0) {
       const subject =
         agentFailures.length === 1 ? '1 agent needs a manual step:' : `${agentFailures.length} agents need a manual step:`;
       nextSteps.push(subject);
       for (const failure of agentFailures) {
-        nextSteps.push(`  ${manualFixHint(failure.client)}`);
+        nextSteps.push(`  ${failure.hint ?? manualFixHint(failure.client)}`);
       }
     }
     nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');

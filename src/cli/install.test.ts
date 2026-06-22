@@ -906,12 +906,13 @@ describe('claude plugin auto-install', () => {
       if (args[1] === 'marketplace' && args[2] === 'list') return { code: 0, stdout: '' };
       return { code: 0 };
     });
-    await installClaudeCodePlugin({
+    const result = await installClaudeCodePlugin({
       endpoint: 'http://127.0.0.1:8001',
       apiKey: 'sk-1',
       dryRun: false,
       runCommand: run,
     });
+    expect(result).toEqual({ needsManualApiKey: true });
     expect(calls).toEqual([
       ['plugin', 'marketplace', 'list'],
       ['plugin', 'marketplace', 'add', 'verygoodplugins/mcp-automem'],
@@ -934,7 +935,9 @@ describe('claude plugin auto-install', () => {
       }
       return { code: 0 };
     });
-    await installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run });
+    await expect(
+      installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
+    ).resolves.toEqual({ needsManualApiKey: false });
     expect(calls.some((a) => a[2] === 'add')).toBe(false);
     expect(calls.some((a) => a[1] === 'install')).toBe(true);
   });
@@ -958,12 +961,14 @@ describe('claude plugin auto-install', () => {
     });
     await expect(
       installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ needsManualApiKey: false });
   });
 
   it('runs nothing on dry-run', async () => {
     const { run, calls } = recordingRunner(() => ({ code: 0 }));
-    await installClaudeCodePlugin({ endpoint: 'http://x', dryRun: true, runCommand: run });
+    await expect(
+      installClaudeCodePlugin({ endpoint: 'http://x', apiKey: 'sk-1', dryRun: true, runCommand: run })
+    ).resolves.toEqual({ needsManualApiKey: false });
     expect(calls).toEqual([]);
   });
 

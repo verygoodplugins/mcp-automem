@@ -314,7 +314,7 @@ const SCENARIOS = [
     assert: async (ctx) => {
       const r = [];
       const last = ctx.steps.at(-1);
-      r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
+      r.push(A('non-zero exit (api key needs plugin UI/env config)', last.exitCode !== 0, `exit=${last.exitCode}`));
       const log = await readFile(path.join(ctx.home, '.e2e-claude-calls.log'), 'utf8').catch(() => '');
       r.push(A('ran `claude plugin marketplace add verygoodplugins/mcp-automem`',
         /plugin marketplace add verygoodplugins\/mcp-automem/.test(log), log.trim() || '(no calls)'));
@@ -322,6 +322,8 @@ const SCENARIOS = [
         new RegExp(`plugin install automem@verygoodplugins-mcp-automem .*--config api_url=${ctx.mock.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(log)));
       r.push(A('did NOT thread api key via argv', !/api_key=mocktoken-e2e/.test(log)));
       r.push(A('did NOT print the manual /plugin command', !/\/plugin install/.test(last.stdout)));
+      r.push(A('stdout surfaces plugin key follow-up',
+        /plugin configure automem@verygoodplugins-mcp-automem[\s\S]*api_key|AUTOMEM_API_KEY/.test(last.stdout)));
       return r;
     },
     findings: () => [],
