@@ -58,7 +58,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@inquirer/prompts": "^7.2.0",
+    "@inquirer/prompts": "^8.5.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^17.4.2",
     "node-fetch": "^3.3.2",
