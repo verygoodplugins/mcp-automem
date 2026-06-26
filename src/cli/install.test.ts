@@ -67,6 +67,24 @@ describe('guided install helpers', () => {
     });
   });
 
+  it('reads AUTOMEM_API_KEY from the environment when no --api-key flag is given (the curl|sh path)', () => {
+    // Regression guard for the website install path. public/install.sh deliberately
+    // does NOT map AUTOMEM_API_KEY to a --api-key CLI flag — that would leak the token
+    // via process args (`ps`) and the stage-4 `npx … $*` echo. The token instead flows
+    // through the environment, which parseInstallArgs reads here. install-surface.test.mjs
+    // asserts the complementary half (install.sh contains no --api-key). Together they lock
+    // the contract: credentials reach the installer via env, never argv.
+    expect(parseInstallArgs([], { AUTOMEM_API_KEY: 'env-secret' }).apiKey).toBe('env-secret');
+    // Legacy fallback to AUTOMEM_API_TOKEN when AUTOMEM_API_KEY is absent.
+    expect(parseInstallArgs([], { AUTOMEM_API_TOKEN: 'tok-secret' }).apiKey).toBe('tok-secret');
+    // No key anywhere → undefined (an unauthenticated install, e.g. local self-host).
+    expect(parseInstallArgs([], {}).apiKey).toBeUndefined();
+    // An explicit --api-key flag still wins over the environment.
+    expect(
+      parseInstallArgs(['--api-key', 'flag-key'], { AUTOMEM_API_KEY: 'env-secret' }).apiKey
+    ).toBe('flag-key');
+  });
+
   it('rejects unknown install targets and clients', () => {
     expect(() => parseInstallArgs(['--target', 'serverless'])).toThrow(/invalid install target/i);
     expect(() => parseInstallArgs(['--clients', 'codex,nope'])).toThrow(/invalid AutoMem client/i);
