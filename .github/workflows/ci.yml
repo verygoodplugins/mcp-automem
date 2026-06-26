@@ -16,6 +16,10 @@ jobs:
       - name: Check links in documentation
         uses: lycheeverse/lychee-action@v2
         with:
+          # Release-asset "latest download" URLs (e.g. the .mcpb button in README)
+          # 404 transiently on a release: this link check runs concurrently with the
+          # release workflow, which uploads the asset ~1 min after creating the
+          # release. Exclude them — the build-extension job validates the asset.
           args: >-
             --verbose
             --no-progress
@@ -24,6 +28,7 @@ jobs:
             --exclude '127.0.0.1'
             --exclude 'x.com/i/communities'
             --exclude 'github.com/.*/compare/.*\.\.\..*'
+            --exclude 'github.com/.*/releases/latest/download/.*'
             README.md
             INSTALLATION.md
             CHANGELOG.md
