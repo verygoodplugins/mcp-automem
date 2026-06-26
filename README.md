@@ -344,7 +344,7 @@ The AutoMem service implements cutting-edge 2025 research:
 - **MELODI** (DeepMind, 2025): 8x memory compression without quality loss
 - **ReadAgent** (DeepMind, 2024): 20x context extension through gist memories
 
-This MCP package provides the bridge between your AI and that research-validated memory system.
+This MCP package provides the bridge between your AI and that research-validated memory system. The backend has also been benchmarked on the neutral [Agent Memory Benchmark](https://automem.ai/benchmarks), including BEAM large-context scaling tiers — reproducible end to end, so you can run it yourself.
 
 ## Community & Support
 
