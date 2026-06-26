@@ -124,7 +124,7 @@ export function makeTheme(
       arrow: unicode ? '→' : '->',
       line: unicode ? '─' : '-',
     },
-    link: hyperlink,
+    link: color ? hyperlink : plainLinkText,
   };
 }
 
@@ -153,35 +153,44 @@ export function repeatVisible(char: string, count: number): string {
   return Array.from({ length: Math.max(0, count) }, () => char).join('');
 }
 
+function encodeControlCharacters(value: string): string {
+  let encoded = '';
+  for (let i = 0; i < value.length; i += 1) {
+    const char = value[i];
+    const code = char.charCodeAt(0);
+    encoded += code <= 0x1f || code === 0x7f ? encodeURIComponent(char) : char;
+  }
+  return encoded;
+}
+
+function plainLinkText(url: string, label?: string): string {
+  return encodeControlCharacters(label && label.length > 0 ? label : url);
+}
+
 /**
  * Terminal hyperlink (OSC 8).
  * Renders as a clickable link in modern terminals (iTerm2, VS Code, Windows Terminal, recent macOS Terminal, etc.).
  * Gracefully degrades everywhere else: stripAnsi/visibleLength turn it into the plain label text.
  *
  * Safety: only emits OSC for well-formed http/https URLs. Anything else (placeholders like
- * "<prompted>", non-URLs, or values containing control characters) is returned as plain text
- * to avoid terminal escape injection or broken output. Callers should prefer `theme.link(...)`
- * for automatic capability awareness.
+ * "<prompted>" or non-URLs) is returned as plain text, and label/text control characters are
+ * percent-encoded to avoid terminal escape injection or broken output. Callers should prefer
+ * `theme.link(...)` for automatic capability awareness.
  */
 export function hyperlink(url: string, label?: string): string {
   const rawText = label && label.length > 0 ? label : url;
+  const safeText = encodeControlCharacters(rawText);
 
   let safeUrl: string;
   try {
     const u = new URL(url);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-      return rawText;
+      return safeText;
     }
     safeUrl = u.href; // normalized + percent-encoded
   } catch {
-    return rawText;
+    return safeText;
   }
-
-  // Explicitly strip control characters from both URL (already done by URL) and label/text
-  const stripControls = (s: string) =>
-    s.replace(/[\x00-\x1F\x7F]/g, (c) => encodeURIComponent(c));
-
-  const safeText = stripControls(rawText);
 
   // OSC 8 ; ; <url> ST <text> OSC 8 ; ; ST
   return `\x1b]8;;${safeUrl}\x1b\\${safeText}\x1b]8;;\x1b\\`;

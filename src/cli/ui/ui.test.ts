@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  hyperlink,
   makeTheme,
   padEndVisible,
   repeatVisible,
@@ -23,10 +24,13 @@ describe('ui/theme', () => {
     expect(plain.color).toBe(false);
     expect(plain.style.gold('hi')).toBe('hi');
     expect(plain.style.inverseGold('hi')).toBe('[hi]');
+    expect(plain.link('https://example.com', 'label\x1b')).toBe('label%1B');
+    expect(plain.link('https://example.com', 'label\x1b')).not.toContain('\x1b]8;');
 
     const colored = makeTheme(stream, { color: 'always', symbols: 'unicode' });
     expect(colored.style.gold('hi')).toContain('\x1b[');
     expect(stripAnsi(colored.style.gold('hi'))).toBe('hi');
+    expect(colored.link('https://example.com', 'label')).toContain('\x1b]8;');
   });
 
   it('switches symbol sets between unicode and ascii', () => {
@@ -53,6 +57,18 @@ describe('ui/theme', () => {
     expect(visibleLength(padEndVisible(colored, 6))).toBe(6);
     expect(repeatVisible('-', 4)).toBe('----');
     expect(repeatVisible('-', -2)).toBe('');
+  });
+
+  it('percent-encodes control characters in hyperlink labels', () => {
+    const rendered = hyperlink('https://example.com/path', 'label\x1b\x07\n\x7f');
+
+    expect(rendered).toContain('label%1B%07%0A%7F');
+    expect(stripAnsi(rendered)).toBe('label%1B%07%0A%7F');
+  });
+
+  it('percent-encodes fallback text when hyperlink URLs are invalid', () => {
+    expect(hyperlink('not a url', 'label\x1b')).toBe('label%1B');
+    expect(hyperlink('file:///tmp/example', 'label\x07')).toBe('label%07');
   });
 });
 
