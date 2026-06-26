@@ -2,20 +2,6 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.15.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.14.0...mcp-automem-v0.15.0) (2026-06-19)
-
-### Features
-
-* expose the guided `install` command in the published package so `https://automem.ai/install.sh` can bootstrap the visual installer
-* add `associate_memories` batch mode via `associations: [...]` with partial-success reporting and relation-specific props
-* add ranked `recall_memory` pass-through controls for `state_mode`, `recency_bias`, `scope_fallback`, `expand_respect_tags`, `min_score`, and `adaptive_floor`
-
-### Bug Fixes
-
-* preserve new recall diagnostics in MCP output, including `tag_scope`, `score_filter`, `queries`, `outside_tag_scope`, `deduped_from`, and enrichment/provenance flags
-* preserve degraded service health diagnostics instead of collapsing reachable degraded states to `error`
-* configure Release Please with `bump-minor-pre-major` so breaking commits before `1.0.0` generate a minor release instead of `1.0.0`
-
 ## [0.14.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.13.0...mcp-automem-v0.14.0) (2026-04-23)
 
 
