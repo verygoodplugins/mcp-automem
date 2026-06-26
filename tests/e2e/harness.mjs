@@ -881,7 +881,22 @@ async function main() {
   // The website-bootstrap scenario needs the SIBLING automem-website install.sh.
   // When that checkout isn't present, skip just that scenario (don't fail the run) —
   // the rest of the matrix exercises the packed tarball directly.
+  //
+  // EXCEPTION: when AUTOMEM_REQUIRE_INSTALL_SH is set (CI does this after checking
+  // out automem-website), a missing install.sh is a HARD failure instead of a silent
+  // skip. The production `curl | sh` entrypoint must never be green-but-untested —
+  // if the website checkout path ever breaks, CI fails loudly here.
   if (!existsSync(INSTALL_SH)) {
+    const required =
+      process.env.AUTOMEM_REQUIRE_INSTALL_SH && process.env.AUTOMEM_REQUIRE_INSTALL_SH !== '0';
+    if (required) {
+      console.error(
+        `FATAL: AUTOMEM_REQUIRE_INSTALL_SH is set but install.sh was not found at ${INSTALL_SH}. ` +
+          `The website-bootstrap (curl | sh) scenario would be silently skipped. Check out ` +
+          `automem-website and point AUTOMEM_INSTALL_SH at its public/install.sh.`,
+      );
+      process.exit(2);
+    }
     const before = selected.length;
     selected = selected.filter((s) => s.name !== 'website-bootstrap-install-sh');
     if (selected.length !== before) {

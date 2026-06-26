@@ -34,6 +34,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The production curl|sh entrypoint lives in the website repo (served at
+      # automem.ai/install.sh). Check it out so the e2e website-bootstrap scenario
+      # exercises the REAL launcher, not a stale copy. Public repo → default token.
+      - name: Check out automem-website (for the curl|sh install bootstrap)
+        uses: actions/checkout@v4
+        with:
+          repository: verygoodplugins/automem-website
+          path: automem-website
+
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -59,6 +68,12 @@ jobs:
       # scenarios against an in-process mock — no docker, no node-pty, no network).
       # Gates the risky write/abort/idempotency paths the unit tests don't reach.
       - name: E2E install scenarios
+        env:
+          # Point the harness at the real production install.sh and REQUIRE it, so the
+          # website-bootstrap (curl | sh) scenario can never be silently skipped again.
+          # A missing/renamed checkout now fails the build instead of going green-untested.
+          AUTOMEM_INSTALL_SH: ${{ github.workspace }}/automem-website/public/install.sh
+          AUTOMEM_REQUIRE_INSTALL_SH: "1"
         run: npm run test:e2e
 
   hooks-windows:

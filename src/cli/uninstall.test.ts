@@ -6,6 +6,95 @@ import { parse as parseYaml } from 'yaml';
 import { removeManagedHookEntries } from './claude-code.js';
 import { parseUninstallArgs, runUninstall } from './uninstall.js';
 
+describe('uninstall --clean-all preserves foreign Claude Desktop mcpServers', () => {
+  // Guards the highest-blast-radius path: --clean-all edits the user's shared
+  // claude_desktop_config.json. The code deletes only the `memory`/`automem`
+  // keys (never an overwrite), but nothing asserted that a *foreign* server
+  // survives. This locks that — a regression to a blanket overwrite fails here.
+  let home: string;
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-uninstall-claude-desktop-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    vi.spyOn(os, 'platform').mockReturnValue('darwin');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  function seedConfig(extra: Record<string, unknown> = {}): string {
+    const cfgDir = path.join(home, 'Library', 'Application Support', 'Claude');
+    fs.mkdirSync(cfgDir, { recursive: true });
+    const cfgPath = path.join(cfgDir, 'claude_desktop_config.json');
+    fs.writeFileSync(
+      cfgPath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            memory: { command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem'] },
+            automem: { command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem'] },
+            filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem'] },
+          },
+          globalShortcut: 'Cmd+Shift+Space',
+          ...extra,
+        },
+        null,
+        2,
+      ),
+    );
+    return cfgPath;
+  }
+
+  it('removes only memory/automem, keeps a foreign server + unrelated keys, and backs up', async () => {
+    const cfgPath = seedConfig();
+
+    // projectDir:home isolates the platform uninstall (codex strips a cwd-relative
+    // AGENTS.md) to the temp dir so the test never touches the real working tree.
+    await runUninstall({
+      platform: 'codex',
+      projectDir: home,
+      cleanAll: true,
+      yes: true,
+      dryRun: false,
+      quiet: true,
+    });
+
+    const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    expect(after.mcpServers).not.toHaveProperty('memory');
+    expect(after.mcpServers).not.toHaveProperty('automem');
+    expect(after.mcpServers).toHaveProperty('filesystem');
+    expect(after.globalShortcut).toBe('Cmd+Shift+Space');
+
+    const cfgDir = path.dirname(cfgPath);
+    const backups = fs
+      .readdirSync(cfgDir)
+      .filter((f) => f.startsWith('claude_desktop_config.json.backup.'));
+    expect(backups).toHaveLength(1);
+  });
+
+  it('dry-run leaves the config byte-for-byte unchanged', async () => {
+    const cfgPath = seedConfig();
+    const before = fs.readFileSync(cfgPath, 'utf8');
+
+    await runUninstall({
+      platform: 'codex',
+      projectDir: home,
+      cleanAll: true,
+      yes: true,
+      dryRun: true,
+      quiet: true,
+    });
+
+    expect(fs.readFileSync(cfgPath, 'utf8')).toBe(before);
+    const backups = fs
+      .readdirSync(path.dirname(cfgPath))
+      .filter((f) => f.includes('.backup.'));
+    expect(backups).toHaveLength(0);
+  });
+});
+
 describe('uninstall hermes', () => {
   let tmpDir: string;
 
