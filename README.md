@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/fd79112b-5158-4320-a054-8c18ab1ea314
 
 <p align="center"><sub><b>The guided installer</b> — <code>npx @verygoodplugins/mcp-automem install</code> walks you through local, hosted, or existing-endpoint setup.</sub></p>
 
-Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex**, **Google Antigravity** - any MCP-compatible AI platform.
+Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex**, **OpenClaw**, **Hermes**, **Google Antigravity** - any MCP-compatible AI platform.
 
 ## The Problem We Solve
 
@@ -42,7 +42,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 ### 🧠 Persistent Memory Across Sessions
 
 - AI remembers decisions, patterns, and context **forever**
-- Works across **all MCP platforms** - Claude Desktop, Cursor, Claude Code, OpenAI Codex, Google Antigravity
+- Works across **all MCP platforms** - Claude Desktop, Cursor, Claude Code, OpenAI Codex, OpenClaw, Hermes, Google Antigravity
 - **Cross-device sync** - same memory on Mac, Windows, Linux
 
 ### 🏆 Graph-Vector Architecture
@@ -60,6 +60,8 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 | **Claude Code**    | ✅ Full | 30 seconds |
 | **GitHub Copilot** | ✅ Full | 2 minutes  |
 | **OpenAI Codex**   | ✅ Full | 30 seconds |
+| **OpenClaw**       | ✅ Full | 30 seconds |
+| **Hermes Agent**   | ✅ Full | 30 seconds |
 | **Google Antigravity** | ✅ Full | 30 seconds |
 | **Any MCP client** | ✅ Full | 30 seconds |
 
@@ -179,7 +181,7 @@ On Windows, the hook payload assumes a POSIX shell environment such as Git Bash,
 npx @verygoodplugins/mcp-automem cursor
 ```
 
-**Other platforms** — Claude Desktop (one-click `.mcpb` above, plus the [Personal Preferences template](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md)), [OpenAI Codex](INSTALLATION.md#openai-codex), [Hermes Agent](INSTALLATION.md#hermes-agent), [Google Antigravity](INSTALLATION.md#google-antigravity), and [GitHub Copilot](INSTALLATION.md#github-copilot-coding-agent-githubcom):
+**Other platforms** — Claude Desktop (one-click `.mcpb` above, plus the [Personal Preferences template](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md)), [OpenAI Codex](INSTALLATION.md#openai-codex), [Hermes Agent](INSTALLATION.md#hermes-agent), [OpenClaw](INSTALLATION.md#openclaw), [Google Antigravity](INSTALLATION.md#google-antigravity), and [GitHub Copilot](INSTALLATION.md#github-copilot-coding-agent-githubcom):
 
 👉 **[Full Installation Guide](INSTALLATION.md)** for every platform's setup and verification steps
 
