@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "automem",
   "display_name": "AutoMem - AI Memory",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Give Claude persistent memory across conversations. Store decisions, patterns, and context that persist forever.",
   "long_description": "AutoMem gives Claude a real memory system using graph + vector databases. Your AI assistant can now:\n- **Remember everything** - Decisions, preferences, and project context persist across all sessions\n- **Build knowledge graphs** - Connect related memories for richer context\n- **Search semantically** - Find relevant memories by meaning, not just keywords\n- **Learn your style** - Store corrections and preferences so Claude adapts to you\nRequires an AutoMem backend (self-hosted or Railway deployment).",
   "author": {
@@ -47,11 +47,11 @@
     },
     {
       "name": "recall_memory",
-      "description": "Search memories using hybrid vector + keyword + tag matching"
+      "description": "Search memories using hybrid vector + keyword + tag matching, state/recency controls, score filtering, diagnostics, and graph expansion"
     },
     {
       "name": "associate_memories",
-      "description": "Create typed public relationships between memories (11 authorable types; internal/system relations are read-only)"
+      "description": "Create typed public relationships between memories, including batch associations and relation-specific props"
     },
     {
       "name": "update_memory",
@@ -59,11 +59,11 @@
     },
     {
       "name": "delete_memory",
-      "description": "Permanently delete a memory and its embedding"
+      "description": "Permanently delete one memory and its embedding, or bulk-delete exact tag matches"
     },
     {
       "name": "check_database_health",
-      "description": "Check connection status of FalkorDB and Qdrant databases"
+      "description": "Check FalkorDB/Qdrant health, degraded state, sync status, and enrichment diagnostics"
     }
   ],
   "user_config": {

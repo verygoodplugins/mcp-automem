@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildClaudeCodeExport,
   buildClaudeDesktopSnippet,
+  buildHermesSnippet,
   buildMcpConfigJson,
 } from './templates.js';
 
@@ -32,5 +33,17 @@ describe('config snippets — canonical AUTOMEM_API_URL only', () => {
     expect(env.AUTOMEM_API_URL).toBe(endpoint);
     expect(env.AUTOMEM_API_KEY).toBe(apiKey);
     expect(env).not.toHaveProperty('AUTOMEM_ENDPOINT');
+  });
+
+  it('Hermes snippet uses the non-colliding automem server key', () => {
+    const out = buildHermesSnippet(endpoint, apiKey);
+
+    expect(out).toContain('  automem:');
+    expect(out).not.toContain('  memory:');
+    expect(out).toContain('recall_memory');
+    expect(out).not.toContain('delete_memory');
+    expect(out).toContain('resources: false');
+    expect(out).toContain('prompts: false');
+    expect(out).toContain('enabled: false');
   });
 });

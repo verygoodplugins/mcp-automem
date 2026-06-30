@@ -1,10 +1,10 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildMcpConfigJson, buildSummaryInstructions, DEFAULT_AUTOMEM_API_URL } from './templates.js';
+import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildHermesSnippet, buildMcpConfigJson, buildSummaryInstructions, DEFAULT_AUTOMEM_API_URL } from './templates.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
+import { mergeEnvContent } from './host-toolkit.js';
 
 interface SetupOptions {
   envPath?: string;
@@ -103,50 +103,9 @@ function loadEnvValues(filePath: string): Record<string, string> {
   return result;
 }
 
-function formatEnvValue(value: string): string {
-  const needsQuotes = /[^A-Za-z0-9_@/:.,+-]/.test(value);
-  if (!needsQuotes) {
-    return value;
-  }
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  return `"${escaped}"`;
-}
-
 function mergeEnvFile(filePath: string, updates: Record<string, string>) {
-  const lines: Array<{ key?: string; line: string }> = [];
-  if (fs.existsSync(filePath)) {
-    const existing = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
-    for (const line of existing) {
-      if (!line.trim()) {
-        lines.push({ line });
-        continue;
-      }
-      const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
-      if (match) {
-        lines.push({ key: match[1].trim(), line });
-      } else {
-        lines.push({ line });
-      }
-    }
-  }
-
-  const updatedKeys = new Set<string>();
-  for (const entry of lines) {
-    if (entry.key && Object.prototype.hasOwnProperty.call(updates, entry.key)) {
-      entry.line = `${entry.key}=${formatEnvValue(updates[entry.key] ?? '')}`;
-      updatedKeys.add(entry.key);
-    }
-  }
-
-  for (const [key, value] of Object.entries(updates)) {
-    if (!updatedKeys.has(key)) {
-      lines.push({ key, line: `${key}=${formatEnvValue(value)}` });
-    }
-  }
-
-  const content = lines.map((entry) => entry.line).join(os.EOL).replace(/\s+$/, '');
-  const finalContent = content.length ? `${content}${os.EOL}` : '';
-  fs.writeFileSync(filePath, finalContent, 'utf8');
+  const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+  fs.writeFileSync(filePath, mergeEnvContent(existing, updates), 'utf8');
 }
 
 async function promptValue(prompt: string, fallback: string, prefilled?: string): Promise<string> {
@@ -168,12 +127,14 @@ export async function runSetup(args: string[] = []): Promise<void> {
   const envPath = path.resolve(options.envPath ?? '.env');
 
   const existingValues = loadEnvValues(envPath);
+  // `||` not `??`: an empty value (e.g. a blank AUTOMEM_API_URL= line) must
+  // fall through to the next source, matching the server's own resolution.
   const defaultEndpoint = options.endpoint
-    ?? existingValues[ENV_API_URL_KEY]
-    ?? existingValues[LEGACY_ENV_ENDPOINT_KEY]
-    ?? process.env[ENV_API_URL_KEY]
-    ?? process.env[LEGACY_ENV_ENDPOINT_KEY]
-    ?? DEFAULT_AUTOMEM_API_URL;
+    || existingValues[ENV_API_URL_KEY]
+    || existingValues[LEGACY_ENV_ENDPOINT_KEY]
+    || process.env[ENV_API_URL_KEY]
+    || process.env[LEGACY_ENV_ENDPOINT_KEY]
+    || DEFAULT_AUTOMEM_API_URL;
 
   const defaultApiKey = options.apiKey
     ?? existingValues[ENV_API_KEY]
@@ -215,18 +176,34 @@ export async function runSetup(args: string[] = []): Promise<void> {
   const updates: Record<string, string> = {
     [ENV_API_URL_KEY]: endpoint,
   };
+  // Keep a pre-existing deprecated alias in sync — a stale divergent value
+  // would silently resurface if AUTOMEM_API_URL were ever removed.
+  const hasLegacyLine = existingValues[LEGACY_ENV_ENDPOINT_KEY] !== undefined;
+  if (hasLegacyLine) {
+    updates[LEGACY_ENV_ENDPOINT_KEY] = endpoint;
+  }
   if (apiKey && apiKey !== '<required>' && apiKey !== '<unchanged>') {
     updates[ENV_API_KEY] = apiKey;
   }
 
   mergeEnvFile(envPath, updates);
   console.log(`\n✅ Saved AutoMem settings to ${envPath}`);
+  if (hasLegacyLine) {
+    console.log(
+      `ℹ️  ${LEGACY_ENV_ENDPOINT_KEY} is deprecated; it was updated to match ${ENV_API_URL_KEY}. You can remove the old line.`
+    );
+  }
 
   console.log(buildSummaryInstructions(endpoint, Boolean(apiKey)));
   console.log('Claude Desktop snippet:\n');
   console.log(buildClaudeDesktopSnippet());
   console.log('\nClaude Code setup:\n');
   console.log(buildClaudeCodeExport(endpoint, 'your-auto-mem-api-key'));
+  console.log('\nHermes Agent snippet (~/.hermes/config.yaml):\n');
+  // Always render the key as a placeholder — this snippet is meant to be
+  // copy-pasted and shared; the real key lives in ~/.hermes/.env / config.yaml.
+  console.log(buildHermesSnippet(endpoint, '${AUTOMEM_API_KEY}'));
+  console.log('\nOr run: npx @verygoodplugins/mcp-automem hermes');
   console.log('\nUse `npx @verygoodplugins/mcp-automem config --format=json` to print this snippet again later.');
 
   if (options.claudeCode) {
@@ -241,8 +218,8 @@ export async function runSetup(args: string[] = []): Promise<void> {
 export async function runConfig(args: string[] = []): Promise<void> {
   const options = parseConfigArgs(args);
   const endpoint = process.env[ENV_API_URL_KEY]
-    ?? process.env[LEGACY_ENV_ENDPOINT_KEY]
-    ?? DEFAULT_AUTOMEM_API_URL;
+    || process.env[LEGACY_ENV_ENDPOINT_KEY]
+    || DEFAULT_AUTOMEM_API_URL;
   const apiKey = process.env[ENV_API_KEY] ?? '${AUTOMEM_API_KEY}';
 
   if (options.format === 'json') {
@@ -254,4 +231,8 @@ export async function runConfig(args: string[] = []): Promise<void> {
   console.log(buildClaudeDesktopSnippet());
   console.log('\nClaude Code setup:\n');
   console.log(buildClaudeCodeExport(endpoint, 'your-auto-mem-api-key'));
+  console.log('\nHermes Agent snippet (~/.hermes/config.yaml):\n');
+  // Placeholder key only — the JSON dump above (config --format=json) is the
+  // single surface that intentionally echoes the resolved key.
+  console.log(buildHermesSnippet(endpoint, '${AUTOMEM_API_KEY}'));
 }

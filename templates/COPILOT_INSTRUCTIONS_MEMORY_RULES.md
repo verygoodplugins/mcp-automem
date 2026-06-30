@@ -1,6 +1,6 @@
 # AutoMem Memory Rules for Copilot
 
-<!-- automem-template-version: 0.14.0 -->
+<!-- automem-template-version: 0.15.0 -->
 
 ## Where to add these rules
 

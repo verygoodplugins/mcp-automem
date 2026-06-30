@@ -86,6 +86,193 @@ describe('AutoMemClient', () => {
 
       await expect(client.storeMemory({ content: 'Test' })).rejects.toThrow('Server error');
     });
+
+    it('should supersede an existing memory by storing replacement, patching old state, and associating old to new', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            memory: {
+              id: 'old-memory-id',
+              content: 'Old memory',
+              metadata: { source: 'test', existing: true },
+            },
+          }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'new-memory-id', message: 'Memory stored' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'old-memory-id', message: 'Updated' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ message: 'Association created' }),
+        } as any);
+
+      const result = await client.storeMemory({
+        content: 'Corrected memory',
+        tags: ['project-x', 'correction'],
+        metadata: { source: 'replacement' },
+        supersedes_memory_id: 'old-memory-id',
+        supersede_reason: 'FAMA stale fact correction',
+      });
+
+      expect(result.memory_id).toBe('new-memory-id');
+      expect(result.superseded_memory_id).toBe('old-memory-id');
+      expect(result.association_created).toBe(true);
+
+      const fetchOldCall = mockFetch.mock.calls[0];
+      expect(fetchOldCall[0]).toBe('http://localhost:8001/memory/old-memory-id');
+      expect(fetchOldCall[1]?.method).toBe('GET');
+
+      const storeCall = mockFetch.mock.calls[1];
+      expect(storeCall[0]).toBe('http://localhost:8001/memory');
+      expect(JSON.parse(storeCall[1]?.body as string)).toMatchObject({
+        content: 'Corrected memory',
+        tags: ['project-x', 'correction'],
+        metadata: { source: 'replacement' },
+      });
+
+      const patchCall = mockFetch.mock.calls[2];
+      expect(patchCall[0]).toBe('http://localhost:8001/memory/old-memory-id');
+      expect(patchCall[1]?.method).toBe('PATCH');
+      const patchBody = JSON.parse(patchCall[1]?.body as string);
+      expect(patchBody.t_invalid).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(patchBody.metadata).toEqual({
+        source: 'test',
+        existing: true,
+        deprecated: true,
+        superseded_by: 'new-memory-id',
+        supersede_relation: 'INVALIDATED_BY',
+        supersede_reason: 'FAMA stale fact correction',
+      });
+
+      const associateCall = mockFetch.mock.calls[3];
+      expect(associateCall[0]).toBe('http://localhost:8001/associate');
+      expect(JSON.parse(associateCall[1]?.body as string)).toEqual({
+        memory1_id: 'old-memory-id',
+        memory2_id: 'new-memory-id',
+        type: 'INVALIDATED_BY',
+        strength: 0.9,
+      });
+    });
+
+    it('should support EVOLVED_INTO as a supersede relation', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory: { id: 'old-memory-id', metadata: {} } }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'new-memory-id' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'old-memory-id' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ message: 'Association created' }),
+        } as any);
+
+      await client.storeMemory({
+        content: 'Updated concept memory',
+        supersedes_memory_id: 'old-memory-id',
+        supersede_relation: 'EVOLVED_INTO',
+      });
+
+      const associateBody = JSON.parse(mockFetch.mock.calls[3][1]?.body as string);
+      expect(associateBody.type).toBe('EVOLVED_INTO');
+    });
+
+    it('should prevalidate superseded memory before storing a replacement', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ message: 'Not found' }),
+      } as any);
+
+      await expect(
+        client.storeMemory({
+          content: 'Corrected memory',
+          supersedes_memory_id: 'missing-memory-id',
+        })
+      ).rejects.toThrow('store_memory: superseded memory not found: missing-memory-id');
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][0]).toBe('http://localhost:8001/memory/missing-memory-id');
+    });
+
+    it('should report patch failures and clean up the replacement before old memory is updated', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory: { id: 'old-memory-id', metadata: {} } }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'new-memory-id' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 400,
+          json: async () => ({ message: 'Patch failed' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'new-memory-id', message: 'Deleted' }),
+        } as any);
+
+      await expect(
+        client.storeMemory({
+          content: 'Corrected memory',
+          supersedes_memory_id: 'old-memory-id',
+        })
+      ).rejects.toThrow(
+        /old_memory_updated=false, association_created=false; replacement cleanup succeeded.*Patch failed/
+      );
+
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+      expect(mockFetch.mock.calls[3][0]).toBe('http://localhost:8001/memory/new-memory-id');
+      expect(mockFetch.mock.calls[3][1]?.method).toBe('DELETE');
+    });
+
+    it('should report association failures without deleting a replacement linked from the old memory', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory: { id: 'old-memory-id', metadata: {} } }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'new-memory-id' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory_id: 'old-memory-id', message: 'Updated' }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 400,
+          json: async () => ({ message: 'Association failed' }),
+        } as any);
+
+      await expect(
+        client.storeMemory({
+          content: 'Corrected memory',
+          supersedes_memory_id: 'old-memory-id',
+        })
+      ).rejects.toThrow(
+        /old_memory_updated=true, association_created=false; replacement cleanup not attempted.*Association failed/
+      );
+
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+      expect(mockFetch.mock.calls.map((call) => call[1]?.method)).not.toContain('DELETE');
+    });
   });
 
   describe('recallMemory', () => {
@@ -113,6 +300,78 @@ describe('AutoMemClient', () => {
         expect.stringContaining('recall?query=test+query'),
         expect.any(Object)
       );
+    });
+
+    it('should normalize relations into a single field and never fabricate related_to', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [
+            {
+              id: 'mem-1',
+              match_type: 'semantic',
+              score: 0.95,
+              relations: [{ memory: { id: 'rel-1' }, type: 'REINFORCES', strength: 0.8 }],
+              memory: { content: 'Recalled content', tags: ['test'] },
+            },
+          ],
+          count: 1,
+        }),
+      } as any);
+
+      const result = await client.recallMemory({ query: 'test query' });
+
+      expect(result.results[0].relations).toHaveLength(1);
+      expect(result.results[0]).not.toHaveProperty('related_to');
+    });
+
+    it('should fall back to related_to when the server sends only related_to', async () => {
+      const related = [{ memory: { id: 'rel-2' }, type: 'RELATES_TO', strength: 0.5 }];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [
+            {
+              id: 'mem-1',
+              match_type: 'semantic',
+              score: 0.95,
+              related_to: related,
+              memory: { content: 'Recalled content', tags: ['test'] },
+            },
+          ],
+          count: 1,
+        }),
+      } as any);
+
+      const result = await client.recallMemory({ query: 'test query' });
+
+      expect(result.results[0].relations).toEqual(related);
+      expect(result.results[0]).not.toHaveProperty('related_to');
+    });
+
+    it('should map the memory summary when the server provides one', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [
+            {
+              id: 'mem-1',
+              match_type: 'semantic',
+              score: 0.95,
+              memory: {
+                content: 'Recalled content',
+                summary: 'Short standalone summary.',
+                tags: ['test'],
+              },
+            },
+          ],
+          count: 1,
+        }),
+      } as any);
+
+      const result = await client.recallMemory({ query: 'test query' });
+
+      expect(result.results[0].memory.summary).toBe('Short standalone summary.');
     });
 
     it('should support multiple queries', async () => {
@@ -171,6 +430,108 @@ describe('AutoMemClient', () => {
       expect(url).toContain('expand_entities=true');
       expect(url).toContain('expand_relations=true');
       expect(url).toContain('auto_decompose=true');
+    });
+
+    it('should forward current-state recall flags', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [], count: 0 }),
+      } as any);
+
+      await client.recallMemory({
+        query: 'stale correction',
+        current_only: false,
+        state_debug: true,
+      });
+
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).toContain('current_only=false');
+      expect(url).toContain('state_debug=true');
+    });
+
+    it('should forward recall state, scope fallback, recency, and score filter params', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [], count: 0 }),
+      } as any);
+
+      await client.recallMemory({
+        query: 'latest scoped memory',
+        state_mode: 'history',
+        recency_bias: 'auto',
+        scope_fallback: true,
+        expand_relations: true,
+        expand_respect_tags: true,
+        min_score: 0.25,
+        adaptive_floor: false,
+      } as any);
+
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).toContain('state_mode=history');
+      expect(url).toContain('recency_bias=auto');
+      expect(url).toContain('scope_fallback=true');
+      expect(url).toContain('expand_respect_tags=true');
+      expect(url).toContain('min_score=0.25');
+      expect(url).toContain('adaptive_floor=false');
+    });
+
+    it('should preserve recall diagnostics and per-result scope metadata', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [
+            {
+              id: 'mem-1',
+              match_type: 'semantic',
+              score: 0.95,
+              deduped_from: ['older-duplicate'],
+              outside_tag_scope: true,
+              jit_enriched: true,
+              state_replaces: 'suppressed-memory',
+              memory: {
+                content: 'Recalled content',
+                tags: ['test'],
+                last_accessed: '2026-06-19T09:00:00Z',
+              },
+            },
+          ],
+          count: 1,
+          state_mode: 'history',
+          tag_scope: { filtered: true, pool_size_hint: 12, gated_low_evidence: 2 },
+          scope_fallback: true,
+          recency_bias: 'on',
+          score_filter: { min_score: 0.2, adaptive_floor: 0.4, filtered_count: 3 },
+          query_time_ms: 42.5,
+          vector_search: { enabled: true, matched: true },
+          exclude_tags: ['archived'],
+          jit_enriched_count: 1,
+          entities: [{ slug: 'automem', identity: 'AutoMem memory service' }],
+          queries: ['q1', 'q2'],
+        }),
+      } as any);
+
+      const result = await client.recallMemory({ query: 'test query' });
+
+      expect(result).toMatchObject({
+        state_mode: 'history',
+        tag_scope: { filtered: true, pool_size_hint: 12, gated_low_evidence: 2 },
+        scope_fallback: true,
+        recency_bias: 'on',
+        score_filter: { min_score: 0.2, adaptive_floor: 0.4, filtered_count: 3 },
+        query_time_ms: 42.5,
+        vector_search: { enabled: true, matched: true },
+        exclude_tags: ['archived'],
+        jit_enriched_count: 1,
+        entities: [{ slug: 'automem', identity: 'AutoMem memory service' }],
+        queries: ['q1', 'q2'],
+      });
+      expect(result.results[0]).toMatchObject({
+        deduped_from: ['older-duplicate'],
+        outside_tag_scope: true,
+        jit_enriched: true,
+        state_replaces: 'suppressed-memory',
+        memory: { last_accessed: '2026-06-19T09:00:00Z' },
+      });
     });
 
     it('should support expansion filtering', async () => {
@@ -341,6 +702,23 @@ describe('AutoMemClient', () => {
       ).rejects.toThrow(/query.*exclude_tags.*expand_relations/);
     });
 
+    it('should reject exhaustive combined with new ranked-only recall params', async () => {
+      await expect(
+        client.recallMemory({
+          tags: ['x'],
+          exhaustive: true,
+          state_mode: 'history',
+          recency_bias: 'auto',
+          scope_fallback: true,
+          expand_respect_tags: true,
+          min_score: 0.2,
+          adaptive_floor: false,
+        } as any)
+      ).rejects.toThrow(
+        /state_mode.*recency_bias.*scope_fallback.*expand_respect_tags.*min_score.*adaptive_floor/
+      );
+    });
+
     it('should accept exhaustive + format (format is allowed in enumeration mode)', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -446,6 +824,15 @@ describe('AutoMemClient', () => {
         } as any)
       ).rejects.toThrow('Remove top-level single-mode field(s): tags, importance');
     });
+
+    it('should reject supersede fields in batch mode', async () => {
+      await expect(
+        client.storeMemory({
+          memories: [{ content: 'one' }],
+          supersedes_memory_id: 'old-memory-id',
+        } as any)
+      ).rejects.toThrow('Remove top-level single-mode field(s): supersedes_memory_id');
+    });
   });
 
   describe('associateMemories', () => {
@@ -468,6 +855,128 @@ describe('AutoMemClient', () => {
       expect(body.type).toBe('RELATES_TO');
       expect(body.strength).toBe(0.9);
     });
+
+    it('should preserve relation-specific properties in single mode', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ message: 'Association created' }),
+      } as any);
+
+      await client.associateMemories({
+        memory1_id: 'mem-1',
+        memory2_id: 'mem-2',
+        type: 'CONTRADICTS',
+        strength: 0.8,
+        reason: 'New evidence replaced the older claim',
+        resolution: 'Prefer the newer decision',
+      } as any);
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+      expect(body).toMatchObject({
+        type: 'CONTRADICTS',
+        reason: 'New evidence replaced the older claim',
+        resolution: 'Prefer the newer decision',
+      });
+    });
+
+    it('should create associations in batch mode', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          status: 'success',
+          created_count: 2,
+          failed_count: 0,
+          succeeded: [
+            { memory1_id: 'mem-1', memory2_id: 'mem-2', type: 'RELATES_TO', strength: 0.9 },
+            { memory1_id: 'mem-2', memory2_id: 'mem-3', type: 'REINFORCES', strength: 0.8 },
+          ],
+          failed: [],
+          summary: 'Created 2 associations.',
+        }),
+      } as any);
+
+      const result = await client.associateMemories({
+        associations: [
+          { memory1_id: 'mem-1', memory2_id: 'mem-2', type: 'RELATES_TO', strength: 0.9 },
+          {
+            memory1_id: 'mem-2',
+            memory2_id: 'mem-3',
+            type: 'REINFORCES',
+            strength: 0.8,
+            observations: ['kept previous workaround relevant'],
+          },
+        ],
+      } as any);
+
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse(callArgs[1]?.body as string);
+      expect(body.associations).toHaveLength(2);
+      expect(body.associations[1]).toMatchObject({
+        type: 'REINFORCES',
+        observations: ['kept previous workaround relevant'],
+      });
+      expect(result).toMatchObject({
+        success: true,
+        created_count: 2,
+        failed_count: 0,
+        summary: 'Created 2 associations.',
+      });
+    });
+
+    it('should return partial batch association results for 207 responses', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 207,
+        json: async () => ({
+          status: 'partial_success',
+          created_count: 1,
+          failed_count: 1,
+          succeeded: [
+            { memory1_id: 'mem-1', memory2_id: 'mem-2', type: 'RELATES_TO', strength: 0.9 },
+          ],
+          failed: [
+            {
+              index: 1,
+              association: {
+                memory1_id: 'missing',
+                memory2_id: 'mem-3',
+                type: 'REINFORCES',
+                strength: 0.8,
+              },
+              error: 'memory not found',
+            },
+          ],
+          summary: 'Created 1 association; 1 failed.',
+        }),
+      } as any);
+
+      const result = await client.associateMemories({
+        associations: [
+          { memory1_id: 'mem-1', memory2_id: 'mem-2', type: 'RELATES_TO', strength: 0.9 },
+          { memory1_id: 'missing', memory2_id: 'mem-3', type: 'REINFORCES', strength: 0.8 },
+        ],
+      } as any);
+
+      expect(result).toMatchObject({
+        success: false,
+        created_count: 1,
+        failed_count: 1,
+        summary: 'Created 1 association; 1 failed.',
+      });
+      expect(result.failed).toHaveLength(1);
+    });
+
+    it('should reject batch associations combined with top-level relation props', async () => {
+      await expect(
+        client.associateMemories({
+          associations: [
+            { memory1_id: 'mem-1', memory2_id: 'mem-2', type: 'RELATES_TO', strength: 0.9 },
+          ],
+          reason: 'would otherwise be ignored',
+        } as any)
+      ).rejects.toThrow('Remove top-level single-mode field(s): reason');
+    });
   });
 
   describe('updateMemory', () => {
@@ -486,6 +995,24 @@ describe('AutoMemClient', () => {
       expect(result.memory_id).toBe('mem-123');
       expect(mockFetch).toHaveBeenCalledWith(
         'http://localhost:8001/memory/mem-123',
+        expect.objectContaining({ method: 'PATCH' })
+      );
+    });
+
+    it('should URL-encode custom memory IDs when patching', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ memory_id: 'custom/id?#', message: 'Updated' }),
+      } as any);
+
+      const result = await client.updateMemory({
+        memory_id: 'custom/id?#',
+        importance: 0.95,
+      });
+
+      expect(result.memory_id).toBe('custom/id?#');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8001/memory/custom%2Fid%3F%23',
         expect.objectContaining({ method: 'PATCH' })
       );
     });
@@ -562,6 +1089,76 @@ describe('AutoMemClient', () => {
 
       expect(result.status).toBe('healthy');
       expect(result.backend).toBe('automem');
+    });
+
+    it('should preserve degraded service health diagnostics', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: 'degraded',
+          falkordb: {
+            status: 'connected',
+            latency_ms: 4,
+          },
+          qdrant: {
+            status: 'disconnected',
+            error: 'connection refused',
+          },
+          memory_count: 20,
+          vector_count: 18,
+          sync_status: 'drift_detected',
+          vector_dimensions: {
+            configured: 1536,
+            effective: 1536,
+            collection: 768,
+            mismatch: true,
+          },
+          enrichment: {
+            status: 'running',
+            queue_depth: 4,
+            pending: 2,
+            inflight: 1,
+            processed: 100,
+            failed: 3,
+          },
+          graph: 'automem',
+          timestamp: '2026-06-19T09:00:00Z',
+        }),
+      } as any);
+
+      const result = await client.checkHealth();
+
+      expect(result).toMatchObject({
+        status: 'degraded',
+        statistics: {
+          falkordb: {
+            status: 'connected',
+            latency_ms: 4,
+          },
+          qdrant: {
+            status: 'disconnected',
+            error: 'connection refused',
+          },
+          memory_count: 20,
+          vector_count: 18,
+          sync_status: 'drift_detected',
+          vector_dimensions: {
+            configured: 1536,
+            effective: 1536,
+            collection: 768,
+            mismatch: true,
+          },
+          enrichment: {
+            status: 'running',
+            queue_depth: 4,
+            pending: 2,
+            inflight: 1,
+            processed: 100,
+            failed: 3,
+          },
+        },
+      });
+      expect(result.error).toBeUndefined();
     });
 
     it('should return error status on failure', async () => {

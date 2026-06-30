@@ -8,7 +8,7 @@ Verify the AutoMem memory service is working:
 
 1. **Check Service Health**:
    ```javascript
-   mcp__memory__check_database_health()
+   check_database_health()
    ```
 
 2. **Report Status**:

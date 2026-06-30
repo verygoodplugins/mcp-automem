@@ -1,68 +1,54 @@
 # Deprecations
 
-## Claude Code Plugin
+## Claude Code Plugin — deprecation REVERSED (June 2026)
 
-The standalone Claude Code plugin shipped from this repository is **deprecated**.
+The v0.14 deprecation of the Claude Code plugin has been **reversed**. The
+plugin is now the recommended Claude Code install path, and the
+`npx @verygoodplugins/mcp-automem claude-code` CLI installer is the
+settings-level alternative.
 
-### Status
+### What changed
 
-- Deprecated in the current release line
-- Still shipped for one compatibility release
-- Planned removal: the release after the unified `install` workflow lands
+In April 2026 (v0.14) we deprecated the marketplace plugin in favor of the
+CLI installer, because the duplicate plugin payload kept drifting from the
+canonical `templates/`. Two things changed since:
 
-### Why
+1. The drift problem was solved by generation: the hook scripts in both
+   `templates/claude-code/` and `plugins/automem/` are rendered from one
+   policy source (`src/memory-policy/shared.ts`) and cannot diverge.
+2. The Claude Code plugin system matured into the ecosystem-standard
+   distribution channel: enable-time configuration prompts (`userConfig`,
+   with keychain storage for secrets), automatic updates through the
+   marketplace, and atomic uninstall. The CLI installer, by contrast, mutates
+   user-owned `~/.claude/settings.json` and has needed several rounds of
+   migration machinery to clean up after its own history.
 
-`@verygoodplugins/mcp-automem` now treats the npm CLI as the canonical install channel for Claude Code and the rest of the supported clients. Keeping a separate plugin payload created duplicate copies of hooks, prompts, and helper scripts, which drifted from the canonical templates under `templates/`.
+### Current status
 
-The repository direction is now:
+- **Recommended**: `/plugin marketplace add verygoodplugins/mcp-automem`,
+  then `/plugin install automem@verygoodplugins-mcp-automem`
+- **Supported alternative**: `npx @verygoodplugins/mcp-automem claude-code`
+  (settings-level hooks + permissions; also the migration/cleanup path for
+  older installs)
+- Nothing is scheduled for removal.
 
-- one repo
-- one npm package
-- one source of truth under `templates/`
+### Migrating from the CLI install to the plugin
 
-### Recommended Path
-
-Use the Claude Code CLI installer:
+1. Remove the settings-level install so hooks don't fire twice and the
+   memory tools don't appear under two servers:
 
 ```bash
-npx @verygoodplugins/mcp-automem claude-code
+npx @verygoodplugins/mcp-automem uninstall claude-code --clean-all
 ```
 
-This is the supported Claude Code integration path until the unified `install` command lands.
-
-### Migration for Existing Plugin Users
-
-1. Remove the AutoMem plugin from Claude Code using the Claude Code plugin manager.
-2. Run the supported installer:
-
-```bash
-npx @verygoodplugins/mcp-automem claude-code
-```
-
+2. Install the plugin (commands above) and answer the API URL/key prompts.
 3. Restart Claude Code.
-4. Verify the `memory` MCP server tools are available and that `~/.claude/settings.json` contains the AutoMem MCP permissions.
 
-If your old plugin install namespaced the MCP tool prefix, update any custom permissions or local notes to use the canonical `mcp__memory__*` tool names after migration.
+Note: plugin MCP tools are namespaced (`mcp__plugin_automem_memory__*`), so
+any custom permission rules or notes that reference `mcp__memory__*` should
+be updated after migrating.
 
-### Scope of This Deprecation
+## Historical: `AUTOMEM_ENDPOINT`
 
-Deprecated:
-
-- Claude Code plugin installation via the marketplace payload in `plugins/automem`
-- Claude Code plugin marketplace metadata in `.claude-plugin/marketplace.json`
-
-Not deprecated:
-
-- `npx @verygoodplugins/mcp-automem claude-code`
-- manual/export-based setup for advanced users
-- the Claude Code integration itself
-
-### Follow-up
-
-A follow-up branch will add:
-
-- `npx @verygoodplugins/mcp-automem install`
-- manifest-based install tracking
-- `status`, `uninstall`, and `export` orchestration
-
-After that lands, the deprecated Claude Code plugin payload will be removed.
+`AUTOMEM_ENDPOINT` was renamed to `AUTOMEM_API_URL`. The old name is still
+read as a fallback but warns at startup. Rename it in your environment.

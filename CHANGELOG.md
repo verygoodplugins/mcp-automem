@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.14.0...mcp-automem-v0.15.0) (2026-06-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* the installer no longer grants broad Bash/file-tool permissions or deny/ask defaults; it merges only the six mcp__memory__* entries. Existing installs keep their generic grants; only the four hook-era grants are removed on re-run.
+* **hooks:** build/test/deploy results are no longer auto-captured into AutoMem; durable facts are stored by the model per the shared memory policy.
+
+### Features
+
+* **api:** parity with AutoMem v0.15.2 via mode-multiplexed params ([#112](https://github.com/verygoodplugins/mcp-automem/issues/112)) ([b81c63a](https://github.com/verygoodplugins/mcp-automem/commit/b81c63ae8f833feb4f6fb21e795c389f99a5dbe8))
+* **hermes:** add Hermes Agent integration ([#141](https://github.com/verygoodplugins/mcp-automem/issues/141)) ([fdde107](https://github.com/verygoodplugins/mcp-automem/commit/fdde107c1c027c3c29bb3092679a31377faa8749))
+* **hooks:** replace mechanical capture with LLM-judged storage nudge ([#147](https://github.com/verygoodplugins/mcp-automem/issues/147)) ([f597616](https://github.com/verygoodplugins/mcp-automem/commit/f597616ef1f6a2a54ea6bba872edc0f84d8af992))
+* **installer:** add guided cloud setup ([#159](https://github.com/verygoodplugins/mcp-automem/issues/159)) ([3d268c2](https://github.com/verygoodplugins/mcp-automem/commit/3d268c28c92774881e29a5c4c708a6e168e7df8b))
+* **installer:** auto-migrate legacy Claude Code hook entries ([#145](https://github.com/verygoodplugins/mcp-automem/issues/145)) ([cfa67c6](https://github.com/verygoodplugins/mcp-automem/commit/cfa67c68641af7091a237926faf9aa9bb00ccafc))
+* plugin-first Claude Code install with guided installer and opt-in Stop nudge ([#154](https://github.com/verygoodplugins/mcp-automem/issues/154)) ([596be4d](https://github.com/verygoodplugins/mcp-automem/commit/596be4d7203b0cb43aa9de60cae265a9155e9260))
+* rename AUTOMEM_ENDPOINT to AUTOMEM_API_URL ([#110](https://github.com/verygoodplugins/mcp-automem/issues/110)) ([29f9e8d](https://github.com/verygoodplugins/mcp-automem/commit/29f9e8df87e12ab48d32f22e4006cf6d7ca548fc))
+* **store:** add supersede memory mode ([#132](https://github.com/verygoodplugins/mcp-automem/issues/132)) ([322f53d](https://github.com/verygoodplugins/mcp-automem/commit/322f53de0ed5887735fe1c6da4385911d53a697e))
+
+
+### Bug Fixes
+
+* **build:** avoid shell chmod in postbuild ([#158](https://github.com/verygoodplugins/mcp-automem/issues/158)) ([f67ac29](https://github.com/verygoodplugins/mcp-automem/commit/f67ac29c8f59fc75cd0f7c8296fabc5bc71638f9))
+* close remaining AUTOMEM_ENDPOINT migration gaps ([#144](https://github.com/verygoodplugins/mcp-automem/issues/144)) ([cfcd9d0](https://github.com/verygoodplugins/mcp-automem/commit/cfcd9d009083c92b20d0667af9f4acd9a8149b6f))
+* **hooks:** disable session-summary Stop hook by default ([#130](https://github.com/verygoodplugins/mcp-automem/issues/130)) ([8efb763](https://github.com/verygoodplugins/mcp-automem/commit/8efb763c0b61e69f65872700202b1154c8261939))
+* **recall:** summary-first budgeted formats + token-aware response budget ([#146](https://github.com/verygoodplugins/mcp-automem/issues/146)) ([8009f2a](https://github.com/verygoodplugins/mcp-automem/commit/8009f2a898497cf4fb9371b5b6f2812d138c5483))
+* self-terminate orphaned stdio MCP servers to stop a memory leak ([#137](https://github.com/verygoodplugins/mcp-automem/issues/137)) ([c03d706](https://github.com/verygoodplugins/mcp-automem/commit/c03d70677f29c5acfa6d4d2c86c9d5d30453b587))
+* wrap hook commands in bash -c for Windows Git Bash ([#108](https://github.com/verygoodplugins/mcp-automem/issues/108)) ([#113](https://github.com/verygoodplugins/mcp-automem/issues/113)) ([34fcfe2](https://github.com/verygoodplugins/mcp-automem/commit/34fcfe2b7bdac6a99829c64cc74611e29af69a38))
+
 ## [0.14.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.13.0...mcp-automem-v0.14.0) (2026-04-23)
 
 
@@ -17,29 +46,6 @@ All notable changes to this project will be documented in this file.
 * downgrade @eslint/js to ^9.0.0 to match eslint peer dependency ([#92](https://github.com/verygoodplugins/mcp-automem/issues/92)) ([682fded](https://github.com/verygoodplugins/mcp-automem/commit/682fdeddc835b80711eb84656c67d46123a10ffb))
 * improve Claude Code Windows Python compatibility ([#102](https://github.com/verygoodplugins/mcp-automem/issues/102)) ([f0a4a0b](https://github.com/verygoodplugins/mcp-automem/commit/f0a4a0bc2659845599488850bca95fbda7b89f78))
 * recover dependabot workflow compatibility ([#104](https://github.com/verygoodplugins/mcp-automem/issues/104)) ([22208a2](https://github.com/verygoodplugins/mcp-automem/commit/22208a20fa648f552bd61237bf66d037f974758f))
-
-## [Unreleased]
-
-### Features
-
-- parity with AutoMem service v0.15.2 — exposed via mode-multiplexed parameters on existing tools (no new tools, surface stays at 6):
-  - `recall_memory` gains three modes: ID fetch (`memory_id`), tag enumeration (`exhaustive: true` + `tags`, paginated via `limit`/`offset`, returns `has_more`), and ranked retrieval (default, now also supports `exclude_tags`).
-  - `store_memory` gains batch mode (`memories: [...]`, ≤500 items) routed to `POST /memory/batch`. Per-item `id`/`embedding`/`t_valid`/`t_invalid` are not supported in batch mode by design.
-  - `delete_memory` gains bulk-by-tag mode (`tags: [...]`) routed to `DELETE /memory/by-tag`. Exact-match, case-insensitive, no dry-run.
-- the OpenClaw plugin's six `automem_*` tools mirror the new modes via extended schemas; batch store applies the configured `defaultTags` per item, while bulk-delete-by-tag never injects defaults.
-
-
-### Bug Fixes
-
-- wrap hook commands in `bash -c '…'` so they execute correctly on Windows Git Bash. Claude Code on Windows invokes hook commands via `CreateProcess` (no parent shell), which couldn't parse the previous inline `CLAUDE_HOOK_TYPE=… bash …` prefix and broke `PostToolUse:Bash` and `Stop` hooks with `bash: CLAUDE_HOOK_TYPE=…: No such file or directory` ([#108](https://github.com/verygoodplugins/mcp-automem/issues/108)). Affects `templates/claude-code/settings.json` and `plugins/automem/hooks/hooks.json`. The wrapped form is a no-op on macOS/Linux. Adds a `windows-latest` CI job that exercises the wrapped commands via Node `child_process` to catch future regressions.
-
-### Changes
-
-- rename the AutoMem service URL env var from `AUTOMEM_ENDPOINT` to `AUTOMEM_API_URL`. The old name still works (the server, queue processor, install script, and OpenClaw resolver all read it as a fallback), but a one-line deprecation warning is logged when only the old name is set. Re-running `npx @verygoodplugins/mcp-automem setup` migrates a `.env` file in place; templates and docs now advertise the new name.
-- `mcp-automem config` now accepts `--format=json` (single-arg form) and `--json` as shorthand, and silences the dotenv banner for machine-readable output so the JSON is safe to pipe into `jq`.
-- deprecate the standalone Claude Code plugin in favor of `npx @verygoodplugins/mcp-automem claude-code`
-- sync plugin-distributed Claude Code runtime scripts with the canonical copies under `templates/claude-code/`
-- add plugin migration guidance in `DEPRECATION.md`
 
 ## [0.13.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.12.0...mcp-automem-v0.13.0) (2026-03-25)
 
@@ -186,22 +192,6 @@ See [OpenClaw Setup Guide](./templates/openclaw/OPENCLAW_SETUP.md) for details.
 * resolve MD033 linter warnings for HTML elements ([bc2a4a5](https://github.com/verygoodplugins/mcp-automem/commit/bc2a4a5996ba8fb63941d53517b3ab45d16f953d))
 * use correct better-npm-audit version (3.11.0) ([31db0ab](https://github.com/verygoodplugins/mcp-automem/commit/31db0aba8fc7a77c7296779310f5f908cb22d372))
 
-## [Unreleased]
-
-### Added
-
-- **Claude Code Plugin**: Native plugin for Claude Code with `/plugin install` support
-  - New plugin structure at `plugins/automem/` with proper Claude Code plugin spec
-  - **Memory Management Skill**: Teaches Claude the 3-phase memory pattern (Recall → Store → Summarize)
-  - **Slash Commands**: `/memory-recall`, `/memory-store`, `/memory-health`
-  - **SessionStart Hook**: Automatic memory recall prompt at session start
-  - **MCP Server Configuration**: Pre-configured connection to AutoMem service
-  - **Marketplace Support**: Install via `/plugin marketplace add verygoodplugins/mcp-automem`
-
-### Changed
-
-- Updated package.json to include `plugins/` and `.claude-plugin/` directories
-- Updated README with plugin installation instructions for Claude Code
 ## 0.9.1 - 2025-12-10
 
 ### Fixed

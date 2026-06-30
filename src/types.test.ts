@@ -111,6 +111,17 @@ describe('Type Definitions', () => {
       expect(args.memories).toHaveLength(2);
       expect(args.content).toBeUndefined();
     });
+
+    it('should accept supersede mode fields', () => {
+      const args: StoreMemoryArgs = {
+        content: 'Corrected preference',
+        supersedes_memory_id: 'old-id',
+        supersede_relation: 'INVALIDATED_BY',
+        supersede_reason: 'User correction',
+      };
+      expect(args.supersedes_memory_id).toBe('old-id');
+      expect(args.supersede_relation).toBe('INVALIDATED_BY');
+    });
   });
 
   describe('RecallMemoryArgs', () => {
@@ -157,9 +168,12 @@ describe('Type Definitions', () => {
         expand_relations: true,
         expand_min_importance: 0.5,
         expand_min_strength: 0.3,
+        current_only: true,
+        state_debug: true,
       };
       expect(args.expand_min_importance).toBe(0.5);
       expect(args.expand_min_strength).toBe(0.3);
+      expect(args.current_only).toBe(true);
     });
 
     it('should support context hints', () => {
@@ -212,9 +226,11 @@ describe('Type Definitions', () => {
       const args: UpdateMemoryArgs = {
         memory_id: 'mem-123',
         importance: 0.95,
+        t_invalid: '2026-05-22T12:00:00Z',
         // content, tags, metadata are optional
       };
       expect(args.importance).toBe(0.95);
+      expect(args.t_invalid).toContain('2026');
     });
   });
 

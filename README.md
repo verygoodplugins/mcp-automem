@@ -19,7 +19,15 @@ npx @verygoodplugins/mcp-automem setup
 
 Your AI assistant now remembers everything. Forever. Across every conversation.
 
-Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex**, **Google Antigravity** - any MCP-compatible AI platform.
+<div align="center">
+
+https://github.com/user-attachments/assets/fd79112b-5158-4320-a054-8c18ab1ea314
+
+</div>
+
+<p align="center"><sub><b>The guided installer</b> — <code>npx @verygoodplugins/mcp-automem install</code> walks you through local, hosted, or existing-endpoint setup.</sub></p>
+
+Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex**, **OpenClaw**, **Hermes**, **Google Antigravity** - any MCP-compatible AI platform.
 
 ## The Problem We Solve
 
@@ -34,7 +42,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 ### 🧠 Persistent Memory Across Sessions
 
 - AI remembers decisions, patterns, and context **forever**
-- Works across **all MCP platforms** - Claude Desktop, Cursor, Claude Code, OpenAI Codex, Google Antigravity
+- Works across **all MCP platforms** - Claude Desktop, Cursor, Claude Code, OpenAI Codex, OpenClaw, Hermes, Google Antigravity
 - **Cross-device sync** - same memory on Mac, Windows, Linux
 
 ### 🏆 Graph-Vector Architecture
@@ -52,6 +60,8 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 | **Claude Code**    | ✅ Full | 30 seconds |
 | **GitHub Copilot** | ✅ Full | 2 minutes  |
 | **OpenAI Codex**   | ✅ Full | 30 seconds |
+| **OpenClaw**       | ✅ Full | 30 seconds |
+| **Hermes Agent**   | ✅ Full | 30 seconds |
 | **Google Antigravity** | ✅ Full | 30 seconds |
 | **Any MCP client** | ✅ Full | 30 seconds |
 
@@ -70,36 +80,9 @@ _Cursor uses automem.mdc rule to automatically recall and store memories_
 ### Claude Code with Session Memory
 
 ![Claude Code Memory Capture](screenshots/claude-code-1.jpg)
-_Git commits, builds, and deployments automatically stored to memory_
+_Session-start recall plus LLM-judged storage: Claude decides what's durable and stores it via the memory tools_
 
-### OpenAI Codex with Memory Rules
-
-OpenAI Codex uses config.toml to automatically recall and store memories
-
-### Your AI Learns Your Code Style
-
-```javascript
-// After 1 week, your AI writes EXACTLY like you
-// ✅ It knows you prefer early returns
-// ✅ It uses your specific variable naming
-// ✅ It matches your comment style
-// ✅ It follows YOUR patterns, not generic best practices
-```
-
-### Decisions That Feel Like Yours
-
-```
-User: "Should we use Redis for this?"
-
-Without AutoMem:
-"Consider RabbitMQ, Kafka, or AWS SQS based on your needs..."
-
-With AutoMem:
-"Based on your pattern of preferring boring technology that works,
-and your positive experience with Redis in Project X (March 2024),
-yes. You specifically value operational simplicity over feature
-richness - Redis fits perfectly."
-```
+More platform walkthroughs (Codex, Hermes, Antigravity, remote MCP) live in the **[Installation Guide](INSTALLATION.md)**.
 
 ## Quick Start
 
@@ -147,7 +130,20 @@ Then add the paste-ready Personal Preferences starter from [`templates/CLAUDE_DE
 Connect your AI tools to the AutoMem service you just started.
 
 ```bash
-# Guided setup - creates .env and prints config for your AI platform
+# Guided install - pick where AutoMem runs, verify it, write .env, and
+# configure your agents (Codex, Claude Code, Cursor, OpenClaw, Hermes)
+npx @verygoodplugins/mcp-automem install
+```
+
+Every change is shown in a review plan before anything is written, and each
+modified file keeps a `.bak` backup. Add `--dry-run` to preview, `--yes` to
+apply non-interactively. See the [Installation Guide](INSTALLATION.md#guided-install-fastest)
+for all flags.
+
+Just need the `.env` + config snippets without the agent setup? Use the lighter wizard:
+
+```bash
+# Creates .env and prints config for your AI platform
 npx @verygoodplugins/mcp-automem setup
 ```
 
@@ -164,14 +160,17 @@ The wizard will:
 
 ### 3. Platform-Specific Setup
 
-**For Claude Desktop:**
+**For Claude Code (plugin — recommended):**
 
-```bash
-# Setup prints config snippet - just paste into claude_desktop_config.json
-npx @verygoodplugins/mcp-automem setup
+```text
+# In Claude Code:
+/plugin marketplace add verygoodplugins/mcp-automem
+/plugin install automem@verygoodplugins-mcp-automem
 ```
 
-Then paste [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md) into **Claude Desktop → Settings → Profile → Personal Preferences**.
+Claude Code prompts for your AutoMem URL and API key at enable time, bundles the MCP server and silent recall/store-tracking hooks, and auto-updates. Prefer hooks and permissions written directly into `~/.claude/` instead? Run `npx @verygoodplugins/mcp-automem claude-code`.
+
+On Windows, the hook payload assumes a POSIX shell environment such as Git Bash, MSYS2, or WSL — only `bash` is required (the hooks are pure bash+sed).
 
 **For Cursor IDE:**
 
@@ -182,111 +181,17 @@ Then paste [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](templates/CLAUDE_DESKTOP
 npx @verygoodplugins/mcp-automem cursor
 ```
 
-> **Note:** After one-click install, configure your `AUTOMEM_API_URL` in `~/.cursor/mcp.json` or Claude Desktop config
+**Other platforms** — Claude Desktop (one-click `.mcpb` above, plus the [Personal Preferences template](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md)), [OpenAI Codex](INSTALLATION.md#openai-codex), [Hermes Agent](INSTALLATION.md#hermes-agent), [OpenClaw](INSTALLATION.md#openclaw), [Google Antigravity](INSTALLATION.md#google-antigravity), and [GitHub Copilot](INSTALLATION.md#github-copilot-coding-agent-githubcom):
 
-**For Claude Code:**
-
-#### Option A: CLI Setup (Recommended)
-
-```bash
-# Installs SessionStart hook and MCP permissions
-npx @verygoodplugins/mcp-automem claude-code
-```
-
-This is the supported Claude Code integration path.
-
-On Windows, this compatibility path currently assumes a POSIX shell environment such as Git Bash, MSYS2, or WSL. `bash`, `jq`, and Python must be available. This is not full native Windows hook support yet.
-
-#### Option B: Plugin (Deprecated)
-
-```bash
-# In Claude Code, install the plugin:
-/plugin marketplace add verygoodplugins/mcp-automem
-/plugin install automem@verygoodplugins-mcp-automem
-```
-
-The marketplace plugin is deprecated and kept only as a migration bridge for one release. Use `npx @verygoodplugins/mcp-automem claude-code` for new installs.
-
-Migration details: [DEPRECATION.md](DEPRECATION.md)
-
-**For OpenAI Codex:**
-
-```bash
-# Add to your Codex MCP configuration
-npx @verygoodplugins/mcp-automem config --format=json
-
-# Optional: add memory-first rules to this repo
-npx @verygoodplugins/mcp-automem codex
-```
-
-**For GitHub Copilot (CLI and VS Code):**
-
-```bash
-npx @verygoodplugins/mcp-automem copilot --yes
-```
-
-Options:
-| Flag | Default | Description |
-|---|---|---|
-| `--format cli\|vscode\|both` | `both` | Controls event name casing and which memory-rules files are installed. `cli` = camelCase, `vscode` = PascalCase, `both` = install both variants. See [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) |
-| `--profile <full\|lean>` | `lean` | Hook profile to install. `lean` installs session hooks only; `full` also installs build/test/deploy capture |
-| `--dir <path>` | `$COPILOT_HOME` or `~/.copilot` | Target installation directory |
-| `--dry-run` | | Preview file operations without writing |
-| `--yes`, `-y` | | Skip confirmation prompts |
-| `--quiet` | | Suppress non-error output |
-
-**For Google Antigravity:**
-
-1. Open the MCP Store from the `...` menu at the top of the editor's agent panel
-2. Click `Manage MCP Servers` and then `View raw config`
-3. Paste the config from [templates/antigravity/mcp_config.json](templates/antigravity/mcp_config.json) into `~/.gemini/antigravity/mcp_config.json`
-4. Restart or reload Antigravity so the `memory` server is available
-
-👉 **[Google Antigravity Setup](INSTALLATION.md#google-antigravity)** for the full flow and verification steps
-
-👉 **[Full Installation Guide](INSTALLATION.md)** for detailed MCP client and platform-specific setup
+👉 **[Full Installation Guide](INSTALLATION.md)** for every platform's setup and verification steps
 
 ---
 
-## New: Remote MCP via HTTP
+## Remote MCP via HTTP
 
-You can now connect AutoMem to platforms that support remote MCP via **Streamable HTTP** (recommended) or **SSE** transport via an optional sidecar service (deployable to Railway or any Docker host).
+An optional sidecar service (deployable to Railway or any Docker host) connects AutoMem to platforms that support remote MCP over **Streamable HTTP** or SSE — ChatGPT (Developer Mode connectors), Claude.ai web and Claude Mobile, and ElevenLabs Agents.
 
-- ChatGPT (Developer Mode custom connectors)
-- Claude.ai (web) and Claude Mobile (iOS/Android)
-- ElevenLabs Agents Platform
-
-Quick connect URLs (after deploying the sidecar):
-
-- **Streamable HTTP** (recommended): `https://<your-mcp-domain>/mcp?api_token=<AUTOMEM_API_TOKEN>`
-- **SSE** (legacy): `https://<your-mcp-domain>/mcp/sse?api_token=<AUTOMEM_API_TOKEN>`
-- ElevenLabs: `https://<your-mcp-domain>/mcp` with header `Authorization: Bearer <AUTOMEM_API_TOKEN>`
-
-See the Installation Guide for complete steps and deployment options.
-
-### Remote MCP Platforms in Action
-
-![ChatGPT Developer Mode – Connector Config](screenshots/chatgpt-connector-config.jpg)
-_ChatGPT Developer Mode: Add your MCP endpoint as a custom connector_
-
-![ChatGPT with AutoMem Memories](screenshots/chatgpt-memories.jpg)
-_ChatGPT using AutoMem memories via remote MCP_
-
-![Claude Web Using AutoMem](screenshots/claude-ai-web-memories.jpg)
-_Claude.ai website connected to AutoMem via remote MCP_
-
-![Claude iOS App](screenshots/claude-ios-app.jpeg)
-_Claude Mobile (iOS) connected to AutoMem via remote MCP_
-
-## What Happens Next
-
-| Timeline   | What Your AI Learns            |
-| ---------- | ------------------------------ |
-| **Hour 1** | Starts capturing your patterns |
-| **Day 1**  | Learns your decision factors   |
-| **Day 3**  | Recognizes your coding style   |
-| **Week 1** | Writes in your voice           |
-| **Week 2** | Makes decisions like you would |
+👉 **[Remote MCP setup](INSTALLATION.md#remote-mcp-via-http-sidecar)** for deployment, connect URLs, and per-platform screenshots.
 
 ## Architecture
 
@@ -337,13 +242,13 @@ _Claude Mobile (iOS) connected to AutoMem via remote MCP_
 - **`recall_memory`** — Three modes selected by which params you pass:
   - **ID fetch**: `memory_id` → fetches one memory by ID; updates `last_accessed`.
   - **Tag enumeration**: `tags` + `exhaustive: true` → paginated exact-match listing for cleanup/audit workflows where ranked recall undercounts. Pair with `limit` (≤200) and `offset`; returns `has_more`.
-  - **Ranked retrieval (default)**: hybrid search across vector, keyword, tags, recency, with optional graph expansion and `exclude_tags` to filter out unwanted scopes.
-- **`associate_memories`** — Create relationships (11 public authorable types; recall results may also include read-only system relations)
+  - **Ranked retrieval (default)**: hybrid search across vector, keyword, tags, recency/state controls, score filters, and graph expansion. Supports `state_mode`, `recency_bias`, `scope_fallback`, `expand_respect_tags`, `min_score`, `adaptive_floor`, and diagnostics such as `tag_scope`, `score_filter`, `query_time_ms`, `vector_search`, and per-result `outside_tag_scope`/`state_replaces`.
+- **`associate_memories`** — Create relationships (11 public authorable types; recall results may also include read-only system relations). Supports single-pair mode and batch mode via `associations: [...]` (≤500) with relation-specific props like `reason`, `context`, `resolution`, `observations`, `transformation`, and `role`.
 - **`update_memory`** — Modify existing memories
 - **`delete_memory`** — Two modes:
   - **Single (default)**: `memory_id` → removes one memory and its embedding.
   - **Bulk-by-tag**: `tags: [...]` → bulk-delete all memories matching ANY tag (exact, case-insensitive). No dry-run; verify with `recall_memory({ tags, exhaustive: true })` first.
-- **`check_database_health`** — Monitor service status
+- **`check_database_health`** — Monitor service health, degraded state, sync counts, vector dimensions, and enrichment diagnostics when the service provides them
 
 ### Advanced Recall (v0.8.0+)
 
@@ -378,9 +283,9 @@ mcp__memory__recall_memory({
 
 #### Claude Code
 
-- ✅ **MCP permissions** for memory tools
+- ✅ **Native plugin** - MCP server, silent hooks, and skill in one `/plugin install`, with enable-time config prompts and auto-updates
+- ✅ **LLM-judged storage** - session-start guidance nudges Claude to store, verify, and associate durable memories during normal work
 - ✅ **Memory rules** in CLAUDE.md guide Claude's memory usage
-- ✅ **Simple setup** - just permissions, Claude decides what to store
 
 #### GitHub Copilot
 
@@ -418,44 +323,19 @@ mcp__memory__recall_memory({
 - ✅ **Structured relationships** (not just RAG)
 - ✅ **Infinite scale** (no context window limits)
 
-## Real-World Results
-
-### Code Review That Knows Your Standards
-
-```
-Before AutoMem:
-"Consider adding error handling here."
-
-After AutoMem:
-"Missing your standard try/except pattern. Based on your PR#127
-review comments, you always wrap database calls with specific
-logging for timeouts. Apply the same pattern here?"
-```
-
-### Decisions With Context
-
-```
-Before AutoMem:
-"Both approaches have tradeoffs..."
-
-After AutoMem:
-"You chose PostgreSQL over MongoDB for similar use case in Q1 2024.
-Your decision memo cited team expertise and operational simplicity.
-Same factors apply here - go with Postgres."
-```
-
 ## Documentation
 
 ### MCP Client & Integrations (this repo)
 
 - 📦 **[Installation Guide](INSTALLATION.md)** - MCP client setup for all platforms
-- 🌐 **[Remote MCP via SSE](INSTALLATION.md#remote-mcp-via-sse-sidecar)** - Connect ChatGPT, Claude Web/Mobile, ElevenLabs
+- 🌐 **[Remote MCP via HTTP](INSTALLATION.md#remote-mcp-via-http-sidecar)** - Connect ChatGPT, Claude Web/Mobile, ElevenLabs
 - 🎯 **[Cursor Setup](INSTALLATION.md#cursor-ide)** - IDE integration with rules
-- 🤖 **[Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md)** - Memory rules integration
-- ⚠️ **[Deprecations](DEPRECATION.md)** - Claude Code plugin migration and removal plan
+- 🤖 **[Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md)** - Plugin install, hooks, and memory rules
+- ⚠️ **[Deprecations](DEPRECATION.md)** - History of the plugin deprecation and its reversal
 - 🚀 **[OpenAI Codex Setup](INSTALLATION.md#openai-codex)** - Codex CLI/IDE/Cloud integration
 - 🪐 **[Google Antigravity Setup](INSTALLATION.md#google-antigravity)** - Raw MCP config via Antigravity's MCP Store
 - 📖 **[MCP Tools Reference](INSTALLATION.md#mcp-tools)** - All memory operations
+- 📝 **[Changelog](CHANGELOG.md)** - Release history
 
 ### AutoMem Service (separate repo)
 
@@ -473,7 +353,7 @@ The AutoMem service implements cutting-edge 2025 research:
 - **MELODI** (DeepMind, 2025): 8x memory compression without quality loss
 - **ReadAgent** (DeepMind, 2024): 20x context extension through gist memories
 
-This MCP package provides the bridge between your AI and that research-validated memory system.
+This MCP package provides the bridge between your AI and that research-validated memory system. The backend has also been benchmarked on the neutral [Agent Memory Benchmark](https://automem.ai/benchmarks), including BEAM large-context scaling tiers — reproducible end to end, so you can run it yourself.
 
 ## Community & Support
 
@@ -483,23 +363,6 @@ This MCP package provides the bridge between your AI and that research-validated
 - 📦 **[NPM Package](https://www.npmjs.com/package/@verygoodplugins/mcp-automem)** - This MCP client
 - 🔬 **[AutoMem Service](https://github.com/verygoodplugins/automem)** - Backend repo with deployment guides
 - 🐛 **[GitHub Issues](https://github.com/verygoodplugins/mcp-automem/issues)** - Bug reports and feature requests
-
-## Quick Links
-
-### MCP Client Setup
-
-- [Installation Guide](INSTALLATION.md) - MCP client setup for all platforms
-- [Cursor Integration](INSTALLATION.md#cursor-ide) - IDE rules and configuration
-- [Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md) - Memory rules integration
-- [Deprecations](DEPRECATION.md) - Claude Code plugin migration and removal plan
-- [OpenAI Codex](INSTALLATION.md#openai-codex) - Codex integration
-- [Google Antigravity](INSTALLATION.md#google-antigravity) - Antigravity MCP setup
-- [Changelog](CHANGELOG.md) - Release history
-
-### AutoMem Service
-
-- [Service Repository](https://github.com/verygoodplugins/automem) - Backend source code
-- [Service Installation](https://github.com/verygoodplugins/automem/blob/main/INSTALLATION.md) - Local, Railway, Docker deployment
 
 ## Contributing
 

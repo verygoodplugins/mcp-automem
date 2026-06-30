@@ -3,11 +3,18 @@
  * explicitly targets generated files in a temp workspace/home.
  */
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { execFileSync, execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+
+// These tests spawn the built CLI as a child process (runCli allows the
+// subprocess up to 10s). The default 5s vitest timeout fires before that
+// budget is spent, so the heavier commands (e.g. the openclaw plugin dry-run)
+// flake under load. Give every test in this file headroom over the subprocess
+// timeout; a genuine hang still fails fast via execFileSync's own 10s limit.
+vi.setConfig({ testTimeout: 15000 });
 
 const CLI_PATH = path.resolve(__dirname, '../../dist/index.js');
 
@@ -69,6 +76,28 @@ describe('CLI Smoke Tests', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-cli-test-'));
   });
 
+  describe('command dispatch', () => {
+    it('rejects unknown commands instead of falling through to stdio server mode', () => {
+      const testDir = path.join(tempDir, 'unknown-command');
+      fs.mkdirSync(testDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(testDir, '.env'),
+        'AUTOMEM_API_URL=http://127.0.0.1:8001\nAUTOMEM_API_KEY=sk-test\n'
+      );
+
+      const result = runCli(['not-a-real-command'], {
+        cwd: testDir,
+        timeout: 1000,
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('Unknown command: not-a-real-command');
+      expect(result.stderr).toContain('mcp-automem help');
+      expect(result.stdout + result.stderr).not.toContain('injected env');
+    });
+  });
+
   describe('config command', () => {
     it('should output config with MCP server snippet', () => {
       const output = runCliExpectSuccess(['config']);
@@ -90,6 +119,37 @@ describe('CLI Smoke Tests', () => {
 
       // Run from tempDir so dotenv doesn't pick up the project root's .env file
       // and inject AUTOMEM_API_URL, which would defeat the fallback assertion.
+      const stdout = execFileSync(process.execPath, [CLI_PATH, 'config', '--format=json'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        env: cleanEnv,
+        cwd: tempDir,
+      });
+
+      expect(stdout).toContain('http://legacy-host:8765');
+    });
+
+    it('prefers AUTOMEM_API_URL over AUTOMEM_ENDPOINT when both are set', () => {
+      const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
+      cleanEnv.AUTOMEM_API_URL = 'http://new-host:1111';
+      cleanEnv.AUTOMEM_ENDPOINT = 'http://legacy-host:8765';
+
+      const stdout = execFileSync(process.execPath, [CLI_PATH, 'config', '--format=json'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        env: cleanEnv,
+        cwd: tempDir,
+      });
+
+      expect(stdout).toContain('http://new-host:1111');
+      expect(stdout).not.toContain('http://legacy-host:8765');
+    });
+
+    it('treats an empty AUTOMEM_API_URL as unset so the legacy alias still applies', () => {
+      const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
+      cleanEnv.AUTOMEM_API_URL = '';
+      cleanEnv.AUTOMEM_ENDPOINT = 'http://legacy-host:8765';
+
       const stdout = execFileSync(process.execPath, [CLI_PATH, 'config', '--format=json'], {
         encoding: 'utf8',
         timeout: 10000,
@@ -158,7 +218,17 @@ describe('CLI Smoke Tests', () => {
 
   describe('setup command', () => {
     it('should show config with --yes flag (non-interactive)', () => {
-      const result = runCli(['setup', '--yes', '--endpoint', 'http://test:8001']);
+      // Sandbox cwd + HOME so `setup` writes its .env into the temp workspace,
+      // not the developer's real project-root .env (setup resolves .env against cwd).
+      const cwd = path.join(tempDir, 'setup-cwd');
+      const homeDir = path.join(tempDir, 'setup-home');
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.mkdirSync(homeDir, { recursive: true });
+
+      const result = runCli(['setup', '--yes', '--endpoint', 'http://test:8001'], {
+        cwd,
+        env: { HOME: homeDir },
+      });
       expect((result.stdout + result.stderr).length).toBeGreaterThan(0);
     });
   });
@@ -367,15 +437,9 @@ describe('Template Generation', () => {
 
   it('plugin-distributed Claude Code runtime assets should match the canonical templates', () => {
     const pairs: Array<[string, string]> = [
-      ['templates/claude-code/hooks/capture-build-result.sh', 'plugins/automem/scripts/capture-build-result.sh'],
-      ['templates/claude-code/hooks/capture-deployment.sh', 'plugins/automem/scripts/capture-deployment.sh'],
-      ['templates/claude-code/hooks/capture-test-pattern.sh', 'plugins/automem/scripts/capture-test-pattern.sh'],
-      ['templates/claude-code/hooks/session-memory.sh', 'plugins/automem/scripts/session-memory.sh'],
       ['templates/claude-code/hooks/automem-session-start.sh', 'plugins/automem/scripts/session-start.sh'],
-      ['templates/claude-code/scripts/python-command.sh', 'plugins/automem/scripts/python-command.sh'],
-      ['templates/claude-code/scripts/memory-filters.json', 'plugins/automem/scripts/memory-filters.json'],
-      ['templates/claude-code/scripts/process-session-memory.py', 'plugins/automem/scripts/process-session-memory.py'],
-      ['templates/claude-code/scripts/queue-cleanup.sh', 'plugins/automem/scripts/queue-cleanup.sh'],
+      ['templates/claude-code/hooks/automem-stop-nudge.sh', 'plugins/automem/scripts/stop-nudge.sh'],
+      ['templates/claude-code/hooks/automem-track-store.sh', 'plugins/automem/scripts/track-store.sh'],
     ];
 
     for (const [canonical, pluginCopy] of pairs) {
@@ -432,7 +496,9 @@ describe('Template Generation', () => {
     let totalMarkers = 0;
 
     for (const rel of tracked) {
-      const content = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+      const abs = path.join(repoRoot, rel);
+      if (!fs.existsSync(abs)) continue;
+      const content = fs.readFileSync(abs, 'utf8');
       let m: RegExpExecArray | null;
       while ((m = marker.exec(content)) !== null) {
         totalMarkers += 1;
@@ -447,6 +513,21 @@ describe('Template Generation', () => {
       drifted,
       `\nTemplate versions drifted from package.json (${pkgVersion}). Run \`npm run sync-versions\` (or \`npm run build\`) to fix:\n  ${drifted.join('\n  ')}`
     ).toEqual([]);
+  });
+
+  it('postbuild should not depend on a shell chmod command', () => {
+    const repoRoot = path.resolve(__dirname, '../..');
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+    const postbuild = pkg.scripts?.postbuild ?? '';
+
+    expect(postbuild).toBe('node scripts/build-openclaw-plugin-package.mjs');
+    expect(postbuild).not.toMatch(/\bchmod\b/);
+
+    const openclawBuildScript = fs.readFileSync(
+      path.join(repoRoot, 'scripts/build-openclaw-plugin-package.mjs'),
+      'utf8'
+    );
+    expect(openclawBuildScript).toContain("chmodSync(join(DIST_ROOT, 'index.js'), 0o755)");
   });
 
   it('cursor project template should include operational memory workflow (3.0.0 playbook)', () => {
@@ -471,11 +552,13 @@ describe('Template Generation', () => {
     expect(cursorTemplate).toContain('active_path');
     expect(cursorTemplate).toContain('language');
 
-    // Validated-parameter guardrails.
+    // Validated-parameter guardrails. format "detailed" was dropped from the
+    // recall examples — the default text format now carries timestamps and
+    // responses are budget-capped server-side.
     expect(cursorTemplate).toContain('"last 90 days"');
     expect(cursorTemplate).toContain('limit: 20');
     expect(cursorTemplate).toContain('limit: 30');
-    expect(cursorTemplate).toContain('format: "detailed"');
+    expect(cursorTemplate).not.toContain('format: "detailed"');
 
     // Tag discipline: bare tags only, no platform tag, no [YYYY-MM].
     expect(cursorTemplate).toContain('NO platform tag');
@@ -521,7 +604,46 @@ describe('Template Generation', () => {
     expect(installationGuide).not.toContain('### Optional GPT-5.4 Overlay');
   });
 
-  it('Claude Code docs should prefer the CLI installer and mark the plugin deprecated', () => {
+  it('installation guide should document Hermes install modes and duplicate-tool recovery', () => {
+    const installationGuide = fs.readFileSync(
+      path.resolve(__dirname, '../../INSTALLATION.md'),
+      'utf8'
+    );
+
+    expect(installationGuide).toContain('## Hermes Agent');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode mcp');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode provider');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode both');
+    expect(installationGuide).toContain('hermes mcp test automem');
+    expect(installationGuide).toContain('hermes memory status');
+    expect(installationGuide).toContain('hermes automem doctor');
+    expect(installationGuide).toContain('exclusive plugin');
+    expect(installationGuide).toContain('Recall context is injected into the model payload');
+    expect(installationGuide).toContain('shared AutoMem recall blueprint');
+    expect(installationGuide).toContain('rules profile');
+    expect(installationGuide).toContain('provider profile');
+    expect(installationGuide).toContain('5 / 10 / 10');
+    expect(installationGuide).toContain('20 / 30 / 20');
+    expect(installationGuide).toContain('Provider explicit recall is capped at 10 results');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem uninstall hermes');
+    expect(installationGuide).toContain('tools: Tool names must be unique');
+    expect(installationGuide).toContain('mcp_servers.memory');
+    expect(installationGuide).toContain('stale AutoMem Codex rules block');
+    expect(installationGuide).toContain('AUTOMEM_HERMES_PROVIDER_TOOLS=false');
+  });
+
+  it('repo agent guidance should require real host integration smoke tests', () => {
+    const guidance = fs.readFileSync(path.resolve(__dirname, '../../AGENTS.md'), 'utf8');
+
+    expect(guidance).toContain('Host integration smoke tests');
+    expect(guidance).toContain('temp home');
+    expect(guidance).toContain('fake AutoMem API');
+    expect(guidance).toContain('real stdio MCP');
+    expect(guidance).toContain('provider-visible tool names');
+    expect(guidance).toContain('tests/helpers/host-specs.ts');
+  });
+
+  it('Claude Code docs should prefer the plugin and keep the CLI installer as the settings-level alternative', () => {
     const readme = fs.readFileSync(path.resolve(__dirname, '../../README.md'), 'utf8');
     const pluginReadme = fs.readFileSync(path.resolve(__dirname, '../../plugins/automem/README.md'), 'utf8');
     const deprecations = fs.readFileSync(path.resolve(__dirname, '../../DEPRECATION.md'), 'utf8');
@@ -538,26 +660,43 @@ describe('Template Generation', () => {
       'utf8'
     );
 
-    expect(readme).toContain('#### Option A: CLI Setup (Recommended)');
-    expect(readme).toContain('#### Option B: Plugin (Deprecated)');
-    expect(readme).toContain('DEPRECATION.md');
+    // The plugin is the recommended Claude Code install path (June 2026
+    // reversal of the v0.14 deprecation — see DEPRECATION.md).
+    expect(readme).toContain('/plugin install automem@verygoodplugins-mcp-automem');
+    expect(readme).not.toContain('Option B: Plugin (Deprecated)');
     expect(readme).toContain('Git Bash, MSYS2, or WSL');
+    // The hooks are pure bash+sed; jq/Python must never be claimed as required.
+    expect(readme).not.toMatch(/`bash`, `jq`, and Python/);
 
-    expect(pluginReadme).toContain('Deprecated');
-    expect(pluginReadme).toContain('npx @verygoodplugins/mcp-automem claude-code');
+    expect(pluginReadme).not.toMatch(/deprecated/i);
+    expect(pluginReadme).toContain('/plugin install automem@verygoodplugins-mcp-automem');
 
+    expect(claudeCodeGuide).toContain('/plugin install automem@verygoodplugins-mcp-automem');
     expect(claudeCodeGuide).toContain('npx @verygoodplugins/mcp-automem claude-code');
-    expect(claudeCodeGuide).toContain('deprecated');
     expect(claudeCodeGuide).toContain('Git Bash, MSYS2, or WSL');
 
+    expect(installationGuide).toContain('/plugin install automem@verygoodplugins-mcp-automem');
     expect(installationGuide).toContain('Git Bash, MSYS2, or WSL');
 
-    expect(claudeSettings).toContain('Bash(python3:*)');
-    expect(claudeSettings).toContain('Bash(python:*)');
-    expect(claudeSettings).toContain('Bash(py:*)');
+    // The settings template ships only the six MCP permissions — no Bash
+    // grants, no env block, no deny/ask. The old broad allow-list was a
+    // personal-dev-environment snapshot, never part of the integration.
+    expect(claudeSettings).not.toContain('Bash(');
+    const parsedSettings = JSON.parse(claudeSettings) as {
+      env?: unknown;
+      permissions: { allow: string[]; deny?: unknown; ask?: unknown };
+    };
+    expect(parsedSettings.permissions.allow).toHaveLength(6);
+    expect(parsedSettings.permissions.allow.every((p) => p.startsWith('mcp__memory__'))).toBe(
+      true
+    );
+    expect(parsedSettings.env).toBeUndefined();
+    expect(parsedSettings.permissions.deny).toBeUndefined();
+    expect(parsedSettings.permissions.ask).toBeUndefined();
 
+    // DEPRECATION.md records the reversal honestly.
     expect(deprecations).toContain('Claude Code Plugin');
-    expect(deprecations).toContain('npx @verygoodplugins/mcp-automem claude-code');
+    expect(deprecations).toMatch(/reversed/i);
   });
 
   it('OpenClaw templates should follow semantic-first recall and bare-tag guidance', () => {
@@ -575,12 +714,16 @@ describe('Template Generation', () => {
     );
 
     expect(mcpSkill).toContain('tags: ["preference"]');
-    expect(mcpSkill).toContain('bugfix", "solution');
+    // Debug recall must NOT gate on bugfix/solution tags — tagging is
+    // incomplete and a hard gate hides cross-corpus fixes.
+    expect(mcpSkill).not.toContain('bugfix", "solution');
+    expect(mcpSkill).toContain('NO tags');
     expect(mcpSkill).toContain('hard gate');
     expect(mcpSkill).toContain('avoid platform tags like `openclaw`');
 
     expect(legacySkill).toContain('tags=preference');
-    expect(legacySkill).toContain('bugfix&tags=solution');
+    expect(legacySkill).not.toContain('bugfix&tags=solution');
+    expect(legacySkill).toContain('no `tags=` parameters');
     expect(legacySkill).toContain('"tags": ["project-slug", "decision"]');
     expect(legacySkill).not.toContain('"tags": ["openclaw"]');
 

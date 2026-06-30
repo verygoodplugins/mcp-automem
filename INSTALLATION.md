@@ -12,7 +12,81 @@ You need a running **[AutoMem service](https://github.com/verygoodplugins/autome
 
 ## Quick Start
 
-Follow these two steps:
+### Guided install (fastest)
+
+One command walks you through everything — where AutoMem runs, endpoint
+verification, writing `.env`, and configuring each agent:
+
+```bash
+npx @verygoodplugins/mcp-automem install
+```
+
+It asks where AutoMem should run (**Hosted Cloud**, **Local Docker**, or an
+**Existing Endpoint**). For **Hosted Cloud** you pick a provider:
+
+- **InstaPods** — opens the InstaPods setup page in your browser. It deploys
+  AutoMem (Grow plan) and emails you your API URL + key; you paste them back into
+  the installer. Already have them? Skip the browser and paste directly.
+- **Railway** — if the `railway` CLI isn't on your PATH, the installer offers to
+  install it for you with `npm i -g @railway/cli` (with your confirmation — you already
+  have Node from running this installer). It then signs you in via the CLI (a browser
+  hand-off that also creates an account if you're new) and deploys the AutoMem template
+  **straight from the terminal** — no browser tab for the deploy itself — reading back
+  the service domain + API token automatically. If you decline the CLI install, or the
+  terminal deploy can't complete, it falls back to the template's **Deploy Now** page in
+  your browser, then captures the credentials (via `railway link`, or by paste).
+- **Other** — already deployed AutoMem somewhere? Paste your endpoint + token and
+  the installer takes it from there.
+
+It then verifies the endpoint (`/health` + an authenticated
+recall probe when you supply a key), then offers to configure your agents
+(Codex, Claude Code, Cursor, OpenClaw, Hermes). For Claude Code it offers the
+**plugin** (recommended — bundles the MCP server + hooks and auto-updates) or a
+**settings-level** install. When the `claude` CLI is on your PATH, the installer
+runs `claude plugin install` for you and passes the verified endpoint as plugin
+config; API keys are not passed in process arguments, so configure the key through
+Claude Code's plugin UI or `AUTOMEM_API_KEY`. If `claude` is unavailable, it
+prints the two `/plugin` commands to run inside Claude Code. Every change is shown
+in a review plan before anything is written, and each modified file keeps a
+`<file>.bak` backup.
+
+Non-interactive / scriptable use:
+
+```bash
+# Preview the plan without writing anything
+npx @verygoodplugins/mcp-automem install --dry-run --target existing \
+  --endpoint https://your-automem.example --api-key "$AUTOMEM_API_KEY"
+
+# Apply without prompts (CI / dotfiles)
+npx @verygoodplugins/mcp-automem install --yes --target existing \
+  --endpoint https://your-automem.example --clients codex,cursor \
+  --claude-code-mode settings
+```
+
+Flags: `--target <local|cloud|existing>`, `--cloud-provider <instapods|railway|other>`,
+`--clients <list>`, `--endpoint`, `--api-key`, `--local-dir`,
+`--claude-code-mode <plugin|settings>`, `--hermes-mode <mcp|provider|both>`,
+`--dry-run`, `--yes`, `--no-agent-install`. The same values can be passed as
+`AUTOMEM_*` environment variables. For CI/dotfiles, prefer `--target existing`
+with `--endpoint` and `--api-key`; InstaPods is an interactive browser+paste flow.
+Railway can run non-interactively only when the `railway` CLI is already installed
+and either signed in or authenticated with `RAILWAY_API_TOKEN`, and
+`--yes --cloud-provider railway` is supplied. `--dry-run` never opens a browser,
+installs or runs the railway CLI, deploys, or charges anything — it only prints
+the plan.
+
+> Without a TTY and without `--yes`/`--dry-run`, `install` prints the review
+> plan and stops without writing — re-run with `--yes` to apply.
+
+**Removing AutoMem:** uninstall is per-agent —
+`npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes>`
+(add `--clean-all` to also drop the MCP server config). OpenClaw owns its own
+plugin lifecycle, so remove the AutoMem plugin from OpenClaw directly with
+`openclaw plugins uninstall automem` rather than the `uninstall` command above.
+
+### Manual setup
+
+Prefer to do it by hand? Follow these two steps:
 
 1. **[Set up AutoMem service](#automem-service-setup)** - Deploy the backend (see options above)
 2. **[Install MCP client](#mcp-client-setup)** - Connect your AI platforms
@@ -69,6 +143,7 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [GitHub Copilot coding agent](#github-copilot-coding-agent-githubcom) - Cloud-based coding agent on GitHub.com
 - [GitHub Copilot CLI and VS Code](#github-copilot-cli-and-vs-code) - Terminal and editor with hooks and memory rules
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
+- [Hermes Agent](#hermes-agent) - Nous Research terminal agent with MCP and native memory provider support
 - [Google Antigravity](#google-antigravity) - Desktop editor with MCP Store and raw config
 - [OpenClaw](#openclaw) - Personal AI assistant with multi-platform messaging (WhatsApp, Telegram, Slack, Discord, etc.)
 
@@ -370,9 +445,36 @@ Keep this global layer short. Project rules should continue to own recall/store/
 
 ## Claude Code
 
-Claude Code integration uses a simple approach: **MCP permissions + memory rules**. Claude has direct MCP access and can judge what's worth storing better than automated hooks.
+The recommended install is the **AutoMem plugin** — Claude Code handles install, updates, configuration prompts, and uninstall natively. A settings-level CLI installer remains for environments without plugin support.
 
-### 1. Configure MCP Server
+### Option A: Plugin (Recommended)
+
+```text
+# In Claude Code:
+/plugin marketplace add verygoodplugins/mcp-automem
+/plugin install automem@verygoodplugins-mcp-automem
+```
+
+When you enable the plugin, Claude Code prompts for:
+
+- **AutoMem API URL** — e.g. `http://127.0.0.1:8001` or your Railway URL. Leave empty to use `AUTOMEM_API_URL` from your environment; falls back to `http://127.0.0.1:8001`.
+- **AutoMem API key** — only if your deployment requires auth. Stored in the system keychain.
+
+The plugin bundles the MCP server, silent integration hooks (SessionStart recall plus store tracking), and the memory-management skill plus `/memory-recall`, `/memory-store`, and `/memory-health` commands. It does not register a Stop hook by default, so normal sessions end without AutoMem feedback in the chat stream.
+
+> Tool naming: Claude Code namespaces plugin MCP tools, so they appear as `mcp__plugin_automem_memory__store_memory` (etc.) rather than `mcp__memory__*`. Approve each tool on first use, or pre-approve by adding the `mcp__plugin_automem_memory__*` names to `permissions.allow` in `~/.claude/settings.json`.
+
+**Migrating from the CLI installer:** remove the settings-level install first, so hooks don't fire twice and the memory tools don't appear under two servers:
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall claude-code --clean-all
+```
+
+### Option B: CLI installer (settings-level)
+
+For locked-down environments without plugin support, or if you prefer hooks and permissions written directly into `~/.claude/`:
+
+#### 1. Configure MCP Server
 
 Add AutoMem to `~/.claude.json`:
 
@@ -391,21 +493,25 @@ Add AutoMem to `~/.claude.json`:
 }
 ```
 
-### 2. Add Permissions (Optional)
-
-Run the setup to add MCP tool permissions:
+#### 2. Install hooks and permissions
 
 ```bash
 npx @verygoodplugins/mcp-automem claude-code
 ```
 
-This merges permissions into `~/.claude/settings.json` so Claude can use memory tools without asking.
+This installs the hook scripts and merges the six `mcp__memory__*` tool permissions into `~/.claude/settings.json` so Claude can use memory tools without asking. The default profile registers only SessionStart recall and PostToolUse store tracking; the Stop storage nudge script is installed but not registered, so session end stays silent. That permission list is everything the installer grants — it no longer ships any `Bash(*)`, file-tool, or `deny`/`ask` entries.
 
-> Windows compatibility note: the Claude Code hook payload remains Bash-based. On Windows, use a POSIX shell environment such as Git Bash, MSYS2, or WSL, and make sure `bash`, `jq`, and Python are available. This is not full native Windows hook support yet.
+To opt back into the visible Stop storage nudge:
 
-> Note: the old Claude Code marketplace plugin is deprecated and kept only as a migration bridge. Use `npx @verygoodplugins/mcp-automem claude-code` for new installs. See [DEPRECATION.md](DEPRECATION.md).
+```bash
+npx @verygoodplugins/mcp-automem claude-code --profile nudged
+```
 
-Or manually add to `~/.claude/settings.json`:
+Re-running setup is also the supported migration path for legacy installs: the default silent merge removes the managed AutoMem Stop nudge from settings unless you pass `--profile nudged`, and removes retired hooks in every historical spelling — the old `session-memory.sh` Stop entry, the mechanical `capture-*.sh` PostToolUse hooks, and the queue Stop machinery (`queue-cleanup.sh` plus the `mcp-automem queue` drainer in its npx and bare-CLI forms; nothing writes to the queue anymore, so draining it per-session was dead weight). It also deletes the retired script files those hooks used from `~/.claude/hooks` and `~/.claude/scripts`, collapses duplicate hook registrations, and strips the four hook-era permission grants the old template shipped for that machinery (`Bash(python3:*)`, `Bash(python:*)`, `Bash(py:*)`, `Bash(jq:*)`). Generic grants like `Bash(git:*)` or `Edit` that earlier templates added are treated as user-owned and never touched — remove them yourself if you don't want them. Hooks the installer didn't author are never touched, and a backup (`settings.json.bak`, numbered if needed) is written before any change. The `mcp-automem queue` CLI remains available for manually draining a queue file.
+
+> Windows compatibility note: the Claude Code hook payload remains Bash-based. On Windows, use a POSIX shell environment such as Git Bash, MSYS2, or WSL with `bash` available (the hooks are pure bash+sed — Python and jq are no longer required). This is not full native Windows hook support yet.
+
+Or manually add the permissions to `~/.claude/settings.json`:
 
 ```json
 {
@@ -422,7 +528,7 @@ Or manually add to `~/.claude/settings.json`:
 }
 ```
 
-### 3. Add Memory Rules
+### Add Memory Rules (both options)
 
 Append memory instructions to `~/.claude/CLAUDE.md`:
 
@@ -432,7 +538,7 @@ cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md
 
 This teaches Claude when to recall (session start, before decisions) and what to store (decisions, patterns, insights).
 
-### 4. Verify Installation
+### Verify Installation
 
 Ask Claude Code:
 
@@ -441,6 +547,24 @@ Check the health of the AutoMem service
 ```
 
 See **[Claude Code Integration Guide](templates/CLAUDE_CODE_INTEGRATION.md)** for more details.
+
+### Tool search and deferred loading
+
+Claude Code defers MCP tool schemas behind its `ToolSearch` tool by default. The AutoMem server marks `store_memory`, `recall_memory`, and `associate_memories` as always-loaded (via `anthropic/alwaysLoad` in each tool's `_meta`), so the tools the memory rules invoke on every session are available without a search step on Claude Code v2.1.121+. The maintenance tools (`update_memory`, `delete_memory`, `check_database_health`) stay deferred and are discovered on demand.
+
+On older Claude Code versions, you can load the whole server upfront instead by setting `"alwaysLoad": true` on the server entry in `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "alwaysLoad": true
+    }
+  }
+}
+```
 
 ---
 
@@ -797,6 +921,104 @@ Use consistent **bare** project slugs and category tags across platforms; avoid 
 
 ---
 
+## Hermes Agent
+
+Hermes can use AutoMem either as normal MCP tools, as Hermes' native memory provider, or as both. The default is MCP-only because it exposes one explicit tool path and avoids collisions with Hermes' built-in memory tools.
+
+Hermes memory providers are **exclusive plugins**. That means they are activated through `memory.provider`, not through `plugins.enabled`. If `hermes plugins list` shows AutoMem as `not enabled` or `exclusive plugin`, that is expected for provider mode. Use `hermes memory status` as the source of truth.
+
+AutoMem integrations use one shared AutoMem recall blueprint across hosts: preference recall first, one semantic task-context recall with a 90-day window, and debug/topic-shift recall only when triggered. Instruction-driven hosts use the **rules profile** (`20 / 30 / 20` for preference/context/debug limits). Runtime provider hosts use the **provider profile** (`5 / 10 / 10`) so injected context stays compact while preserving the same recall semantics.
+
+### 1. Choose an install mode
+
+```bash
+# MCP tools only: exposes mcp_automem_recall_memory, mcp_automem_store_memory, etc.
+npx @verygoodplugins/mcp-automem hermes --mode mcp
+
+# Native memory provider: activates AutoMem through memory.provider.
+npx @verygoodplugins/mcp-automem hermes --mode provider
+
+# Advanced: native ambient recall plus MCP write/recall tools.
+npx @verygoodplugins/mcp-automem hermes --mode both
+```
+
+`--mode both` keeps explicit tools on the MCP path only and writes `AUTOMEM_HERMES_PROVIDER_TOOLS=false` so Hermes does not expose duplicate `automem_*` provider tools.
+
+### 2. Verify
+
+```bash
+# MCP mode
+hermes mcp test automem
+
+# Provider or both mode
+hermes memory status
+hermes automem doctor
+```
+
+Then restart Hermes and ask it to check AutoMem health. In MCP mode, Hermes should expose `mcp_automem_check_database_health` and should not expose `delete_memory` by default.
+
+In provider mode, `hermes memory status` should show `Provider: automem` and `Status: available`. `hermes automem doctor` checks the configured AutoMem `/health` endpoint and runs a small recall-prefetch probe. Recall context is injected into the model payload before a turn; Hermes does not print that context in the terminal UI by default.
+
+Provider explicit recall is capped at 10 results in Hermes provider mode to keep accidental broad recalls from flooding a model turn. Ambient provider prefetch uses the provider profile: up to 5 preference memories, 10 task-context memories, and 10 debug memories, with the same 90-day task-context window used by the rules profile.
+
+### 3. See what recall injects
+
+Provider recall is injected into the model payload before each turn and is **not printed** in the terminal. To see the exact block AutoMem sends, run `debug-recall` with any prompt:
+
+```bash
+hermes automem debug-recall "what do you remember about my setup?"
+```
+
+Hermes debug logs intentionally report only section counts and recall status, not memory content. `debug-recall` is the supported way to inspect the actual `<memory-context>` block. First-turn task-context recall uses the cwd project tag only when the prompt is not an explicit/general memory ask, or when that prompt names the cwd project. For general questions like `do we like Example Contact?`, Hermes drops the cwd tag and relies on semantic recall instead of hard-gating to the current repo.
+
+![Hermes injected memory-context block](screenshots/hermes-injected-context.png)
+_The real `<memory-context>` block — preferences first, then task context — that ambient recall injects ahead of the turn. Add `--raw` for the unfenced text. (Shown against a synthetic demo dataset.)_
+
+Once recall is wired up, a one-shot turn answers straight from it. Here the staging port exists only in the recalled memory, so a correct answer is proof that recall fired:
+
+![Hermes answering from recalled memory](screenshots/hermes-live-session.gif)
+_`hermes -z` pulls the seeded fact out of recall and answers `Port 7341`._
+
+> Maintainers: both visuals are regenerated against an isolated, freshly seeded demo stack with `npm run docs:hermes` (see `scripts/build-hermes-demos.mjs`). They never capture a personal corpus.
+
+### 4. Uninstall
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall hermes
+
+# Preview without changing files
+npx @verygoodplugins/mcp-automem uninstall hermes --dry-run
+
+# Strip the AutoMem rules block from a custom rules file
+# (mirrors `hermes --rules <path>` at install time; defaults to $HERMES_HOME/AGENTS.md)
+npx @verygoodplugins/mcp-automem uninstall hermes --rules /path/to/AGENTS.md
+```
+
+The Hermes uninstaller removes AutoMem's current config and known pre-release install targets, including `mcp_servers.automem`, AutoMem-owned `mcp_servers.memory`, `memory.provider: automem`, `$HERMES_HOME/plugins/automem`, AutoMem Hermes rules, and AutoMem keys in `$HERMES_HOME/.env`. Pass `--rules <path>` if you installed the rules block into a non-default file so the uninstaller strips that file instead of `$HERMES_HOME/AGENTS.md`.
+
+Hermes setup also removes a stale AutoMem Codex rules block from `$HERMES_HOME/AGENTS.md`. That pre-release block mentioned Codex/Claude-style `mcp__memory__*` tool names and can steer provider-only Hermes sessions toward the wrong namespace.
+
+### Troubleshooting
+
+If Anthropic returns `tools: Tool names must be unique`, Hermes is seeing two explicit AutoMem tool surfaces. The usual pre-release cause is a stale `mcp_servers.memory` AutoMem entry combined with `mcp_servers.automem` or provider tools. Run:
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall hermes
+npx @verygoodplugins/mcp-automem hermes --mode mcp
+```
+
+For advanced `both` mode, confirm `$HERMES_HOME/.env` contains `AUTOMEM_HERMES_PROVIDER_TOOLS=false`.
+
+If provider mode appears active but recall still seems absent, run:
+
+```bash
+AUTOMEM_HERMES_DEBUG=true hermes
+```
+
+Then check the Hermes logs for AutoMem prefetch diagnostics. The debug path reports counts and endpoint status only; it does not dump memory content or secrets.
+
+---
+
 ## Google Antigravity
 
 Google Antigravity supports MCP servers through its built-in MCP Store and a raw config file. AutoMem fits Antigravity's local stdio MCP flow directly, so the primary path is to add the `memory` server to Antigravity's custom MCP server config.
@@ -1064,6 +1286,11 @@ Retrieve memories using hybrid search with semantic, keyword, tag, time, and gra
 - `tags` (optional): Hard tag filter (e.g., `["preference"]` or `["my-project"]`)
 - `tag_mode` (optional): `any` (default) or `all`
 - `tag_match` (optional): `exact` or `prefix` (prefix supports namespaces)
+- `state_mode` (optional): `current` or `history`; use `history` for audits that need superseded/invalidated memories
+- `recency_bias` (optional): `auto`, `on`, or `off`
+- `min_score` (optional): Minimum final score threshold
+- `adaptive_floor` (optional): Let the service apply an adaptive score floor
+- `scope_fallback` (optional): Allow outside-tag fallback when scoped recall has weak evidence; fallback results are marked `outside_tag_scope`
 
 **Time Filters:**
 
@@ -1074,7 +1301,8 @@ Retrieve memories using hybrid search with semantic, keyword, tag, time, and gra
 **Graph Expansion (Advanced):**
 
 - `expand_entities` (optional): Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. **Use for complex questions like "What is Sarah's sister's job?"**
-- `expand_relations` (optional): Follow graph relationships from seed results to find connected memories. Drop tag gates first if you want traversal to work well.
+- `expand_relations` (optional): Follow graph relationships from seed results to find connected memories.
+- `expand_respect_tags` (optional): Keep graph/entity expansion inside the original tag scope when true; leave false or drop tags when broader graph context is intended.
 - `auto_decompose` (optional): Auto-extract entities and topics from query to generate supplementary searches. Prefer `false` for focused recalls; use only for genuinely multi-topic requests.
 - `expansion_limit` (optional): Max total expanded memories (default: 25)
 - `relation_limit` (optional): Max relations per seed memory (default: 5)
@@ -1089,6 +1317,10 @@ Retrieve memories using hybrid search with semantic, keyword, tag, time, and gra
 - `context_tags` (optional): Priority tags to boost in results (e.g., `["coding-style", "preferences"]`)
 - `context_types` (optional): Priority memory types to boost (e.g., `["Style", "Preference"]`)
 - `priority_ids` (optional): Specific memory IDs to ensure are included in results
+
+**Diagnostics:**
+
+Ranked recall preserves service diagnostics in structured output when present: `state_mode`, `tag_scope`, `scope_fallback`, `recency_bias`, `score_filter`, `queries`, `query_time_ms`, `vector_search`, `jit_enriched_count`, `entities`, and per-result `outside_tag_scope`, `deduped_from`, `state_replaces`, and enrichment/provenance flags.
 
 **Examples:**
 
@@ -1152,12 +1384,18 @@ recall_memory({
 
 Create relationships between memories to build a knowledge graph.
 
-**Parameters:**
+**Single Mode Parameters:**
 
 - `memory1_id` (required): Source memory ID (from store_memory response or recall results)
 - `memory2_id` (required): Target memory ID to link to
 - `type` (required): Relationship type (see below)
 - `strength` (required): Association strength 0-1 (0.9+ direct causation, 0.7-0.9 strong, 0.5-0.7 moderate)
+- Relation-specific optional props: `reason`, `context`, `resolution`, `observations`, `transformation`, `role`, `pattern_type`, `confidence`, `timestamp`
+
+**Batch Mode:**
+
+- `associations` (required): Array of up to 500 association objects with `memory1_id`, `memory2_id`, `type`, `strength`, and the same relation-specific optional props.
+- Batch responses include `created_count`, `failed_count`, `succeeded`, `failed`, and `summary`. Partial service responses are surfaced instead of thrown away.
 
 **Relationship Types:**
 
@@ -1184,6 +1422,18 @@ associate_memories({
   memory2_id: "feature-456",
   type: "RELATES_TO",
   strength: 0.9,
+});
+
+associate_memories({
+  associations: [
+    {
+      memory1_id: "new-decision",
+      memory2_id: "old-decision",
+      type: "INVALIDATED_BY",
+      strength: 0.9,
+      reason: "Superseded by the 0.15 release plan",
+    },
+  ],
 });
 ```
 
@@ -1213,23 +1463,24 @@ update_memory({
 
 #### `delete_memory`
 
-Permanently delete a memory and its embedding. Use sparingly—consider updating instead.
+Delete one memory by ID or bulk-delete all memories with any exact tag match. Use sparingly—consider updating instead.
 
 **Parameters:**
 
-- `memory_id` (required): Memory to delete
+- `memory_id` (single mode): Memory to delete
+- `tags` (bulk-by-tag mode): Deletes all memories matching ANY tag exactly, case-insensitive. No dry-run; verify first with `recall_memory({ tags, exhaustive: true })`.
 
 **When to use:**
 
 - Memory contains incorrect information that can't be corrected
 - Memory is a duplicate
-- Memory contains sensitive information that shouldn't persist
+- Cleanup of test/benchmark data under a verified tag
 
 ### System Monitoring
 
 #### `check_database_health`
 
-Check AutoMem service and database status (FalkorDB graph + Qdrant vectors).
+Check AutoMem service and database status (FalkorDB graph + Qdrant vectors). The `status` can be `healthy`, `degraded`, or `error`; structured output preserves sync counts, vector dimensions, and enrichment diagnostics when the service provides them.
 
 **Example:**
 
@@ -1251,6 +1502,9 @@ npx @verygoodplugins/mcp-automem uninstall cursor
 
 # Uninstall Claude Code setup
 npx @verygoodplugins/mcp-automem uninstall claude-code
+
+# Uninstall Hermes setup
+npx @verygoodplugins/mcp-automem uninstall hermes
 
 # Also clean Claude Desktop config
 npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
@@ -1317,6 +1571,12 @@ npx @verygoodplugins/mcp-automem help
 - Verify MCP server is configured in `~/.claude.json`
 - Run setup again: `npx @verygoodplugins/mcp-automem claude-code`
 
+#### Claude Code: Hooks firing twice or storing duplicate/session-summary memories
+
+- Run setup again: `npx @verygoodplugins/mcp-automem claude-code` — the merge self-repairs duplicate hook registrations and removes retired hooks (the `session-memory.sh` Stop entry, the `capture-*.sh` PostToolUse hooks, and the `queue-cleanup.sh` + `mcp-automem queue` drainer Stop entries) along with their orphaned script files
+- A backup of `settings.json` is created automatically before any change
+- Preview first with `--dry-run` if you want to see what would change
+
 #### Codex: MCP server not loading
 
 - Verify config file exists at `~/.codex/config.toml`
@@ -1332,6 +1592,14 @@ npx @verygoodplugins/mcp-automem help
 - Test explicitly: "Check AutoMem database health"
 - Check Codex logs for MCP connection errors
 - Ensure environment variables are set correctly in `[mcp_servers.memory.env]` section
+
+#### Hermes: Tool names must be unique
+
+- Run `npx @verygoodplugins/mcp-automem uninstall hermes --dry-run` to see stale AutoMem surfaces.
+- Remove the stale setup with `npx @verygoodplugins/mcp-automem uninstall hermes`.
+- Reinstall one mode, usually `npx @verygoodplugins/mcp-automem hermes --mode mcp`.
+- If using `--mode both`, verify `$HERMES_HOME/.env` has `AUTOMEM_HERMES_PROVIDER_TOOLS=false`.
+- Check `config.yaml` for stale AutoMem-owned `mcp_servers.memory`; non-AutoMem memory servers are preserved by the uninstaller.
 
 #### Copilot CLI / VS Code: SessionStart hook not injecting context
 
@@ -1355,8 +1623,6 @@ Or re-run the installer to get the updated hook configs:
 
 ```bash
 npx @verygoodplugins/mcp-automem copilot --yes
-```
-
 ---
 
 ## Development

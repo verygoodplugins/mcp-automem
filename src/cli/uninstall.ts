@@ -4,10 +4,17 @@ import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { getCopilotSupportScriptBaseNames } from './copilot.js';
+import { automemOwnedFiles, removeManagedHookEntries, RETIRED_PERMISSIONS } from './claude-code.js';
+import {
+  removeHermesMemoryProvider,
+  removeMcpServerEntry,
+  resolveHermesPaths,
+} from './hermes-config.js';
 
 interface UninstallOptions {
-  platform: 'cursor' | 'claude-code' | 'copilot';
+  platform: 'cursor' | 'claude-code' | 'copilot' | 'codex' | 'hermes';
   projectDir?: string;
+  rulesPath?: string;
   cleanAll?: boolean;
   dryRun?: boolean;
   yes?: boolean;
@@ -83,6 +90,40 @@ function removeDirectory(dirPath: string, dryRun: boolean, quiet?: boolean): boo
     log(`❌ Failed to remove ${dirPath}: ${(error as Error).message}`, quiet);
     return false;
   }
+}
+
+function removeEnvKeysWithBackup(
+  envPath: string,
+  keys: string[],
+  dryRun: boolean,
+  quiet?: boolean,
+): boolean {
+  if (!fs.existsSync(envPath)) return false;
+  const keySet = new Set(keys);
+  const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+  const filtered = lines.filter((line) => {
+    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
+    return !match || !keySet.has(match[1]);
+  });
+  if (filtered.join('\n') === lines.join('\n')) return false;
+
+  if (dryRun) {
+    log(`[DRY RUN] Would remove AutoMem environment keys from: ${envPath}`, quiet);
+    return true;
+  }
+
+  const backupPath = `${envPath}.backup.${Date.now()}`;
+  fs.copyFileSync(envPath, backupPath);
+  const content = filtered.join('\n').replace(/\s+$/, '');
+  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', { encoding: 'utf8', mode: 0o600 });
+  try {
+    fs.chmodSync(envPath, 0o600);
+  } catch {
+    // Best effort on platforms that do not support POSIX chmod.
+  }
+  log(`🗑️  Removed AutoMem environment keys from ${envPath}`, quiet);
+  log(`   Backup: ${backupPath}`, quiet);
+  return true;
 }
 
 function getClaudeDesktopConfigPath(): string {
@@ -223,13 +264,177 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
   }
 }
 
+async function uninstallHermes(options: UninstallOptions): Promise<void> {
+  const paths = resolveHermesPaths({ dir: options.projectDir });
+  // Mirror `hermes` setup's --rules: strip the AutoMem block from the same
+  // rules file it was installed into (defaults to <hermes-home>/AGENTS.md).
+  const rulesFile = options.rulesPath ?? paths.agentsPath;
+
+  log('\n🗑️  Uninstalling Hermes AutoMem...', options.quiet);
+
+  let didChange = false;
+  if (fs.existsSync(paths.configPath)) {
+    didChange = removeMcpServerEntry(paths.configPath, 'automem', {
+      dryRun: options.dryRun,
+      quiet: options.quiet,
+    }) || didChange;
+    didChange = removeMcpServerEntry(paths.configPath, 'memory', {
+      dryRun: options.dryRun,
+      quiet: options.quiet,
+      onlyIfAutoMem: true,
+    }) || didChange;
+    didChange = removeHermesMemoryProvider(paths.configPath, 'automem', {
+      dryRun: options.dryRun,
+      quiet: options.quiet,
+    }) || didChange;
+  } else {
+    log(`ℹ️  No Hermes config at ${paths.configPath}`, options.quiet);
+  }
+
+  if (fs.existsSync(rulesFile)) {
+    const start = '<!-- BEGIN AUTOMEM HERMES RULES -->';
+    const end = '<!-- END AUTOMEM HERMES RULES -->';
+    const raw = fs.readFileSync(rulesFile, 'utf8');
+    const startIdx = raw.indexOf(start);
+    const endIdx = raw.indexOf(end);
+
+    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+      log(`ℹ️  No AutoMem rule block in ${rulesFile}`, options.quiet);
+    } else if (options.dryRun) {
+      log(`[DRY RUN] Would strip AutoMem block from: ${rulesFile}`, options.quiet);
+    } else {
+      const before = raw.slice(0, startIdx).replace(/\s+$/, '');
+      const after = raw.slice(endIdx + end.length).replace(/^\s+/, '');
+      // Collapse trailing newlines to exactly one (`after` keeps its own).
+      const joined = before && after ? `${before}\n\n${after}` : `${before}${after}`;
+      const next = `${joined.replace(/\n+$/, '')}\n`;
+      const backupPath = `${rulesFile}.backup.${Date.now()}`;
+      fs.copyFileSync(rulesFile, backupPath);
+      fs.writeFileSync(rulesFile, next, 'utf8');
+      log(`🗑️  Stripped AutoMem block from ${rulesFile}`, options.quiet);
+      log(`   Backup: ${backupPath}`, options.quiet);
+      didChange = true;
+    }
+  }
+
+  const providerDir = path.join(paths.home, 'plugins', 'automem');
+  if (fs.existsSync(providerDir)) {
+    didChange = removeDirectory(providerDir, options.dryRun ?? false, options.quiet) || didChange;
+  }
+
+  didChange = removeEnvKeysWithBackup(
+    path.join(paths.home, '.env'),
+    [
+      'AUTOMEM_API_URL',
+      'AUTOMEM_ENDPOINT',
+      'AUTOMEM_API_KEY',
+      'AUTOMEM_API_TOKEN',
+      'AUTOMEM_HERMES_PROVIDER_TOOLS',
+    ],
+    options.dryRun ?? false,
+    options.quiet,
+  ) || didChange;
+
+  if (didChange) {
+    log('\n✅ Hermes AutoMem configuration removed', options.quiet);
+  } else if (!options.dryRun) {
+    log('\nℹ️  Nothing to remove for Hermes AutoMem', options.quiet);
+  }
+}
+
+async function uninstallCodex(options: UninstallOptions): Promise<void> {
+  // Plugin-first codex install is rules-only: it writes a single marked AutoMem
+  // block into AGENTS.md (cwd by default, or --rules). Uninstall strips that
+  // block — symmetric with the `codex` setup command and with uninstallHermes.
+  const projectDir = options.projectDir ?? process.cwd();
+  const rulesFile = options.rulesPath ?? path.join(projectDir, 'AGENTS.md');
+
+  log('\n🗑️  Uninstalling Codex AutoMem...', options.quiet);
+
+  if (!fs.existsSync(rulesFile)) {
+    log(`ℹ️  No rules file at ${rulesFile}`, options.quiet);
+    return;
+  }
+
+  const start = '<!-- BEGIN AUTOMEM CODEX RULES -->';
+  const end = '<!-- END AUTOMEM CODEX RULES -->';
+  const raw = fs.readFileSync(rulesFile, 'utf8');
+  const startIdx = raw.indexOf(start);
+  const endIdx = raw.indexOf(end);
+
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+    log(`ℹ️  No AutoMem rule block in ${rulesFile}`, options.quiet);
+    return;
+  }
+
+  if (options.dryRun) {
+    log(`[DRY RUN] Would strip AutoMem block from: ${rulesFile}`, options.quiet);
+    return;
+  }
+
+  const before = raw.slice(0, startIdx).replace(/\s+$/, '');
+  const after = raw.slice(endIdx + end.length).replace(/^\s+/, '');
+  // `after` keeps its own trailing newline, so collapse any trailing newlines to
+  // exactly one — otherwise a block with content after it leaves a blank EOF line.
+  const joined = before && after ? `${before}\n\n${after}` : `${before}${after}`;
+  const next = `${joined.replace(/\n+$/, '')}\n`;
+  const backupPath = `${rulesFile}.backup.${Date.now()}`;
+  fs.copyFileSync(rulesFile, backupPath);
+  fs.writeFileSync(rulesFile, next, 'utf8');
+  log(`🗑️  Stripped AutoMem block from ${rulesFile}`, options.quiet);
+  log(`   Backup: ${backupPath}`, options.quiet);
+  log('\n✅ Codex AutoMem configuration removed', options.quiet);
+}
+
 async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
   const claudeDir = path.join(os.homedir(), '.claude');
   const settingsPath = path.join(claudeDir, 'settings.json');
   
   log('\n🗑️  Uninstalling Claude Code AutoMem...', options.quiet);
-  
-  // MCP permissions to remove
+
+  let settingsCleared = true;
+  if (!fs.existsSync(settingsPath)) {
+    log('ℹ️  No Claude Code settings.json found', options.quiet);
+  } else if (options.dryRun) {
+    log(
+      `[DRY RUN] Would remove MCP permissions and AutoMem hook entries from: ${settingsPath}`,
+      options.quiet
+    );
+  } else {
+    settingsCleared = uninstallClaudeCodeSettings(settingsPath, options);
+  }
+
+  // Delete installer-owned files only once settings.json no longer references
+  // them. If the settings update failed, removing the scripts would strand the
+  // unchanged config pointing at missing files — broken hooks. Skip and warn.
+  if (!settingsCleared) {
+    log(
+      '⚠️  Skipped removing AutoMem hook/script files because settings.json still references them (update failed above). Fix settings.json and re-run, or remove the files manually.',
+      options.quiet
+    );
+    return;
+  }
+
+  // Remove installer-owned files (current hooks + retired machinery). The
+  // list comes from the installer itself so install-time cleanup and
+  // uninstall cannot drift; foreign files in the shared dirs are untouched.
+  let filesRemoved = 0;
+  for (const relativePath of automemOwnedFiles()) {
+    const filePath = path.join(claudeDir, relativePath);
+    if (removeFileWithBackup(filePath, options.dryRun ?? false, options.quiet)) {
+      filesRemoved += 1;
+    }
+  }
+  if (filesRemoved > 0 && !options.dryRun) {
+    log(`\n✅ Removed ${filesRemoved} AutoMem hook/script file(s)`, options.quiet);
+  }
+}
+
+// Returns true when settings.json no longer references AutoMem hooks (updated
+// cleanly, or had nothing to remove), and false when the update failed — in
+// which case the caller must NOT delete the on-disk scripts the config still
+// points at.
+function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOptions): boolean {
   const mcpPermissions = [
     'mcp__memory__store_memory',
     'mcp__memory__recall_memory',
@@ -238,49 +443,61 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
     'mcp__memory__delete_memory',
     'mcp__memory__check_database_health',
   ];
-  
-  if (!fs.existsSync(settingsPath)) {
-    log('ℹ️  No Claude Code settings.json found', options.quiet);
-    return;
-  }
-  
-  if (options.dryRun) {
-    log(`[DRY RUN] Would remove MCP permissions from: ${settingsPath}`, options.quiet);
-    return;
-  }
-  
+  // Plus the hook-era Bash grants old templates shipped (RETIRED_PERMISSIONS
+  // is shared with the installer so the two lists cannot drift).
+  const removablePermissions = [...mcpPermissions, ...RETIRED_PERMISSIONS];
+
   try {
     const raw = fs.readFileSync(settingsPath, 'utf8');
     const settings = JSON.parse(raw);
-    
-    if (!settings.permissions?.allow) {
-      log('ℹ️  No permissions found in settings.json', options.quiet);
-      return;
-    }
-    
+
     // Remove MCP permissions
-    const originalLength = settings.permissions.allow.length;
-    settings.permissions.allow = settings.permissions.allow.filter(
-      (perm: string) => !mcpPermissions.includes(perm)
-    );
-    
-    const removedCount = originalLength - settings.permissions.allow.length;
-    
-    if (removedCount === 0) {
-      log('ℹ️  No AutoMem permissions found in settings.json', options.quiet);
-      return;
+    let permissionsRemoved = 0;
+    if (settings.permissions?.allow) {
+      const originalLength = settings.permissions.allow.length;
+      settings.permissions.allow = settings.permissions.allow.filter(
+        (perm: string) => !removablePermissions.includes(perm)
+      );
+      permissionsRemoved = originalLength - settings.permissions.allow.length;
     }
-    
+
+    // Remove AutoMem-managed hook entries (current and retired spellings),
+    // preserving hooks the installer didn't author.
+    let hooksRemoved = 0;
+    if (settings.hooks) {
+      const result = removeManagedHookEntries(settings.hooks);
+      hooksRemoved = result.removedCount;
+      if (hooksRemoved > 0) {
+        if (Object.keys(result.hooks).length > 0) {
+          settings.hooks = result.hooks;
+        } else {
+          delete settings.hooks;
+        }
+      }
+    }
+
+    if (permissionsRemoved === 0 && hooksRemoved === 0) {
+      log('ℹ️  No AutoMem configuration found in settings.json', options.quiet);
+      return true;
+    }
+
     // Backup and write
     const backupPath = `${settingsPath}.backup.${Date.now()}`;
     fs.copyFileSync(settingsPath, backupPath);
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-    
-    log(`🗑️  Removed ${removedCount} MCP permissions from settings.json`, options.quiet);
+
+    if (permissionsRemoved > 0) {
+      log(`🗑️  Removed ${permissionsRemoved} MCP permissions from settings.json`, options.quiet);
+    }
+    if (hooksRemoved > 0) {
+      log(`🗑️  Removed ${hooksRemoved} AutoMem hook entries from settings.json`, options.quiet);
+    }
     log(`   Backup: ${backupPath}`, options.quiet);
-    log('\n✅ Claude Code AutoMem permissions removed', options.quiet);
+    log('\n✅ Claude Code AutoMem configuration removed', options.quiet);
+    return true;
   } catch (error) {
     log(`❌ Failed to update settings.json: ${(error as Error).message}`, options.quiet);
+    return false;
   }
 }
 
@@ -439,6 +656,10 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
     await uninstallClaudeCode(options);
   } else if (options.platform === 'copilot') {
     await uninstallCopilot(options);
+  } else if (options.platform === 'codex') {
+    await uninstallCodex(options);
+  } else if (options.platform === 'hermes') {
+    await uninstallHermes(options);
   }
   
   // Clean up external changes (Claude Desktop config) if requested
@@ -469,15 +690,16 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
   }
 }
 
-function parseUninstallArgs(args: string[]): UninstallOptions | null {
-  if (args.length === 0 || (args[0] !== 'cursor' && args[0] !== 'claude-code' && args[0] !== 'copilot')) {
-    console.error('❌ Error: Platform required (cursor, claude-code, or copilot)');
-    console.error('Usage: mcp-automem uninstall <cursor|claude-code|copilot> [options]');
+export function parseUninstallArgs(args: string[]): UninstallOptions | null {
+  const allowed = ['cursor', 'claude-code', 'copilot', 'codex', 'hermes'] as const;
+  if (args.length === 0 || !allowed.includes(args[0] as typeof allowed[number])) {
+    console.error('❌ Error: Platform required (cursor, claude-code, copilot, codex, or hermes)');
+    console.error('Usage: mcp-automem uninstall <cursor|claude-code|copilot|codex|hermes> [options]');
     return null;
   }
-  
+
   const options: UninstallOptions = {
-    platform: args[0] as 'cursor' | 'claude-code' | 'copilot',
+    platform: args[0] as UninstallOptions['platform'],
   };
   
   for (let i = 1; i < args.length; i += 1) {
@@ -489,6 +711,14 @@ function parseUninstallArgs(args: string[]): UninstallOptions | null {
           process.exit(1);
         }
         options.projectDir = args[i + 1];
+        i += 1;
+        break;
+      case '--rules':
+        if (i + 1 >= args.length) {
+          console.error('Error: --rules requires a path value');
+          return null;
+        }
+        options.rulesPath = args[i + 1];
         i += 1;
         break;
       case '--clean-all':

@@ -13,34 +13,31 @@ Perform context-aware memory search:
 
 2. **Execute Recall**:
 
-   Use `mcp__memory__recall_memory` with appropriate strategy:
+   Use the `recall_memory` memory tool with an appropriate strategy:
 
    **Preferences**:
    ```javascript
-   mcp__memory__recall_memory({
+   recall_memory({
      tags: ["preference"],
      limit: 20,
-     sort: "updated_desc",
-     format: "detailed"
+     sort: "updated_desc"
    })
    ```
 
    **Project / task context**:
    ```javascript
-   mcp__memory__recall_memory({
+   recall_memory({
      query: "[proper nouns, file names, tool names, specific topics from the user's request]",
      tags: ["project-slug"],   // drop if ambiguous
      time_query: "last 90 days",
-     limit: 30,
-     format: "detailed"
+     limit: 30
    })
    ```
 
-   **Debug Similar Errors**:
+   **Debug Similar Errors** (no tag gate — bugfix/solution tagging is incomplete and a hard gate hides cross-corpus fixes):
    ```javascript
-   mcp__memory__recall_memory({
+   recall_memory({
      query: "[error message keywords]",
-     tags: ["bugfix", "solution"],
      limit: 20
    })
    ```

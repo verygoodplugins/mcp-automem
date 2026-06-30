@@ -3,8 +3,8 @@
   "name": "io.github.verygoodplugins/mcp-automem",
   "title": "MCP AutoMem",
   "description": "Graph-vector memory for AI assistants using FalkorDB and Qdrant",
-  "version": "0.14.0",
-  "x-release-please-version": "0.14.0",
+  "version": "0.15.0",
+  "x-release-please-version": "0.15.0",
   "websiteUrl": "https://automem.ai/?utm_source=mcp-registry",
   "repository": {
     "url": "https://github.com/verygoodplugins/mcp-automem",
@@ -52,7 +52,7 @@
     {
       "registryType": "npm",
       "identifier": "@verygoodplugins/mcp-automem",
-      "version": "0.14.0",
+      "version": "0.15.0",
       "transport": {
         "type": "stdio"
       }
@@ -65,11 +65,11 @@
     },
     {
       "name": "recall_memory",
-      "description": "Hybrid search (vector + keyword + tags + recency)"
+      "description": "Hybrid search with tags, recency/state controls, score filtering, diagnostics, and graph expansion"
     },
     {
       "name": "associate_memories",
-      "description": "Create typed public relationships between memories (11 authorable types)"
+      "description": "Create typed public relationships between memories, including batch associations and relation-specific props"
     },
     {
       "name": "update_memory",
@@ -77,11 +77,11 @@
     },
     {
       "name": "delete_memory",
-      "description": "Delete memory and embedding"
+      "description": "Delete one memory by ID or bulk-delete exact tag matches"
     },
     {
       "name": "check_database_health",
-      "description": "Check FalkorDB/Qdrant connection status"
+      "description": "Check FalkorDB/Qdrant health, degraded state, sync status, and enrichment diagnostics"
     }
   ]
 }

@@ -34,7 +34,10 @@ export const MEMORY_TYPES = [
 export type AuthorableRelationType = (typeof AUTHORABLE_RELATION_TYPES)[number];
 /** @deprecated Use AuthorableRelationType. */
 export type RelationType = AuthorableRelationType;
+export type SupersedeRelationType = Extract<AuthorableRelationType, 'INVALIDATED_BY' | 'EVOLVED_INTO'>;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
+export type RecallStateMode = 'current' | 'history';
+export type RecallRecencyBias = 'auto' | 'on' | 'off';
 
 export interface AutoMemConfig {
   endpoint: string;
@@ -60,6 +63,8 @@ export interface MemoryRecord {
 export interface StoredMemory {
   memory_id: string;
   content: string;
+  /** Server-generated 1-2 sentence summary (enrichment); absent until enriched. */
+  summary?: string;
   tags: string[];
   importance: number;
   created_at: string;
@@ -67,6 +72,7 @@ export interface StoredMemory {
   metadata?: Record<string, any>;
   type?: MemoryType;
   confidence?: number;
+  last_accessed?: string;
 }
 
 export interface RecallResult {
@@ -79,18 +85,33 @@ export interface RecallResult {
     score_components: Record<string, number>;
     source?: string;
     relations?: Array<Record<string, any>>;
-    related_to?: Array<Record<string, any>>;
     memory: StoredMemory & Record<string, any>;
     deduped_from?: string[];
     expanded_from_entity?: string;
+    outside_tag_scope?: boolean;
+    jit_enriched?: boolean;
+    state_replaces?: string;
   }>;
   count: number;
   dedup_removed?: number;
+  query?: string;
+  sort?: string;
   keywords?: string[];
   time_window?: { start?: string | null; end?: string | null };
   tags?: string[];
+  exclude_tags?: string[];
   tag_mode?: 'any' | 'all';
   tag_match?: 'exact' | 'prefix';
+  state_mode?: RecallStateMode;
+  tag_scope?: Record<string, any>;
+  scope_fallback?: boolean;
+  recency_bias?: RecallRecencyBias;
+  score_filter?: Record<string, any>;
+  queries?: string[];
+  vector_search?: Record<string, any>;
+  jit_enriched_count?: number;
+  query_time_ms?: number;
+  entities?: Array<Record<string, any>>;
   // Set in enumeration mode (recall with exhaustive: true) — server returns page metadata.
   mode?: 'ranked' | 'enumeration' | 'id_fetch';
   has_more?: boolean;
@@ -115,16 +136,28 @@ export interface RecallResult {
     priority_types?: string[];
     injected?: boolean;
   };
+  state_filter?: {
+    current_only?: boolean;
+    suppressed_count: number;
+    replacement_count: number;
+    suppressed?: Array<Record<string, any>>;
+    replacements?: Array<Record<string, any>>;
+  };
 }
 
 export interface HealthStatus {
-  status: 'healthy' | 'error';
+  status: 'healthy' | 'degraded' | 'error';
   backend: string;
   statistics: {
-    falkordb?: string;
-    qdrant?: string;
+    falkordb?: any;
+    qdrant?: any;
     graph?: string;
     timestamp?: string;
+    memory_count?: number;
+    vector_count?: number;
+    sync_status?: string;
+    vector_dimensions?: Record<string, any>;
+    enrichment?: Record<string, any>;
   };
   error?: string;
 }
@@ -158,6 +191,9 @@ export interface StoreMemoryArgs {
   t_invalid?: string;
   updated_at?: string;
   last_accessed?: string;
+  supersedes_memory_id?: string;
+  supersede_relation?: SupersedeRelationType;
+  supersede_reason?: string;
   // Batch mode (XOR with `content`): up to 500 memories in one request.
   memories?: BatchMemoryInput[];
 }
@@ -165,6 +201,9 @@ export interface StoreMemoryArgs {
 export interface StoreMemoryResult {
   // Single-store mode populates these:
   memory_id?: string;
+  // Supersede mode populates these:
+  superseded_memory_id?: string;
+  association_created?: boolean;
   // Batch-store mode populates these:
   memory_ids?: string[];
   stored?: number;
@@ -202,6 +241,16 @@ export interface RecallMemoryArgs {
   // Expansion filtering (reduces noise in expanded results)
   expand_min_importance?: number;
   expand_min_strength?: number;
+  // Current-state filtering
+  current_only?: boolean;
+  state_debug?: boolean;
+  state_mode?: RecallStateMode;
+  // Scope/recency/score filtering
+  recency_bias?: RecallRecencyBias;
+  scope_fallback?: boolean;
+  expand_respect_tags?: boolean;
+  min_score?: number;
+  adaptive_floor?: boolean;
   // Context hints for smarter recall
   context?: string;
   language?: string;
@@ -216,11 +265,50 @@ export interface RecallMemoryArgs {
   offset?: number;
 }
 
-export interface AssociateMemoryArgs {
+export interface AssociationInput {
   memory1_id: string;
   memory2_id: string;
   type: AuthorableRelationType;
   strength: number;
+  context?: string;
+  reason?: string;
+  pattern_type?: string;
+  confidence?: number;
+  resolution?: string;
+  observations?: any[];
+  timestamp?: string;
+  transformation?: string;
+  role?: string;
+}
+
+export interface AssociateMemoryArgs {
+  // Single-association mode.
+  memory1_id?: string;
+  memory2_id?: string;
+  type?: AuthorableRelationType;
+  strength?: number;
+  context?: string;
+  reason?: string;
+  pattern_type?: string;
+  confidence?: number;
+  resolution?: string;
+  observations?: any[];
+  timestamp?: string;
+  transformation?: string;
+  role?: string;
+  // Batch mode: up to 500 associations in one request.
+  associations?: AssociationInput[];
+}
+
+export interface AssociateMemoryResult {
+  success: boolean;
+  message: string;
+  created_count?: number;
+  failed_count?: number;
+  succeeded?: Array<Record<string, any>>;
+  failed?: Array<Record<string, any>>;
+  summary?: string;
+  status?: string;
 }
 
 export interface UpdateMemoryArgs {
@@ -230,6 +318,8 @@ export interface UpdateMemoryArgs {
   importance?: number;
   metadata?: Record<string, any>;
   timestamp?: string;
+  t_valid?: string;
+  t_invalid?: string;
   updated_at?: string;
   last_accessed?: string;
   type?: MemoryType;

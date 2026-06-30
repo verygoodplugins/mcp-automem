@@ -96,12 +96,23 @@ describe('openclaw AutoMem plugin', () => {
       const tools = captureRegisteredTools();
       const recall = tools.find((t) => t.name === 'automem_recall_memory');
       const store = tools.find((t) => t.name === 'automem_store_memory');
+      const update = tools.find((t) => t.name === 'automem_update_memory');
       const del = tools.find((t) => t.name === 'automem_delete_memory');
       expect(recall?.parameters?.properties?.memory_id).toBeDefined();
       expect(recall?.parameters?.properties?.exhaustive).toBeDefined();
       expect(recall?.parameters?.properties?.exclude_tags).toBeDefined();
+      expect(recall?.parameters?.properties?.current_only).toBeDefined();
+      expect(recall?.parameters?.properties?.state_debug).toBeDefined();
       expect(store?.parameters?.properties?.memories).toBeDefined();
       expect(store?.parameters?.properties?.memories?.maxItems).toBe(500);
+      expect(store?.parameters?.properties?.supersedes_memory_id).toBeDefined();
+      expect(store?.parameters?.properties?.supersede_relation?.enum).toEqual([
+        'INVALIDATED_BY',
+        'EVOLVED_INTO',
+      ]);
+      expect(store?.parameters?.properties?.supersede_reason).toBeDefined();
+      expect(update?.parameters?.properties?.t_valid).toBeDefined();
+      expect(update?.parameters?.properties?.t_invalid).toBeDefined();
       expect(del?.parameters?.properties?.tags).toBeDefined();
       expect(del?.parameters?.required).toBeUndefined();
     });
@@ -550,7 +561,9 @@ describe('openclaw AutoMem plugin', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const debugUrl = getRequestUrl(0);
-    expect(debugUrl.searchParams.getAll('tags')).toEqual(['bugfix', 'solution']);
+    // Debug recall sends NO tag gate: bugfix/solution tagging is incomplete
+    // and a hard gate hides cross-corpus fixes.
+    expect(debugUrl.searchParams.getAll('tags')).toEqual([]);
     expect(debugUrl.searchParams.get('limit')).toBe('20');
     expect(result?.prependSystemContext).toContain('<relevant-memories>');
   });

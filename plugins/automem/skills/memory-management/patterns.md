@@ -7,7 +7,7 @@ Quick reference for common memory storage patterns.
 When architecture, library, or approach decisions are made:
 
 ```javascript
-mcp__memory__store_memory({
+store_memory({
   content: "[CHOICE] over [ALTERNATIVES]. [REASON]. Impact: [OUTCOME].",
   type: "Decision",
   importance: 0.9,
@@ -25,7 +25,7 @@ mcp__memory__store_memory({
 When root causes are discovered and fixed:
 
 ```javascript
-mcp__memory__store_memory({
+store_memory({
   content: "[SYMPTOM]. Root: [CAUSE]. Solution: [FIX].",
   type: "Insight",
   importance: 0.8,
@@ -44,7 +44,7 @@ mcp__memory__store_memory({
 When learning user preferences or style:
 
 ```javascript
-mcp__memory__store_memory({
+store_memory({
   content: "User prefers [PREFERENCE] in [CONTEXT].",
   type: "Preference",
   importance: 0.8,
@@ -58,7 +58,7 @@ mcp__memory__store_memory({
 When discovering reusable patterns:
 
 ```javascript
-mcp__memory__store_memory({
+store_memory({
   content: "Using [PATTERN]. [BENEFIT]. Applied in [SCOPE].",
   type: "Pattern",
   importance: 0.7,
@@ -76,7 +76,7 @@ mcp__memory__store_memory({
 When a durable feature-level memory is genuinely worth keeping:
 
 ```javascript
-mcp__memory__store_memory({
+store_memory({
   content: "Added [FEATURE]. [CAPABILITIES]. Impact: [VALUE].",
   type: "Context",
   importance: 0.8,

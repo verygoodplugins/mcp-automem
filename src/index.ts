@@ -11,16 +11,19 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { config } from "dotenv";
 import { runConfig, runSetup } from "./cli/setup.js";
+import { runInstallCommand } from "./cli/install.js";
 import { runClaudeCodeSetup } from "./cli/claude-code.js";
 import { runCursorSetup } from "./cli/cursor.js";
 import { runCodexSetup } from "./cli/codex.js";
 import { runOpenClawSetup } from "./cli/openclaw.js";
 import { runCopilotSetup } from "./cli/copilot.js";
+import { runHermesSetup } from "./cli/hermes.js";
 import { runMigrateCommand } from "./cli/migrate.js";
 import { runUninstallCommand } from "./cli/uninstall.js";
 import { runQueueCommand } from "./cli/queue.js";
 import { AutoMemClient } from "./automem-client.js";
-import { readAutoMemApiKeyFromEnv } from "./env.js";
+import { parseWatchdogIntervalMs, startParentWatchdog } from "./lifecycle.js";
+import { readAutoMemApiKeyFromEnv, resolveAutoMemApiUrl } from "./env.js";
 import { buildRecallMemoryResponse } from "./recall-memory.js";
 import { AUTHORABLE_RELATION_TYPES, MEMORY_TYPES, RELATION_TYPE_METADATA } from "./types.js";
 import type {
@@ -38,11 +41,31 @@ function isInteractiveTerminal(): boolean {
 
 const command = (process.argv[2] || "").toLowerCase();
 const isServerMode = command.length === 0;
+const KNOWN_COMMANDS = new Set([
+  "help",
+  "--help",
+  "-h",
+  "setup",
+  "install",
+  "config",
+  "claude-code",
+  "cursor",
+  "codex",
+  "openclaw",
+  "hermes",
+  "migrate",
+  "uninstall",
+  "queue",
+  "recall",
+]);
 const isMachineReadableCommand =
   command === "config" && process.argv.slice(3).some(
     (arg) => arg === "--json" || arg === "--format=json" || arg === "--format"
   );
-const shouldSilenceDotenv = isServerMode || isMachineReadableCommand;
+// The guided installer renders a branded splash + curated review; the dotenv
+// banner would corrupt that output, so silence it here too.
+const shouldSilenceDotenv =
+  isServerMode || isMachineReadableCommand || command === "install" || !KNOWN_COMMANDS.has(command);
 
 // Prevent dotenv from writing its banner to stdout when the caller expects clean
 // machine-readable output (stdio server mode, or `config --format=json`).
@@ -102,6 +125,57 @@ function getPackageVersion(): string {
 
 const PACKAGE_VERSION = getPackageVersion();
 
+const ASSOCIATION_PROPERTY_SCHEMAS = {
+  context: {
+    type: "string",
+    description: "Relation-specific context for PREFERS_OVER or PART_OF associations.",
+  },
+  reason: {
+    type: "string",
+    description:
+      "Relation-specific reason for PREFERS_OVER, CONTRADICTS, INVALIDATED_BY, or EVOLVED_INTO associations.",
+  },
+  pattern_type: {
+    type: "string",
+    description: "Relation-specific pattern label for EXEMPLIFIES associations.",
+  },
+  confidence: {
+    type: "number",
+    minimum: 0,
+    maximum: 1,
+    description: "Relation-specific confidence for EXEMPLIFIES, EVOLVED_INTO, or DERIVED_FROM.",
+  },
+  resolution: {
+    type: "string",
+    description: "Relation-specific resolution for CONTRADICTS associations.",
+  },
+  observations: {
+    type: "array",
+    items: { type: "string" },
+    description: "Relation-specific observations for REINFORCES associations.",
+  },
+  timestamp: {
+    type: "string",
+    description: "Relation-specific timestamp for INVALIDATED_BY associations.",
+  },
+  transformation: {
+    type: "string",
+    description: "Relation-specific transformation note for DERIVED_FROM associations.",
+  },
+  role: {
+    type: "string",
+    description: "Relation-specific role for PART_OF associations.",
+  },
+} as const;
+
+function formatHealthComponent(value: unknown): string {
+  if (value && typeof value === "object" && "status" in value) {
+    const status = (value as { status?: unknown }).status;
+    return typeof status === "string" ? status : JSON.stringify(value);
+  }
+  return String(value);
+}
+
 if (command === "help" || command === "--help" || command === "-h") {
   console.log(`
 AutoMem MCP Server - AI Memory Storage & Recall
@@ -111,12 +185,14 @@ USAGE:
 
 COMMANDS:
   setup              Interactive setup for .env configuration
+  install            Guided installer for local/cloud AutoMem + agent setup
   config             Show configuration snippets
   claude-code        Set up AutoMem for Claude Code
   copilot            Set up AutoMem for GitHub Copilot
   cursor             Set up AutoMem for Cursor
   codex              Set up AutoMem for Codex
   openclaw           Set up AutoMem for OpenClaw
+  hermes             Set up AutoMem for Hermes Agent
   migrate            Migrate existing projects to AutoMem
   uninstall          Remove AutoMem configuration
   queue              Manage memory queue
@@ -137,11 +213,18 @@ COMMANDS:
 
 CLAUDE CODE SETUP:
   npx @verygoodplugins/mcp-automem claude-code [options]
-  
+
+  Settings-level install. Recommended alternative: the AutoMem plugin
+  (/plugin marketplace add verygoodplugins/mcp-automem, then
+  /plugin install automem@verygoodplugins-mcp-automem).
+
   Options:
     --dir <path>           Target directory (default: ~/.claude)
-    --profile <lean|full>  Use a predefined profile
+    --profile <name>       silent (default) or nudged. 'nudged' also registers
+                           the Stop storage-nudge hook; 'silent' leaves the
+                           session end quiet (SessionStart recall + store tracker only)
     --dry-run             Show what would be changed
+    --quiet               Suppress output
     --yes, -y             Skip confirmation prompts
 
 COPILOT SETUP:
@@ -168,10 +251,11 @@ MIGRATION:
     --yes, -y             Skip confirmation
 
 UNINSTALL:
-  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code> [options]
-  
+  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes> [options]
+
   Options:
-    --dir <path>          Project directory (for cursor)
+    --dir <path>          Project / hermes-home directory
+    --rules <path>        Rules file to strip (default: codex <project>/AGENTS.md, hermes <hermes-home>/AGENTS.md)
     --clean-all          Also remove MCP server config (Cursor/Claude Desktop)
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation
@@ -191,8 +275,8 @@ RECALL:
           # Set up with custom project name
           npx @verygoodplugins/mcp-automem cursor --name my-project
 
-          # Set up Claude Code with lean profile
-          npx @verygoodplugins/mcp-automem claude-code --profile lean
+          # Preview Claude Code setup without changing anything
+          npx @verygoodplugins/mcp-automem claude-code --dry-run
 
           # Migrate manual memory usage to Cursor
           npx @verygoodplugins/mcp-automem migrate --from manual --to cursor
@@ -209,6 +293,19 @@ CODEX SETUP:
   Options:
     --name <name>         Project name (auto-detected if not provided)
     --rules <path>        Target rules file (default: ./AGENTS.md)
+    --dry-run             Show what would be changed
+    --quiet               Suppress output
+
+HERMES SETUP:
+  npx @verygoodplugins/mcp-automem hermes [options]
+
+  Options:
+    --dir <path>          Hermes home directory (default: $HERMES_HOME or ~/.hermes)
+    --name <name>         Project name (auto-detected if not provided)
+    --endpoint <url>      AutoMem endpoint (default: $AUTOMEM_API_URL or http://127.0.0.1:8001)
+    --api-key <key>       AutoMem API key (optional)
+    --mode <mode>         Install mode: mcp, provider, or both (default: mcp)
+    --rules <path>        Target rules file (default: <hermes-home>/AGENTS.md)
     --dry-run             Show what would be changed
     --quiet               Suppress output
 
@@ -230,6 +327,23 @@ OPENCLAW SETUP:
     --dry-run                   Show what would be changed
     --quiet                     Suppress output
 
+GUIDED INSTALL:
+  npx @verygoodplugins/mcp-automem install [options]
+
+  Walks you through where AutoMem runs (Hosted Cloud / Local Docker / Existing
+  Endpoint), verifies the endpoint, writes .env, and configures your agents.
+  For Claude Code it offers the plugin (recommended) or a settings-level install.
+
+  Options:
+    --target <local|cloud|existing>  Where AutoMem runs
+    --clients <list>                 Comma-separated agents: codex,claude-code,cursor,openclaw,hermes
+    --endpoint <url>                 Existing or hosted AutoMem endpoint
+    --api-key <key>                  API key for authenticated endpoints
+    --local-dir <path>               Local server directory (default: ~/.automem/server)
+    --dry-run                        Show the review plan without writing files
+    --yes, -y                        Apply without confirmation
+    --no-agent-install               Configure endpoint only; skip agent writes
+
 For more information, visit:
 https://github.com/verygoodplugins/mcp-automem
 `);
@@ -239,6 +353,12 @@ https://github.com/verygoodplugins/mcp-automem
 if (command === "setup") {
   await runSetup(process.argv.slice(3));
   process.exit(0);
+}
+
+if (command === "install") {
+  await runInstallCommand(process.argv.slice(3));
+  // Honor a non-zero exit set for a partial install (some agents need a manual step).
+  process.exit(process.exitCode ?? 0);
 }
 
 if (command === "config") {
@@ -271,6 +391,11 @@ if (command === "openclaw") {
   process.exit(0);
 }
 
+if (command === "hermes") {
+  await runHermesSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
 if (command === "migrate") {
   await runMigrateCommand(process.argv.slice(3));
   process.exit(0);
@@ -287,10 +412,7 @@ if (command === "queue") {
 }
 
 if (command === "recall") {
-  const AUTOMEM_API_URL =
-    process.env.AUTOMEM_API_URL ||
-    process.env.AUTOMEM_ENDPOINT ||
-    "http://127.0.0.1:8001";
+  const AUTOMEM_API_URL = resolveAutoMemApiUrl().url;
   const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
   const client = new AutoMemClient({
@@ -324,19 +446,22 @@ if (command === "recall") {
   }
 }
 
-const AUTOMEM_API_URL =
-  process.env.AUTOMEM_API_URL ||
-  process.env.AUTOMEM_ENDPOINT ||
-  "http://127.0.0.1:8001";
+if (!isServerMode) {
+  console.error(`Unknown command: ${command}`);
+  console.error("Run `mcp-automem help` for available commands.");
+  process.exit(1);
+}
+
+const { url: AUTOMEM_API_URL, source: automemApiUrlSource } = resolveAutoMemApiUrl();
 const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
-if (!process.env.AUTOMEM_API_URL && !process.env.AUTOMEM_ENDPOINT) {
+if (automemApiUrlSource === "default") {
   if (isInteractiveTerminal()) {
     console.warn(
       "⚠️  AUTOMEM_API_URL not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting."
     );
   }
-} else if (!process.env.AUTOMEM_API_URL && process.env.AUTOMEM_ENDPOINT) {
+} else if (automemApiUrlSource === "AUTOMEM_ENDPOINT") {
   console.warn(
     "⚠️  AUTOMEM_ENDPOINT is deprecated; rename it to AUTOMEM_API_URL. The old name still works for now."
   );
@@ -351,16 +476,22 @@ const client = new AutoMemClient(clientConfig);
 
 const server = new Server(
   { name: "mcp-automem", version: PACKAGE_VERSION },
-  { capabilities: { tools: {} } }
+  {
+    capabilities: { tools: {} },
+    instructions:
+      "AutoMem is the agent's persistent long-term memory (graph + vector). Use recall_memory to retrieve context (session start, before decisions, when debugging), store_memory to persist decisions, patterns, preferences, and fixes, and associate_memories to link related memories into the knowledge graph. Search for the remaining tools when needed: update_memory edits an existing memory's fields in place, delete_memory removes one memory by ID or bulk-deletes by tag, and check_database_health verifies FalkorDB/Qdrant connectivity.",
+  }
 );
 
 const tools: Tool[] = [
   {
     name: "store_memory",
     title: "Store Memory",
-    description: `Store memory in one of two modes — single-memory (set top-level \`content\`) or batch (set \`memories: [...]\` for up to 500). Use this to persist important information for future recall.
+    description: `Store memory in one of two modes — single-memory (set top-level \`content\`) or batch (set \`memories: [...]\` for up to 500).
 
 **Mode 1 — Single (default):** pass top-level \`content\` plus any optional fields (tags, importance, metadata, type, confidence, embedding, t_valid, t_invalid, id, etc.).
+
+**Mode 1b — Supersede/correct:** pass top-level \`content\` plus \`supersedes_memory_id\`. The server stores the replacement, marks the old memory invalid with \`t_invalid=now\`, merges supersede metadata, and associates old → new with \`INVALIDATED_BY\` (default) or \`EVOLVED_INTO\`.
 
 **Mode 2 — Batch:** pass \`memories: [{ content, tags?, importance?, metadata?, timestamp?, type?, confidence? }, ...]\` to store up to 500 memories in one request. Faster for bulk ingestion (imports, benchmark seeding). Batch mode does NOT accept \`id\`, \`embedding\`, \`t_valid\`, or \`t_invalid\` per-item — use single mode for those.
 
@@ -380,7 +511,7 @@ const tools: Tool[] = [
 **Examples:**
 - store_memory({ content: "Chose PostgreSQL over MongoDB for user service. Need ACID for transactions.", tags: ["architecture", "database"], importance: 0.9 })
 - store_memory({ content: "User prefers early returns over nested conditionals.", tags: ["code-style"], importance: 0.7 })
-- store_memory({ memories: [{ content: "...", tags: ["import"] }, { content: "...", tags: ["import"] }] })  // Batch`,
+- store_memory({ content: "User now prefers SQLite for small local tools.", supersedes_memory_id: "old-id", supersede_reason: "Correction from user" })`,
     annotations: {
       title: "Store Memory",
       readOnlyHint: false,
@@ -388,6 +519,7 @@ const tools: Tool[] = [
       idempotentHint: false,
       openWorldHint: false,
     },
+    _meta: { "anthropic/alwaysLoad": true },
     inputSchema: {
       type: "object",
       properties: {
@@ -478,6 +610,23 @@ const tools: Tool[] = [
           type: "string",
           description: "Single-memory mode. ISO 8601 last-accessed timestamp",
         },
+        supersedes_memory_id: {
+          type: "string",
+          description:
+            "Single-memory supersede mode. Existing memory ID that this new memory replaces or corrects.",
+        },
+        supersede_relation: {
+          type: "string",
+          enum: ["INVALIDATED_BY", "EVOLVED_INTO"],
+          default: "INVALIDATED_BY",
+          description:
+            "Single-memory supersede mode. Relationship to create from old memory to new memory.",
+        },
+        supersede_reason: {
+          type: "string",
+          description:
+            "Single-memory supersede mode. Optional reason stored on the old memory's metadata.",
+        },
       },
     },
     outputSchema: {
@@ -492,6 +641,14 @@ const tools: Tool[] = [
           type: "array",
           items: { type: "string" },
           description: "Batch-mode result: IDs of the stored memories.",
+        },
+        superseded_memory_id: {
+          type: "string",
+          description: "Supersede-mode result: ID of the old memory marked invalid.",
+        },
+        association_created: {
+          type: "boolean",
+          description: "Supersede-mode result: whether old → new association was created.",
         },
         stored: {
           type: "integer",
@@ -526,7 +683,7 @@ const tools: Tool[] = [
 
 **Mode 2 — Tag enumeration:** pass \`tags\` + \`exhaustive: true\` for paginated exact-match listing (NOT ranked retrieval). Use this for cleanup/audit workflows where ranked retrieval silently undercounts large tag sets. Pair with \`limit\` (≤200) and \`offset\`. Returns \`has_more\`/\`limit\`/\`offset\` page metadata. Tag matching is exact, case-insensitive, any-of mode — \`tag_match: "prefix"\` and \`tag_mode: "all"\` are rejected in this mode.
 
-**Mode 3 — Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency, and optional graph expansion. The primary tool for finding relevant context.
+**Mode 3 — Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency, and optional graph expansion. The primary tool for finding relevant context. By default, ranked recall requests current active memories only; set \`current_only: false\` for audits.
 
 **When to use ranked (mode 3):**
 - At conversation start: recall context about the current project/topic
@@ -539,8 +696,7 @@ const tools: Tool[] = [
 **Examples:**
 - recall_memory({ query: "database architecture decisions", tags: ["my-project"], limit: 5 })
 - recall_memory({ memory_id: "abc123" })  // Mode 1
-- recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50 })  // Mode 2
-- recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50, offset: 50 })  // Mode 2 page 2
+- recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50 })  // Mode 2 (add offset for later pages)
 - recall_memory({ query: "auth", exclude_tags: ["deprecated"] })  // Mode 3 with exclusion
 - recall_memory({ query: "What is Sarah's sister's job?", expand_entities: true })  // Mode 3 multi-hop`,
     annotations: {
@@ -550,6 +706,7 @@ const tools: Tool[] = [
       idempotentHint: true,
       openWorldHint: false,
     },
+    _meta: { "anthropic/alwaysLoad": true },
     inputSchema: {
       type: "object",
       properties: {
@@ -634,6 +791,11 @@ const tools: Tool[] = [
           description:
             "Follow graph relationships from seed results to find related memories.",
         },
+        expand_respect_tags: {
+          type: "boolean",
+          description:
+            "Ranked-mode only. When true, graph/entity expansion stays within the original tag scope; when false, expansion may include related context outside the tags.",
+        },
         auto_decompose: {
           type: "boolean",
           description:
@@ -666,6 +828,47 @@ const tools: Tool[] = [
           maximum: 1,
           description:
             "Minimum relation strength to follow during graph expansion. Only traverses edges above this threshold. Recommended: 0.3 for exploratory, 0.6+ for high-confidence connections only. Does not affect entity expansion.",
+        },
+        current_only: {
+          type: "boolean",
+          default: true,
+          description:
+            "Ranked-mode only. When true, server suppresses archived, not-yet-valid, expired, invalidated, or superseded memories from active context.",
+        },
+        state_debug: {
+          type: "boolean",
+          default: false,
+          description:
+            "Ranked-mode only. Include state-filter suppression/replacement IDs and reasons when current_only is true.",
+        },
+        state_mode: {
+          type: "string",
+          enum: ["current", "history"],
+          description:
+            "Ranked-mode only. `current` returns active memories; `history` allows superseded/invalidated memories for audit timelines. Prefer this over current_only for new clients.",
+        },
+        recency_bias: {
+          type: "string",
+          enum: ["auto", "on", "off"],
+          description:
+            "Ranked-mode only. Controls service recency boosting: auto lets the service infer, on forces boosting, off disables it.",
+        },
+        scope_fallback: {
+          type: "boolean",
+          description:
+            "Ranked-mode only. Allow fallback outside the requested tag scope when scoped recall has weak evidence; diagnostics report tag_scope and outside_tag_scope.",
+        },
+        min_score: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description:
+            "Ranked-mode only. Minimum final score threshold before results are returned.",
+        },
+        adaptive_floor: {
+          type: "boolean",
+          description:
+            "Ranked-mode only. Enable the service's adaptive score floor when filtering weak matches.",
         },
         context: {
           type: "string",
@@ -723,7 +926,7 @@ const tools: Tool[] = [
           enum: ["text", "items", "detailed", "json"],
           default: "text",
           description:
-            'Output format: text (default), items (per-memory), detailed (with metadata), json (raw)',
+            'Output format: text (default), items (one block per memory), detailed (adds type/confidence/metadata keys/relation stubs), json (raw per-memory fields incl. full content/metadata/relations; whole-response token budget still applies). text/items/detailed are summary-first: each memory shows its stored 1-2 sentence summary when available, else a content preview — fetch a full record via memory_id.',
         },
         offset: {
           type: "integer",
@@ -764,19 +967,130 @@ const tools: Tool[] = [
             type: "object",
             properties: {
               memory_id: { type: "string" },
-              content: { type: "string" },
+              summary: {
+                type: "string",
+                description:
+                  "Stored 1-2 sentence summary. In budgeted formats it replaces content when present.",
+              },
+              content: {
+                type: "string",
+                description:
+                  "Memory content (preview in budgeted formats; omitted when summary is shown).",
+              },
+              content_truncated: {
+                type: "boolean",
+                description:
+                  "True when content is a preview; fetch the full record via recall_memory({ memory_id }).",
+              },
+              content_chars: {
+                type: "integer",
+                description:
+                  "Original content length when content was previewed or replaced by summary.",
+              },
               tags: { type: "array", items: { type: "string" } },
               importance: { type: "number" },
               final_score: { type: "number" },
               match_type: { type: "string" },
               created_at: { type: "string" },
+              updated_at: { type: "string" },
+              deduped_from: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "Result IDs merged into this result during multi-query deduplication.",
+              },
+              outside_tag_scope: {
+                type: "boolean",
+                description:
+                  "True when scope_fallback admitted this result outside the requested tag scope.",
+              },
+              jit_enriched: {
+                type: "boolean",
+                description:
+                  "True when the service enriched the memory during recall.",
+              },
+              state_replaces: {
+                type: "string",
+                description:
+                  "ID of the suppressed memory this result replaced during current-state filtering.",
+              },
             },
           },
+        },
+        truncation: {
+          type: "object",
+          description:
+            "Present when trailing results were dropped to fit the response budget: { applied, omitted_results, reason }.",
         },
         dedup_removed: {
           type: "integer",
           description:
             "Number of duplicate results removed (when using multiple queries)",
+        },
+        query: {
+          type: "string",
+          description: "Query text executed by ranked recall.",
+        },
+        sort: {
+          type: "string",
+          description: "Sort mode applied by the service.",
+        },
+        exclude_tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Tags excluded from ranked recall.",
+        },
+        state_filter: {
+          type: "object",
+          description:
+            "Current-state filtering diagnostics. Includes aggregate counts by default and detailed IDs/reasons only when state_debug=true.",
+        },
+        state_mode: {
+          type: "string",
+          enum: ["current", "history"],
+          description: "State mode applied by ranked recall.",
+        },
+        tag_scope: {
+          type: "object",
+          description:
+            "Tag-scope diagnostics including whether scoped evidence was strong enough.",
+        },
+        scope_fallback: {
+          type: "boolean",
+          description:
+            "True when recall allowed outside-scope fallback results.",
+        },
+        recency_bias: {
+          type: "string",
+          enum: ["auto", "on", "off"],
+          description: "Recency bias mode applied by the service.",
+        },
+        score_filter: {
+          type: "object",
+          description:
+            "Score filtering diagnostics such as min_score, adaptive_floor, and filtered_count.",
+        },
+        queries: {
+          type: "array",
+          items: { type: "string" },
+          description: "Query variants executed by the service.",
+        },
+        vector_search: {
+          type: "object",
+          description: "Vector-search diagnostics from the service.",
+        },
+        jit_enriched_count: {
+          type: "integer",
+          description: "Number of memories enriched inline during recall.",
+        },
+        query_time_ms: {
+          type: "number",
+          description: "Service recall latency in milliseconds.",
+        },
+        entities: {
+          type: "array",
+          items: { type: "object" },
+          description: "Entity identity diagnostics injected by the service.",
         },
       },
       required: ["count", "results"],
@@ -785,7 +1099,7 @@ const tools: Tool[] = [
   {
     name: "associate_memories",
     title: "Associate Memories",
-    description: `Create a typed relationship between two memories. This builds a knowledge graph that improves recall by surfacing related context.
+    description: `Create typed relationships between memories. This builds a knowledge graph that improves recall by surfacing related context. Supports single-pair mode or batch mode with associations[] (max 500).
 
 **When to use:**
 - After storing a new memory: link it to related existing memories
@@ -801,7 +1115,8 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
 
 **Examples:**
 - associate_memories({ memory1_id: "bug-fix-123", memory2_id: "feature-456", type: "RELATES_TO", strength: 0.9 })
-- associate_memories({ memory1_id: "new-decision", memory2_id: "old-decision", type: "EVOLVED_INTO", strength: 0.8 })`,
+- associate_memories({ memory1_id: "new-decision", memory2_id: "old-decision", type: "EVOLVED_INTO", strength: 0.8 })
+- associate_memories({ associations: [{ memory1_id: "a", memory2_id: "b", type: "RELATES_TO", strength: 0.8 }] })`,
     annotations: {
       title: "Associate Memories",
       readOnlyHint: false,
@@ -809,6 +1124,7 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
       idempotentHint: true,
       openWorldHint: false,
     },
+    _meta: { "anthropic/alwaysLoad": true },
     inputSchema: {
       type: "object",
       properties: {
@@ -833,19 +1149,75 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
           description:
             "Relationship strength: 0.9+ direct causation, 0.7-0.9 strong relation, 0.5-0.7 moderate",
         },
+        ...ASSOCIATION_PROPERTY_SCHEMAS,
+        associations: {
+          type: "array",
+          minItems: 1,
+          maxItems: 500,
+          description:
+            "Batch mode. Up to 500 associations. Do not combine with top-level memory1_id/memory2_id/type/strength.",
+          items: {
+            type: "object",
+            properties: {
+              memory1_id: {
+                type: "string",
+                description: "ID of the source memory",
+              },
+              memory2_id: {
+                type: "string",
+                description: "ID of the target memory",
+              },
+              type: {
+                type: "string",
+                enum: [...AUTHORABLE_RELATION_TYPES],
+                description: "Relationship type between the two memories",
+              },
+              strength: {
+                type: "number",
+                minimum: 0,
+                maximum: 1,
+                description: "Relationship strength from 0 to 1",
+              },
+              ...ASSOCIATION_PROPERTY_SCHEMAS,
+            },
+            required: ["memory1_id", "memory2_id", "type", "strength"],
+          },
+        },
       },
-      required: ["memory1_id", "memory2_id", "type", "strength"],
     },
     outputSchema: {
       type: "object",
       properties: {
         success: {
           type: "boolean",
-          description: "Whether the association was created",
+          description:
+            "Whether every requested association was created. False for partial batch responses.",
         },
         message: {
           type: "string",
           description: "Confirmation message",
+        },
+        created_count: {
+          type: "integer",
+          description: "Batch mode: number of associations created.",
+        },
+        failed_count: {
+          type: "integer",
+          description: "Batch mode: number of associations that failed.",
+        },
+        succeeded: {
+          type: "array",
+          description: "Batch mode: successful association records.",
+          items: { type: "object" },
+        },
+        failed: {
+          type: "array",
+          description: "Batch mode: failed association records with errors.",
+          items: { type: "object" },
+        },
+        summary: {
+          type: "string",
+          description: "Batch mode: service summary.",
         },
       },
       required: ["success", "message"],
@@ -903,6 +1275,14 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
         timestamp: {
           type: "string",
           description: "Override creation timestamp",
+        },
+        t_valid: {
+          type: "string",
+          description: "ISO 8601 timestamp when the memory becomes valid",
+        },
+        t_invalid: {
+          type: "string",
+          description: "ISO 8601 timestamp when the memory expires or was superseded",
         },
         updated_at: {
           type: "string",
@@ -1034,8 +1414,9 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
       properties: {
         status: {
           type: "string",
-          enum: ["healthy", "error"],
-          description: "Overall health status",
+          enum: ["healthy", "degraded", "error"],
+          description:
+            "Overall health status. degraded means the service is reachable but a backend or sync check needs attention.",
         },
         backend: {
           type: "string",
@@ -1043,7 +1424,8 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
         },
         statistics: {
           type: "object",
-          description: "Database statistics (memory counts, etc.)",
+          description:
+            "Database statistics and diagnostics, including memory/vector counts, sync_status, vector_dimensions, and enrichment state when provided.",
         },
         error: {
           type: "string",
@@ -1133,6 +1515,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Single-store mode response
         let responseText = `Memory stored successfully!\n\nMemory ID: ${result.memory_id}`;
+        if (result.superseded_memory_id) {
+          responseText += `\nSuperseded memory ID: ${result.superseded_memory_id}`;
+        }
+        if (typeof result.association_created === "boolean") {
+          responseText += `\nAssociation created: ${result.association_created ? "yes" : "no"}`;
+        }
         if (result.message) {
           responseText += `\nMessage: ${result.message}`;
         }
@@ -1150,6 +1538,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const output = {
           memory_id: result.memory_id,
           message: result.message,
+          ...(result.superseded_memory_id && {
+            superseded_memory_id: result.superseded_memory_id,
+          }),
+          ...(typeof result.association_created === "boolean" && {
+            association_created: result.association_created,
+          }),
           ...(summarized && {
             summarized,
             original_length: originalLength,
@@ -1182,12 +1576,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "associate_memories": {
         const associateArgs = args as unknown as AssociateMemoryArgs;
         const result = await client.associateMemories(associateArgs);
-        const output = { success: true, message: result.message };
+        const output = {
+          success: result.success,
+          message: result.message,
+          created_count: result.created_count,
+          failed_count: result.failed_count,
+          succeeded: result.succeeded,
+          failed: result.failed,
+          summary: result.summary,
+        };
+        const batchSuffix =
+          typeof result.created_count === "number" || typeof result.failed_count === "number"
+            ? `\n\nCreated: ${result.created_count ?? 0}\nFailed: ${result.failed_count ?? 0}`
+            : "";
         return {
           content: [
             {
               type: "text",
-              text: `Association created successfully!\n\nMessage: ${result.message}`,
+              text: `${result.success ? "Association created successfully!" : "Association completed with failures."}\n\nMessage: ${result.message}${batchSuffix}`,
             },
           ],
           structuredContent: output,
@@ -1252,17 +1658,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "check_database_health": {
         const health = await client.checkHealth();
-        const statusEmoji = health.status === "healthy" ? "✅" : "❌";
+        const statusEmoji =
+          health.status === "healthy" ? "✅" : health.status === "degraded" ? "⚠️" : "❌";
 
         let statsText = "";
         if (health.statistics.falkordb) {
-          statsText += `\nFalkorDB: ${health.statistics.falkordb}`;
+          statsText += `\nFalkorDB: ${formatHealthComponent(health.statistics.falkordb)}`;
         }
         if (health.statistics.qdrant) {
-          statsText += `\nQdrant: ${health.statistics.qdrant}`;
+          statsText += `\nQdrant: ${formatHealthComponent(health.statistics.qdrant)}`;
         }
         if (health.statistics.graph) {
           statsText += `\nGraph: ${health.statistics.graph}`;
+        }
+        if (typeof health.statistics.memory_count === "number") {
+          statsText += `\nMemory count: ${health.statistics.memory_count}`;
+        }
+        if (typeof health.statistics.vector_count === "number") {
+          statsText += `\nVector count: ${health.statistics.vector_count}`;
+        }
+        if (health.statistics.sync_status) {
+          statsText += `\nSync status: ${health.statistics.sync_status}`;
+        }
+        if (health.statistics.enrichment?.status) {
+          statsText += `\nEnrichment: ${health.statistics.enrichment.status}`;
         }
         if (health.statistics.timestamp) {
           statsText += `\nTimestamp: ${health.statistics.timestamp}`;
@@ -1307,8 +1726,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 async function main() {
+  // Capture the parent pid synchronously, before any await, so the watchdog
+  // can later detect a reparent (orphaning). process.ppid is dynamic on
+  // modern Node, so reading it here pins the original parent.
+  const parentPid = process.ppid;
+
   installStdioErrorGuards();
   const transport = new StdioServerTransport();
+
+  // Defense-in-depth self-termination. The stdio server has no built-in path
+  // to exit when its client disconnects while idle; without these it lingers
+  // as an orphaned ~108 MB process. Each trigger is idempotent via shutdown().
+  let shuttingDown = false;
+  const shutdown = (code = 0) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try {
+      void transport.close?.();
+    } catch {
+      /* best effort — we're exiting anyway */
+    }
+    process.exit(code);
+  };
+
+  // Layer 1 — stdin EOF (clean client disconnect). Node already drains the
+  // event loop and exits on EOF; this makes the intent explicit.
+  process.stdin.on("end", () => shutdown(0));
+  process.stdin.on("close", () => shutdown(0));
+
+  // Layer 2 — transport/protocol closed by the SDK.
+  server.onclose = () => shutdown(0);
+
+  // Layer 3 — supervisor signals (graceful termination).
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    process.on(sig, () => shutdown(0));
+  }
+
+  // Layer 4 — parent-liveness watchdog (load-bearing on POSIX). Catches the
+  // orphan case Layers 1-3 miss: an intermediate wrapper holds stdin open so
+  // no EOF arrives, yet the client is gone. Relies on orphan reparenting, so
+  // it is a no-op on Windows (process.ppid never changes there). Interval is
+  // env-tunable via AUTOMEM_PARENT_WATCHDOG_MS; invalid/zero/negative values
+  // fall back to the 30 s default (see parseWatchdogIntervalMs).
+  const watchdogMs = parseWatchdogIntervalMs(process.env.AUTOMEM_PARENT_WATCHDOG_MS);
+  startParentWatchdog(parentPid, watchdogMs, () => shutdown(0));
+
   await server.connect(transport);
   if (process.env.AUTOMEM_LOG_LEVEL === "debug") {
     console.error("AutoMem MCP server running");

@@ -8,25 +8,41 @@ interface ClaudeCodeSetupOptions {
   dryRun?: boolean;
   yes?: boolean;
   quiet?: boolean;
+  profile?: 'silent' | 'nudged';
 }
 
 const TEMPLATE_ROOT = path.resolve(
   fileURLToPath(new URL('../../templates/claude-code', import.meta.url))
 );
+const DEFAULT_SETTINGS_TEMPLATE = 'settings.json';
+const STOP_NUDGE_SETTINGS_TEMPLATE = 'settings.stop-nudge.json';
 const HOOK_SCRIPTS = [
   'automem-session-start.sh',
-  'capture-build-result.sh',
-  'capture-test-pattern.sh',
-  'capture-deployment.sh',
-  'session-memory.sh',
+  'automem-stop-nudge.sh',
+  'automem-track-store.sh',
 ];
-const SUPPORT_SCRIPTS = [
-  'python-command.sh',
-  'queue-cleanup.sh',
-  'process-session-memory.py',
-  'memory-filters.json',
+
+// Files earlier installer versions wrote under ~/.claude that the current
+// template no longer ships. Re-running the installer deletes them (they are
+// installer-owned: every install overwrote them wholesale, so user edits were
+// never preserved anyway). smart-notify.sh is deliberately absent — it was
+// never a retired hook, so a user-registered copy stays untouched. Uninstall
+// removes the same set plus the current HOOK_SCRIPTS.
+export const RETIRED_FILES: ReadonlyArray<string> = [
+  'hooks/capture-build-result.sh',
+  'hooks/capture-test-pattern.sh',
+  'hooks/capture-deployment.sh',
+  'hooks/session-memory.sh',
+  'scripts/queue-cleanup.sh',
+  'scripts/process-session-memory.py',
+  'scripts/python-command.sh',
+  'scripts/memory-filters.json',
 ];
-const LEGACY_OPTIONAL_SUPPORT_SCRIPTS = ['smart-notify.sh'];
+
+// Everything the installer owns on disk (relative to ~/.claude), for uninstall.
+export function automemOwnedFiles(): string[] {
+  return [...HOOK_SCRIPTS.map((name) => `hooks/${name}`), ...RETIRED_FILES];
+}
 
 function log(message: string, quiet?: boolean) {
   if (!quiet) {
@@ -77,47 +93,377 @@ function mergeUniqueStrings(target: string[] = [], additions: string[]): string[
   return target;
 }
 
-function mergeHookEntries(existingHooks: any[] = [], templateHooks: any[]): any[] {
-  const merged = existingHooks.map((entry) => ({
-    ...entry,
-    hooks: Array.isArray(entry?.hooks) ? [...entry.hooks] : [],
-  }));
+export type HookCommandComparisonOptions = {
+  homeDir?: string;
+  platform?: NodeJS.Platform;
+};
+
+const MANAGED_HOOK_SCRIPT_BASENAMES = new Set<string>([
+  ...HOOK_SCRIPTS,
+  'session-start.sh',
+  'stop-nudge.sh',
+  'track-store.sh',
+  // Retired scripts stay managed even after they leave the shipped set, or the
+  // strip below silently stops matching the legacy entries it exists to remove.
+  'queue-cleanup.sh',
+  'session-memory.sh',
+  'capture-build-result.sh',
+  'capture-test-pattern.sh',
+  'capture-deployment.sh',
+]);
+
+// Hooks the template no longer ships and the installer actively removes from
+// existing installs. Additions must cite the retiring PR (#130 for the
+// session-summary Stop hook; mechanical build/test/deploy capture retired in
+// favor of the LLM-judged automem-stop-nudge.sh; the queue Stop machinery —
+// cleanup script + npx drainer — retired with it because nothing writes to
+// the queue anymore, leaving `mcp-automem queue` as a manual-only CLI).
+// Never list anything without a managed key.
+const RETIRED_HOOK_KEYS = new Set<string>([
+  'script:session-memory.sh',
+  'script:capture-build-result.sh',
+  'script:capture-test-pattern.sh',
+  'script:capture-deployment.sh',
+  'script:queue-cleanup.sh',
+  'mcp-automem:queue',
+]);
+
+// Permission grants the old template shipped solely for retired hook
+// machinery: the Python session-memory/queue chain (#102 added the python/py
+// aliases for it) and the jq-based queue cleanup. The hooks are pure bash+sed
+// now, so a re-run strips exactly these. Generic dev grants (Bash(git:*),
+// Edit, ...) cannot be attributed to AutoMem vs the user and are never
+// touched — only entries that existed for AutoMem's own retired machinery
+// belong here.
+export const RETIRED_PERMISSIONS: ReadonlyArray<string> = [
+  'Bash(python3:*)',
+  'Bash(python:*)',
+  'Bash(py:*)',
+  'Bash(jq:*)',
+];
+
+// Exact historical template spellings (normalized before comparison). A hook
+// command is rewritten to the current template spelling ONLY when it matches
+// one of these — a user-customized command (different flags, paths) never
+// does, so customizations survive while known-legacy forms converge.
+const LEGACY_HOOK_COMMAND_SPELLINGS: ReadonlyArray<string> = [
+  // Pre-#108 unwrapped env-prefix forms (no bash -c wrapper).
+  'CLAUDE_HOOK_TYPE=build bash "$HOME/.claude/hooks/capture-build-result.sh"',
+  'CLAUDE_HOOK_TYPE=test_run bash "$HOME/.claude/hooks/capture-test-pattern.sh"',
+  'CLAUDE_HOOK_TYPE=deploy bash "$HOME/.claude/hooks/capture-deployment.sh"',
+  // Queue-drainer generations: no -y/--limit, then --limit without -y, then
+  // the install.sh-era bare-CLI form (a silent no-op without a global binary).
+  'npx @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl"',
+  'npx @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5',
+  'command -v mcp-automem >/dev/null 2>&1 && mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5 || true',
+];
+
+export function normalizeHookCommand(
+  command: unknown,
+  options: HookCommandComparisonOptions = {}
+): string {
+  if (typeof command !== 'string') {
+    return '';
+  }
+  const homeDir = options.homeDir ?? os.homedir();
+  const platform = options.platform ?? process.platform;
+
+  let normalized = command.trim().replace(/\s+/g, ' ');
+  // Quotes only group arguments; strip them so `"$HOME/x"` and $HOME/x compare equal.
+  normalized = normalized.replace(/["']/g, '');
+  // Expand home-directory spellings only. Other env vars (e.g. ${CLAUDE_PLUGIN_ROOT})
+  // stay literal: expanding them here risks false-positive dedup across installs.
+  normalized = normalized
+    .replace(/\$\{HOME\}/g, () => homeDir)
+    .replace(/\$HOME(?![A-Za-z0-9_])/g, () => homeDir)
+    .replace(/%USERPROFILE%/gi, () => homeDir)
+    .replace(/(^|[\s=:])~(?=\/)/g, (_match, prefix: string) => `${prefix}${homeDir}`);
+
+  if (platform === 'win32') {
+    normalized = normalized.replace(/\\/g, '/').toLowerCase();
+  }
+
+  return normalized;
+}
+
+// AutoMem only ever installs hook scripts in two places: the CLI writes them to
+// ~/.claude/{hooks,scripts}/, and the plugin runs them from
+// ${CLAUDE_PLUGIN_ROOT}/scripts/. Requiring a managed *script* to live under one
+// of these prefixes keeps a foreign hook that merely shares a basename (e.g.
+// `bash /opt/stop-nudge.sh`) from being deduped, migrated, or — most importantly
+// — removed during uninstall as if it were ours.
+function ownedHookScriptPrefixes(options: HookCommandComparisonOptions): string[] {
+  const homeDir = options.homeDir ?? os.homedir();
+  const platform = options.platform ?? process.platform;
+  const prefixes = [
+    `${homeDir}/.claude/hooks/`,
+    `${homeDir}/.claude/scripts/`,
+    // ${CLAUDE_PLUGIN_ROOT} is left literal by normalizeHookCommand, so match it
+    // literally (both brace spellings).
+    '${CLAUDE_PLUGIN_ROOT}/scripts/',
+    '$CLAUDE_PLUGIN_ROOT/scripts/',
+  ];
+  // normalizeHookCommand forward-slashes and lowercases on win32; mirror that so
+  // the owned-path comparison stays separator/case-insensitive there.
+  return platform === 'win32'
+    ? prefixes.map((prefix) => prefix.replace(/\\/g, '/').toLowerCase())
+    : prefixes;
+}
+
+function managedHookScriptKey(
+  normalizedCommand: string,
+  options: HookCommandComparisonOptions = {}
+): string | undefined {
+  if (!normalizedCommand) {
+    return undefined;
+  }
+  const cliMatch = normalizedCommand.match(/@verygoodplugins\/mcp-automem\s+(\S+)/);
+  if (cliMatch) {
+    return `mcp-automem:${cliMatch[1]}`;
+  }
+  // Bare globally-installed CLI (install.sh era): `mcp-automem queue …`.
+  // Allowlisted to `queue` so both drainer spellings share one key; the
+  // leading char class keeps `@verygoodplugins/mcp-automem` and path segments
+  // like `/opt/mcp-automem` from matching.
+  const bareCliMatch = normalizedCommand.match(/(?:^|[\s;&|(])mcp-automem\s+(queue)\b/);
+  if (bareCliMatch) {
+    return `mcp-automem:${bareCliMatch[1]}`;
+  }
+  const ownedPrefixes = ownedHookScriptPrefixes(options);
+  const scriptPaths = normalizedCommand.match(/[^\s()]+\.(?:sh|py)\b/g) ?? [];
+  for (const scriptPath of scriptPaths) {
+    const basename = scriptPath.split(/[\\/]/).pop() ?? '';
+    if (!MANAGED_HOOK_SCRIPT_BASENAMES.has(basename)) {
+      continue;
+    }
+    // A managed basename only counts as ours when the script path is under an
+    // AutoMem-owned location; a foreign hook sharing the name is left alone.
+    if (!ownedPrefixes.some((prefix) => scriptPath.startsWith(prefix))) {
+      continue;
+    }
+    return `script:${basename}`;
+  }
+  return undefined;
+}
+
+export function hookDedupKeys(hook: any, options: HookCommandComparisonOptions = {}): string[] {
+  const normalized = normalizeHookCommand(hook?.command, options);
+  if (!normalized) {
+    return [];
+  }
+  const keys = [`command:${normalized}`];
+  const managedKey = managedHookScriptKey(normalized, options);
+  if (managedKey) {
+    keys.push(`managed:${managedKey}`);
+  }
+  return keys;
+}
+
+function hookIsRetired(hook: any, options: HookCommandComparisonOptions = {}): boolean {
+  const managedKey = managedHookScriptKey(normalizeHookCommand(hook?.command, options), options);
+  return managedKey !== undefined && RETIRED_HOOK_KEYS.has(managedKey);
+}
+
+export function stripRetiredHookEntries(
+  existingHooks: any[] = [],
+  options: HookCommandComparisonOptions = {}
+): any[] {
+  const stripped: any[] = [];
+  for (const entry of existingHooks) {
+    const sourceHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    const kept = sourceHooks.filter((hook: any) => !hookIsRetired(hook, options));
+    if (sourceHooks.length > 0 && kept.length === 0) {
+      continue; // entry only carried retired hooks
+    }
+    stripped.push(kept.length === sourceHooks.length ? entry : { ...entry, hooks: kept });
+  }
+  return stripped;
+}
+
+export function canonicalizeLegacyHookCommands(
+  existingHooks: any[] = [],
+  templateHooks: any[] = [],
+  options: HookCommandComparisonOptions = {}
+): any[] {
+  const templateCommandByManagedKey = new Map<string, string>();
+  for (const entry of templateHooks) {
+    for (const hook of Array.isArray(entry?.hooks) ? entry.hooks : []) {
+      if (typeof hook?.command !== 'string') {
+        continue;
+      }
+      const managedKey = managedHookScriptKey(normalizeHookCommand(hook.command, options), options);
+      if (managedKey) {
+        templateCommandByManagedKey.set(managedKey, hook.command);
+      }
+    }
+  }
+  if (templateCommandByManagedKey.size === 0) {
+    return existingHooks;
+  }
+
+  const legacyNormalized = new Set(
+    LEGACY_HOOK_COMMAND_SPELLINGS.map((spelling) => normalizeHookCommand(spelling, options))
+  );
+
+  return existingHooks.map((entry) => {
+    const sourceHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    let changed = false;
+    const hooks = sourceHooks.map((hook: any) => {
+      const normalized = normalizeHookCommand(hook?.command, options);
+      if (!legacyNormalized.has(normalized)) {
+        return hook;
+      }
+      const managedKey = managedHookScriptKey(normalized, options);
+      const templateCommand = managedKey
+        ? templateCommandByManagedKey.get(managedKey)
+        : undefined;
+      if (!templateCommand || templateCommand === hook.command) {
+        return hook;
+      }
+      changed = true;
+      return { ...hook, command: templateCommand };
+    });
+    return changed ? { ...entry, hooks } : entry;
+  });
+}
+
+export function removeManagedHookEntries(
+  hooks: Record<string, any[]>,
+  options: HookCommandComparisonOptions = {}
+): { hooks: Record<string, any[]>; removedCount: number } {
+  const cleaned: Record<string, any[]> = {};
+  let removedCount = 0;
+  for (const [event, entries] of Object.entries(hooks ?? {})) {
+    const keptEntries: any[] = [];
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      const sourceHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+      const kept = sourceHooks.filter((hook: any) => {
+        const isManaged = hookDedupKeys(hook, options).some((key) => key.startsWith('managed:'));
+        if (isManaged) {
+          removedCount += 1;
+        }
+        return !isManaged;
+      });
+      if (sourceHooks.length > 0 && kept.length === 0) {
+        continue;
+      }
+      keptEntries.push(kept.length === sourceHooks.length ? entry : { ...entry, hooks: kept });
+    }
+    if (keptEntries.length > 0) {
+      cleaned[event] = keptEntries;
+    }
+  }
+  return { hooks: cleaned, removedCount };
+}
+
+export function mergeHookEntries(
+  existingHooks: any[] = [],
+  templateHooks: any[] = [],
+  options: HookCommandComparisonOptions = {}
+): any[] {
+  const merged: any[] = [];
+  const seenByMatcher = new Map<string, Set<string>>();
+  const seenFor = (matcher: string): Set<string> => {
+    let seen = seenByMatcher.get(matcher);
+    if (!seen) {
+      seen = new Set<string>();
+      seenByMatcher.set(matcher, seen);
+    }
+    return seen;
+  };
+
+  for (const entry of existingHooks) {
+    const seen = seenFor(entry?.matcher ?? '');
+    const sourceHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    const hooks: any[] = [];
+    for (const hook of sourceHooks) {
+      const keys = hookDedupKeys(hook, options);
+      if (keys.length > 0 && keys.some((key) => seen.has(key))) {
+        continue; // self-repair: same hook spelled differently (e.g. $HOME vs absolute path)
+      }
+      for (const key of keys) {
+        seen.add(key);
+      }
+      hooks.push(hook);
+    }
+    if (sourceHooks.length > 0 && hooks.length === 0) {
+      continue; // entry only held duplicates of hooks kept elsewhere
+    }
+    merged.push({ ...entry, hooks });
+  }
 
   for (const templateEntry of templateHooks) {
     const matcher = templateEntry?.matcher ?? '';
-    const index = merged.findIndex((entry) => (entry?.matcher ?? '') === matcher);
-
-    if (index === -1) {
-      merged.push(templateEntry);
+    const seen = seenFor(matcher);
+    const templateHookList = Array.isArray(templateEntry?.hooks) ? templateEntry.hooks : [];
+    const newHooks = templateHookList.filter((hook: any) => {
+      const keys = hookDedupKeys(hook, options);
+      return keys.length === 0 || !keys.some((key) => seen.has(key));
+    });
+    if (templateHookList.length > 0 && newHooks.length === 0) {
       continue;
     }
 
-    const mergedEntry = merged[index];
-    const existingHookList = Array.isArray(mergedEntry?.hooks) ? mergedEntry.hooks : [];
-    const templateHookList = Array.isArray(templateEntry?.hooks) ? templateEntry.hooks : [];
-
-    for (const hook of templateHookList) {
-      const command = hook?.command;
-      const alreadyExists = command
-        ? existingHookList.some((existing: any) => existing?.command === command)
-        : existingHookList.includes(hook);
-
-      if (!alreadyExists) {
-        existingHookList.push(hook);
+    const index = merged.findIndex((entry) => (entry?.matcher ?? '') === matcher);
+    if (index === -1) {
+      merged.push({ ...templateEntry, hooks: [...newHooks] });
+    } else {
+      const target = merged[index];
+      merged[index] = {
+        ...target,
+        hooks: [...(Array.isArray(target?.hooks) ? target.hooks : []), ...newHooks],
+      };
+    }
+    for (const hook of newHooks) {
+      for (const key of hookDedupKeys(hook, options)) {
+        seen.add(key);
       }
     }
-
-    merged[index] = {
-      ...mergedEntry,
-      matcher: mergedEntry?.matcher ?? templateEntry?.matcher,
-      hooks: existingHookList,
-    };
   }
 
   return merged;
 }
 
-function mergeSettings(targetSettings: any, templateSettings: any): any {
+export function migrateManagedHookEntries(
+  existingHooks: any[] = [],
+  templateHooks: any[] = [],
+  options: HookCommandComparisonOptions = {}
+): any[] {
+  // Map each AutoMem-managed hook key to the matcher the template now wants it under,
+  // so a matcher change (e.g. SessionStart gaining "startup|clear") moves the hook
+  // instead of leaving a stale copy firing under the old matcher.
+  const managedKeyMatchers = new Map<string, string>();
+  for (const templateEntry of templateHooks) {
+    const matcher = templateEntry?.matcher ?? '';
+    for (const hook of Array.isArray(templateEntry?.hooks) ? templateEntry.hooks : []) {
+      for (const key of hookDedupKeys(hook, options)) {
+        managedKeyMatchers.set(key, matcher);
+      }
+    }
+  }
+  if (managedKeyMatchers.size === 0) {
+    return existingHooks;
+  }
+
+  const migrated: any[] = [];
+  for (const entry of existingHooks) {
+    const matcher = entry?.matcher ?? '';
+    const sourceHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    const kept = sourceHooks.filter((hook: any) => {
+      return !hookDedupKeys(hook, options).some((key) => {
+        const templateMatcher = managedKeyMatchers.get(key);
+        return templateMatcher !== undefined && templateMatcher !== matcher;
+      });
+    });
+    if (sourceHooks.length > 0 && kept.length === 0) {
+      continue; // entry only carried AutoMem-managed hooks; the template re-adds them
+    }
+    migrated.push(kept.length === sourceHooks.length ? entry : { ...entry, hooks: kept });
+  }
+  return migrated;
+}
+
+export function mergeSettings(targetSettings: any, templateSettings: any): any {
   const merged = { ...targetSettings };
 
   // Merge env if not present
@@ -128,12 +474,25 @@ function mergeSettings(targetSettings: any, templateSettings: any): any {
   // Merge hooks - add SessionStart hook for automem if not already present
   if (templateSettings.hooks) {
     merged.hooks = merged.hooks ?? {};
+    // Retire hooks the template no longer ships — across every event, so a
+    // retired hook stranded under an event the template stopped registering
+    // still gets removed.
+    for (const [hookName, entries] of Object.entries(merged.hooks)) {
+      const stripped = stripRetiredHookEntries(entries as any[]);
+      if (stripped.length === 0) {
+        delete merged.hooks[hookName];
+      } else {
+        merged.hooks[hookName] = stripped;
+      }
+    }
     for (const [hookName, hookConfigs] of Object.entries(templateSettings.hooks)) {
       if (!merged.hooks[hookName]) {
         merged.hooks[hookName] = hookConfigs;
       } else {
         const existingHooks = merged.hooks[hookName] as any[];
-        merged.hooks[hookName] = mergeHookEntries(existingHooks, hookConfigs as any[]);
+        const canonicalHooks = canonicalizeLegacyHookCommands(existingHooks, hookConfigs as any[]);
+        const migratedHooks = migrateManagedHookEntries(canonicalHooks, hookConfigs as any[]);
+        merged.hooks[hookName] = mergeHookEntries(migratedHooks, hookConfigs as any[]);
       }
     }
   }
@@ -144,15 +503,22 @@ function mergeSettings(targetSettings: any, templateSettings: any): any {
   merged.permissions.allow = mergeUniqueStrings(
     merged.permissions.allow ?? [],
     templatePermissions.allow ?? []
-  );
-  merged.permissions.deny = mergeUniqueStrings(
-    merged.permissions.deny ?? [],
-    templatePermissions.deny ?? []
-  );
-  merged.permissions.ask = mergeUniqueStrings(
-    merged.permissions.ask ?? [],
-    templatePermissions.ask ?? []
-  );
+  ).filter((permission: string) => !RETIRED_PERMISSIONS.includes(permission));
+  // deny/ask are user-owned; the template no longer ships any. Merge only
+  // when one side actually has entries so the installer stops planting empty
+  // blocks in user settings.
+  if (merged.permissions.deny !== undefined || (templatePermissions.deny?.length ?? 0) > 0) {
+    merged.permissions.deny = mergeUniqueStrings(
+      merged.permissions.deny ?? [],
+      templatePermissions.deny ?? []
+    );
+  }
+  if (merged.permissions.ask !== undefined || (templatePermissions.ask?.length ?? 0) > 0) {
+    merged.permissions.ask = mergeUniqueStrings(
+      merged.permissions.ask ?? [],
+      templatePermissions.ask ?? []
+    );
+  }
 
   return merged;
 }
@@ -179,78 +545,48 @@ function installHookScripts(targetDir: string, options: ClaudeCodeSetupOptions) 
   }
 }
 
-function installSupportScripts(targetDir: string, options: ClaudeCodeSetupOptions) {
-  const scriptTemplateDir = path.join(TEMPLATE_ROOT, 'scripts');
-  const scriptTargetDir = path.join(targetDir, 'scripts');
-
-  for (const scriptName of SUPPORT_SCRIPTS) {
-    const templatePath = path.join(scriptTemplateDir, scriptName);
-    const targetPath = path.join(scriptTargetDir, scriptName);
-
-    if (!fs.existsSync(templatePath)) {
-      log(`Warning: Script template not found at ${templatePath}`, options.quiet);
+function removeRetiredFiles(targetDir: string, options: ClaudeCodeSetupOptions) {
+  for (const relativePath of RETIRED_FILES) {
+    const targetPath = path.join(targetDir, relativePath);
+    if (!fs.existsSync(targetPath)) {
       continue;
     }
-
-    const content = fs.readFileSync(templatePath, 'utf8');
-    writeFileWithBackup(targetPath, content, options);
-
-    if (!options.dryRun && (scriptName.endsWith('.sh') || scriptName.endsWith('.py'))) {
-      fs.chmodSync(targetPath, 0o755);
-      log(`installed script: ${scriptName}`, options.quiet);
+    if (options.dryRun) {
+      log(`dry-run: would remove retired file ${targetPath}`, options.quiet);
+      continue;
+    }
+    try {
+      fs.unlinkSync(targetPath);
+      log(`migrated: removed retired file ${targetPath}`, options.quiet);
+    } catch (error) {
+      log(
+        `Warning: could not remove retired file ${targetPath}: ${(error as Error).message}`,
+        options.quiet
+      );
     }
   }
 }
 
-function shouldInstallLegacySmartNotify(targetDir: string): boolean {
-  const smartNotifyPath = path.join(targetDir, 'scripts', 'smart-notify.sh');
-  if (fs.existsSync(smartNotifyPath)) {
-    return true;
+function loadTemplateSettings(profile: ClaudeCodeSetupOptions['profile'] = 'silent') {
+  const templateSettingsPath = path.join(TEMPLATE_ROOT, DEFAULT_SETTINGS_TEMPLATE);
+  const templateSettings = JSON.parse(fs.readFileSync(templateSettingsPath, 'utf8'));
+  if (profile !== 'nudged') {
+    return templateSettings;
   }
 
-  const settingsPath = path.join(targetDir, 'settings.json');
-  if (!fs.existsSync(settingsPath)) {
-    return false;
-  }
-
-  try {
-    const raw = fs.readFileSync(settingsPath, 'utf8');
-    return raw.includes('smart-notify.sh');
-  } catch {
-    return false;
-  }
-}
-
-function installLegacyOptionalSupportScripts(targetDir: string, options: ClaudeCodeSetupOptions) {
-  if (!shouldInstallLegacySmartNotify(targetDir)) {
-    return;
-  }
-
-  const scriptTemplateDir = path.join(TEMPLATE_ROOT, 'scripts');
-  const scriptTargetDir = path.join(targetDir, 'scripts');
-
-  for (const scriptName of LEGACY_OPTIONAL_SUPPORT_SCRIPTS) {
-    const templatePath = path.join(scriptTemplateDir, scriptName);
-    const targetPath = path.join(scriptTargetDir, scriptName);
-
-    if (!fs.existsSync(templatePath)) {
-      log(`Warning: Legacy script template not found at ${templatePath}`, options.quiet);
-      continue;
-    }
-
-    const content = fs.readFileSync(templatePath, 'utf8');
-    writeFileWithBackup(targetPath, content, options);
-
-    if (!options.dryRun && (scriptName.endsWith('.sh') || scriptName.endsWith('.py'))) {
-      fs.chmodSync(targetPath, 0o755);
-      log(`installed legacy script: ${scriptName}`, options.quiet);
-    }
-  }
+  const stopNudgeTemplatePath = path.join(TEMPLATE_ROOT, STOP_NUDGE_SETTINGS_TEMPLATE);
+  const stopNudgeSettings = JSON.parse(fs.readFileSync(stopNudgeTemplatePath, 'utf8'));
+  return {
+    ...templateSettings,
+    hooks: {
+      ...(templateSettings.hooks ?? {}),
+      ...(stopNudgeSettings.hooks ?? {}),
+    },
+  };
 }
 
 function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
-  const templateSettingsPath = path.join(TEMPLATE_ROOT, 'settings.json');
-  const templateSettings = JSON.parse(fs.readFileSync(templateSettingsPath, 'utf8'));
+  const templateSettings = loadTemplateSettings(options.profile);
   const targetPath = path.join(targetDir, 'settings.json');
 
   if (!fs.existsSync(targetPath)) {
@@ -283,6 +619,43 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   }
 
   writeFileWithBackup(targetPath, output, options);
+  if (raw.includes('session-memory.sh') && !output.includes('session-memory.sh')) {
+    log(
+      'migrated: removed retired session-memory.sh Stop hook (backup created)',
+      options.quiet
+    );
+  }
+  const retiredCaptureScripts = [
+    'capture-build-result.sh',
+    'capture-test-pattern.sh',
+    'capture-deployment.sh',
+  ];
+  const removedCapture = retiredCaptureScripts.filter(
+    (name) => raw.includes(name) && !output.includes(name)
+  );
+  if (removedCapture.length > 0) {
+    log(
+      `migrated: removed retired capture hooks (${removedCapture.join(', ')}) — storage is now LLM-judged during normal work; Stop nudge is opt-in`,
+      options.quiet
+    );
+  }
+  const hadQueueHooks = raw.includes('queue-cleanup.sh') || raw.includes('mcp-automem queue');
+  const hasQueueHooks = output.includes('queue-cleanup.sh') || output.includes('mcp-automem queue');
+  if (hadQueueHooks && !hasQueueHooks) {
+    log(
+      'migrated: removed retired queue Stop hooks (queue-cleanup.sh, queue drainer) — the memory queue is manual-only via `npx @verygoodplugins/mcp-automem queue`',
+      options.quiet
+    );
+  }
+  const removedPermissions = RETIRED_PERMISSIONS.filter(
+    (permission) => raw.includes(`"${permission}"`) && !output.includes(`"${permission}"`)
+  );
+  if (removedPermissions.length > 0) {
+    log(
+      `migrated: removed retired hook-era permissions (${removedPermissions.join(', ')}) — the bash-only hooks no longer need Python or jq`,
+      options.quiet
+    );
+  }
   log('updated settings.json (merged MCP permissions)', options.quiet);
 }
 
@@ -305,6 +678,15 @@ function parseClaudeArgs(args: string[]): ClaudeCodeSetupOptions {
       case '--quiet':
         options.quiet = true;
         break;
+      case '--profile': {
+        const profile = args[i + 1];
+        if (profile !== 'silent' && profile !== 'nudged') {
+          throw new Error('--profile must be "silent" or "nudged"');
+        }
+        options.profile = profile;
+        i += 1;
+        break;
+      }
       default:
         break;
     }
@@ -316,6 +698,7 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
   const options: ClaudeCodeSetupOptions = {
     ...cliOptions,
     targetDir: cliOptions.targetDir ?? path.join(os.homedir(), '.claude'),
+    profile: cliOptions.profile ?? 'silent',
   };
 
   const targetDir = options.targetDir ?? path.join(os.homedir(), '.claude');
@@ -326,23 +709,35 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  // Install hook scripts and support scripts
+  // Order matters for crash-safety. Install current hooks, then merge settings
+  // so the config stops referencing retired scripts, and only THEN delete the
+  // retired files on disk. mergeSettingsFile throws on an unparseable
+  // settings.json; deleting first would strand the unchanged hook config
+  // pointing at scripts we already removed — i.e. broken hooks.
   installHookScripts(targetDir, options);
-  installSupportScripts(targetDir, options);
-  installLegacyOptionalSupportScripts(targetDir, options);
-
-  // Merge MCP permissions and hooks into settings.json
   mergeSettingsFile(targetDir, options);
+  removeRetiredFiles(targetDir, options);
 
   log('', options.quiet);
-  log('✓ Hook scripts installed for automatic memory capture', options.quiet);
-  log('✓ Support scripts installed for queue processing', options.quiet);
+  log(
+    options.profile === 'nudged'
+      ? '✓ Hook scripts installed (session recall, store tracking, opt-in stop nudge)'
+      : '✓ Hook scripts installed (session recall, store tracking; Stop nudge is opt-in)',
+    options.quiet
+  );
   log('✓ MCP permissions and hooks added to settings.json', options.quiet);
   log('', options.quiet);
   log('Next steps:', options.quiet);
   log('1. Add MCP server to ~/.claude.json (see INSTALLATION.md)', options.quiet);
   log('2. Add memory rules: cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md', options.quiet);
   log('3. Restart Claude Code', options.quiet);
+  log('', options.quiet);
+  log(
+    'Tip: the AutoMem plugin is the recommended install for Claude Code — it bundles the MCP server and these hooks, prompts for your endpoint, and auto-updates:',
+    options.quiet
+  );
+  log('  /plugin marketplace add verygoodplugins/mcp-automem', options.quiet);
+  log('  /plugin install automem@verygoodplugins-mcp-automem', options.quiet);
 }
 
 export async function runClaudeCodeSetup(args: string[] = []): Promise<void> {
