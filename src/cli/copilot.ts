@@ -59,30 +59,43 @@ const TEMPLATE_ROOT = path.resolve(
 
 const SUPPORT_SCRIPTS = [
   'automem-session-start.sh',
-  'capture-build-result.sh',
-  'capture-test-pattern.sh',
-  'capture-deployment.sh',
-  'session-memory.sh',
-  'python-command.sh',
-  'queue-cleanup.sh',
-  'process-session-memory.py',
-  'memory-filters.json',
+  'automem-track-store.sh',
+  'automem-stop-nudge.sh',
   // PowerShell equivalents
   'automem-session-start.ps1',
-  'capture-build-result.ps1',
-  'capture-test-pattern.ps1',
-  'capture-deployment.ps1',
-  'session-memory.ps1',
-  'python-command.ps1',
-  'queue-cleanup.ps1',
+  'automem-track-store.ps1',
+  'automem-stop-nudge.ps1',
+];
+
+// Retired Copilot machinery: the session-summary rollup (session-memory),
+// the mechanical build/test/deploy capture hooks, and the queue pipeline
+// (queue-cleanup + python-command + process-session-memory + memory-filters).
+// These are NEVER installed. They are listed only so a re-run of the installer
+// and the uninstaller can delete the orphaned files from existing installs.
+const RETIRED_SUPPORT_SCRIPTS = [
+  'capture-build-result.sh', 'capture-build-result.ps1',
+  'capture-test-pattern.sh', 'capture-test-pattern.ps1',
+  'capture-deployment.sh', 'capture-deployment.ps1',
+  'session-memory.sh', 'session-memory.ps1',
+  'queue-cleanup.sh', 'queue-cleanup.ps1',
+  'python-command.sh', 'python-command.ps1',
+  'process-session-memory.py',
+  'memory-filters.json',
 ];
 
 /**
- * Returns the base names of all AutoMem support scripts (with extensions stripped).
- * Used by both the installer and uninstaller to stay in sync.
+ * Returns the base names of all AutoMem support scripts (current + retired),
+ * with extensions stripped. The uninstaller uses this to remove both the
+ * scripts shipped today and the orphaned files left by older installs.
  */
 export function getCopilotSupportScriptBaseNames(): string[] {
-  return [...new Set(SUPPORT_SCRIPTS.map(s => s.replace(/\.(sh|ps1|py|json)$/, '')))];
+  return [
+    ...new Set(
+      [...SUPPORT_SCRIPTS, ...RETIRED_SUPPORT_SCRIPTS].map(s =>
+        s.replace(/\.(sh|ps1|py|json)$/, '')
+      )
+    ),
+  ];
 }
 
 
@@ -234,6 +247,38 @@ function removeStaleHooks(targetDir: string, profileHooks: string[], options: Co
       }
       removed.push(hookFile);
     }
+  }
+
+  return removed;
+}
+
+function removeRetiredScripts(targetDir: string, options: CopilotSetupOptions): string[] {
+  const scriptTargetDir = path.join(targetDir, 'scripts');
+  const removed: string[] = [];
+
+  if (!fs.existsSync(scriptTargetDir)) {
+    return removed;
+  }
+
+  for (const scriptName of RETIRED_SUPPORT_SCRIPTS) {
+    const filePath = path.join(scriptTargetDir, scriptName);
+    if (!fs.existsSync(filePath)) {
+      continue;
+    }
+    if (options.dryRun) {
+      log(`dry-run: would remove retired script ${scriptName}`, options.quiet);
+    } else {
+      try {
+        const backup = backupPath(filePath);
+        fs.copyFileSync(filePath, backup);
+        fs.unlinkSync(filePath);
+        log(`removed retired script: ${scriptName} (backup: ${backup})`, options.quiet);
+      } catch (err) {
+        log(`warning: failed to remove ${scriptName}: ${(err as Error).message}`, options.quiet);
+        continue;
+      }
+    }
+    removed.push(scriptName);
   }
 
   return removed;
@@ -441,6 +486,14 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
   const removed = removeStaleHooks(targetDir, profile.hooks, options);
   if (removed.length > 0) {
     log(`Removed ${removed.length} hook(s) not in '${profileName}' profile`, options.quiet);
+    log('', options.quiet);
+  }
+
+  // Delete orphaned files from the retired session-summary + capture + queue
+  // machinery left behind by older installs (parity with the Claude Code side).
+  const retiredRemoved = removeRetiredScripts(targetDir, options);
+  if (retiredRemoved.length > 0) {
+    log(`Removed ${retiredRemoved.length} retired AutoMem script(s)`, options.quiet);
     log('', options.quiet);
   }
 

@@ -1,11 +1,9 @@
 {
   "name": "full",
-  "description": "Full hook set including build, test, and deploy capture",
+  "description": "Adds the opt-in end-of-turn storage nudge (re-wakes once per session when nothing was stored)",
   "hooks": [
     "automem-session-start.json",
-    "automem-build.json",
-    "automem-test.json",
-    "automem-deploy.json",
-    "automem-session-end.json"
+    "automem-track-store.json",
+    "automem-stop-nudge.json"
   ]
 }

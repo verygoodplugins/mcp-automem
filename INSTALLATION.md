@@ -702,18 +702,22 @@ npx @verygoodplugins/mcp-automem copilot --yes
 ```
 
 This installs:
-- **Hook JSON files** into `$COPILOT_HOME/hooks/` or `~/.copilot/hooks/` (session start recall, build/test/deploy capture, session end queue drain)
+- **Hook JSON files** into `$COPILOT_HOME/hooks/` or `~/.copilot/hooks/` (session-start recall, a `postToolUse` store tracker, and -- with `--profile full` -- an opt-in `agentStop` storage nudge)
 - **Support scripts** (bash + PowerShell) into `$COPILOT_HOME/scripts/` or `~/.copilot/scripts/`
 - **Memory rules** into both `copilot-instructions.md` (CLI) and `instructions/automem.instructions.md` (VS Code) inside the target Copilot directory
+
+Re-running the command also deletes the orphaned files from the retired session-summary + build/test/deploy capture + queue machinery left behind by older installs (parity with the Claude Code side).
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--format cli\|vscode\|both` | `both` | Which memory rules and hook event names to install. `cli` = camelCase hooks + CLI rules only. `vscode` = PascalCase hooks + VS Code rules only. `both` = both hook event spellings + both rule sets. |
-| `--profile full\|lean` | `lean` | `lean` = session hooks only; `full` = all hooks including build/test/deploy capture |
+| `--profile lean\|full` | `lean` | `lean` (default, silent) = session-start recall + `postToolUse` store tracker. `full` = adds the opt-in `agentStop` storage nudge that re-wakes the agent for one closing turn (once per session) when nothing durable was stored. |
 | `--dir <path>` | `$COPILOT_HOME` or `~/.copilot` | Target installation directory |
 | `--dry-run` | | Preview changes without writing files |
 | `--yes` | | Skip confirmation prompts |
 | `--quiet` | | Suppress output |
+
+> **Nudge note:** Copilot's `agentStop` output contract is `{decision, reason}` -- a `block` decision re-prompts the agent using `reason`. Unlike Claude Code's `Stop` hook it cannot inject hidden, non-prompting context, so the storage nudge is opt-in (`--profile full`) only; the default `lean` install keeps session end silent. The nudge fires at most once per session and only after a substantive session (>= 5 `user.message` turns in the transcript).
 
 > **Windows note:** All hook templates invoke PowerShell with `-NoProfile` to prevent profile output from corrupting hook JSON payloads. This matches how bash hooks work (non-interactive `bash script.sh` skips `~/.bashrc`). If your hook scripts need something from your profile (custom PATH entries, modules), move that setup into the hook script itself or into environment variables.
 

@@ -1,8 +1,8 @@
 {
   "name": "lean",
-  "description": "Minimal hooks - session start and end only",
+  "description": "Default (silent) - session-start recall + store tracker",
   "hooks": [
     "automem-session-start.json",
-    "automem-session-end.json"
+    "automem-track-store.json"
   ]
 }

@@ -16,4 +16,6 @@ templates/hermes/memory-rules.md text eol=lf
 templates/hermes/provider/automem_policy.py text eol=lf
 templates/copilot/scripts/automem-session-start.sh text eol=lf
 templates/copilot/scripts/automem-session-start.ps1 text eol=lf
+templates/copilot/scripts/automem-track-store.ps1 text eol=lf
+templates/copilot/scripts/automem-stop-nudge.ps1 text eol=lf
 

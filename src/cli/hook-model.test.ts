@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COPILOT_HOOK_EVENT_NAMES,
   COPILOT_PAYLOAD_FIELD_MAPPINGS,
-  COPILOT_SESSION_END_COMMAND_ORDER,
+  COPILOT_LEAN_PROFILE_HOOKS,
   resolveCopilotHome,
   resolveCopilotHookSurfaces,
 } from './hook-model.js';
@@ -14,11 +14,15 @@ describe('shared hook model', () => {
     expect(COPILOT_HOOK_EVENT_NAMES['vscode-copilot'].sessionStart).toBe('SessionStart');
   });
 
-  it('models the session-end command order once', () => {
-    expect(COPILOT_SESSION_END_COMMAND_ORDER).toEqual([
-      'session-memory',
-      'queue-cleanup',
-      'queue-drain',
+  it('maps the agentStop event to the VS Code Stop spelling', () => {
+    expect(COPILOT_HOOK_EVENT_NAMES['copilot-cli'].agentStop).toBe('agentStop');
+    expect(COPILOT_HOOK_EVENT_NAMES['vscode-copilot'].agentStop).toBe('Stop');
+  });
+
+  it('models the default (lean) profile hook set', () => {
+    expect(COPILOT_LEAN_PROFILE_HOOKS).toEqual([
+      'automem-session-start.json',
+      'automem-track-store.json',
     ]);
   });
 

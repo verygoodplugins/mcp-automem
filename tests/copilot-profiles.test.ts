@@ -23,29 +23,27 @@ function cleanupDir(dir: string) {
 }
 
 describe('loadProfile', () => {
-  // T006: loadProfile('lean') returns exactly session-start and session-end
-  it('lean profile returns exactly session-start and session-end hooks', () => {
+  // T006: loadProfile('lean') returns exactly session-start and store tracker
+  it('lean profile returns exactly session-start and track-store hooks', () => {
     const profile = loadProfile('lean');
     expect(profile.name).toBe('lean');
     expect(profile.hooks).toEqual([
       'automem-session-start.json',
-      'automem-session-end.json',
+      'automem-track-store.json',
     ]);
     expect(profile.hooks).toHaveLength(2);
   });
 
-  // T007: loadProfile('full') returns all 5 hook filenames
-  it('full profile returns all 5 hook filenames', () => {
+  // T007: loadProfile('full') adds the opt-in storage nudge
+  it('full profile returns lean hooks plus the opt-in stop nudge', () => {
     const profile = loadProfile('full');
     expect(profile.name).toBe('full');
     expect(profile.hooks).toEqual([
       'automem-session-start.json',
-      'automem-build.json',
-      'automem-test.json',
-      'automem-deploy.json',
-      'automem-session-end.json',
+      'automem-track-store.json',
+      'automem-stop-nudge.json',
     ]);
-    expect(profile.hooks).toHaveLength(5);
+    expect(profile.hooks).toHaveLength(3);
   });
 
   // T008: loadProfile('invalid') throws with error message listing valid profiles
@@ -89,21 +87,19 @@ describe('profile switching (T010)', () => {
   it('full to lean removes extra hooks', () => {
     const hooksDir = path.join(tempDir, 'hooks');
 
-    // Simulate full profile installed (5 hook files)
+    // Simulate full profile installed (3 hook files)
     const fullHooks = [
       'automem-session-start.json',
-      'automem-build.json',
-      'automem-test.json',
-      'automem-deploy.json',
-      'automem-session-end.json',
+      'automem-track-store.json',
+      'automem-stop-nudge.json',
     ];
     for (const hook of fullHooks) {
       fs.writeFileSync(path.join(hooksDir, hook), '{}', 'utf8');
     }
 
-    // Verify 5 files exist
+    // Verify 3 files exist
     const before = fs.readdirSync(hooksDir).filter(f => f.startsWith('automem-'));
-    expect(before).toHaveLength(5);
+    expect(before).toHaveLength(3);
 
     // Get lean profile hooks
     const leanProfile = loadProfile('lean');
@@ -120,9 +116,7 @@ describe('profile switching (T010)', () => {
     const after = fs.readdirSync(hooksDir).filter(f => f.startsWith('automem-'));
     expect(after).toHaveLength(2);
     expect(after).toContain('automem-session-start.json');
-    expect(after).toContain('automem-session-end.json');
-    expect(after).not.toContain('automem-build.json');
-    expect(after).not.toContain('automem-test.json');
-    expect(after).not.toContain('automem-deploy.json');
+    expect(after).toContain('automem-track-store.json');
+    expect(after).not.toContain('automem-stop-nudge.json');
   });
 });

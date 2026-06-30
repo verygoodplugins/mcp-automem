@@ -177,16 +177,28 @@ describe('installHookFiles (event name remapping)', () => {
     });
   });
 
-  it('--format vscode remaps session-end hook correctly', async () => {
+  it('--format vscode remaps the track-store hook to PostToolUse', async () => {
     await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
 
-    const hookPath = path.join(tempDir, 'hooks', 'automem-session-end.json');
+    const hookPath = path.join(tempDir, 'hooks', 'automem-track-store.json');
     expect(fs.existsSync(hookPath)).toBe(true);
 
     const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
     const keys = Object.keys(hookData.hooks);
-    expect(keys).toContain('SessionEnd');
-    expect(keys).not.toContain('sessionEnd');
+    expect(keys).toContain('PostToolUse');
+    expect(keys).not.toContain('postToolUse');
+  });
+
+  it('--format vscode remaps the agentStop nudge to Stop', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', profile: 'full', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-stop-nudge.json');
+    expect(fs.existsSync(hookPath)).toBe(true);
+
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const keys = Object.keys(hookData.hooks);
+    expect(keys).toContain('Stop');
+    expect(keys).not.toContain('agentStop');
   });
 
   it('--format vscode marks command hooks for VS Code output envelopes', async () => {
@@ -336,19 +348,9 @@ describe('support scripts installation', () => {
 
     const hookFiles = fs.readdirSync(path.join(tempDir, 'hooks')).sort();
     expect(hookFiles).toEqual([
-      'automem-session-end.json',
       'automem-session-start.json',
+      'automem-track-store.json',
     ]);
-  });
-
-  it('installs memory-filters.json', async () => {
-    await applyCopilotSetup({ targetDir: tempDir, yes: true, quiet: true });
-
-    const filtersPath = path.join(tempDir, 'scripts', 'memory-filters.json');
-    expect(fs.existsSync(filtersPath)).toBe(true);
-
-    const content = JSON.parse(fs.readFileSync(filtersPath, 'utf8'));
-    expect(content).toHaveProperty('trivial_patterns');
   });
 });
 
@@ -389,15 +391,31 @@ describe('target directory resolution', () => {
   });
 });
 
-describe('session-end hook ordering', () => {
-  it('captures the session before cleanup and queue drain', () => {
-    const hookPath = path.resolve(__dirname, '../templates/copilot/hooks/automem-session-end.json');
+describe('track-store hook schema', () => {
+  it('matches the store tool via a postToolUse toolName matcher', () => {
+    const hookPath = path.resolve(__dirname, '../templates/copilot/hooks/automem-track-store.json');
     const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
-    const commands = data.hooks.sessionEnd.map((entry: { bash: string }) => entry.bash);
+    const entry = data.hooks.postToolUse[0];
 
-    expect(commands[0]).toContain('session-memory.sh');
-    expect(commands[1]).toContain('queue-cleanup.sh');
-    expect(commands[2]).toContain('mcp-automem queue');
+    expect(entry.type).toBe('command');
+    // Matcher is anchored ^(?:PATTERN)$ against toolName; the AutoMem store
+    // tool is exposed to Copilot as `automem-store_memory`.
+    expect(entry.matcher).toBe('.*store_memory');
+    expect(new RegExp(`^(?:${entry.matcher})$`).test('automem-store_memory')).toBe(true);
+    expect(entry.bash).toContain('automem-track-store.sh');
+    expect(entry.powershell).toContain('automem-track-store.ps1');
+  });
+});
+
+describe('stop-nudge hook schema', () => {
+  it('registers an agentStop command hook', () => {
+    const hookPath = path.resolve(__dirname, '../templates/copilot/hooks/automem-stop-nudge.json');
+    const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const entry = data.hooks.agentStop[0];
+
+    expect(entry.type).toBe('command');
+    expect(entry.bash).toContain('automem-stop-nudge.sh');
+    expect(entry.powershell).toContain('automem-stop-nudge.ps1');
   });
 });
 

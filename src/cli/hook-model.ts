@@ -9,19 +9,22 @@ export const COPILOT_HOOK_EVENT_NAMES = {
   'copilot-cli': {
     sessionStart: 'sessionStart',
     postToolUse: 'postToolUse',
+    agentStop: 'agentStop',
     sessionEnd: 'sessionEnd',
   },
   'vscode-copilot': {
     sessionStart: 'SessionStart',
     postToolUse: 'PostToolUse',
+    agentStop: 'Stop',
     sessionEnd: 'SessionEnd',
   },
 } as const;
 
-export const COPILOT_SESSION_END_COMMAND_ORDER = [
-  'session-memory',
-  'queue-cleanup',
-  'queue-drain',
+// Hook files installed by the default `lean` (silent) profile, in order. The
+// opt-in `full` profile appends `automem-stop-nudge.json` (agentStop).
+export const COPILOT_LEAN_PROFILE_HOOKS = [
+  'automem-session-start.json',
+  'automem-track-store.json',
 ] as const;
 
 export const COPILOT_PAYLOAD_FIELD_MAPPINGS = {

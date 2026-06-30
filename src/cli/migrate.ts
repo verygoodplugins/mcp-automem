@@ -105,10 +105,11 @@ function analyzeCopilotHooks(copilotDir: string, quiet?: boolean): void {
   // Detect which profile they match
   if (hookFiles.length === 2 &&
       hookFiles.includes('automem-session-start.json') &&
-      hookFiles.includes('automem-session-end.json')) {
-    log('\n  Profile: lean (session-start + session-end)', quiet);
-  } else if (hookFiles.length === 5) {
-    log('\n  Profile: full (all hooks)', quiet);
+      hookFiles.includes('automem-track-store.json')) {
+    log('\n  Profile: lean (session-start + store tracker)', quiet);
+  } else if (hookFiles.length === 3 &&
+      hookFiles.includes('automem-stop-nudge.json')) {
+    log('\n  Profile: full (lean + opt-in storage nudge)', quiet);
   } else {
     log('\n  Profile: custom (does not match a standard profile)', quiet);
   }
