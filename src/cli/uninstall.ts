@@ -9,11 +9,13 @@ import {
   removeMcpServerEntry,
   resolveHermesPaths,
 } from './hermes-config.js';
+import { defaultOpenCodeConfigPath } from './opencode.js';
 
 interface UninstallOptions {
-  platform: 'cursor' | 'claude-code' | 'codex' | 'hermes';
+  platform: 'cursor' | 'claude-code' | 'codex' | 'hermes' | 'opencode';
   projectDir?: string;
   rulesPath?: string;
+  configPath?: string;
   cleanAll?: boolean;
   dryRun?: boolean;
   yes?: boolean;
@@ -385,6 +387,83 @@ async function uninstallCodex(options: UninstallOptions): Promise<void> {
   log('\n✅ Codex AutoMem configuration removed', options.quiet);
 }
 
+async function uninstallOpenCode(options: UninstallOptions): Promise<void> {
+  // Symmetric with the `opencode` setup command: strip the marked AutoMem block
+  // from AGENTS.md and remove the `mcp.memory` entry from opencode.json.
+  const projectDir = options.projectDir ?? process.cwd();
+  const rulesFile = options.rulesPath ?? path.join(projectDir, 'AGENTS.md');
+  const configFile = options.configPath ?? defaultOpenCodeConfigPath();
+
+  log('\n🗑️  Uninstalling OpenCode AutoMem...', options.quiet);
+
+  // 1. Rules block
+  if (!fs.existsSync(rulesFile)) {
+    log(`ℹ️  No rules file at ${rulesFile}`, options.quiet);
+  } else {
+    const start = '<!-- BEGIN AUTOMEM OPENCODE RULES -->';
+    const end = '<!-- END AUTOMEM OPENCODE RULES -->';
+    const raw = fs.readFileSync(rulesFile, 'utf8');
+    const startIdx = raw.indexOf(start);
+    const endIdx = raw.indexOf(end);
+
+    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+      log(`ℹ️  No AutoMem rule block in ${rulesFile}`, options.quiet);
+    } else if (options.dryRun) {
+      log(`[DRY RUN] Would strip AutoMem block from: ${rulesFile}`, options.quiet);
+    } else {
+      const before = raw.slice(0, startIdx).replace(/\s+$/, '');
+      const after = raw.slice(endIdx + end.length).replace(/^\s+/, '');
+      const joined = before && after ? `${before}\n\n${after}` : `${before}${after}`;
+      const next = `${joined.replace(/\n+$/, '')}\n`;
+      const backupPath = `${rulesFile}.backup.${Date.now()}`;
+      fs.copyFileSync(rulesFile, backupPath);
+      fs.writeFileSync(rulesFile, next, 'utf8');
+      log(`🗑️  Stripped AutoMem block from ${rulesFile}`, options.quiet);
+      log(`   Backup: ${backupPath}`, options.quiet);
+    }
+  }
+
+  // 2. MCP server entry
+  if (!fs.existsSync(configFile)) {
+    log(`ℹ️  No OpenCode config at ${configFile}`, options.quiet);
+  } else {
+    let config: Record<string, unknown> | null = null;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        config = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // fall through to the warning below
+    }
+    if (!config) {
+      log(`⚠️  Could not parse ${configFile} — remove the mcp.memory entry manually`, options.quiet);
+    } else {
+      const mcp =
+        config.mcp && typeof config.mcp === 'object' && !Array.isArray(config.mcp)
+          ? (config.mcp as Record<string, unknown>)
+          : null;
+      if (!mcp || !('memory' in mcp)) {
+        log(`ℹ️  No mcp.memory entry in ${configFile}`, options.quiet);
+      } else if (options.dryRun) {
+        log(`[DRY RUN] Would remove mcp.memory from: ${configFile}`, options.quiet);
+      } else {
+        delete mcp.memory;
+        if (Object.keys(mcp).length === 0) {
+          delete config.mcp;
+        }
+        const backupPath = `${configFile}.backup.${Date.now()}`;
+        fs.copyFileSync(configFile, backupPath);
+        fs.writeFileSync(configFile, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+        log(`🗑️  Removed mcp.memory from ${configFile}`, options.quiet);
+        log(`   Backup: ${backupPath}`, options.quiet);
+      }
+    }
+  }
+
+  log('\n✅ OpenCode AutoMem configuration removed', options.quiet);
+}
+
 async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
   const claudeDir = path.join(os.homedir(), '.claude');
   const settingsPath = path.join(claudeDir, 'settings.json');
@@ -519,6 +598,8 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
     await uninstallClaudeCode(options);
   } else if (options.platform === 'codex') {
     await uninstallCodex(options);
+  } else if (options.platform === 'opencode') {
+    await uninstallOpenCode(options);
   } else if (options.platform === 'hermes') {
     await uninstallHermes(options);
   }
@@ -544,10 +625,10 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
 }
 
 export function parseUninstallArgs(args: string[]): UninstallOptions | null {
-  const allowed = ['cursor', 'claude-code', 'codex', 'hermes'] as const;
+  const allowed = ['cursor', 'claude-code', 'codex', 'opencode', 'hermes'] as const;
   if (args.length === 0 || !allowed.includes(args[0] as typeof allowed[number])) {
-    console.error('❌ Error: Platform required (cursor, claude-code, codex, or hermes)');
-    console.error('Usage: mcp-automem uninstall <cursor|claude-code|codex|hermes> [options]');
+    console.error('❌ Error: Platform required (cursor, claude-code, codex, opencode, or hermes)');
+    console.error('Usage: mcp-automem uninstall <cursor|claude-code|codex|opencode|hermes> [options]');
     return null;
   }
 
@@ -572,6 +653,14 @@ export function parseUninstallArgs(args: string[]): UninstallOptions | null {
           return null;
         }
         options.rulesPath = args[i + 1];
+        i += 1;
+        break;
+      case '--config':
+        if (i + 1 >= args.length) {
+          console.error('Error: --config requires a path value');
+          return null;
+        }
+        options.configPath = args[i + 1];
         i += 1;
         break;
       case '--clean-all':

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "memory": {
+      "type": "local",
+      "command": ["npx", "-y", "@verygoodplugins/mcp-automem"],
+      "enabled": true,
+      "environment": {
+        "AUTOMEM_API_URL": "{{AUTOMEM_API_URL}}",
+        "AUTOMEM_API_KEY": "{{AUTOMEM_API_KEY}}"
+      }
+    }
+  }
+}

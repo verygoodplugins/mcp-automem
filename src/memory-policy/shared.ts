@@ -547,6 +547,36 @@ export function renderCodexMemoryRules(params: ToolRuleRenderOptions): string {
   ].join('\n');
 }
 
+export function renderOpenCodeMemoryRules(params: ToolRuleRenderOptions): string {
+  // OpenCode exposes MCP tools as <server>_<tool> (server key `memory` → `memory_*`).
+  const toolPrefix = params.toolPrefix ?? 'memory_';
+  return [
+    '<!-- BEGIN AUTOMEM OPENCODE RULES -->',
+    `<!-- automem-template-version: ${params.templateVersion} -->`,
+    '',
+    `## Memory - AutoMem (persistent context for ${params.projectName})`,
+    '',
+    `AutoMem is wired as the \`memory\` MCP server (see \`~/.config/opencode/opencode.json\`). Tools are \`${toolPrefix}*\`. Use this layer proactively for continuity across turns.`,
+    '',
+    renderToolBehaviorSection(),
+    '',
+    renderRecallRulesSection({ projectName: params.projectName, toolPrefix }),
+    '',
+    renderStorageRulesSection(toolPrefix, params.projectName),
+    '',
+    '## Guidelines',
+    '',
+    '- Weave recalled context naturally; do not announce memory operations.',
+    '- Prefer high-signal memories: decisions, root causes, reusable patterns, and explicit preferences.',
+    '- Avoid wall-of-text memories; keep them atomic and focused.',
+    '',
+    renderMemoryVsCurrentState(),
+    '',
+    '<!-- END AUTOMEM OPENCODE RULES -->',
+    '',
+  ].join('\n');
+}
+
 export type CursorProjectRuleOptions = ToolRuleRenderOptions & {
   mcpServerName: string;
   mcpToolPrefix: string;
