@@ -15,6 +15,7 @@ import { runInstallCommand } from "./cli/install.js";
 import { runClaudeCodeSetup } from "./cli/claude-code.js";
 import { runCursorSetup } from "./cli/cursor.js";
 import { runCodexSetup } from "./cli/codex.js";
+import { runOpenCodeSetup } from "./cli/opencode.js";
 import { runOpenClawSetup } from "./cli/openclaw.js";
 import { runHermesSetup } from "./cli/hermes.js";
 import { runMigrateCommand } from "./cli/migrate.js";
@@ -50,6 +51,7 @@ const KNOWN_COMMANDS = new Set([
   "claude-code",
   "cursor",
   "codex",
+  "opencode",
   "openclaw",
   "hermes",
   "migrate",
@@ -189,6 +191,7 @@ COMMANDS:
   claude-code        Set up AutoMem for Claude Code
   cursor             Set up AutoMem for Cursor
   codex              Set up AutoMem for Codex
+  opencode           Set up AutoMem for OpenCode
   openclaw           Set up AutoMem for OpenClaw
   hermes             Set up AutoMem for Hermes Agent
   migrate            Migrate existing projects to AutoMem
@@ -274,12 +277,27 @@ RECALL:
 
 CODEX SETUP:
   npx @verygoodplugins/mcp-automem codex [options]
-  
+
   Options:
     --name <name>         Project name (auto-detected if not provided)
     --rules <path>        Target rules file (default: ./AGENTS.md)
     --dry-run             Show what would be changed
     --quiet               Suppress output
+
+OPENCODE SETUP:
+  npx @verygoodplugins/mcp-automem opencode [options]
+
+  Options:
+    --name <name>         Project name (auto-detected if not provided)
+    --config <path>       OpenCode config file (default: ~/.config/opencode/opencode.json)
+    --rules <path>        Target rules file (default: ./AGENTS.md)
+    --endpoint <url>      AutoMem endpoint (default: $AUTOMEM_API_URL or http://127.0.0.1:8001)
+    --api-key <key>       AutoMem API key (optional)
+    --dry-run             Show what would be changed
+    --quiet               Suppress output
+
+  Configures the memory MCP server in opencode.json and installs memory rules
+  into AGENTS.md (read natively by OpenCode). Verify with: opencode mcp list
 
 HERMES SETUP:
   npx @verygoodplugins/mcp-automem hermes [options]
@@ -363,6 +381,11 @@ if (command === "cursor") {
 
 if (command === "codex") {
   await runCodexSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === "opencode") {
+  await runOpenCodeSetup(process.argv.slice(3));
   process.exit(0);
 }
 

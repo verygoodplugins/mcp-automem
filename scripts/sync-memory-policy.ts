@@ -12,6 +12,7 @@ import {
   renderCursorProjectRule,
   renderHermesMemoryRules,
   renderHermesProviderPolicyPython,
+  renderOpenCodeMemoryRules,
 } from '../src/memory-policy/shared.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -48,6 +49,10 @@ const files: Array<[string, string]> = [
   [
     'templates/codex/memory-rules.md',
     renderCodexMemoryRules({ projectName: '{{PROJECT_NAME}}', templateVersion }),
+  ],
+  [
+    'templates/opencode/memory-rules.md',
+    renderOpenCodeMemoryRules({ projectName: '{{PROJECT_NAME}}', templateVersion }),
   ],
   [
     'templates/cursor/automem.mdc.template',

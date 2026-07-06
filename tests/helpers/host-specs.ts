@@ -1,5 +1,5 @@
 export interface HostSmokeSpec {
-  host: 'hermes' | 'codex' | 'claude-code' | 'cursor';
+  host: 'hermes' | 'codex' | 'claude-code' | 'cursor' | 'opencode';
   configPath: string;
   installCommand: string[];
   expectedToolNames: string[];
@@ -38,6 +38,14 @@ export const HOST_SMOKE_SPECS: HostSmokeSpec[] = [
     configPath: '~/.cursor/mcp.json',
     installCommand: ['mcp-automem', 'cursor'],
     expectedToolNames: RAW_AUTOMEM_TOOLS.map((name) => `mcp_memory_${name}`).sort(),
+    realHostSmoke: 'config-and-mcp-contract',
+  },
+  {
+    host: 'opencode',
+    configPath: '~/.config/opencode/opencode.json',
+    installCommand: ['mcp-automem', 'opencode'],
+    expectedToolNames: RAW_AUTOMEM_TOOLS.map((name) => `memory_${name}`).sort(),
+    validationCommand: ['opencode', 'mcp', 'list'],
     realHostSmoke: 'config-and-mcp-contract',
   },
   {

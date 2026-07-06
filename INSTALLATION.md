@@ -141,6 +141,7 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [Cursor IDE](#cursor-ide) - AI-powered code editor
 - [Claude Code](#claude-code) - Terminal coding assistant with automation hooks
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
+- [OpenCode](#opencode) - Open-source terminal coding agent
 - [Hermes Agent](#hermes-agent) - Nous Research terminal agent with MCP and native memory provider support
 - [Google Antigravity](#google-antigravity) - Desktop editor with MCP Store and raw config
 - [OpenClaw](#openclaw) - Personal AI assistant with multi-platform messaging (WhatsApp, Telegram, Slack, Discord, etc.)
@@ -751,6 +752,41 @@ codex "What were the key decisions made in this project last week?"
 - Launch tasks from [chatgpt.com/codex](https://chatgpt.com/codex/)
 - Codex has access to stored memories across environments
 - Memories sync between CLI, IDE, and cloud agent
+
+## OpenCode
+
+[OpenCode](https://opencode.ai) is an open-source terminal coding agent with MCP and plugin support. AutoMem gives it persistent memory across sessions.
+
+### 1. Install OpenCode
+
+```bash
+curl -fsSL https://opencode.ai/install | bash
+```
+
+### 2. Run the setup command
+
+```bash
+cd ~/Projects/my-app
+npx @verygoodplugins/mcp-automem opencode --endpoint http://127.0.0.1:8001
+```
+
+This does two things:
+
+- Adds the `memory` MCP server to `~/.config/opencode/opencode.json` (creating the file if needed, backing it up if not). Pass `--api-key <key>` if your instance requires auth, or `--config <path>` for a non-default location.
+- Installs memory-first rules into the project's `AGENTS.md` (read natively by OpenCode), so the agent proactively recalls and stores context.
+
+Preview everything first with `--dry-run`.
+
+**Manual alternative:** copy `templates/opencode/opencode.json` into your config and fill in the placeholders.
+
+### 3. Verify Installation
+
+```bash
+opencode mcp list
+# expect: ✓ memory connected
+```
+
+Then ask OpenCode: `Check the health of the AutoMem service` — you should see connection status for FalkorDB and Qdrant.
 
 ### Memory Best Practices for Codex
 
