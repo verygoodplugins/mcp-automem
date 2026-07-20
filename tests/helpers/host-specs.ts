@@ -1,5 +1,5 @@
 export interface HostSmokeSpec {
-  host: 'hermes' | 'codex' | 'claude-code' | 'cursor' | 'copilot-cli' | 'vscode-copilot';
+  host: 'hermes' | 'codex' | 'claude-code' | 'cursor' | 'copilot-cli' | 'vscode-copilot' | 'grok';
   configPath: string;
   installCommand: string[];
   expectedToolNames: string[];
@@ -60,6 +60,13 @@ export const HOST_SMOKE_SPECS: HostSmokeSpec[] = [
     configPath: '.vscode/mcp.json',
     installCommand: ['mcp-automem', 'copilot', '--format', 'vscode'],
     expectedToolNames: RAW_AUTOMEM_TOOLS.map((name) => `mcp_automem_${name}`).sort(),
+    realHostSmoke: 'config-and-mcp-contract',
+  },
+  {
+    host: 'grok',
+    configPath: '~/.grok/config.toml',
+    installCommand: ['mcp-automem', 'grok'],
+    expectedToolNames: RAW_AUTOMEM_TOOLS.map((name) => `memory__${name}`).sort(),
     realHostSmoke: 'config-and-mcp-contract',
   },
 ];

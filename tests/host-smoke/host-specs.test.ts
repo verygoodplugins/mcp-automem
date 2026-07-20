@@ -9,6 +9,7 @@ describe('host smoke specs', () => {
       'codex',
       'copilot-cli',
       'cursor',
+      'grok',
       'hermes',
       'vscode-copilot',
     ]);

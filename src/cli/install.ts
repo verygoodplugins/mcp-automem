@@ -6,7 +6,9 @@ import { applyClaudeCodeSetup } from './claude-code.js';
 import { applyCodexSetup } from './codex.js';
 import { applyCursorSetup } from './cursor.js';
 import { applyHermesSetup, type HermesInstallMode } from './hermes.js';
+import { applyGrokSetup } from './grok.js';
 import { applyOpenClawSetup } from './openclaw.js';
+import { resolveGrokPaths } from './grok-config.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 import { mergeEnvContent, writeFileWithBackup } from './host-toolkit.js';
 import { provisionViaInstaPodsLink, provisionViaRailway } from './cloud/installer-bridge.js';
@@ -121,7 +123,14 @@ export async function installClaudeCodePlugin(params: {
 // How the guided installer wires Claude Code. Defaults to the recommended plugin.
 export type ClaudeCodeMode = 'plugin' | 'settings';
 
-export const AGENT_CLIENTS = ['codex', 'claude-code', 'cursor', 'openclaw', 'hermes'] as const;
+export const AGENT_CLIENTS = [
+  'codex',
+  'claude-code',
+  'cursor',
+  'openclaw',
+  'hermes',
+  'grok',
+] as const;
 
 export type AgentClient = (typeof AGENT_CLIENTS)[number];
 export const DEFAULT_AGENT_CLIENTS = [
@@ -470,6 +479,7 @@ export function detectInstallEnvironment(options: DetectOptions = {}): InstallEn
     cursor: path.join(homeDir, '.cursor'),
     openclaw: path.join(homeDir, '.openclaw'),
     hermes: env.HERMES_HOME || path.join(homeDir, '.hermes'),
+    grok: env.GROK_HOME || path.join(homeDir, '.grok'),
   };
 
   const candidates: DetectedClient[] = AGENT_CLIENTS.map((client) => ({
@@ -544,6 +554,10 @@ function agentPaths(
       return [path.join(environment.clientRoots.openclaw, 'openclaw.json')];
     case 'hermes':
       return hermesPaths(environment, options.hermesMode);
+    case 'grok': {
+      const grok = resolveGrokPaths({ dir: environment.clientRoots.grok });
+      return [grok.configPath, grok.agentsPath];
+    }
   }
 }
 
@@ -983,6 +997,8 @@ function clientLabel(client: AgentClient): string {
       return 'OpenClaw';
     case 'hermes':
       return 'Hermes';
+    case 'grok':
+      return 'Grok Build';
   }
 }
 
@@ -1000,6 +1016,8 @@ export function manualFixHint(client: AgentClient): string {
       return 'Codex: re-run  npx @verygoodplugins/mcp-automem install --clients codex';
     case 'claude-code':
       return 'Claude Code: re-run  npx @verygoodplugins/mcp-automem install --clients claude-code';
+    case 'grok':
+      return 'Grok: re-run  npx @verygoodplugins/mcp-automem install --clients grok';
   }
 }
 
@@ -1049,6 +1067,7 @@ function clientGlyph(client: AgentClient, theme: RenderTheme): string {
     cursor: '❯',
     openclaw: '◆',
     hermes: '☿',
+    grok: '⚡',
   };
   return glyphs[client] ?? '•';
 }
@@ -1376,6 +1395,15 @@ async function applyAgentInstall(
     case 'hermes':
       await applyHermesSetup({
         mode: params.hermesMode,
+        endpoint: params.endpoint ?? DEFAULT_AUTOMEM_API_URL,
+        apiKey: params.apiKey,
+        dryRun: params.dryRun,
+        quiet: true,
+        yes: true,
+      });
+      break;
+    case 'grok':
+      await applyGrokSetup({
         endpoint: params.endpoint ?? DEFAULT_AUTOMEM_API_URL,
         apiKey: params.apiKey,
         dryRun: params.dryRun,

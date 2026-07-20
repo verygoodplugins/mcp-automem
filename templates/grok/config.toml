@@ -1,0 +1,27 @@
+# AutoMem MCP Server Configuration for Grok Build (xAI)
+#
+# Written by: npx @verygoodplugins/mcp-automem grok
+# Or:         npx @verygoodplugins/mcp-automem install --clients grok
+#
+# Native [mcp_servers.memory] beats Claude/Cursor compat imports. Without
+# AUTOMEM_* env on the stdio process, mcp-automem defaults to
+# http://127.0.0.1:8001 and recall fails with "fetch failed".
+#
+# Setup: https://github.com/verygoodplugins/mcp-automem/blob/main/INSTALLATION.md#grok-build
+
+[mcp_servers.memory]
+command = "npx"
+args = ["-y", "@verygoodplugins/mcp-automem"]
+enabled = true
+
+[mcp_servers.memory.env]
+# Replace with your AutoMem instance URL
+AUTOMEM_API_URL = "https://your-automem-instance.railway.app"
+
+# Optional: API key if your instance requires authentication
+AUTOMEM_API_KEY = "your-api-key-if-required"
+
+AUTOMEM_PROCESS_TAG = "grok:memory"
+
+# For local development:
+# AUTOMEM_API_URL = "http://127.0.0.1:8001"
