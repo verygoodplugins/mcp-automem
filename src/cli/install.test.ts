@@ -265,6 +265,21 @@ describe('guided install helpers', () => {
     expect(DEFAULT_AGENT_CLIENTS.filter((client) => detected.has(client))).not.toContain('hermes');
   });
 
+  it('pre-checks Grok when ~/.grok is detected (opt-in, not a blind --yes default)', () => {
+    const homeDir = '/Users/tester';
+    const environment = detectInstallEnvironment({
+      homeDir,
+      cwd: '/repo/project',
+      platform: 'darwin',
+      commandExists: () => true,
+      pathExists: (filePath) => filePath === path.join(homeDir, '.grok'),
+    });
+    const detected = new Set(environment.detectedClients.map((client) => client.client));
+    expect(detected.has('grok')).toBe(true);
+    expect(AGENT_CLIENTS.filter((client) => detected.has(client))).toContain('grok');
+    expect(DEFAULT_AGENT_CLIENTS.filter((client) => detected.has(client))).not.toContain('grok');
+  });
+
   it('quotes .env values only when they would break dotenv parsing', () => {
     // Plain url-safe values pass through unquoted.
     expect(formatEnvValue('https://automem.example')).toBe('https://automem.example');
@@ -378,6 +393,41 @@ describe('guided install helpers', () => {
     expect(AGENT_CLIENTS).toContain('hermes');
     expect(parseInstallArgs(['--clients', 'hermes'], {}).clients).toEqual(['hermes']);
     expect(parseInstallArgs([], { AUTOMEM_CLIENTS: 'hermes' }).clients).toEqual(['hermes']);
+  });
+
+  it('keeps Grok available only when explicitly requested', () => {
+    expect(AGENT_CLIENTS).toContain('grok');
+    expect(parseInstallArgs([], {}).clients).not.toContain('grok');
+    expect(parseInstallArgs(['--clients', 'grok'], {}).clients).toEqual(['grok']);
+    expect(parseInstallArgs([], { AUTOMEM_CLIENTS: 'grok' }).clients).toEqual(['grok']);
+  });
+
+  it('plans Grok write surfaces as ~/.grok/config.toml and AGENTS.md', () => {
+    const grokHome = '/tmp/grok-home';
+    const plan = buildInstallPlan({
+      options: {
+        target: 'existing',
+        clients: ['grok'],
+        endpoint: 'https://memory.example',
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        dryRun: true,
+        yes: false,
+        noAgentInstall: false,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        env: { GROK_HOME: grokHome },
+        pathExists: () => false,
+        commandExists: () => true,
+      }),
+    });
+    const grokAction = plan.actions.find((action) => action.client === 'grok');
+    expect(grokAction?.paths).toEqual([
+      path.join(grokHome, 'config.toml'),
+      path.join(grokHome, 'AGENTS.md'),
+    ]);
   });
 
   it('defaults Claude Code to the plugin and parses the mode override', () => {

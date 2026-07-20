@@ -18,6 +18,7 @@ import { runCodexSetup } from './cli/codex.js';
 import { runOpenClawSetup } from './cli/openclaw.js';
 import { COPILOT_USAGE, runCopilotSetup } from './cli/copilot.js';
 import { runHermesSetup } from './cli/hermes.js';
+import { runGrokSetup } from './cli/grok.js';
 import { runMigrateCommand } from './cli/migrate.js';
 import { runUninstallCommand } from './cli/uninstall.js';
 import { runQueueCommand } from './cli/queue.js';
@@ -54,6 +55,7 @@ const KNOWN_COMMANDS = new Set([
   'codex',
   'openclaw',
   'hermes',
+  'grok',
   'migrate',
   'uninstall',
   'queue',
@@ -207,6 +209,7 @@ COMMANDS:
   codex              Set up AutoMem for Codex
   openclaw           Set up AutoMem for OpenClaw
   hermes             Set up AutoMem for Hermes Agent
+  grok               Set up AutoMem for Grok Build
   migrate            Migrate existing projects to AutoMem
   uninstall          Remove AutoMem configuration
   queue              Manage memory queue
@@ -254,11 +257,11 @@ MIGRATION:
     --yes, -y             Skip confirmation
 
 UNINSTALL:
-  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes> [options]
+  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes|grok> [options]
 
   Options:
-    --dir <path>          Project / hermes-home directory
-    --rules <path>        Rules file to strip (default: codex <project>/AGENTS.md, hermes <hermes-home>/AGENTS.md)
+    --dir <path>          Project / hermes-home / grok-home directory
+    --rules <path>        Rules file to strip (default: codex <project>/AGENTS.md, hermes/grok <home>/AGENTS.md)
     --clean-all          Also remove MCP server config (Cursor/Claude Desktop)
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation
@@ -312,6 +315,21 @@ HERMES SETUP:
     --dry-run             Show what would be changed
     --quiet               Suppress output
 
+GROK SETUP:
+  npx @verygoodplugins/mcp-automem grok [options]
+
+  Writes native ~/.grok/config.toml [mcp_servers.memory] with AUTOMEM_* env
+  (required — Claude/Cursor compat imports can drop env and fail with fetch failed).
+
+  Options:
+    --dir <path>          Grok home directory (default: $GROK_HOME or ~/.grok)
+    --name <name>         Project name (auto-detected if not provided)
+    --endpoint <url>      AutoMem endpoint (default: $AUTOMEM_API_URL or http://127.0.0.1:8001)
+    --api-key <key>       AutoMem API key (optional)
+    --rules <path>        Target rules file (default: <grok-home>/AGENTS.md)
+    --dry-run             Show what would be changed
+    --quiet               Suppress output
+
 OPENCLAW SETUP:
   npx @verygoodplugins/mcp-automem openclaw [options]
 
@@ -339,7 +357,7 @@ GUIDED INSTALL:
 
   Options:
     --target <local|cloud|existing>  Where AutoMem runs
-    --clients <list>                 Comma-separated agents: codex,claude-code,cursor,openclaw,hermes
+    --clients <list>                 Comma-separated agents: codex,claude-code,cursor,openclaw,hermes,grok
     --endpoint <url>                 Existing or hosted AutoMem endpoint
     --api-key <key>                  API key for authenticated endpoints
     --local-dir <path>               Local server directory (default: ~/.automem/server)
@@ -396,6 +414,11 @@ if (command === 'openclaw') {
 
 if (command === 'hermes') {
   await runHermesSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+if (command === 'grok') {
+  await runGrokSetup(process.argv.slice(3));
   process.exit(0);
 }
 

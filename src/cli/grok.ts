@@ -1,0 +1,137 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import {
+  CommonOptions,
+  detectProjectName,
+  log,
+  parseCommonFlags,
+  replaceTemplateVars,
+  writeFileWithBackup,
+} from './host-toolkit.js';
+import {
+  buildGrokAutoMemServerEntry,
+  GROK_MCP_SERVER_NAME,
+  readExistingGrokCredentials,
+  resolveGrokPaths,
+  upsertGrokMemoryServer,
+} from './grok-config.js';
+import { readAutoMemApiKeyFromEnv } from '../env.js';
+import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
+
+export interface GrokSetupOptions extends CommonOptions {
+  endpoint?: string;
+  apiKey?: string;
+  rulesPath?: string;
+}
+
+const TEMPLATE_ROOT = path.resolve(fileURLToPath(new URL('../../templates/grok', import.meta.url)));
+
+export const GROK_RULES_START = '<!-- BEGIN AUTOMEM GROK RULES -->';
+export const GROK_RULES_END = '<!-- END AUTOMEM GROK RULES -->';
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function upsertRulesWithMarkers(existing: string | null, block: string): string {
+  const normalize = (s: string) => `${s.replace(/\n+$/, '')}\n`;
+  if (!existing) {
+    return normalize(block);
+  }
+  const startIdx = existing.indexOf(GROK_RULES_START);
+  const endIdx = existing.indexOf(GROK_RULES_END);
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    const before = existing.slice(0, startIdx);
+    const after = existing.slice(endIdx + GROK_RULES_END.length);
+    return normalize(`${before}${block}${after}`);
+  }
+  const sep = existing.endsWith('\n') ? '\n' : '\n\n';
+  return normalize(`${existing}${sep}${block}`);
+}
+
+export function stripGrokRulesMarkers(existing: string): string {
+  const pattern = new RegExp(
+    `\\n?${escapeRegExp(GROK_RULES_START)}[\\s\\S]*?${escapeRegExp(GROK_RULES_END)}\\n?`,
+    'g'
+  );
+  return existing.replace(pattern, '\n').replace(/\n{3,}/g, '\n\n');
+}
+
+export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void> {
+  const paths = resolveGrokPaths({ dir: cliOptions.targetDir });
+  const projectName = cliOptions.projectName ?? detectProjectName();
+  const existingCreds = readExistingGrokCredentials(paths.configPath);
+  const endpoint =
+    cliOptions.endpoint ||
+    process.env.AUTOMEM_API_URL ||
+    process.env.AUTOMEM_ENDPOINT ||
+    existingCreds.endpoint ||
+    DEFAULT_AUTOMEM_API_URL;
+  const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? existingCreds.apiKey;
+  const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
+
+  log(`\n🔧 Setting up Grok AutoMem for: ${projectName}`, cliOptions.quiet);
+  log(`📁 Grok home: ${paths.home}`, cliOptions.quiet);
+  log(`📄 Config: ${paths.configPath}`, cliOptions.quiet);
+  log(`📄 Rules: ${rulesPath}\n`, cliOptions.quiet);
+
+  const entry = buildGrokAutoMemServerEntry(endpoint, apiKey);
+  const result = upsertGrokMemoryServer(paths.configPath, entry, {
+    dryRun: cliOptions.dryRun,
+    quiet: cliOptions.quiet,
+  });
+
+  if (result.method === 'toml' && result.changed) {
+    log(`✅ Registered AutoMem MCP server (mcp_servers.${GROK_MCP_SERVER_NAME})`, cliOptions.quiet);
+  }
+
+  const templateContent = fs.readFileSync(path.join(TEMPLATE_ROOT, 'memory-rules.md'), 'utf8');
+  const processed = replaceTemplateVars(templateContent, {
+    PROJECT_NAME: projectName,
+  });
+  const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
+  const finalContent = upsertRulesWithMarkers(existingContent, processed);
+  writeFileWithBackup(rulesPath, finalContent, cliOptions);
+
+  log('\n📊 Configuration Status:', cliOptions.quiet);
+  log(
+    `  ✅ mcp_servers.${GROK_MCP_SERVER_NAME} written to ${path.basename(paths.configPath)}`,
+    cliOptions.quiet
+  );
+  log(`  ✅ AutoMem rules installed in ${path.basename(rulesPath)}`, cliOptions.quiet);
+  if (!apiKey) {
+    log(
+      '  ⚠️  No AUTOMEM_API_KEY set — set one before connecting to a remote AutoMem instance',
+      cliOptions.quiet
+    );
+  }
+
+  log('\n✨ Grok AutoMem setup complete! Next steps:', cliOptions.quiet);
+  log('  1. Start a new Grok session (existing sessions keep the old MCP child)', cliOptions.quiet);
+  log(
+    '  2. Confirm: grok mcp list  →  memory: npx -y @verygoodplugins/mcp-automem',
+    cliOptions.quiet
+  );
+  log(
+    '  3. Prefer native config.toml over Claude/Cursor compat imports for AutoMem',
+    cliOptions.quiet
+  );
+}
+
+function parseArgs(args: string[]): GrokSetupOptions {
+  let endpoint: string | undefined;
+  let apiKey: string | undefined;
+  let rulesPath: string | undefined;
+  const common = parseCommonFlags(args, {
+    '--endpoint': { kind: 'value', set: (v) => (endpoint = v) },
+    '--api-key': { kind: 'value', set: (v) => (apiKey = v) },
+    '--rules': { kind: 'value', set: (v) => (rulesPath = v) },
+  });
+  return { ...common, endpoint, apiKey, rulesPath };
+}
+
+export async function runGrokSetup(args: string[] = []): Promise<void> {
+  const options = parseArgs(args);
+  await applyGrokSetup(options);
+}
