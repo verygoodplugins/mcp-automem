@@ -11,9 +11,11 @@ import {
   removeMcpServerEntry,
   resolveHermesPaths,
 } from './hermes-config.js';
+import { removeGrokMemoryServer, resolveGrokPaths } from './grok-config.js';
+import { GROK_RULES_END, GROK_RULES_START, stripGrokRulesMarkers } from './grok.js';
 
 interface UninstallOptions {
-  platform: 'cursor' | 'claude-code' | 'copilot' | 'codex' | 'hermes';
+  platform: 'cursor' | 'claude-code' | 'copilot' | 'codex' | 'hermes' | 'grok';
   projectDir?: string;
   rulesPath?: string;
   cleanAll?: boolean;
@@ -356,6 +358,51 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
   }
 }
 
+async function uninstallGrok(options: UninstallOptions): Promise<void> {
+  const paths = resolveGrokPaths({ dir: options.projectDir });
+  const rulesFile = options.rulesPath ?? paths.agentsPath;
+
+  log('\n🗑️  Uninstalling Grok AutoMem...', options.quiet);
+
+  let didChange = false;
+  if (fs.existsSync(paths.configPath)) {
+    didChange =
+      removeGrokMemoryServer(paths.configPath, {
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+        onlyIfAutoMem: true,
+      }) || didChange;
+  } else {
+    log(`ℹ️  No Grok config at ${paths.configPath}`, options.quiet);
+  }
+
+  if (fs.existsSync(rulesFile)) {
+    const raw = fs.readFileSync(rulesFile, 'utf8');
+    const startIdx = raw.indexOf(GROK_RULES_START);
+    const endIdx = raw.indexOf(GROK_RULES_END);
+
+    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+      log(`ℹ️  No AutoMem rule block in ${rulesFile}`, options.quiet);
+    } else if (options.dryRun) {
+      log(`[DRY RUN] Would strip AutoMem block from: ${rulesFile}`, options.quiet);
+    } else {
+      const next = `${stripGrokRulesMarkers(raw).replace(/\n+$/, '')}\n`;
+      const backupPath = `${rulesFile}.backup.${Date.now()}`;
+      fs.copyFileSync(rulesFile, backupPath);
+      fs.writeFileSync(rulesFile, next, 'utf8');
+      log(`🗑️  Stripped AutoMem block from ${rulesFile}`, options.quiet);
+      log(`   Backup: ${backupPath}`, options.quiet);
+      didChange = true;
+    }
+  }
+
+  if (didChange) {
+    log('\n✅ Grok AutoMem configuration removed', options.quiet);
+  } else if (!options.dryRun) {
+    log('\nℹ️  Nothing to remove for Grok AutoMem', options.quiet);
+  }
+}
+
 async function uninstallCodex(options: UninstallOptions): Promise<void> {
   // Plugin-first codex install is rules-only: it writes a single marked AutoMem
   // block into AGENTS.md (cwd by default, or --rules). Uninstall strips that
@@ -695,6 +742,8 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
     await uninstallCodex(options);
   } else if (options.platform === 'hermes') {
     await uninstallHermes(options);
+  } else if (options.platform === 'grok') {
+    await uninstallGrok(options);
   }
 
   // Clean up external changes (Claude Desktop config) if requested
@@ -732,11 +781,13 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
 }
 
 export function parseUninstallArgs(args: string[]): UninstallOptions | null {
-  const allowed = ['cursor', 'claude-code', 'copilot', 'codex', 'hermes'] as const;
+  const allowed = ['cursor', 'claude-code', 'copilot', 'codex', 'hermes', 'grok'] as const;
   if (args.length === 0 || !allowed.includes(args[0] as (typeof allowed)[number])) {
-    console.error('❌ Error: Platform required (cursor, claude-code, copilot, codex, or hermes)');
     console.error(
-      'Usage: mcp-automem uninstall <cursor|claude-code|copilot|codex|hermes> [options]'
+      '❌ Error: Platform required (cursor, claude-code, copilot, codex, hermes, or grok)'
+    );
+    console.error(
+      'Usage: mcp-automem uninstall <cursor|claude-code|copilot|codex|hermes|grok> [options]'
     );
     return null;
   }

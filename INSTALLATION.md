@@ -79,7 +79,7 @@ the plan.
 > plan and stops without writing — re-run with `--yes` to apply.
 
 **Removing AutoMem:** uninstall is per-agent —
-`npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes>`
+`npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes|grok>`
 (add `--clean-all` to also drop the MCP server config). OpenClaw owns its own
 plugin lifecycle, so remove the AutoMem plugin from OpenClaw directly with
 `openclaw plugins uninstall automem` rather than the `uninstall` command above.
@@ -144,6 +144,7 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [GitHub Copilot CLI and VS Code](#github-copilot-cli-and-vs-code) - Terminal and editor with hooks and memory rules
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
 - [Hermes Agent](#hermes-agent) - Nous Research terminal agent with MCP and native memory provider support
+- [Grok Build](#grok-build) - xAI Grok CLI with native `~/.grok/config.toml` MCP registration
 - [Google Antigravity](#google-antigravity) - Desktop editor with MCP Store and raw config
 - [OpenClaw](#openclaw) - Personal AI assistant with multi-platform messaging (WhatsApp, Telegram, Slack, Discord, etc.)
 
@@ -1023,6 +1024,59 @@ Then check the Hermes logs for AutoMem prefetch diagnostics. The debug path repo
 
 ---
 
+## Grok Build
+
+Grok Build (xAI CLI) loads MCP from `~/.grok/config.toml`, then Claude/Cursor compat sources. **Native config is required for AutoMem.** If AutoMem is only present via Claude/Cursor imports, Grok can start `npx @verygoodplugins/mcp-automem` without `AUTOMEM_*` env — the server then defaults to `http://127.0.0.1:8001` and every session fails with `Mcp error: -32603: fetch failed`. Edits in the `/mcps` UI are session-scoped unless written to `config.toml`.
+
+### Install
+
+```bash
+# Guided installer (detects ~/.grok and offers Grok in the agent list)
+npx @verygoodplugins/mcp-automem install --clients grok \
+  --endpoint https://your-automem.example --api-key "$AUTOMEM_API_KEY"
+
+# Or standalone
+npx @verygoodplugins/mcp-automem grok \
+  --endpoint https://your-automem.example --api-key "$AUTOMEM_API_KEY"
+```
+
+This writes:
+
+- `~/.grok/config.toml` → `[mcp_servers.memory]` with `npx -y @verygoodplugins/mcp-automem` and `AUTOMEM_API_URL` / `AUTOMEM_API_KEY` / `AUTOMEM_PROCESS_TAG=grok:memory`
+- `~/.grok/AGENTS.md` → marked AutoMem rules block (Grok injects this every session)
+
+Override the Grok home with `$GROK_HOME` or `--dir`.
+
+### Verify
+
+```bash
+grok mcp list
+# → memory: npx -y @verygoodplugins/mcp-automem
+
+# Start a *new* Grok session (existing sessions keep the old MCP child), then recall
+```
+
+Tools appear as `memory__recall_memory`, `memory__store_memory`, etc. Discover with `search_tool`, then call with `use_tool`.
+
+### Uninstall
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall grok
+npx @verygoodplugins/mcp-automem uninstall grok --dry-run
+```
+
+Removes AutoMem-owned `mcp_servers.memory` and strips the `<!-- BEGIN AUTOMEM GROK RULES -->` block from `~/.grok/AGENTS.md` (or `--rules <path>`). Non-AutoMem `memory` servers are left alone.
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `fetch failed` / `ECONNREFUSED 127.0.0.1:8001` | No native MCP env; compat import dropped `AUTOMEM_*` | Run `mcp-automem grok` so `config.toml` wins over Claude/Cursor |
+| Works after `/mcps` SSE tweak, fails next session | UI change was session-only | Persist with `grok mcp add` / `mcp-automem grok`, not the modal alone |
+| `grok mcp list` empty but tools still appear | Compat-only load | Add native `[mcp_servers.memory]` so env is explicit |
+
+---
+
 ## Google Antigravity
 
 Google Antigravity supports MCP servers through its built-in MCP Store and a raw config file. AutoMem fits Antigravity's local stdio MCP flow directly, so the primary path is to add the `memory` server to Antigravity's custom MCP server config.
@@ -1509,6 +1563,9 @@ npx @verygoodplugins/mcp-automem uninstall claude-code
 
 # Uninstall Hermes setup
 npx @verygoodplugins/mcp-automem uninstall hermes
+
+# Uninstall Grok Build setup
+npx @verygoodplugins/mcp-automem uninstall grok
 
 # Also clean Claude Desktop config
 npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
