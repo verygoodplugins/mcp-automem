@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "type": "command",
+        "matcher": ".*store_memory",
+        "bash": "\"$HOME/.copilot/scripts/automem-track-store.sh\"",
+        "powershell": "& \"$HOME\\.copilot\\scripts\\automem-track-store.ps1\"",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

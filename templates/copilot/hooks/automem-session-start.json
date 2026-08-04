@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "\"$HOME/.copilot/scripts/automem-session-start.sh\"",
+        "powershell": "& \"$HOME\\.copilot\\scripts\\automem-session-start.ps1\"",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

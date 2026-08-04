@@ -1,0 +1,9 @@
+{
+  "name": "full",
+  "description": "Adds the opt-in end-of-turn storage nudge (re-wakes once per session when nothing was stored)",
+  "hooks": [
+    "automem-session-start.json",
+    "automem-track-store.json",
+    "automem-stop-nudge.json"
+  ]
+}

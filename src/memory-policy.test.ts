@@ -15,6 +15,7 @@ import {
   renderCodexMemoryRules,
   renderCursorProjectRule,
   renderClaudeCodeSessionStartPrompt,
+  renderCopilotSessionStartPrompt,
   renderClaudeCodeSessionStartHook,
   renderClaudeCodeStopNudgeHook,
   renderClaudeCodeStopNudgePrompt,
@@ -41,6 +42,7 @@ function normalize(value: string): string {
     .replace(/[–—]/g, '-')
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
+    .replace(/``/g, '`')
     .replace(/\\`/g, '`')
     .replace(/\s+/g, ' ')
     .trim();
@@ -57,6 +59,24 @@ function extractHeredocBody(fileContents: string): string {
     throw new Error('Could not find heredoc body.');
   }
   return match[1];
+}
+
+function extractBashSessionContext(fileContents: string): string {
+  const match = fileContents.match(/read -r -d '' CONTEXT << PROMPT_END\n([\s\S]*?)\nPROMPT_END/);
+  if (!match) {
+    throw new Error('Could not find bash session-start context body.');
+  }
+  return match[1].replaceAll('__AUTOMEM_RECALL_TOOL__', 'automem-recall_memory');
+}
+
+function extractPowerShellSessionContext(fileContents: string): string {
+  const match = fileContents.match(/\$context = @"\n([\s\S]*?)\n"@/);
+  if (!match) {
+    throw new Error('Could not find PowerShell session-start context body.');
+  }
+  return match[1]
+    .replace(/\$project/g, '$PROJECT')
+    .replaceAll('__AUTOMEM_RECALL_TOOL__', 'automem-recall_memory');
 }
 
 function expectSharedPolicySurface(source: string) {
@@ -288,6 +308,20 @@ describe('shared AutoMem memory policy', () => {
         modeRules: '{{HERMES_MODE_RULES}}',
         templateVersion,
       })
+    );
+  });
+
+  it('keeps the Copilot bash session-start hook aligned with the shared renderer', () => {
+    const hookContents = readRepoFile('templates/copilot/scripts/automem-session-start.sh');
+    expect(normalize(extractBashSessionContext(hookContents))).toBe(
+      normalize(renderCopilotSessionStartPrompt('$PROJECT'))
+    );
+  });
+
+  it('keeps the Copilot PowerShell session-start hook aligned with the shared renderer', () => {
+    const hookContents = readRepoFile('templates/copilot/scripts/automem-session-start.ps1');
+    expect(normalize(extractPowerShellSessionContext(hookContents))).toBe(
+      normalize(renderCopilotSessionStartPrompt('$PROJECT'))
     );
   });
 

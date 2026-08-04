@@ -287,6 +287,13 @@ mcp__memory__recall_memory({
 - ✅ **LLM-judged storage** - session-start guidance nudges Claude to store, verify, and associate durable memories during normal work
 - ✅ **Memory rules** in CLAUDE.md guide Claude's memory usage
 
+#### GitHub Copilot
+
+- ✅ **Standalone hook JSON files** installed into `$COPILOT_HOME/hooks/` or `~/.copilot/hooks/`
+- ✅ **Memory rules** template for `copilot-instructions.md`
+- ✅ **Format flag** - `--format cli` (camelCase) or `--format vscode` (PascalCase)
+- ✅ **Setup**: `npx @verygoodplugins/mcp-automem copilot --yes`
+
 #### Claude Desktop
 
 - ✅ Direct MCP integration
