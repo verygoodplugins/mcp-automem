@@ -24,7 +24,11 @@ try {
 
     $sessionId = $sessionId -replace '[^A-Za-z0-9_-]', ''
     if ($sessionId) {
-        $sentinel = Join-Path ([System.IO.Path]::GetTempPath()) "automem-stored-$sessionId"
+        $tempDirectory = $env:TEMP
+        if (-not $tempDirectory) { $tempDirectory = $env:TMP }
+        if (-not $tempDirectory) { $tempDirectory = $env:TMPDIR }
+        if (-not $tempDirectory) { $tempDirectory = [System.IO.Path]::GetTempPath() }
+        $sentinel = Join-Path $tempDirectory "automem-stored-$sessionId"
         New-Item -ItemType File -Path $sentinel -Force | Out-Null
     }
 } catch {

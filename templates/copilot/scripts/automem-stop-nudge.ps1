@@ -27,7 +27,10 @@ try {
     $sessionId = $sessionId -replace '[^A-Za-z0-9_-]', ''
     if (-not $sessionId) { exit 0 }
 
-    $tmp = [System.IO.Path]::GetTempPath()
+    $tmp = $env:TEMP
+    if (-not $tmp) { $tmp = $env:TMP }
+    if (-not $tmp) { $tmp = $env:TMPDIR }
+    if (-not $tmp) { $tmp = [System.IO.Path]::GetTempPath() }
     $storedSentinel = Join-Path $tmp "automem-stored-$sessionId"
     $nudgedSentinel = Join-Path $tmp "automem-stop-nudged-$sessionId"
     if ((Test-Path $storedSentinel) -or (Test-Path $nudgedSentinel)) { exit 0 }
