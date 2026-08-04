@@ -14,7 +14,7 @@ and https://code.visualstudio.com/docs/copilot/customization/custom-instructions
 ## Quick Installation (Copilot CLI)
 
 ```bash
-cat templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md >> ~/.copilot/copilot-instructions.md
+npx @verygoodplugins/mcp-automem copilot --format cli --yes
 ```
 
 ## Quick Installation (VS Code)
@@ -117,7 +117,6 @@ Gate by the working-directory-derived project slug when it's unambiguous (see sl
 ```
 automem-recall_memory({
   query: "<error message or symptom>",
-  tags: ["bugfix", "solution"],
   limit: 20
 })
 ```
@@ -244,7 +243,7 @@ const related = recall_memory({
 })
 
 // Step 2: Store with type, importance, tags, non-default confidence
-const newId = store_memory({
+const stored = store_memory({
   content: "Brief title. Context + reasoning. Outcome.",
   type: "Preference",  // or Decision / Pattern
   tags: ["correction", <scope if any>],
@@ -260,7 +259,7 @@ recall_memory({ query: "<distinctive phrase from content>", limit: 3 })
 if (related?.results?.length) {
   associate_memories({
     memory1_id: related.results[0].id,
-    memory2_id: newId,
+    memory2_id: stored.memory_id,
     type: "INVALIDATED_BY",  // or PREFERS_OVER / EXEMPLIFIES
     strength: 0.9
   })

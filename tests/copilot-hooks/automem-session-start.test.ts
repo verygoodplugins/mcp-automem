@@ -26,6 +26,8 @@ function sessionStartSuite(shell: Shell) {
     const parsed = JSON.parse(result.stdout);
     expect(parsed).toHaveProperty('additionalContext');
     expect(parsed.additionalContext).toContain('automem_session_context');
+    expect(parsed.additionalContext).toContain('automem-recall_memory');
+    expect(parsed.additionalContext).not.toContain('mcp_automem_recall_memory');
   });
 
   it('emits the Copilot CLI top-level additionalContext envelope by default', () => {
@@ -47,6 +49,8 @@ function sessionStartSuite(shell: Shell) {
       hookEventName: 'SessionStart',
     });
     expect(parsed.hookSpecificOutput.additionalContext).toContain('automem_session_context');
+    expect(parsed.hookSpecificOutput.additionalContext).toContain('mcp_automem_recall_memory');
+    expect(parsed.hookSpecificOutput.additionalContext).not.toContain('automem-recall_memory');
   });
 
   it('injects a Phase 1 preference recall using the bare "preference" tag', () => {
@@ -76,11 +80,11 @@ function sessionStartSuite(shell: Shell) {
     expect(ctx).toMatch(/auto_decompose/);
   });
 
-  it('injects a Phase 3 on-demand debugging recall gated by bugfix/solution', () => {
+  it('injects a Phase 3 on-demand debugging recall without a tag gate', () => {
     const { additionalContext: ctx } = runSessionStart(shell);
     expect(ctx).toMatch(/Phase 3/);
     expect(ctx).toMatch(/ON-DEMAND|on-demand/);
-    expect(ctx).toMatch(/tags:\s*\["bugfix",\s*"solution"\]/);
+    expect(ctx).not.toMatch(/tags:\s*\["bugfix",\s*"solution"\]/);
   });
 
   it('tool-call bodies use ONLY bare tags (no namespace prefixes)', () => {

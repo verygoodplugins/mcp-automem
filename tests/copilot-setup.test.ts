@@ -116,6 +116,29 @@ describe('installMemoryRules (format gating)', () => {
     expect(content).toContain('# My custom instructions');
     expect(content).toContain('<!-- BEGIN AUTOMEM MEMORY RULES -->');
   });
+
+  it('removes VS Code rules when re-run for CLI only', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
+    const vscodePath = path.join(tempDir, 'instructions', 'automem.instructions.md');
+    expect(fs.existsSync(vscodePath)).toBe(true);
+
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+
+    expect(fs.existsSync(vscodePath)).toBe(false);
+  });
+
+  it('removes only the managed CLI block when re-run for VS Code only', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    fs.writeFileSync(cliPath, `# My custom instructions\n\n${fs.readFileSync(cliPath, 'utf8')}`, 'utf8');
+
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+
+    const content = fs.readFileSync(cliPath, 'utf8');
+    expect(content).toContain('# My custom instructions');
+    expect(content).not.toContain('<!-- BEGIN AUTOMEM MEMORY RULES -->');
+    expect(content).not.toContain('<!-- END AUTOMEM MEMORY RULES -->');
+  });
 });
 
 describe('installHookFiles (event name remapping)', () => {
@@ -484,7 +507,7 @@ describe('session-start bash script', () => {
     expect(ctx).toContain('Phase 2');
     expect(ctx).toContain('Phase 3');
     expect(ctx).toMatch(/tags.*preference/);
-    expect(ctx).toMatch(/tags.*bugfix/);
+    expect(ctx).not.toMatch(/tags.*bugfix/);
     expect(ctx).toContain('HARD GATE');
   });
 

@@ -66,7 +66,7 @@ function extractBashSessionContext(fileContents: string): string {
   if (!match) {
     throw new Error('Could not find bash session-start context body.');
   }
-  return match[1];
+  return match[1].replaceAll('__AUTOMEM_RECALL_TOOL__', 'automem-recall_memory');
 }
 
 function extractPowerShellSessionContext(fileContents: string): string {
@@ -74,7 +74,9 @@ function extractPowerShellSessionContext(fileContents: string): string {
   if (!match) {
     throw new Error('Could not find PowerShell session-start context body.');
   }
-  return match[1].replace(/\$project/g, '$PROJECT');
+  return match[1]
+    .replace(/\$project/g, '$PROJECT')
+    .replaceAll('__AUTOMEM_RECALL_TOOL__', 'automem-recall_memory');
 }
 
 function expectSharedPolicySurface(source: string) {

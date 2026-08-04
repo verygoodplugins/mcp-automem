@@ -5,13 +5,14 @@
 try {
     $project = Split-Path (Get-Location).Path -Leaf
     $surface = if ($env:AUTOMEM_HOOK_SURFACE) { $env:AUTOMEM_HOOK_SURFACE } else { "copilot-cli" }
+    $recallTool = if ($surface -eq "vscode-copilot") { "mcp_automem_recall_memory" } else { "automem-recall_memory" }
 
     $context = @"
 <automem_session_context>
 MEMORY RECALL - run these phases in order before your first substantive response.
 
 Phase 1 - Preferences (tag-only, no time filter, no query):
-  automem-recall_memory({
+  __AUTOMEM_RECALL_TOOL__({
     tags: ["preference"],
     limit: 20,
     sort: "updated_desc",
@@ -19,7 +20,7 @@ Phase 1 - Preferences (tag-only, no time filter, no query):
   })
 
 Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; 90-day window):
-  automem-recall_memory({
+  __AUTOMEM_RECALL_TOOL__({
     query: "<proper nouns, product names, tools, specific topics from the user's message>",
     tags: ["$project"],
     time_query: "last 90 days",
@@ -28,9 +29,8 @@ Phase 2 - Task context (ONE semantic query from the user's actual nouns; project
   })
 
 Phase 3 - ON-DEMAND debugging (only if the user's message is a debugging/error-symptom question; skip otherwise):
-  automem-recall_memory({
+  __AUTOMEM_RECALL_TOOL__({
     query: "<error symptom>",
-    tags: ["bugfix", "solution"],
     limit: 20
   })
 
@@ -46,6 +46,7 @@ Notes:
 - Do not make your first tool call for the user's task until both recall phases are processed.
 </automem_session_context>
 "@
+    $context = $context.Replace('__AUTOMEM_RECALL_TOOL__', $recallTool)
 
     # Output JSON with the envelope expected by the configured hook surface.
     if ($surface -eq "vscode-copilot") {

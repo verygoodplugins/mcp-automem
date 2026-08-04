@@ -56,6 +56,21 @@ describe('migrate to/from copilot', () => {
     expect(result.stdout).toContain('manual');
   });
 
+  it('keeps --dir as the project-analysis root and installs Copilot into COPILOT_HOME', () => {
+    const projectDir = path.join(tempDir, 'project');
+    const copilotHome = path.join(tempDir, 'copilot-home');
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli([
+      'migrate', '--from', 'manual', '--to', 'copilot',
+      '--dir', projectDir, '--yes', '--quiet',
+    ], { COPILOT_HOME: copilotHome });
+
+    expect(result.exitCode).toBe(0);
+    expect(fs.existsSync(path.join(copilotHome, 'hooks', 'automem-session-start.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'hooks', 'automem-session-start.json'))).toBe(false);
+  });
+
   // T038: migrate --from copilot --to claude-code analyzes copilot hooks
   it('--from copilot --to claude-code analyzes copilot hooks', () => {
     const result = runCli([

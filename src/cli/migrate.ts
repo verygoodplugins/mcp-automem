@@ -4,6 +4,7 @@ import os from 'os';
 import { applyCursorSetup } from './cursor.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
 import { applyCopilotSetup } from './copilot.js';
+import { resolveCopilotHome } from './hook-model.js';
 
 interface MigrateOptions {
   from: 'manual' | 'none' | 'copilot';
@@ -147,7 +148,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
     });
   } else if (options.to === 'copilot') {
     await applyCopilotSetup({
-      targetDir: options.projectDir,
+      targetDir: resolveCopilotHome(),
       dryRun: options.dryRun,
       yes: options.yes,
       quiet: options.quiet,

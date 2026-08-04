@@ -108,6 +108,31 @@ describe('uninstall copilot', () => {
     expect(config.mcpServers.other).toBeDefined();
   });
 
+  it('--clean-all preserves a non-AutoMem server named memory', () => {
+    const configPath = path.join(tempDir, 'mcp-config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      mcpServers: {
+        memory: { command: 'npx', args: ['other-memory-server'] },
+        automem: { command: 'npx', args: ['@verygoodplugins/mcp-automem'] },
+      },
+    }, null, 2), 'utf8');
+
+    const result = runCli(['uninstall', 'copilot', '--dir', tempDir, '--clean-all', '--yes', '--quiet']);
+    expect(result.exitCode).toBe(0);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.mcpServers.memory).toEqual({ command: 'npx', args: ['other-memory-server'] });
+    expect(config.mcpServers.automem).toBeUndefined();
+  });
+
+  it('uses COPILOT_HOME when --dir is omitted', () => {
+    installFakeHooks(tempDir);
+    const result = runCli(['uninstall', 'copilot', '--yes', '--quiet'], { COPILOT_HOME: tempDir });
+    expect(result.exitCode).toBe(0);
+
+    expect(fs.existsSync(path.join(tempDir, 'hooks', 'automem-session-start.json'))).toBe(false);
+  });
+
   // T028: --dry-run lists files without removing them
   it('--dry-run does not remove files', () => {
     installFakeHooks(tempDir);

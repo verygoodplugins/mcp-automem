@@ -4,6 +4,7 @@ import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { getCopilotSupportScriptBaseNames } from './copilot.js';
+import { resolveCopilotHome } from './hook-model.js';
 import { automemOwnedFiles, removeManagedHookEntries, RETIRED_PERMISSIONS } from './claude-code.js';
 import {
   removeHermesMemoryProvider,
@@ -502,7 +503,7 @@ function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOpt
 }
 
 async function uninstallCopilot(options: UninstallOptions): Promise<void> {
-  const copilotDir = options.projectDir ?? path.join(os.homedir(), '.copilot');
+  const copilotDir = options.projectDir ?? resolveCopilotHome();
   const hooksDir = path.join(copilotDir, 'hooks');
   const scriptsDir = path.join(copilotDir, 'scripts');
 
@@ -613,14 +614,17 @@ function removeCopilotMcpServer(copilotDir: string, dryRun: boolean, quiet?: boo
 
     const hadMemory = config?.mcpServers?.memory;
     const hadAutomem = config?.mcpServers?.automem;
+    const memoryIsAutoMem = isAutoMemMcpServer(hadMemory);
 
-    if (!hadMemory && !hadAutomem) {
+    if (!memoryIsAutoMem && !hadAutomem) {
       log('ℹ️  No memory server configured in Copilot MCP config', quiet);
       return false;
     }
 
     if (config?.mcpServers) {
-      delete config.mcpServers.memory;
+      if (memoryIsAutoMem) {
+        delete config.mcpServers.memory;
+      }
       delete config.mcpServers.automem;
     }
 
@@ -635,6 +639,16 @@ function removeCopilotMcpServer(copilotDir: string, dryRun: boolean, quiet?: boo
     log(`❌ Failed to update Copilot MCP config: ${(error as Error).message}`, quiet);
     return false;
   }
+}
+
+function isAutoMemMcpServer(server: unknown): boolean {
+  if (!server || typeof server !== 'object') {
+    return false;
+  }
+  const entry = server as { command?: unknown; args?: unknown };
+  const values = [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])]
+    .filter((value): value is string => typeof value === 'string');
+  return values.some((value) => value.includes('mcp-automem'));
 }
 
 export async function runUninstall(options: UninstallOptions): Promise<void> {
@@ -666,7 +680,7 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
   if (options.cleanAll) {
     log('\n🧹 Cleaning external configurations...', options.quiet);
     if (options.platform === 'copilot') {
-      const copilotDir = options.projectDir ?? path.join(os.homedir(), '.copilot');
+      const copilotDir = options.projectDir ?? resolveCopilotHome();
       removeCopilotMcpServer(copilotDir, options.dryRun ?? false, options.quiet);
     } else {
       // Remove from Claude Desktop config (if present)

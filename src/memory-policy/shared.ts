@@ -180,7 +180,6 @@ function renderSessionStartPrompt(options: SessionStartPromptOptions): string {
     'Phase 3 - ON-DEMAND debugging (only if the user\'s message is a debugging/error-symptom question; skip otherwise):',
     `  ${options.recallToolName}({`,
     '    query: "<error symptom>",',
-    '    tags: ["bugfix", "solution"],',
     `    limit: ${AUTOMEM_POLICY_DEFAULTS.debugRecallLimit}`,
     '  })',
     '',

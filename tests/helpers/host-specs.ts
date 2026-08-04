@@ -1,5 +1,5 @@
 export interface HostSmokeSpec {
-  host: 'hermes' | 'codex' | 'claude-code' | 'cursor';
+  host: 'hermes' | 'codex' | 'claude-code' | 'cursor' | 'copilot-cli' | 'vscode-copilot';
   configPath: string;
   installCommand: string[];
   expectedToolNames: string[];
@@ -46,6 +46,20 @@ export const HOST_SMOKE_SPECS: HostSmokeSpec[] = [
     installCommand: ['mcp-automem', 'claude-code'],
     expectedToolNames: RAW_AUTOMEM_TOOLS.map((name) => `mcp__memory__${name}`).sort(),
     validationCommand: ['claude', 'mcp', 'list'],
+    realHostSmoke: 'config-and-mcp-contract',
+  },
+  {
+    host: 'copilot-cli',
+    configPath: '$COPILOT_HOME/mcp-config.json',
+    installCommand: ['mcp-automem', 'copilot', '--format', 'cli'],
+    expectedToolNames: RAW_AUTOMEM_TOOLS.map((name) => `automem-${name}`).sort(),
+    realHostSmoke: 'config-and-mcp-contract',
+  },
+  {
+    host: 'vscode-copilot',
+    configPath: '.vscode/mcp.json',
+    installCommand: ['mcp-automem', 'copilot', '--format', 'vscode'],
+    expectedToolNames: RAW_AUTOMEM_TOOLS.map((name) => `mcp_automem_${name}`).sort(),
     realHostSmoke: 'config-and-mcp-contract',
   },
 ];

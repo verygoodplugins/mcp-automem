@@ -9,6 +9,11 @@
 
 PROJECT=$(basename "$PWD")
 AUTOMEM_HOOK_SURFACE="${AUTOMEM_HOOK_SURFACE:-copilot-cli}"
+if [ "$AUTOMEM_HOOK_SURFACE" = "vscode-copilot" ]; then
+    RECALL_TOOL="mcp_automem_recall_memory"
+else
+    RECALL_TOOL="automem-recall_memory"
+fi
 
 # Build the context prompt, substituting the project slug
 read -r -d '' CONTEXT << PROMPT_END
@@ -16,7 +21,7 @@ read -r -d '' CONTEXT << PROMPT_END
 MEMORY RECALL - run these phases in order before your first substantive response.
 
 Phase 1 - Preferences (tag-only, no time filter, no query):
-  automem-recall_memory({
+  __AUTOMEM_RECALL_TOOL__({
     tags: ["preference"],
     limit: 20,
     sort: "updated_desc",
@@ -24,7 +29,7 @@ Phase 1 - Preferences (tag-only, no time filter, no query):
   })
 
 Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; 90-day window):
-  automem-recall_memory({
+  __AUTOMEM_RECALL_TOOL__({
     query: "<proper nouns, product names, tools, specific topics from the user's message>",
     tags: ["$PROJECT"],
     time_query: "last 90 days",
@@ -33,9 +38,8 @@ Phase 2 - Task context (ONE semantic query from the user's actual nouns; project
   })
 
 Phase 3 - ON-DEMAND debugging (only if the user's message is a debugging/error-symptom question; skip otherwise):
-  automem-recall_memory({
+  __AUTOMEM_RECALL_TOOL__({
     query: "<error symptom>",
-    tags: ["bugfix", "solution"],
     limit: 20
   })
 
@@ -51,6 +55,7 @@ Notes:
 - Do not make your first tool call for the user's task until both recall phases are processed.
 </automem_session_context>
 PROMPT_END
+CONTEXT="${CONTEXT//__AUTOMEM_RECALL_TOOL__/$RECALL_TOOL}"
 
 # Output JSON with additionalContext for Copilot CLI context injection
 # Use jq if available for safe escaping, fall back to python, then manual

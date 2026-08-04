@@ -169,6 +169,54 @@ function writeFileWithBackup(targetPath: string, content: string, options: Copil
   fs.writeFileSync(targetPath, content, 'utf8');
 }
 
+function removeFileWithBackup(targetPath: string, options: CopilotSetupOptions): boolean {
+  if (!fs.existsSync(targetPath)) {
+    return false;
+  }
+  if (options.dryRun) {
+    log(`dry-run: would remove ${targetPath}`, options.quiet);
+    return true;
+  }
+
+  const backup = backupPath(targetPath);
+  fs.copyFileSync(targetPath, backup);
+  fs.unlinkSync(targetPath);
+  log(`removed: ${targetPath} (backup: ${backup})`, options.quiet);
+  return true;
+}
+
+function removeCliMemoryRules(targetPath: string, options: CopilotSetupOptions): boolean {
+  if (!fs.existsSync(targetPath)) {
+    return false;
+  }
+
+  const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
+  const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
+  const existing = fs.readFileSync(targetPath, 'utf8');
+  const start = existing.indexOf(startMarker);
+  const end = existing.indexOf(endMarker);
+  if (start === -1 || end === -1) {
+    return false;
+  }
+  if (options.dryRun) {
+    log(`dry-run: would remove AutoMem rules from ${targetPath}`, options.quiet);
+    return true;
+  }
+
+  const updated = (existing.slice(0, start) + existing.slice(end + endMarker.length))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (!updated) {
+    return removeFileWithBackup(targetPath, options);
+  }
+
+  const backup = backupPath(targetPath);
+  fs.copyFileSync(targetPath, backup);
+  fs.writeFileSync(targetPath, `${updated}\n`, 'utf8');
+  log(`removed AutoMem rules from: ${targetPath} (backup: ${backup})`, options.quiet);
+  return true;
+}
+
 function hookEventName(
   key: string,
   format: 'cli' | 'vscode'
@@ -370,11 +418,19 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
   const format = options.format ?? 'both';
   const installVscode = format === 'vscode' || format === 'both';
   const installCli = format === 'cli' || format === 'both';
+  const vscodeTargetPath = path.join(targetDir, 'instructions', 'automem.instructions.md');
+  const cliTargetPath = path.join(targetDir, 'copilot-instructions.md');
+
+  if (!installVscode) {
+    removeFileWithBackup(vscodeTargetPath, options);
+  }
+  if (!installCli) {
+    removeCliMemoryRules(cliTargetPath, options);
+  }
 
   // VS Code: <targetDir>/instructions/automem.instructions.md (with frontmatter)
   if (installVscode) {
     const vscodeTemplatePath = path.join(TEMPLATE_ROOT, 'automem.instructions.md');
-    const vscodeTargetPath = path.join(targetDir, 'instructions', 'automem.instructions.md');
 
     if (fs.existsSync(vscodeTemplatePath)) {
       const content = fs.readFileSync(vscodeTemplatePath, 'utf8');
@@ -390,8 +446,6 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
     const cliTemplatePath = path.resolve(
       fileURLToPath(new URL('../../templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md', import.meta.url))
     );
-    const cliTargetPath = path.join(targetDir, 'copilot-instructions.md');
-
     if (fs.existsSync(cliTemplatePath)) {
       const templateContent = fs.readFileSync(cliTemplatePath, 'utf8');
       // Extract just the memory rules block (between the markdown fence markers)

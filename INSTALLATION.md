@@ -1627,6 +1627,7 @@ Or re-run the installer to get the updated hook configs:
 
 ```bash
 npx @verygoodplugins/mcp-automem copilot --yes
+```
 ---
 
 ## Development
