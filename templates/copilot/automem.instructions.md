@@ -9,7 +9,7 @@ applyTo: "**"
 TOOL NAMING:
 - Copilot CLI exposes MCP tools as `<server>-<tool>` (e.g. `automem-recall_memory`).
 - VS Code Copilot exposes MCP tools as `mcp_<server>_<tool>` (e.g. `mcp_automem_recall_memory`).
-- These examples use the CLI format (`automem-<tool>`). Substitute as needed for VS Code.
+- These examples use the VS Code format (`mcp_automem_<tool>`).
 
 ---
 
@@ -50,7 +50,7 @@ Run these at session start (the SessionStart hook prompts you; actually execute 
 
 **Phase 1 - Preferences** (tag-only, no time filter, no query):
 ```
-automem-recall_memory({
+mcp_automem_recall_memory({
   tags: ["preference"],
   limit: 20,
   sort: "updated_desc",
@@ -62,7 +62,7 @@ No query, no time gate. Sort by `updated_desc` so the freshest preferences win; 
 
 **Phase 2 - Task context** (single semantic query built from content nouns + project-slug gate + 90-day window):
 ```
-automem-recall_memory({
+mcp_automem_recall_memory({
   query: "<proper nouns, specific tools, exact topics from the user's message>",
   tags: [<project-slug>],
   time_query: "last 90 days",
@@ -82,9 +82,8 @@ Gate by the working-directory-derived project slug when it's unambiguous (see sl
 
 **Phase 3 - On-demand debugging** (only when actively investigating a specific error symptom):
 ```
-automem-recall_memory({
+mcp_automem_recall_memory({
   query: "<error message or symptom>",
-  tags: ["bugfix", "solution"],
   limit: 20
 })
 ```
@@ -139,7 +138,7 @@ Every `store_memory` call MUST set `type` and use bare conventional tags.
 
 User preference (importance 0.9, confidence 0.95):
 ```
-store_memory({
+mcp_automem_store_memory({
   content: "User preference: [exact quote or paraphrase]. Applies when: [context]",
   type: "Preference",
   tags: ["preference", <scope>],
@@ -150,7 +149,7 @@ store_memory({
 
 Architectural decision (importance 0.9, confidence 0.9):
 ```
-store_memory({
+mcp_automem_store_memory({
   content: "Decided [choice] because [rationale]. Alternatives: [X, Y]",
   type: "Decision",
   tags: ["decision", <slug>],
@@ -161,7 +160,7 @@ store_memory({
 
 Bug fix (importance 0.75, confidence 0.85):
 ```
-store_memory({
+mcp_automem_store_memory({
   content: "Fixed [issue] in [project]: [solution]. Root cause: [analysis]",
   type: "Insight",
   tags: ["bugfix", "solution", <slug>],
@@ -172,7 +171,7 @@ store_memory({
 
 Feature implementation (importance 0.8, confidence 0.8):
 ```
-store_memory({
+mcp_automem_store_memory({
   content: "Implemented [feature] using [approach]",
   type: "Pattern",
   tags: ["pattern", "feature", <slug>],
@@ -205,13 +204,13 @@ When a trigger fires, run this sequence inline in the same turn:
 
 ```
 // Step 1: Recall to find what this relates to
-const related = recall_memory({
+const related = mcp_automem_recall_memory({
   query: "<what's being corrected / decided / named>",
   limit: 5
 })
 
 // Step 2: Store with type, importance, tags, non-default confidence
-const newId = store_memory({
+const stored = mcp_automem_store_memory({
   content: "Brief title. Context + reasoning. Outcome.",
   type: "Preference",  // or Decision / Pattern
   tags: ["correction", <scope if any>],
@@ -220,14 +219,14 @@ const newId = store_memory({
 })
 
 // Step 3: Verify the store landed (silent-fail insurance)
-recall_memory({ query: "<distinctive phrase from content>", limit: 3 })
+mcp_automem_recall_memory({ query: "<distinctive phrase from content>", limit: 3 })
 // If not in results, retry the store once.
 
 // Step 4: Link to step 1's result if plausible
 if (related?.results?.length) {
-  associate_memories({
+  mcp_automem_associate_memories({
     memory1_id: related.results[0].id,
-    memory2_id: newId,
+    memory2_id: stored.memory_id,
     type: "INVALIDATED_BY",  // or PREFERS_OVER / EXEMPLIFIES
     strength: 0.9
   })
@@ -245,7 +244,7 @@ Before every `git commit`, scan the staged changes and ask: does this commit con
 When a fact changes - a price, a URL, a version, a name, a deployment state - update the existing memory in place. Use store + `INVALIDATED_BY` only when the old memory represents a genuinely different decision worth preserving for the record ("we considered $15/mo before landing on $9/mo" is archaeology; "the dev URL changed" is not).
 
 ```
-update_memory({
+mcp_automem_update_memory({
   memory_id: <existing id>,
   content: <updated content>,
   importance: 0.85  // optional - adjust if stakes changed
@@ -310,7 +309,7 @@ For facts with a shelf life, set `t_valid` (ISO 8601 UTC, usually now) and `t_in
 Use for: current deployment URL, active staging env, incident window, feature-flag rollout, ongoing PR, current sprint focus.
 
 ```
-store_memory({
+mcp_automem_store_memory({
   content: "mcp-automem deployed to Railway at https://automem.up.railway.app",
   type: "Context", importance: 0.8,
   tags: ["deployment", "mcp-automem", "production", "railway"],

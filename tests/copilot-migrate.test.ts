@@ -80,6 +80,22 @@ describe('migrate to/from copilot', () => {
     expect(result.stdout).toContain('Copilot');
   });
 
+  it('analyzes the COPILOT_HOME source when migrating from Copilot', () => {
+    const copilotHome = path.join(tempDir, 'copilot-home');
+    const hooksDir = path.join(copilotHome, 'hooks');
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(path.join(hooksDir, 'automem-session-start.json'), '{}');
+    fs.writeFileSync(path.join(hooksDir, 'automem-track-store.json'), '{}');
+
+    const result = runCli([
+      'migrate', '--from', 'copilot', '--to', 'copilot', '--dry-run', '--yes',
+    ], { COPILOT_HOME: copilotHome });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Found 2 AutoMem hook file(s)');
+    expect(result.stdout).toContain('Profile: lean');
+  });
+
   // T039: --to copilot --dry-run shows planned changes
   it('--to copilot --dry-run shows planned changes without modifying files', () => {
     const result = runCli([

@@ -44,7 +44,10 @@ fi
 if [ -z "$TRANSCRIPT_PATH" ] || [ ! -r "$TRANSCRIPT_PATH" ]; then
   exit 0
 fi
-USER_TURNS=$(grep -oE '"type"[[:space:]]*:[[:space:]]*"user\.message"' "$TRANSCRIPT_PATH" 2>/dev/null | wc -l | tr -d ' ')
+USER_TURNS=$(awk '
+  /^[[:space:]]*\{[[:space:]]*"type"[[:space:]]*:[[:space:]]*"user\.message"/ { count += 1 }
+  END { print count + 0 }
+' "$TRANSCRIPT_PATH" 2>/dev/null)
 case "$USER_TURNS" in
   ''|*[!0-9]*) exit 0 ;;
 esac

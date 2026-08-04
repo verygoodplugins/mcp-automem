@@ -42,7 +42,16 @@ try {
     $content = Get-Content -Raw -ErrorAction SilentlyContinue $transcriptPath
     if (-not $content) { exit 0 }
 
-    $userTurns = ([regex]::Matches($content, '"type"\s*:\s*"user\.message"')).Count
+    $userTurns = 0
+    foreach ($line in ($content -split "`r?`n")) {
+        if (-not $line.Trim()) { continue }
+        try {
+            $event = $line | ConvertFrom-Json -ErrorAction Stop
+            if ($event.type -eq 'user.message') { $userTurns += 1 }
+        } catch {
+            continue
+        }
+    }
     if ($userTurns -lt 5) { exit 0 }
 
     # Burn the once-per-session sentinel before emitting.

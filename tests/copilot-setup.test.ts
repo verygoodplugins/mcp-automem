@@ -96,6 +96,20 @@ describe('installMemoryRules (format gating)', () => {
     expect(content).toContain('<memory_rules>');
   });
 
+  it('VS Code rules use a symptom-only debug recall and stored memory ID', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+
+    const content = fs.readFileSync(
+      path.join(tempDir, 'instructions', 'automem.instructions.md'),
+      'utf8'
+    );
+    expect(content).not.toContain('tags: ["bugfix", "solution"]');
+    expect(content).toContain('const stored = mcp_automem_store_memory({');
+    expect(content).toContain('memory2_id: stored.memory_id');
+    expect(content).toContain('mcp_automem_recall_memory({');
+    expect(content).not.toContain('\nautomem-recall_memory({');
+  });
+
   it('CLI memory rules are idempotent (re-running replaces block)', async () => {
     await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
     const first = fs.readFileSync(path.join(tempDir, 'copilot-instructions.md'), 'utf8');
@@ -411,6 +425,17 @@ describe('target directory resolution', () => {
 
     expect(hookData.hooks.sessionStart[0].bash).toContain(tempDir);
     expect(hookData.hooks.sessionStart[0].bash).not.toContain('$HOME/.copilot');
+  });
+
+  it('embeds absolute hook paths when targetDir is relative', async () => {
+    const relativeTarget = path.relative(process.cwd(), tempDir);
+    await applyCopilotSetup({ targetDir: relativeTarget, yes: true, quiet: true });
+
+    const hookData: CopilotHookFile = JSON.parse(
+      fs.readFileSync(path.join(tempDir, 'hooks', 'automem-session-start.json'), 'utf8')
+    );
+    expect(hookData.hooks.sessionStart[0].bash).toContain(tempDir);
+    expect(hookData.hooks.sessionStart[0].bash).not.toContain(relativeTarget);
   });
 });
 

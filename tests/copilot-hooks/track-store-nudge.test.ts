@@ -74,6 +74,13 @@ function transcriptWith(userTurns: number): string {
   return lines.join('\n') + '\n';
 }
 
+function transcriptWithNestedUserMessages(): string {
+  return [
+    '{"type":"user.message","data":{"text":"real user event"}}',
+    '{"type":"tool.result","data":{"events":[{"type":"user.message"},{"type":"user.message"},{"type":"user.message"},{"type":"user.message"}]}}',
+  ].join('\n') + '\n';
+}
+
 const SHELLS: Array<{ shell: Shell; available: () => boolean }> = [
   { shell: 'bash', available: hasBash },
   { shell: 'pwsh', available: hasPwsh },
@@ -154,6 +161,18 @@ for (const { shell, available } of SHELLS) {
       expect(out.trim()).toBe('');
       // Did not burn the once-per-session sentinel, so a later turn can nudge.
       expect(fs.existsSync(path.join(t, 'automem-stop-nudged-nudge-3'))).toBe(false);
+    });
+
+    it('counts only top-level user events for the substantive-session threshold', () => {
+      const t = tmp();
+      const transcript = path.join(t, 'nested-events.jsonl');
+      fs.writeFileSync(transcript, transcriptWithNestedUserMessages());
+      const payload = `{"sessionId":"nudge-nested","transcriptPath":"${payloadPath(shell, transcript)}","stopReason":"end_turn"}`;
+
+      const out = runHook(shell, 'automem-stop-nudge', payload, t);
+
+      expect(out.trim()).toBe('');
+      expect(fs.existsSync(path.join(t, 'automem-stop-nudged-nudge-nested'))).toBe(false);
     });
   });
 }

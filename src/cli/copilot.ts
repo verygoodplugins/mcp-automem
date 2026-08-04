@@ -501,7 +501,7 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
 export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promise<void> {
   const options: CopilotSetupOptions = {
     ...cliOptions,
-    targetDir: cliOptions.targetDir ?? resolveCopilotHome(),
+    targetDir: path.resolve(cliOptions.targetDir ?? resolveCopilotHome()),
     format: cliOptions.format ?? 'both',
     profile: cliOptions.profile ?? DEFAULT_PROFILE,
   };

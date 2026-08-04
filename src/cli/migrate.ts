@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { applyCursorSetup } from './cursor.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
 import { applyCopilotSetup } from './copilot.js';
@@ -130,7 +129,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   if (options.from === 'manual') {
     await analyzeManualUsage(projectDir, options.quiet);
   } else if (options.from === 'copilot') {
-    const copilotDir = path.join(os.homedir(), '.copilot');
+    const copilotDir = resolveCopilotHome();
     analyzeCopilotHooks(copilotDir, options.quiet);
   }
   
