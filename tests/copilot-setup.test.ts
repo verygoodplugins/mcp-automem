@@ -85,6 +85,24 @@ describe('installMemoryRules (format gating)', () => {
     expect(content).toContain('</memory_rules>');
   });
 
+  it('CLI memory rules prefix every executable AutoMem tool call', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+
+    const content = fs.readFileSync(path.join(tempDir, 'copilot-instructions.md'), 'utf8');
+
+    for (const tool of [
+      'recall_memory',
+      'store_memory',
+      'associate_memories',
+      'update_memory',
+    ]) {
+      expect(content).toContain(`automem-${tool}({`);
+      expect(content).not.toMatch(
+        new RegExp(`(?<!automem-)\\b${tool}\\(`)
+      );
+    }
+  });
+
   it('VS Code memory rules contain frontmatter', async () => {
     await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
 

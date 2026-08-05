@@ -171,7 +171,7 @@ Every `store_memory` call MUST set `type` and use bare conventional tags.
 
 User preference (importance 0.9, confidence 0.95):
 ```
-store_memory({
+automem-store_memory({
   content: "User preference: [exact quote or paraphrase]. Applies when: [context]",
   type: "Preference",
   tags: ["preference", <scope>],
@@ -182,7 +182,7 @@ store_memory({
 
 Architectural decision (importance 0.9, confidence 0.9):
 ```
-store_memory({
+automem-store_memory({
   content: "Decided [choice] because [rationale]. Alternatives: [X, Y]",
   type: "Decision",
   tags: ["decision", <slug>],
@@ -193,7 +193,7 @@ store_memory({
 
 Bug fix (importance 0.75, confidence 0.85):
 ```
-store_memory({
+automem-store_memory({
   content: "Fixed [issue] in [project]: [solution]. Root cause: [analysis]",
   type: "Insight",
   tags: ["bugfix", "solution", <slug>],
@@ -204,7 +204,7 @@ store_memory({
 
 Feature implementation (importance 0.8, confidence 0.8):
 ```
-store_memory({
+automem-store_memory({
   content: "Implemented [feature] using [approach]",
   type: "Pattern",
   tags: ["pattern", "feature", <slug>],
@@ -237,13 +237,13 @@ When a trigger fires, run this sequence inline in the same turn:
 
 ```
 // Step 1: Recall to find what this relates to
-const related = recall_memory({
+const related = automem-recall_memory({
   query: "<what's being corrected / decided / named>",
   limit: 5
 })
 
 // Step 2: Store with type, importance, tags, non-default confidence
-const stored = store_memory({
+const stored = automem-store_memory({
   content: "Brief title. Context + reasoning. Outcome.",
   type: "Preference",  // or Decision / Pattern
   tags: ["correction", <scope if any>],
@@ -252,12 +252,12 @@ const stored = store_memory({
 })
 
 // Step 3: Verify the store landed (silent-fail insurance)
-recall_memory({ query: "<distinctive phrase from content>", limit: 3 })
+automem-recall_memory({ query: "<distinctive phrase from content>", limit: 3 })
 // If not in results, retry the store once.
 
 // Step 4: Link to step 1's result if plausible
 if (related?.results?.length) {
-  associate_memories({
+  automem-associate_memories({
     memory1_id: related.results[0].id,
     memory2_id: stored.memory_id,
     type: "INVALIDATED_BY",  // or PREFERS_OVER / EXEMPLIFIES
@@ -277,7 +277,7 @@ Before every `git commit`, scan the staged changes and ask: does this commit con
 When a fact changes - a price, a URL, a version, a name, a deployment state - update the existing memory in place. Use store + `INVALIDATED_BY` only when the old memory represents a genuinely different decision worth preserving for the record ("we considered $15/mo before landing on $9/mo" is archaeology; "the dev URL changed" is not).
 
 ```
-update_memory({
+automem-update_memory({
   memory_id: <existing id>,
   content: <updated content>,
   importance: 0.85  // optional - adjust if stakes changed
@@ -342,7 +342,7 @@ For facts with a shelf life, set `t_valid` (ISO 8601 UTC, usually now) and `t_in
 Use for: current deployment URL, active staging env, incident window, feature-flag rollout, ongoing PR, current sprint focus.
 
 ```
-store_memory({
+automem-store_memory({
   content: "mcp-automem deployed to Railway at https://automem.up.railway.app",
   type: "Context", importance: 0.8,
   tags: ["deployment", "mcp-automem", "production", "railway"],
