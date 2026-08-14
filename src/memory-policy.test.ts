@@ -377,6 +377,13 @@ describe('shared AutoMem memory policy', () => {
     // Prose references are strings, not callables, so they stay backticked.
     expect(grok).toContain('Prefer `memory__update_memory`');
 
+    // The truncated-response recovery path is an instruction Grok must be able to
+    // follow: a bare `recall_memory({ memory_id })` names nothing it can call.
+    expect(grok).toContain(
+      'use_tool({ tool_name: "memory__recall_memory", tool_input: { memory_id: "<id>" } })'
+    );
+    expect(grok).not.toContain('with `recall_memory({ memory_id })`');
+
     // Host-specific guidance that only Grok carries.
     expect(grok).toContain('Always run `search_tool` before the first `use_tool`');
     expect(grok).toContain('~/.grok/config.toml');
