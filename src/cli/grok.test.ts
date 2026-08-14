@@ -134,7 +134,34 @@ describe('grok setup', () => {
 
     const output = lines.join('\n');
     expect(output).toContain('listed in disabled_mcp_servers');
-    expect(output).toContain('Grok will not load it');
+    expect(output).toContain('Grok may ignore the server entry');
+  });
+
+  it('surfaces the disabled_mcp_servers warning during a dry run too', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'config.toml'),
+      ['disabled_mcp_servers = ["memory"]', ''].join('\n')
+    );
+
+    const lines: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => void lines.push(args.join(' '));
+    try {
+      await applyGrokSetup({
+        endpoint: 'https://automem.example.test',
+        dryRun: true,
+        projectName: 'demo',
+      });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const output = lines.join('\n');
+    // The diagnostic is about existing state, so a preview must still report it...
+    expect(output).toContain('listed in disabled_mcp_servers');
+    // ...without claiming any work happened.
+    expect(output).toContain('Dry run — no files were changed.');
+    expect(output).not.toContain('setup complete');
   });
 
   it('stays quiet about disabled_mcp_servers when memory is not in the list', async () => {
