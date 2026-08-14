@@ -10,7 +10,7 @@ AutoMem is wired as the `memory` MCP server in `~/.grok/config.toml` (native con
 - **Tags are a hard gate** - memories without matching tags are excluded before scoring. Use tags for stable categories like `preference` and `bugfix`; do not guess topic tags.
 - **One good query beats `queries[]` + `auto_decompose`** for focused tasks. Use `queries[]` only for genuinely multi-topic questions.
 - **`limit` caps at 50.** Routine recall should use enough budget to be useful.
-- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id })`.
+- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `use_tool({ tool_name: "memory__recall_memory", tool_input: { memory_id: "<id>" } })`.
 - **`store_memory` can silently fail.** Verify important stores by recalling a distinctive phrase; retry once if missing.
 - **Bare tag convention** - use `automem`, not `project/automem`; no `lang/` prefixes, platform tags, or date-stamped tags. `entity:*:*` tags are server-injected.
 

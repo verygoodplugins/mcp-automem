@@ -478,14 +478,23 @@ function toolCallInline(style: ToolCallStyle, toolName: string, args: string): s
   return `${style.wrapper}({ tool_name: ${quote(full)}, tool_input: { ${args} } })`;
 }
 
-function renderToolBehaviorSection(): string {
+function renderToolBehaviorSection(style: ToolCallStyle): string {
+  // The recovery path for a budget-truncated response has to be callable on the host
+  // reading it. Direct hosts can invoke the tool by name, so the generic short form is
+  // correct there (and keeps every existing generated artifact byte-identical). A
+  // wrapped host has no callable `recall_memory` at all, so the bare form is an
+  // instruction it cannot follow — the exact failure this style abstraction exists for.
+  const idFetch =
+    style.kind === 'wrapped'
+      ? toolCallInline(style, 'recall_memory', 'memory_id: "<id>"')
+      : 'recall_memory({ memory_id })';
   return [
     "## Tool's real behavior (validated against production corpus)",
     '',
     '- **Tags are a hard gate** - memories without matching tags are excluded before scoring. Use tags for stable categories like `preference` and `bugfix`; do not guess topic tags.',
     '- **One good query beats `queries[]` + `auto_decompose`** for focused tasks. Use `queries[]` only for genuinely multi-topic questions.',
     '- **`limit` caps at 50.** Routine recall should use enough budget to be useful.',
-    '- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id })`.',
+    `- **Default \`text\` format shows content previews with created/updated timestamps and importance.** \`detailed\` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with \`${idFetch}\`.`,
     '- **`store_memory` can silently fail.** Verify important stores by recalling a distinctive phrase; retry once if missing.',
     '- **Bare tag convention** - use `automem`, not `project/automem`; no `lang/` prefixes, platform tags, or date-stamped tags. `entity:*:*` tags are server-injected.',
     '',
@@ -701,7 +710,7 @@ export function renderCodexMemoryRules(params: ToolRuleRenderOptions): string {
     '',
     'AutoMem is wired as the `memory` MCP server (see `~/.codex/config.toml`). Tools are `mcp__memory__*`. Use this layer proactively for continuity across turns.',
     '',
-    renderToolBehaviorSection(),
+    renderToolBehaviorSection(style),
     '',
     renderRecallRulesSection({ projectName: params.projectName, style }),
     '',
@@ -741,7 +750,7 @@ export function renderGrokMemoryRules(params: ToolRuleRenderOptions): string {
     '',
     'AutoMem is wired as the `memory` MCP server in `~/.grok/config.toml` (native config — do not rely on Claude/Cursor compat imports alone). Tools are discovered via `search_tool` and called via `use_tool` as `memory__recall_memory`, `memory__store_memory`, etc.',
     '',
-    renderToolBehaviorSection(),
+    renderToolBehaviorSection(style),
     '',
     'Always run `search_tool` before the first `use_tool` on MCP servers.',
     '',
@@ -772,6 +781,7 @@ export type CursorProjectRuleOptions = ToolRuleRenderOptions & {
 };
 
 export function renderCursorProjectRule(params: CursorProjectRuleOptions): string {
+  const style = directStyle(params.mcpToolPrefix);
   return [
     '---',
     'description: AutoMem persistent memory - validated two-phase recall, curated storage, mandatory associations',
@@ -786,15 +796,15 @@ export function renderCursorProjectRule(params: CursorProjectRuleOptions): strin
     '',
     `Tools are \`${params.mcpToolPrefix}*\` (e.g. \`${params.mcpToolPrefix}recall_memory\`). Cursor MCP server: \`${params.mcpServerName}\`.`,
     '',
-    renderToolBehaviorSection(),
+    renderToolBehaviorSection(style),
     '',
     renderRecallRulesSection({
       projectName: params.projectName,
-      style: directStyle(params.mcpToolPrefix),
+      style,
       cursor: true,
     }),
     '',
-    renderStorageRulesSection(directStyle(params.mcpToolPrefix), params.projectName),
+    renderStorageRulesSection(style, params.projectName),
     '',
     '## Optional GPT-5.4 Overlay',
     '',
@@ -837,7 +847,7 @@ export function renderClaudeDesktopInstructions(params: PolicyTemplateOptions): 
     '',
     'Desktop conversations often are not project-scoped. Use semantic recall from the actual content nouns first; add tags only when the user clearly scopes the task.',
     '',
-    renderToolBehaviorSection(),
+    renderToolBehaviorSection(style),
     '',
     renderRecallRulesSection({
       projectName: '<project-slug>',
