@@ -52,17 +52,45 @@ describe('OpenClaw plugin boundary', () => {
     expect(registered).toEqual(openClawSpec!.expectedToolNames);
   });
 
-  it('reaches AutoMem through a registered tool', async () => {
+  it('drives every AutoMem operation through the registered tools', async () => {
     const fakeApi = await startFakeAutoMemApi();
     try {
       const tools = registerPlugin(fakeApi.url, 'openclaw-smoke-key');
-      const recall = tools.find((tool) => tool.name === 'automem_recall_memory');
-      expect(recall).toBeDefined();
+      const call = async (name: string, params: unknown) => {
+        const tool = tools.find((candidate) => candidate.name === name);
+        expect(tool, `plugin did not register ${name}`).toBeDefined();
+        return tool!.execute(`call-${name}`, params);
+      };
 
-      await recall!.execute('call-1', { query: 'openclaw smoke', limit: 1 });
+      // Exercising only recall would leave wrong methods, payloads or auth on the other
+      // tools invisible — the host-integration contract names all five operations.
+      await call('automem_check_health', {});
+      await call('automem_recall_memory', { query: 'openclaw smoke', limit: 1 });
+      await call('automem_store_memory', {
+        content: 'openclaw host smoke memory',
+        tags: ['openclaw-smoke'],
+        importance: 0.6,
+      });
+      await call('automem_update_memory', { memory_id: 'mem-1', importance: 0.8 });
+      await call('automem_associate_memories', {
+        memory1_id: 'mem-1',
+        memory2_id: 'mem-2',
+        type: 'RELATES_TO',
+        strength: 0.7,
+      });
 
-      expect(fakeApi.requests.length).toBeGreaterThan(0);
-      expect(fakeApi.requests.some((request) => request.path.startsWith('/recall'))).toBe(true);
+      const paths = fakeApi.requests.map((request) => request.path);
+      expect(paths).toContain('/health');
+      expect(paths.some((p) => p.startsWith('/recall'))).toBe(true);
+      expect(paths).toContain('/memory');
+      expect(paths).toContain('/memory/mem-1');
+      expect(paths).toContain('/associate');
+
+      const methods = fakeApi.requests.map((request) => `${request.method} ${request.path}`);
+      expect(methods).toContain('POST /memory');
+      expect(methods).toContain('PATCH /memory/mem-1');
+      expect(methods).toContain('POST /associate');
+
       expect(
         fakeApi.requests.every((request) => request.authorization === 'Bearer openclaw-smoke-key')
       ).toBe(true);
