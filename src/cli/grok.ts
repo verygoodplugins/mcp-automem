@@ -114,7 +114,19 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
   log(`📄 Config: ${paths.configPath}`, cliOptions.quiet);
   log(`📄 Rules: ${rulesPath}\n`, cliOptions.quiet);
 
+  // Everything that can reject the run happens before anything is written. Both the
+  // rules content and the server entry are computed up front: upsertRulesWithMarkers
+  // throws on a one-sided marker, and building the entry is pure. Validating after the
+  // config write would leave a failed run having already replaced the live endpoint and
+  // credentials while telling the user to repair their rules file and re-run.
+  const templateContent = fs.readFileSync(path.join(TEMPLATE_ROOT, 'memory-rules.md'), 'utf8');
+  const processed = replaceTemplateVars(templateContent, {
+    PROJECT_NAME: rulesProjectName,
+  });
+  const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
+  const finalContent = upsertRulesWithMarkers(existingContent, processed, rulesPath);
   const entry = buildGrokAutoMemServerEntry(endpoint, apiKey);
+
   const result = upsertGrokMemoryServer(paths.configPath, entry, {
     dryRun: cliOptions.dryRun,
     quiet: cliOptions.quiet,
@@ -124,12 +136,6 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
     log(`✅ Registered AutoMem MCP server (mcp_servers.${GROK_MCP_SERVER_NAME})`, cliOptions.quiet);
   }
 
-  const templateContent = fs.readFileSync(path.join(TEMPLATE_ROOT, 'memory-rules.md'), 'utf8');
-  const processed = replaceTemplateVars(templateContent, {
-    PROJECT_NAME: rulesProjectName,
-  });
-  const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
-  const finalContent = upsertRulesWithMarkers(existingContent, processed, rulesPath);
   writeFileWithBackup(rulesPath, finalContent, cliOptions);
 
   // Diagnostics describe existing state rather than work performed, so they belong in
