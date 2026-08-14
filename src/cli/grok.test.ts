@@ -183,6 +183,32 @@ describe('grok setup', () => {
     expect(fs.readFileSync(rulesPath, 'utf8')).toBe(handWritten);
   });
 
+  it('writes nothing at all when the rules file is rejected', async () => {
+    // Validation used to run after the config write, so a rejected run still replaced
+    // the live endpoint and credentials while telling the user to fix their rules file.
+    const configPath = path.join(tmpDir, 'config.toml');
+    await applyGrokSetup({
+      endpoint: 'https://live.example.test',
+      apiKey: 'sk-live',
+      quiet: true,
+    });
+    const configBefore = fs.readFileSync(configPath, 'utf8');
+
+    const rulesPath = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(rulesPath, ['# notes', GROK_RULES_START, 'no end marker', ''].join('\n'));
+    const rulesBefore = fs.readFileSync(rulesPath, 'utf8');
+
+    await expect(
+      applyGrokSetup({ endpoint: 'https://other.example.test', apiKey: 'sk-other', quiet: true })
+    ).rejects.toThrow(/without a matching/);
+
+    // Neither file moved: no partial install.
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(configBefore);
+    expect(fs.readFileSync(rulesPath, 'utf8')).toBe(rulesBefore);
+    expect(configBefore).toContain('https://live.example.test');
+    expect(configBefore).not.toContain('https://other.example.test');
+  });
+
   it('refuses on a stray end marker too', async () => {
     const rulesPath = path.join(tmpDir, 'AGENTS.md');
     fs.writeFileSync(rulesPath, ['# My notes', GROK_RULES_END, ''].join('\n'));
