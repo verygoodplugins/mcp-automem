@@ -79,17 +79,36 @@ describe('OpenClaw plugin boundary', () => {
         strength: 0.7,
       });
 
-      const paths = fakeApi.requests.map((request) => request.path);
-      expect(paths).toContain('/health');
-      expect(paths.some((p) => p.startsWith('/recall'))).toBe(true);
-      expect(paths).toContain('/memory');
-      expect(paths).toContain('/memory/mem-1');
-      expect(paths).toContain('/associate');
+      // Route + method + auth, and the bodies: the fake API accepts any payload, so a
+      // dropped or renamed field would otherwise sail through every other assertion.
+      const find = (method: string, pathMatch: (p: string) => boolean) => {
+        const request = fakeApi.requests.find((r) => r.method === method && pathMatch(r.path));
+        expect(request, `no ${method} request matching`).toBeDefined();
+        return request!;
+      };
 
-      const methods = fakeApi.requests.map((request) => `${request.method} ${request.path}`);
-      expect(methods).toContain('POST /memory');
-      expect(methods).toContain('PATCH /memory/mem-1');
-      expect(methods).toContain('POST /associate');
+      expect(find('GET', (p) => p === '/health').path).toBe('/health');
+
+      // Recall is a GET, so its arguments live in the query string.
+      const recallRequest = find('GET', (p) => p.startsWith('/recall'));
+      const recallParams = new URLSearchParams(recallRequest.path.split('?')[1] ?? '');
+      expect(recallParams.get('query')).toBe('openclaw smoke');
+      expect(recallParams.get('limit')).toBe('1');
+
+      expect(find('POST', (p) => p === '/memory').body).toMatchObject({
+        content: 'openclaw host smoke memory',
+        tags: ['openclaw-smoke'],
+        importance: 0.6,
+      });
+
+      expect(find('PATCH', (p) => p === '/memory/mem-1').body).toMatchObject({ importance: 0.8 });
+
+      expect(find('POST', (p) => p === '/associate').body).toMatchObject({
+        memory1_id: 'mem-1',
+        memory2_id: 'mem-2',
+        type: 'RELATES_TO',
+        strength: 0.7,
+      });
 
       expect(
         fakeApi.requests.every((request) => request.authorization === 'Bearer openclaw-smoke-key')
