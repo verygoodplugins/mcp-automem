@@ -83,7 +83,9 @@ function expectSharedPolicySurface(source: string) {
   const normalized = normalize(source);
   expect(normalized).toContain(`limit: ${AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit}`);
   expect(normalized).toContain(`limit: ${AUTOMEM_POLICY_DEFAULTS.contextRecallLimit}`);
-  expect(normalized).toContain(`time_query: "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days"`);
+  expect(normalized).toContain(
+    `time_query: "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days"`
+  );
   expect(normalized).toContain(`limit: ${AUTOMEM_POLICY_DEFAULTS.debugRecallLimit}`);
   expect(normalized).toContain('No tag gate on debug recall');
   expect(normalized).toContain('issue them in parallel');
@@ -274,11 +276,23 @@ describe('shared AutoMem memory policy', () => {
 
   it('keeps generated host rule artifacts exactly aligned with shared renderers', () => {
     const templateVersion = readPackageVersion();
-    expectFileEquals('templates/claude-code/hooks/automem-session-start.sh', renderClaudeCodeSessionStartHook());
-    expectFileEquals('plugins/automem/scripts/session-start.sh', renderClaudeCodeSessionStartHook());
-    expectFileEquals('templates/claude-code/hooks/automem-stop-nudge.sh', renderClaudeCodeStopNudgeHook());
+    expectFileEquals(
+      'templates/claude-code/hooks/automem-session-start.sh',
+      renderClaudeCodeSessionStartHook()
+    );
+    expectFileEquals(
+      'plugins/automem/scripts/session-start.sh',
+      renderClaudeCodeSessionStartHook()
+    );
+    expectFileEquals(
+      'templates/claude-code/hooks/automem-stop-nudge.sh',
+      renderClaudeCodeStopNudgeHook()
+    );
     expectFileEquals('plugins/automem/scripts/stop-nudge.sh', renderClaudeCodeStopNudgeHook());
-    expectFileEquals('templates/claude-code/hooks/automem-track-store.sh', renderClaudeCodeTrackStoreHook());
+    expectFileEquals(
+      'templates/claude-code/hooks/automem-track-store.sh',
+      renderClaudeCodeTrackStoreHook()
+    );
     expectFileEquals('plugins/automem/scripts/track-store.sh', renderClaudeCodeTrackStoreHook());
     expectFileEquals(
       'templates/codex/memory-rules.md',
@@ -373,7 +387,12 @@ describe('shared AutoMem memory policy', () => {
       'templates/hermes/provider/automem_policy.py',
     ];
     const before = new Map(generatedFiles.map((file) => [file, readRepoFile(file)]));
-    const tsx = path.join(REPO_ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
+    const tsx = path.join(
+      REPO_ROOT,
+      'node_modules',
+      '.bin',
+      process.platform === 'win32' ? 'tsx.cmd' : 'tsx'
+    );
 
     execFileSync(tsx, ['scripts/sync-memory-policy.ts'], { cwd: REPO_ROOT, stdio: 'pipe' });
     execFileSync(tsx, ['scripts/sync-memory-policy.ts'], { cwd: REPO_ROOT, stdio: 'pipe' });

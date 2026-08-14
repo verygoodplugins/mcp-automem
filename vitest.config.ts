@@ -6,11 +6,7 @@ export default defineConfig({
     environment: 'node',
     // Default: exclude integration tests (they need real service)
     // Run integration tests with: npm run test:integration
-    exclude: [
-      'node_modules/**',
-      'dist/**',
-      'tests/integration/automem-service.test.ts',
-    ],
+    exclude: ['node_modules/**', 'dist/**', 'tests/integration/automem-service.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

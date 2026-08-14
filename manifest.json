@@ -19,21 +19,13 @@
   "support": "https://github.com/verygoodplugins/mcp-automem/issues",
   "icon": "assets/icon.png",
   "license": "MIT",
-  "keywords": [
-    "memory",
-    "persistence",
-    "context",
-    "knowledge-graph",
-    "vector-search"
-  ],
+  "keywords": ["memory", "persistence", "context", "knowledge-graph", "vector-search"],
   "server": {
     "type": "node",
     "entry_point": "dist/index.js",
     "mcp_config": {
       "command": "node",
-      "args": [
-        "${__dirname}/dist/index.js"
-      ],
+      "args": ["${__dirname}/dist/index.js"],
       "env": {
         "AUTOMEM_API_URL": "${user_config.automem_api_url}",
         "AUTOMEM_API_KEY": "${user_config.automem_api_key}"
@@ -84,10 +76,6 @@
   },
   "compatibility": {
     "claude_desktop": ">=1.0.0",
-    "platforms": [
-      "darwin",
-      "win32",
-      "linux"
-    ]
+    "platforms": ["darwin", "win32", "linux"]
   }
 }

@@ -42,11 +42,17 @@ async function post<T>(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
 
-  const res = await fetchFn(endpoint, { method: 'POST', headers, body: JSON.stringify({ query, variables }) });
+  const res = await fetchFn(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ query, variables }),
+  });
   if (!res.json) throw new Error(`Railway ${opts.label} failed: response had no JSON body.`);
   const body = (await res.json()) as GraphQLBody<T>;
   if (body.errors?.length) {
-    throw new Error(`Railway ${opts.label} failed: ${body.errors.map((e) => e.message ?? 'unknown').join('; ')}`);
+    throw new Error(
+      `Railway ${opts.label} failed: ${body.errors.map((e) => e.message ?? 'unknown').join('; ')}`
+    );
   }
   if (!res.ok) throw new Error(`Railway ${opts.label} failed: HTTP ${res.status}.`);
   if (body.data == null) throw new Error(`Railway ${opts.label} failed: empty response.`);
@@ -64,7 +70,9 @@ export async function fetchTemplateConfig(
   );
   const template = data.template;
   if (!template?.id) {
-    throw new Error(`Railway template lookup failed: no template found for code "${templateCode}".`);
+    throw new Error(
+      `Railway template lookup failed: no template found for code "${templateCode}".`
+    );
   }
   return { templateId: template.id, serializedConfig: template.serializedConfig };
 }

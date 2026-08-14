@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  makeTheme,
-  padEndVisible,
-  repeatVisible,
-  stripAnsi,
-  visibleLength,
-} from './theme.js';
+import { makeTheme, padEndVisible, repeatVisible, stripAnsi, visibleLength } from './theme.js';
 import { bulletList, keyValueRows, statusMark } from './table.js';
 import { badge, makeLogger, noteBox, sectionTitle } from './messages.js';
 import { renderSuccessCard, renderSuccessOutro } from './brand.js';
@@ -98,9 +92,18 @@ describe('ui/messages', () => {
   it('routes makeLogger diagnostics to stderr, everything else to the out stream', () => {
     let outBuf = '';
     let errBuf = '';
-    const fakeOut = { write: (s: string) => { outBuf += s; return true; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    const fakeOut = {
+      write: (s: string) => {
+        outBuf += s;
+        return true;
+      },
+      isTTY: false,
+    } as unknown as NodeJS.WriteStream;
     const origErrWrite = process.stderr.write.bind(process.stderr);
-    (process.stderr as unknown as { write: (s: string) => boolean }).write = (s: string) => { errBuf += s; return true; };
+    (process.stderr as unknown as { write: (s: string) => boolean }).write = (s: string) => {
+      errBuf += s;
+      return true;
+    };
     try {
       const logger = makeLogger(fakeOut);
       logger.info('info-line');
@@ -160,7 +163,13 @@ describe('ui/checklist', () => {
     process.env.AUTOMEM_ASCII = '1';
     try {
       let out = '';
-      const fake = { write: (s: string) => { out += s; }, isTTY: true, columns: 80 } as unknown as NodeJS.WriteStream;
+      const fake = {
+        write: (s: string) => {
+          out += s;
+        },
+        isTTY: true,
+        columns: 80,
+      } as unknown as NodeJS.WriteStream;
       const list = startChecklist([{ key: 'a', label: 'Step A' }], fake);
       list.stop();
       expect(out).toContain('o'); // ascii pending glyph
@@ -174,9 +183,17 @@ describe('ui/checklist', () => {
 
   it('prints one clean line per completed step on a non-TTY (no cursor escapes)', () => {
     let out = '';
-    const fake = { write: (s: string) => { out += s; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    const fake = {
+      write: (s: string) => {
+        out += s;
+      },
+      isTTY: false,
+    } as unknown as NodeJS.WriteStream;
     const list = startChecklist(
-      [{ key: 'a', label: 'Verify endpoint' }, { key: 'b', label: 'Write .env' }],
+      [
+        { key: 'a', label: 'Verify endpoint' },
+        { key: 'b', label: 'Write .env' },
+      ],
       fake
     );
     list.start('a');
@@ -197,7 +214,13 @@ describe('ui/tasks', () => {
     process.env.AUTOMEM_ASCII = '1';
     try {
       let out = '';
-      const fake = { write: (s: string) => { out += s; }, isTTY: true, columns: 80 } as unknown as NodeJS.WriteStream;
+      const fake = {
+        write: (s: string) => {
+          out += s;
+        },
+        isTTY: true,
+        columns: 80,
+      } as unknown as NodeJS.WriteStream;
       const sp = startSpinner('Working', fake);
       sp.stop('Done');
       expect(out).not.toContain('◐'); // never a unicode frame
@@ -212,7 +235,12 @@ describe('ui/tasks', () => {
 describe('ui/animate', () => {
   it('writes everything at once (with a trailing newline) when disabled', async () => {
     let out = '';
-    const fake = { write: (s: string) => { out += s; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    const fake = {
+      write: (s: string) => {
+        out += s;
+      },
+      isTTY: false,
+    } as unknown as NodeJS.WriteStream;
     await revealLines('a\nb\nc', { stream: fake });
     expect(out).toBe('a\nb\nc\n');
   });
@@ -229,7 +257,12 @@ describe('ui/animate', () => {
 
   it('typed reveal types prose but snaps box/rule lines in whole', async () => {
     let out = '';
-    const fake = { write: (s: string) => { out += s; }, isTTY: true } as unknown as NodeJS.WriteStream;
+    const fake = {
+      write: (s: string) => {
+        out += s;
+      },
+      isTTY: true,
+    } as unknown as NodeJS.WriteStream;
     await revealLines('Hello there friend\n╭───╮\n│ x │\n╰───╯', {
       stream: fake,
       enabled: true,
@@ -247,7 +280,12 @@ describe('ui/animate', () => {
 
   it('revealHeroLine prints once on a non-TTY (no cursor hide)', async () => {
     let out = '';
-    const fake = { write: (s: string) => { out += s; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    const fake = {
+      write: (s: string) => {
+        out += s;
+      },
+      isTTY: false,
+    } as unknown as NodeJS.WriteStream;
     await revealHeroLine('Set up your memory', { stream: fake });
     expect(out).toContain('Set up your memory');
     expect(out).not.toContain('\x1b[?25l');

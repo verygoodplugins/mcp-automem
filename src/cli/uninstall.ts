@@ -32,17 +32,17 @@ async function confirm(message: string, defaultYes = false): Promise<boolean> {
   if (!input.isTTY || !output.isTTY) {
     return defaultYes;
   }
-  
+
   const rl = createInterface({ input, output });
   try {
     const prompt = defaultYes ? `${message} [Y/n]: ` : `${message} [y/N]: `;
     const answer = await rl.question(prompt);
     const normalized = answer.trim().toLowerCase();
-    
+
     if (!normalized) {
       return defaultYes;
     }
-    
+
     return normalized === 'y' || normalized === 'yes';
   } finally {
     rl.close();
@@ -53,12 +53,12 @@ function removeFileWithBackup(filePath: string, dryRun: boolean, quiet?: boolean
   if (!fs.existsSync(filePath)) {
     return false;
   }
-  
+
   if (dryRun) {
     log(`[DRY RUN] Would remove: ${filePath}`, quiet);
     return true;
   }
-  
+
   // Create backup before deletion
   const backupPath = `${filePath}.removed.${Date.now()}`;
   try {
@@ -77,12 +77,12 @@ function removeDirectory(dirPath: string, dryRun: boolean, quiet?: boolean): boo
   if (!fs.existsSync(dirPath)) {
     return false;
   }
-  
+
   if (dryRun) {
     log(`[DRY RUN] Would remove directory: ${dirPath}`, quiet);
     return true;
   }
-  
+
   try {
     fs.rmSync(dirPath, { recursive: true, force: true });
     log(`🗑️  Removed directory: ${dirPath}`, quiet);
@@ -97,7 +97,7 @@ function removeEnvKeysWithBackup(
   envPath: string,
   keys: string[],
   dryRun: boolean,
-  quiet?: boolean,
+  quiet?: boolean
 ): boolean {
   if (!fs.existsSync(envPath)) return false;
   const keySet = new Set(keys);
@@ -116,7 +116,10 @@ function removeEnvKeysWithBackup(
   const backupPath = `${envPath}.backup.${Date.now()}`;
   fs.copyFileSync(envPath, backupPath);
   const content = filtered.join('\n').replace(/\s+$/, '');
-  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   try {
     fs.chmodSync(envPath, 0o600);
   } catch {
@@ -130,9 +133,15 @@ function removeEnvKeysWithBackup(
 function getClaudeDesktopConfigPath(): string {
   const homeDir = os.homedir();
   const platform = os.platform();
-  
+
   if (platform === 'darwin') {
-    return path.join(homeDir, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+    return path.join(
+      homeDir,
+      'Library',
+      'Application Support',
+      'Claude',
+      'claude_desktop_config.json'
+    );
   } else if (platform === 'win32') {
     return path.join(homeDir, 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json');
   } else {
@@ -148,42 +157,42 @@ function getCursorConfigPath(): string {
 
 function removeClaudeDesktopMemoryServer(dryRun: boolean, quiet?: boolean): boolean {
   const configPath = getClaudeDesktopConfigPath();
-  
+
   if (!fs.existsSync(configPath)) {
     log('ℹ️  Claude Desktop config not found', quiet);
     return false;
   }
-  
+
   if (dryRun) {
     log(`[DRY RUN] Would remove memory server from: ${configPath}`, quiet);
     return true;
   }
-  
+
   try {
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    
+
     const hadMemory = config?.mcpServers?.memory;
     const hadAutomem = config?.mcpServers?.automem;
-    
+
     if (!hadMemory && !hadAutomem) {
       log('ℹ️  No memory server configured in Claude Desktop', quiet);
       return false;
     }
-    
+
     // Remove memory servers
     if (config?.mcpServers) {
       // Default server id is now "memory" but remove legacy "automem" if present
       delete config.mcpServers.memory;
       delete config.mcpServers.automem;
     }
-    
+
     // Backup original
     const backupPath = `${configPath}.backup.${Date.now()}`;
     fs.copyFileSync(configPath, backupPath);
-    
+
     // Write updated config
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-    
+
     log(`🗑️  Removed memory server from Claude Desktop config`, quiet);
     log(`   Backup: ${backupPath}`, quiet);
     return true;
@@ -219,8 +228,8 @@ function removeCursorMcpServer(dryRun: boolean, quiet?: boolean): boolean {
     }
 
     if (config?.mcpServers) {
-      delete config.mcpServers.memory;   // default
-      delete config.mcpServers.automem;  // legacy
+      delete config.mcpServers.memory; // default
+      delete config.mcpServers.automem; // legacy
     }
 
     const backupPath = `${configPath}.backup.${Date.now()}`;
@@ -240,16 +249,16 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
   const projectDir = options.projectDir ?? process.cwd();
   const cursorRulesDir = path.join(projectDir, '.cursor', 'rules');
   const automemRuleFile = path.join(cursorRulesDir, 'automem.mdc');
-  
+
   log('\n🗑️  Uninstalling Cursor AutoMem...', options.quiet);
-  
+
   let removedCount = 0;
-  
+
   // Remove automem.mdc rule file
   if (removeFileWithBackup(automemRuleFile, options.dryRun ?? false, options.quiet)) {
     removedCount++;
   }
-  
+
   // Remove empty .cursor/rules directory
   if (fs.existsSync(cursorRulesDir)) {
     const remaining = fs.readdirSync(cursorRulesDir);
@@ -257,7 +266,7 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
       removeDirectory(cursorRulesDir, options.dryRun ?? false, options.quiet);
     }
   }
-  
+
   if (removedCount > 0) {
     log(`\n✅ Removed Cursor AutoMem rule file`, options.quiet);
   } else {
@@ -275,19 +284,22 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
 
   let didChange = false;
   if (fs.existsSync(paths.configPath)) {
-    didChange = removeMcpServerEntry(paths.configPath, 'automem', {
-      dryRun: options.dryRun,
-      quiet: options.quiet,
-    }) || didChange;
-    didChange = removeMcpServerEntry(paths.configPath, 'memory', {
-      dryRun: options.dryRun,
-      quiet: options.quiet,
-      onlyIfAutoMem: true,
-    }) || didChange;
-    didChange = removeHermesMemoryProvider(paths.configPath, 'automem', {
-      dryRun: options.dryRun,
-      quiet: options.quiet,
-    }) || didChange;
+    didChange =
+      removeMcpServerEntry(paths.configPath, 'automem', {
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+      }) || didChange;
+    didChange =
+      removeMcpServerEntry(paths.configPath, 'memory', {
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+        onlyIfAutoMem: true,
+      }) || didChange;
+    didChange =
+      removeHermesMemoryProvider(paths.configPath, 'automem', {
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+      }) || didChange;
   } else {
     log(`ℹ️  No Hermes config at ${paths.configPath}`, options.quiet);
   }
@@ -323,18 +335,19 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
     didChange = removeDirectory(providerDir, options.dryRun ?? false, options.quiet) || didChange;
   }
 
-  didChange = removeEnvKeysWithBackup(
-    path.join(paths.home, '.env'),
-    [
-      'AUTOMEM_API_URL',
-      'AUTOMEM_ENDPOINT',
-      'AUTOMEM_API_KEY',
-      'AUTOMEM_API_TOKEN',
-      'AUTOMEM_HERMES_PROVIDER_TOOLS',
-    ],
-    options.dryRun ?? false,
-    options.quiet,
-  ) || didChange;
+  didChange =
+    removeEnvKeysWithBackup(
+      path.join(paths.home, '.env'),
+      [
+        'AUTOMEM_API_URL',
+        'AUTOMEM_ENDPOINT',
+        'AUTOMEM_API_KEY',
+        'AUTOMEM_API_TOKEN',
+        'AUTOMEM_HERMES_PROVIDER_TOOLS',
+      ],
+      options.dryRun ?? false,
+      options.quiet
+    ) || didChange;
 
   if (didChange) {
     log('\n✅ Hermes AutoMem configuration removed', options.quiet);
@@ -390,7 +403,7 @@ async function uninstallCodex(options: UninstallOptions): Promise<void> {
 async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
   const claudeDir = path.join(os.homedir(), '.claude');
   const settingsPath = path.join(claudeDir, 'settings.json');
-  
+
   log('\n🗑️  Uninstalling Claude Code AutoMem...', options.quiet);
 
   let settingsCleared = true;
@@ -513,11 +526,14 @@ async function uninstallCopilot(options: UninstallOptions): Promise<void> {
 
   // Remove automem-*.json hook files
   if (fs.existsSync(hooksDir)) {
-    const hookFiles = fs.readdirSync(hooksDir)
-      .filter(f => f.startsWith('automem-') && f.endsWith('.json'));
+    const hookFiles = fs
+      .readdirSync(hooksDir)
+      .filter((f) => f.startsWith('automem-') && f.endsWith('.json'));
 
     for (const hookFile of hookFiles) {
-      if (removeFileWithBackup(path.join(hooksDir, hookFile), options.dryRun ?? false, options.quiet)) {
+      if (
+        removeFileWithBackup(path.join(hooksDir, hookFile), options.dryRun ?? false, options.quiet)
+      ) {
         removedCount++;
       }
     }
@@ -527,14 +543,15 @@ async function uninstallCopilot(options: UninstallOptions): Promise<void> {
   if (fs.existsSync(scriptsDir)) {
     const automemScriptPatterns = getCopilotSupportScriptBaseNames();
 
-    const scriptFiles = fs.readdirSync(scriptsDir)
-      .filter(f => {
-        const base = f.replace(/\.(sh|ps1|py)$/, '');
-        return automemScriptPatterns.includes(base);
-      });
+    const scriptFiles = fs.readdirSync(scriptsDir).filter((f) => {
+      const base = f.replace(/\.(sh|ps1|py)$/, '');
+      return automemScriptPatterns.includes(base);
+    });
 
     for (const script of scriptFiles) {
-      if (removeFileWithBackup(path.join(scriptsDir, script), options.dryRun ?? false, options.quiet)) {
+      if (
+        removeFileWithBackup(path.join(scriptsDir, script), options.dryRun ?? false, options.quiet)
+      ) {
         removedCount++;
       }
     }
@@ -646,23 +663,27 @@ function isAutoMemMcpServer(server: unknown): boolean {
     return false;
   }
   const entry = server as { command?: unknown; args?: unknown };
-  const values = [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])]
-    .filter((value): value is string => typeof value === 'string');
+  const values = [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])].filter(
+    (value): value is string => typeof value === 'string'
+  );
   return values.some((value) => value.includes('mcp-automem'));
 }
 
 export async function runUninstall(options: UninstallOptions): Promise<void> {
   log(`\n🚮 AutoMem Uninstaller`, options.quiet);
   log(`   Platform: ${options.platform}`, options.quiet);
-  
+
   if (!options.yes && !options.dryRun) {
-    const confirmed = await confirm('\n⚠️  This will remove AutoMem configuration. Continue?', false);
+    const confirmed = await confirm(
+      '\n⚠️  This will remove AutoMem configuration. Continue?',
+      false
+    );
     if (!confirmed) {
       log('\nUninstall cancelled.', options.quiet);
       return;
     }
   }
-  
+
   // Platform-specific uninstall
   if (options.platform === 'cursor') {
     await uninstallCursor(options);
@@ -675,7 +696,7 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
   } else if (options.platform === 'hermes') {
     await uninstallHermes(options);
   }
-  
+
   // Clean up external changes (Claude Desktop config) if requested
   if (options.cleanAll) {
     log('\n🧹 Cleaning external configurations...', options.quiet);
@@ -689,15 +710,21 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
       removeCursorMcpServer(options.dryRun ?? false, options.quiet);
     }
   }
-  
+
   log('\n✨ Uninstall complete!', options.quiet);
-  
+
   if (options.platform === 'cursor' && !options.cleanAll && !options.dryRun) {
     log('\n💡 Note: This removed the project rule file.', options.quiet);
-    log('   To also remove the MCP server config from Cursor, re-run with --clean-all', options.quiet);
+    log(
+      '   To also remove the MCP server config from Cursor, re-run with --clean-all',
+      options.quiet
+    );
   } else if (options.platform === 'claude-code' && !options.cleanAll && !options.dryRun) {
     log('\nNote: To also remove the memory server from Claude Desktop config, run:', options.quiet);
-    log(`  npx @verygoodplugins/mcp-automem uninstall ${options.platform} --clean-all`, options.quiet);
+    log(
+      `  npx @verygoodplugins/mcp-automem uninstall ${options.platform} --clean-all`,
+      options.quiet
+    );
   } else if (options.platform === 'copilot' && !options.cleanAll && !options.dryRun) {
     log('\nNote: To also remove the MCP server config from Copilot, run:', options.quiet);
     log(`  npx @verygoodplugins/mcp-automem uninstall copilot --clean-all`, options.quiet);
@@ -706,16 +733,18 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
 
 export function parseUninstallArgs(args: string[]): UninstallOptions | null {
   const allowed = ['cursor', 'claude-code', 'copilot', 'codex', 'hermes'] as const;
-  if (args.length === 0 || !allowed.includes(args[0] as typeof allowed[number])) {
+  if (args.length === 0 || !allowed.includes(args[0] as (typeof allowed)[number])) {
     console.error('❌ Error: Platform required (cursor, claude-code, copilot, codex, or hermes)');
-    console.error('Usage: mcp-automem uninstall <cursor|claude-code|copilot|codex|hermes> [options]');
+    console.error(
+      'Usage: mcp-automem uninstall <cursor|claude-code|copilot|codex|hermes> [options]'
+    );
     return null;
   }
 
   const options: UninstallOptions = {
     platform: args[0] as UninstallOptions['platform'],
   };
-  
+
   for (let i = 1; i < args.length; i += 1) {
     const arg = args[i];
     switch (arg) {
@@ -752,7 +781,7 @@ export function parseUninstallArgs(args: string[]): UninstallOptions | null {
         break;
     }
   }
-  
+
   return options;
 }
 

@@ -87,15 +87,15 @@ describe('plugin hook commands', () => {
     (command) => {
       const relativeScript = command.replace('${CLAUDE_PLUGIN_ROOT}/', 'plugins/automem/');
       const mode = fs.statSync(path.join(REPO_ROOT, relativeScript)).mode;
-      expect(mode & 0o111, `${relativeScript} is invoked directly and must be executable`).not.toBe(0);
+      expect(mode & 0o111, `${relativeScript} is invoked directly and must be executable`).not.toBe(
+        0
+      );
     }
   );
 
   it('every plugin hook command is exercised by the exec-bit check above', () => {
     // If a future command stops matching the ${CLAUDE_PLUGIN_ROOT}/ prefix
     // (e.g. a wrapper form), the filter would silently skip it.
-    expect(
-      commands.every((command) => command.startsWith('${CLAUDE_PLUGIN_ROOT}/'))
-    ).toBe(true);
+    expect(commands.every((command) => command.startsWith('${CLAUDE_PLUGIN_ROOT}/'))).toBe(true);
   });
 });

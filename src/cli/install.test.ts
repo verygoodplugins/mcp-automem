@@ -88,12 +88,16 @@ describe('guided install helpers', () => {
   it('rejects unknown install targets and clients', () => {
     expect(() => parseInstallArgs(['--target', 'serverless'])).toThrow(/invalid install target/i);
     expect(() => parseInstallArgs(['--clients', 'codex,nope'])).toThrow(/invalid AutoMem client/i);
-    expect(() => parseInstallArgs(['--hermes-mode', 'legacy'])).toThrow(/invalid Hermes install mode/i);
+    expect(() => parseInstallArgs(['--hermes-mode', 'legacy'])).toThrow(
+      /invalid Hermes install mode/i
+    );
   });
 
   it('parses the cloud provider from the flag and the environment', () => {
     expect(parseInstallArgs(['--cloud-provider', 'instapods']).cloudProvider).toBe('instapods');
-    expect(parseInstallArgs([], { AUTOMEM_CLOUD_PROVIDER: 'railway' }).cloudProvider).toBe('railway');
+    expect(parseInstallArgs([], { AUTOMEM_CLOUD_PROVIDER: 'railway' }).cloudProvider).toBe(
+      'railway'
+    );
     expect(parseInstallArgs(['--cloud-provider', 'other']).cloudProvider).toBe('other');
     expect(() => parseInstallArgs(['--cloud-provider', 'aws'])).toThrow(/invalid cloud provider/i);
   });
@@ -277,7 +281,9 @@ describe('guided install helpers', () => {
       const hint = manualFixHint(client);
       expect(hint.length).toBeGreaterThan(0);
       // Each hint names a runnable recovery command.
-      expect(/openclaw plugins install|npx @verygoodplugins\/mcp-automem install/.test(hint)).toBe(true);
+      expect(/openclaw plugins install|npx @verygoodplugins\/mcp-automem install/.test(hint)).toBe(
+        true
+      );
     }
     expect(manualFixHint('openclaw')).toContain('openclaw plugins install');
   });
@@ -376,11 +382,15 @@ describe('guided install helpers', () => {
 
   it('defaults Claude Code to the plugin and parses the mode override', () => {
     expect(parseInstallArgs([], {}).claudeCodeMode).toBe('plugin');
-    expect(parseInstallArgs(['--claude-code-mode', 'settings'], {}).claudeCodeMode).toBe('settings');
+    expect(parseInstallArgs(['--claude-code-mode', 'settings'], {}).claudeCodeMode).toBe(
+      'settings'
+    );
     expect(parseInstallArgs([], { AUTOMEM_CLAUDE_CODE_MODE: 'settings' }).claudeCodeMode).toBe(
       'settings'
     );
-    expect(() => parseInstallArgs(['--claude-code-mode', 'nope'])).toThrow(/invalid Claude Code mode/i);
+    expect(() => parseInstallArgs(['--claude-code-mode', 'nope'])).toThrow(
+      /invalid Claude Code mode/i
+    );
   });
 
   it('plans Claude Code as a plugin manual step when claude is not on PATH (no settings write)', () => {
@@ -548,9 +558,15 @@ describe('guided install helpers', () => {
         dryRun: false,
       })
     ).toBe(true);
-    expect(shouldUseNonInteractivePreview({ interactive: true, yes: false, dryRun: false })).toBe(false);
-    expect(shouldUseNonInteractivePreview({ interactive: false, yes: true, dryRun: false })).toBe(false);
-    expect(shouldUseNonInteractivePreview({ interactive: false, yes: false, dryRun: true })).toBe(false);
+    expect(shouldUseNonInteractivePreview({ interactive: true, yes: false, dryRun: false })).toBe(
+      false
+    );
+    expect(shouldUseNonInteractivePreview({ interactive: false, yes: true, dryRun: false })).toBe(
+      false
+    );
+    expect(shouldUseNonInteractivePreview({ interactive: false, yes: false, dryRun: true })).toBe(
+      false
+    );
   });
 
   it('flags missing local prerequisites before applying the plan', () => {
@@ -818,7 +834,10 @@ describe('guided install helpers', () => {
 
   it('formatInstallError renders a clean themed line with the hint and no stack trace', () => {
     const out = formatInstallError(
-      new InstallError("Local AutoMem server didn't start (docker compose).", 'A port is in use — :3000.'),
+      new InstallError(
+        "Local AutoMem server didn't start (docker compose).",
+        'A port is in use — :3000.'
+      ),
       process.stderr
     );
     expect(out).toContain("Local AutoMem server didn't start");
@@ -909,7 +928,9 @@ describe('claude plugin auto-install', () => {
     ]);
   });
 
-  function recordingRunner(responder: (args: string[]) => { code: number; stdout?: string; stderr?: string }) {
+  function recordingRunner(
+    responder: (args: string[]) => { code: number; stdout?: string; stderr?: string }
+  ) {
     const calls: string[][] = [];
     const run = (_cmd: string, args: string[]) => {
       calls.push(args);
@@ -985,7 +1006,12 @@ describe('claude plugin auto-install', () => {
   it('runs nothing on dry-run', async () => {
     const { run, calls } = recordingRunner(() => ({ code: 0 }));
     await expect(
-      installClaudeCodePlugin({ endpoint: 'http://x', apiKey: 'sk-1', dryRun: true, runCommand: run })
+      installClaudeCodePlugin({
+        endpoint: 'http://x',
+        apiKey: 'sk-1',
+        dryRun: true,
+        runCommand: run,
+      })
     ).resolves.toEqual({ needsManualApiKey: false });
     expect(calls).toEqual([]);
   });

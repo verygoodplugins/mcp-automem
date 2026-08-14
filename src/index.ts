@@ -1,31 +1,31 @@
 #!/usr/bin/env node
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   Tool,
-} from "@modelcontextprotocol/sdk/types.js";
-import { config } from "dotenv";
-import { runConfig, runSetup } from "./cli/setup.js";
-import { runInstallCommand } from "./cli/install.js";
-import { runClaudeCodeSetup } from "./cli/claude-code.js";
-import { runCursorSetup } from "./cli/cursor.js";
-import { runCodexSetup } from "./cli/codex.js";
-import { runOpenClawSetup } from "./cli/openclaw.js";
-import { runCopilotSetup } from "./cli/copilot.js";
-import { runHermesSetup } from "./cli/hermes.js";
-import { runMigrateCommand } from "./cli/migrate.js";
-import { runUninstallCommand } from "./cli/uninstall.js";
-import { runQueueCommand } from "./cli/queue.js";
-import { AutoMemClient } from "./automem-client.js";
-import { parseWatchdogIntervalMs, startParentWatchdog } from "./lifecycle.js";
-import { readAutoMemApiKeyFromEnv, resolveAutoMemApiUrl } from "./env.js";
-import { buildRecallMemoryResponse } from "./recall-memory.js";
-import { AUTHORABLE_RELATION_TYPES, MEMORY_TYPES, RELATION_TYPE_METADATA } from "./types.js";
+} from '@modelcontextprotocol/sdk/types.js';
+import { config } from 'dotenv';
+import { runConfig, runSetup } from './cli/setup.js';
+import { runInstallCommand } from './cli/install.js';
+import { runClaudeCodeSetup } from './cli/claude-code.js';
+import { runCursorSetup } from './cli/cursor.js';
+import { runCodexSetup } from './cli/codex.js';
+import { runOpenClawSetup } from './cli/openclaw.js';
+import { runCopilotSetup } from './cli/copilot.js';
+import { runHermesSetup } from './cli/hermes.js';
+import { runMigrateCommand } from './cli/migrate.js';
+import { runUninstallCommand } from './cli/uninstall.js';
+import { runQueueCommand } from './cli/queue.js';
+import { AutoMemClient } from './automem-client.js';
+import { parseWatchdogIntervalMs, startParentWatchdog } from './lifecycle.js';
+import { readAutoMemApiKeyFromEnv, resolveAutoMemApiUrl } from './env.js';
+import { buildRecallMemoryResponse } from './recall-memory.js';
+import { AUTHORABLE_RELATION_TYPES, MEMORY_TYPES, RELATION_TYPE_METADATA } from './types.js';
 import type {
   AutoMemConfig,
   StoreMemoryArgs,
@@ -33,44 +33,47 @@ import type {
   AssociateMemoryArgs,
   UpdateMemoryArgs,
   DeleteMemoryArgs,
-} from "./types.js";
+} from './types.js';
 
 function isInteractiveTerminal(): boolean {
   return Boolean(process.stdout.isTTY && process.stderr.isTTY);
 }
 
-const command = (process.argv[2] || "").toLowerCase();
+const command = (process.argv[2] || '').toLowerCase();
 const isServerMode = command.length === 0;
 const KNOWN_COMMANDS = new Set([
-  "help",
-  "--help",
-  "-h",
-  "setup",
-  "install",
-  "config",
-  "claude-code",
-  "cursor",
-  "codex",
-  "openclaw",
-  "hermes",
-  "migrate",
-  "uninstall",
-  "queue",
-  "recall",
+  'help',
+  '--help',
+  '-h',
+  'setup',
+  'install',
+  'config',
+  'claude-code',
+  'cursor',
+  'codex',
+  'openclaw',
+  'hermes',
+  'migrate',
+  'uninstall',
+  'queue',
+  'recall',
 ]);
 const isMachineReadableCommand =
-  command === "config" && process.argv.slice(3).some(
-    (arg) => arg === "--json" || arg === "--format=json" || arg === "--format"
-  );
+  command === 'config' &&
+  process.argv
+    .slice(3)
+    .some((arg) => arg === '--json' || arg === '--format=json' || arg === '--format');
 // The guided installer renders a branded splash + curated review; the dotenv
 // banner would corrupt that output, so silence it here too.
 const shouldSilenceDotenv =
-  isServerMode || isMachineReadableCommand || command === "install" || !KNOWN_COMMANDS.has(command);
+  isServerMode || isMachineReadableCommand || command === 'install' || !KNOWN_COMMANDS.has(command);
 
 // Prevent dotenv from writing its banner to stdout when the caller expects clean
 // machine-readable output (stdio server mode, or `config --format=json`).
-process.env.DOTENV_CONFIG_QUIET = shouldSilenceDotenv ? "true" : process.env.DOTENV_CONFIG_QUIET ?? "false";
-process.env.DOTENV_CONFIG_DEBUG = "false";
+process.env.DOTENV_CONFIG_QUIET = shouldSilenceDotenv
+  ? 'true'
+  : (process.env.DOTENV_CONFIG_QUIET ?? 'false');
+process.env.DOTENV_CONFIG_DEBUG = 'false';
 
 if (isServerMode) {
   const logToStderr = (...args: unknown[]) => console.error(...args);
@@ -85,13 +88,11 @@ config({ quiet: shouldSilenceDotenv });
 // Optional: allow upstream supervisors (AutoHub, etc.) to set a stable process title for safe cleanup.
 // This prevents "kill by package name" from taking down other running MCP clients (Codex/Cursor/etc.).
 try {
-  const tag = String(
-    process.env.AUTOMEM_PROCESS_TAG || process.env.MCP_PROCESS_TAG || ""
-  ).trim();
+  const tag = String(process.env.AUTOMEM_PROCESS_TAG || process.env.MCP_PROCESS_TAG || '').trim();
   if (tag) {
-    process.title = tag.startsWith("mcp-automem") ? tag : `mcp-automem:${tag}`;
-    if (process.env.AUTOMEM_LOG_LEVEL === "debug" || isInteractiveTerminal()) {
-      console.error("[mcp-automem] process.title:", process.title);
+    process.title = tag.startsWith('mcp-automem') ? tag : `mcp-automem:${tag}`;
+    if (process.env.AUTOMEM_LOG_LEVEL === 'debug' || isInteractiveTerminal()) {
+      console.error('[mcp-automem] process.title:', process.title);
     }
   }
 } catch {
@@ -101,25 +102,23 @@ try {
 function installStdioErrorGuards() {
   const handler = (error: unknown) => {
     const err = error as { code?: string } | undefined;
-    if (err?.code === "EPIPE" || err?.code === "ECONNRESET") {
+    if (err?.code === 'EPIPE' || err?.code === 'ECONNRESET') {
       process.exit(0);
     }
   };
 
-  process.stdout.on("error", handler);
-  process.stderr.on("error", handler);
+  process.stdout.on('error', handler);
+  process.stderr.on('error', handler);
 }
 
 // Read version from package.json - single source of truth
 function getPackageVersion(): string {
-  const packageJsonPath = path.resolve(
-    fileURLToPath(new URL("../package.json", import.meta.url))
-  );
+  const packageJsonPath = path.resolve(fileURLToPath(new URL('../package.json', import.meta.url)));
   try {
-    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
-    return pkg.version || "0.0.0";
+    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    return pkg.version || '0.0.0';
   } catch {
-    return "0.0.0";
+    return '0.0.0';
   }
 }
 
@@ -127,56 +126,56 @@ const PACKAGE_VERSION = getPackageVersion();
 
 const ASSOCIATION_PROPERTY_SCHEMAS = {
   context: {
-    type: "string",
-    description: "Relation-specific context for PREFERS_OVER or PART_OF associations.",
+    type: 'string',
+    description: 'Relation-specific context for PREFERS_OVER or PART_OF associations.',
   },
   reason: {
-    type: "string",
+    type: 'string',
     description:
-      "Relation-specific reason for PREFERS_OVER, CONTRADICTS, INVALIDATED_BY, or EVOLVED_INTO associations.",
+      'Relation-specific reason for PREFERS_OVER, CONTRADICTS, INVALIDATED_BY, or EVOLVED_INTO associations.',
   },
   pattern_type: {
-    type: "string",
-    description: "Relation-specific pattern label for EXEMPLIFIES associations.",
+    type: 'string',
+    description: 'Relation-specific pattern label for EXEMPLIFIES associations.',
   },
   confidence: {
-    type: "number",
+    type: 'number',
     minimum: 0,
     maximum: 1,
-    description: "Relation-specific confidence for EXEMPLIFIES, EVOLVED_INTO, or DERIVED_FROM.",
+    description: 'Relation-specific confidence for EXEMPLIFIES, EVOLVED_INTO, or DERIVED_FROM.',
   },
   resolution: {
-    type: "string",
-    description: "Relation-specific resolution for CONTRADICTS associations.",
+    type: 'string',
+    description: 'Relation-specific resolution for CONTRADICTS associations.',
   },
   observations: {
-    type: "array",
-    items: { type: "string" },
-    description: "Relation-specific observations for REINFORCES associations.",
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Relation-specific observations for REINFORCES associations.',
   },
   timestamp: {
-    type: "string",
-    description: "Relation-specific timestamp for INVALIDATED_BY associations.",
+    type: 'string',
+    description: 'Relation-specific timestamp for INVALIDATED_BY associations.',
   },
   transformation: {
-    type: "string",
-    description: "Relation-specific transformation note for DERIVED_FROM associations.",
+    type: 'string',
+    description: 'Relation-specific transformation note for DERIVED_FROM associations.',
   },
   role: {
-    type: "string",
-    description: "Relation-specific role for PART_OF associations.",
+    type: 'string',
+    description: 'Relation-specific role for PART_OF associations.',
   },
 } as const;
 
 function formatHealthComponent(value: unknown): string {
-  if (value && typeof value === "object" && "status" in value) {
+  if (value && typeof value === 'object' && 'status' in value) {
     const status = (value as { status?: unknown }).status;
-    return typeof status === "string" ? status : JSON.stringify(value);
+    return typeof status === 'string' ? status : JSON.stringify(value);
   }
   return String(value);
 }
 
-if (command === "help" || command === "--help" || command === "-h") {
+if (command === 'help' || command === '--help' || command === '-h') {
   console.log(`
 AutoMem MCP Server - AI Memory Storage & Recall
 
@@ -350,68 +349,68 @@ https://github.com/verygoodplugins/mcp-automem
   process.exit(0);
 }
 
-if (command === "setup") {
+if (command === 'setup') {
   await runSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "install") {
+if (command === 'install') {
   await runInstallCommand(process.argv.slice(3));
   // Honor a non-zero exit set for a partial install (some agents need a manual step).
   process.exit(process.exitCode ?? 0);
 }
 
-if (command === "config") {
+if (command === 'config') {
   await runConfig(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "claude-code") {
+if (command === 'claude-code') {
   await runClaudeCodeSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "copilot") {
+if (command === 'copilot') {
   await runCopilotSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "cursor") {
+if (command === 'cursor') {
   await runCursorSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "codex") {
+if (command === 'codex') {
   await runCodexSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "openclaw") {
+if (command === 'openclaw') {
   await runOpenClawSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "hermes") {
+if (command === 'hermes') {
   await runHermesSetup(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "migrate") {
+if (command === 'migrate') {
   await runMigrateCommand(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "uninstall") {
+if (command === 'uninstall') {
   await runUninstallCommand(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "queue") {
+if (command === 'queue') {
   await runQueueCommand(process.argv.slice(3));
   process.exit(0);
 }
 
-if (command === "recall") {
+if (command === 'recall') {
   const AUTOMEM_API_URL = resolveAutoMemApiUrl().url;
   const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
@@ -422,16 +421,16 @@ if (command === "recall") {
 
   // Parse CLI args
   const args = process.argv.slice(3);
-  let query = "";
+  let query = '';
   let tags: string[] = [];
   let limit = 5;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--query" && args[i + 1]) {
+    if (args[i] === '--query' && args[i + 1]) {
       query = args[++i];
-    } else if (args[i] === "--tags" && args[i + 1]) {
-      tags = args[++i].split(",");
-    } else if (args[i] === "--limit" && args[i + 1]) {
+    } else if (args[i] === '--tags' && args[i + 1]) {
+      tags = args[++i].split(',');
+    } else if (args[i] === '--limit' && args[i + 1]) {
       limit = parseInt(args[++i], 10);
     }
   }
@@ -441,29 +440,29 @@ if (command === "recall") {
     console.log(JSON.stringify(results, null, 2));
     process.exit(0);
   } catch (error) {
-    console.error("❌ Recall failed:", error);
+    console.error('❌ Recall failed:', error);
     process.exit(1);
   }
 }
 
 if (!isServerMode) {
   console.error(`Unknown command: ${command}`);
-  console.error("Run `mcp-automem help` for available commands.");
+  console.error('Run `mcp-automem help` for available commands.');
   process.exit(1);
 }
 
 const { url: AUTOMEM_API_URL, source: automemApiUrlSource } = resolveAutoMemApiUrl();
 const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 
-if (automemApiUrlSource === "default") {
+if (automemApiUrlSource === 'default') {
   if (isInteractiveTerminal()) {
     console.warn(
-      "⚠️  AUTOMEM_API_URL not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting."
+      '⚠️  AUTOMEM_API_URL not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting.'
     );
   }
-} else if (automemApiUrlSource === "AUTOMEM_ENDPOINT") {
+} else if (automemApiUrlSource === 'AUTOMEM_ENDPOINT') {
   console.warn(
-    "⚠️  AUTOMEM_ENDPOINT is deprecated; rename it to AUTOMEM_API_URL. The old name still works for now."
+    '⚠️  AUTOMEM_ENDPOINT is deprecated; rename it to AUTOMEM_API_URL. The old name still works for now.'
   );
 }
 
@@ -475,7 +474,7 @@ const clientConfig: AutoMemConfig = {
 const client = new AutoMemClient(clientConfig);
 
 const server = new Server(
-  { name: "mcp-automem", version: PACKAGE_VERSION },
+  { name: 'mcp-automem', version: PACKAGE_VERSION },
   {
     capabilities: { tools: {} },
     instructions:
@@ -485,8 +484,8 @@ const server = new Server(
 
 const tools: Tool[] = [
   {
-    name: "store_memory",
-    title: "Store Memory",
+    name: 'store_memory',
+    title: 'Store Memory',
     description: `Store memory in one of two modes — single-memory (set top-level \`content\`) or batch (set \`memories: [...]\` for up to 500).
 
 **Mode 1 — Single (default):** pass top-level \`content\` plus any optional fields (tags, importance, metadata, type, confidence, embedding, t_valid, t_invalid, id, etc.).
@@ -513,170 +512,169 @@ const tools: Tool[] = [
 - store_memory({ content: "User prefers early returns over nested conditionals.", tags: ["code-style"], importance: 0.7 })
 - store_memory({ content: "User now prefers SQLite for small local tools.", supersedes_memory_id: "old-id", supersede_reason: "Correction from user" })`,
     annotations: {
-      title: "Store Memory",
+      title: 'Store Memory',
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
       openWorldHint: false,
     },
-    _meta: { "anthropic/alwaysLoad": true },
+    _meta: { 'anthropic/alwaysLoad': true },
     inputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         content: {
-          type: "string",
+          type: 'string',
           description:
-            "Single-memory mode (XOR with `memories`). The memory content to store. Be specific: include context, reasoning, and outcome.",
+            'Single-memory mode (XOR with `memories`). The memory content to store. Be specific: include context, reasoning, and outcome.',
         },
         memories: {
-          type: "array",
+          type: 'array',
           maxItems: 500,
           description:
-            "Batch mode (XOR with `content`). Up to 500 memory objects to store in one call. Each item supports content (required), tags, importance, timestamp, type, confidence, metadata. Batch mode does NOT support `id`, `embedding`, `t_valid`, or `t_invalid` per-item — use single-memory mode for those.",
+            'Batch mode (XOR with `content`). Up to 500 memory objects to store in one call. Each item supports content (required), tags, importance, timestamp, type, confidence, metadata. Batch mode does NOT support `id`, `embedding`, `t_valid`, or `t_invalid` per-item — use single-memory mode for those.',
           items: {
-            type: "object",
-            required: ["content"],
+            type: 'object',
+            required: ['content'],
             properties: {
-              content: { type: "string" },
-              tags: { type: "array", items: { type: "string" } },
-              importance: { type: "number", minimum: 0, maximum: 1 },
-              timestamp: { type: "string" },
-              type: { type: "string", enum: [...MEMORY_TYPES] },
-              confidence: { type: "number", minimum: 0, maximum: 1 },
-              metadata: { type: "object" },
+              content: { type: 'string' },
+              tags: { type: 'array', items: { type: 'string' } },
+              importance: { type: 'number', minimum: 0, maximum: 1 },
+              timestamp: { type: 'string' },
+              type: { type: 'string', enum: [...MEMORY_TYPES] },
+              confidence: { type: 'number', minimum: 0, maximum: 1 },
+              metadata: { type: 'object' },
             },
           },
         },
         tags: {
-          type: "array",
-          items: { type: "string" },
+          type: 'array',
+          items: { type: 'string' },
           description:
             'Single-memory mode. Tags to categorize the memory (e.g., ["project-name", "bug-fix", "auth"])',
         },
         importance: {
-          type: "number",
+          type: 'number',
           minimum: 0,
           maximum: 1,
           description:
-            "Single-memory mode. Importance: 0.9+ critical decisions, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes",
+            'Single-memory mode. Importance: 0.9+ critical decisions, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes',
         },
         embedding: {
-          type: "array",
-          items: { type: "number" },
+          type: 'array',
+          items: { type: 'number' },
           description:
-            "Single-memory mode only. Optional embedding vector for semantic search (auto-generated if omitted). Not supported in batch mode.",
+            'Single-memory mode only. Optional embedding vector for semantic search (auto-generated if omitted). Not supported in batch mode.',
         },
         metadata: {
-          type: "object",
+          type: 'object',
           description:
             'Single-memory mode. Optional structured metadata (e.g., { files_modified: ["auth.ts"], error_type: "timeout" })',
         },
         timestamp: {
-          type: "string",
-          description: "Single-memory mode. Optional ISO timestamp (defaults to now)",
+          type: 'string',
+          description: 'Single-memory mode. Optional ISO timestamp (defaults to now)',
         },
         type: {
-          type: "string",
+          type: 'string',
           enum: [...MEMORY_TYPES],
-          description: "Single-memory mode. Memory type for classification",
+          description: 'Single-memory mode. Memory type for classification',
         },
         confidence: {
-          type: "number",
+          type: 'number',
           minimum: 0,
           maximum: 1,
           description:
-            "Single-memory mode. Classification confidence (0-1, default 0.9 when type provided)",
+            'Single-memory mode. Classification confidence (0-1, default 0.9 when type provided)',
         },
         id: {
-          type: "string",
+          type: 'string',
           description:
-            "Single-memory mode only. Custom memory ID (auto-generated if omitted). Not supported in batch mode.",
+            'Single-memory mode only. Custom memory ID (auto-generated if omitted). Not supported in batch mode.',
         },
         t_valid: {
-          type: "string",
+          type: 'string',
           description:
-            "Single-memory mode only. ISO 8601 timestamp when the memory becomes valid. Not supported in batch mode.",
+            'Single-memory mode only. ISO 8601 timestamp when the memory becomes valid. Not supported in batch mode.',
         },
         t_invalid: {
-          type: "string",
+          type: 'string',
           description:
-            "Single-memory mode only. ISO 8601 timestamp when the memory expires. Not supported in batch mode.",
+            'Single-memory mode only. ISO 8601 timestamp when the memory expires. Not supported in batch mode.',
         },
         updated_at: {
-          type: "string",
-          description: "Single-memory mode. ISO 8601 last-updated timestamp",
+          type: 'string',
+          description: 'Single-memory mode. ISO 8601 last-updated timestamp',
         },
         last_accessed: {
-          type: "string",
-          description: "Single-memory mode. ISO 8601 last-accessed timestamp",
+          type: 'string',
+          description: 'Single-memory mode. ISO 8601 last-accessed timestamp',
         },
         supersedes_memory_id: {
-          type: "string",
+          type: 'string',
           description:
-            "Single-memory supersede mode. Existing memory ID that this new memory replaces or corrects.",
+            'Single-memory supersede mode. Existing memory ID that this new memory replaces or corrects.',
         },
         supersede_relation: {
-          type: "string",
-          enum: ["INVALIDATED_BY", "EVOLVED_INTO"],
-          default: "INVALIDATED_BY",
+          type: 'string',
+          enum: ['INVALIDATED_BY', 'EVOLVED_INTO'],
+          default: 'INVALIDATED_BY',
           description:
-            "Single-memory supersede mode. Relationship to create from old memory to new memory.",
+            'Single-memory supersede mode. Relationship to create from old memory to new memory.',
         },
         supersede_reason: {
-          type: "string",
+          type: 'string',
           description:
             "Single-memory supersede mode. Optional reason stored on the old memory's metadata.",
         },
       },
     },
     outputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         memory_id: {
-          type: "string",
-          description:
-            "Single-mode result: unique ID of the stored memory (use for associations)",
+          type: 'string',
+          description: 'Single-mode result: unique ID of the stored memory (use for associations)',
         },
         memory_ids: {
-          type: "array",
-          items: { type: "string" },
-          description: "Batch-mode result: IDs of the stored memories.",
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Batch-mode result: IDs of the stored memories.',
         },
         superseded_memory_id: {
-          type: "string",
-          description: "Supersede-mode result: ID of the old memory marked invalid.",
+          type: 'string',
+          description: 'Supersede-mode result: ID of the old memory marked invalid.',
         },
         association_created: {
-          type: "boolean",
-          description: "Supersede-mode result: whether old → new association was created.",
+          type: 'boolean',
+          description: 'Supersede-mode result: whether old → new association was created.',
         },
         stored: {
-          type: "integer",
-          description: "Batch-mode result: number of memories stored.",
+          type: 'integer',
+          description: 'Batch-mode result: number of memories stored.',
         },
         qdrant: {
-          type: "string",
-          description: "Batch-mode result: Qdrant indexing summary from the server.",
+          type: 'string',
+          description: 'Batch-mode result: Qdrant indexing summary from the server.',
         },
         enrichment: {
-          type: "string",
-          description: "Batch-mode result: enrichment status from the server.",
+          type: 'string',
+          description: 'Batch-mode result: enrichment status from the server.',
         },
         query_time_ms: {
-          type: "number",
-          description: "Batch-mode result: server-reported execution time in milliseconds.",
+          type: 'number',
+          description: 'Batch-mode result: server-reported execution time in milliseconds.',
         },
         message: {
-          type: "string",
-          description: "Confirmation message",
+          type: 'string',
+          description: 'Confirmation message',
         },
       },
-      required: ["message"],
+      required: ['message'],
     },
   },
   {
-    name: "recall_memory",
-    title: "Recall Memory",
+    name: 'recall_memory',
+    title: 'Recall Memory',
     description: `Recall memories from AutoMem in one of three modes. The mode is selected by which params you pass.
 
 **Mode 1 — ID fetch:** pass \`memory_id\` to retrieve a single memory by ID. All other params are ignored. Routes to GET /memory/{id} and updates last_accessed.
@@ -700,405 +698,383 @@ const tools: Tool[] = [
 - recall_memory({ query: "auth", exclude_tags: ["deprecated"] })  // Mode 3 with exclusion
 - recall_memory({ query: "What is Sarah's sister's job?", expand_entities: true })  // Mode 3 multi-hop`,
     annotations: {
-      title: "Recall Memory",
+      title: 'Recall Memory',
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
-    _meta: { "anthropic/alwaysLoad": true },
+    _meta: { 'anthropic/alwaysLoad': true },
     inputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         memory_id: {
-          type: "string",
+          type: 'string',
           description:
-            "MODE: ID fetch. When set, fetches the single memory by ID and IGNORES all other params. Routes to GET /memory/{id}; updates last_accessed.",
+            'MODE: ID fetch. When set, fetches the single memory by ID and IGNORES all other params. Routes to GET /memory/{id}; updates last_accessed.',
         },
         exhaustive: {
-          type: "boolean",
+          type: 'boolean',
           description:
-            "MODE: tag enumeration. When true, requires non-empty `tags`. Routes to GET /memory/by-tag for paginated exact-match listing — NOT ranked retrieval. Use for cleanup/audit workflows where ranked recall undercounts. `limit` is clamped to 200. `tag_match: \"prefix\"` and `tag_mode: \"all\"` are rejected in this mode.",
+            'MODE: tag enumeration. When true, requires non-empty `tags`. Routes to GET /memory/by-tag for paginated exact-match listing — NOT ranked retrieval. Use for cleanup/audit workflows where ranked recall undercounts. `limit` is clamped to 200. `tag_match: "prefix"` and `tag_mode: "all"` are rejected in this mode.',
         },
         exclude_tags: {
-          type: "array",
-          items: { type: "string" },
+          type: 'array',
+          items: { type: 'string' },
           description:
-            "Ranked-mode only. Tags to exclude from results (any match excludes). Independent of `tag_match` — supports both exact and prefix matching internally on the server.",
+            'Ranked-mode only. Tags to exclude from results (any match excludes). Independent of `tag_match` — supports both exact and prefix matching internally on the server.',
         },
         query: {
-          type: "string",
+          type: 'string',
           description:
             "Semantic search query (natural language). Describe what you're looking for.",
         },
         queries: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            "Multiple queries for broader recall. Results are deduplicated server-side.",
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Multiple queries for broader recall. Results are deduplicated server-side.',
         },
         embedding: {
-          type: "array",
-          items: { type: "number" },
-          description: "Optional embedding vector for direct similarity search",
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Optional embedding vector for direct similarity search',
         },
         limit: {
-          type: "integer",
+          type: 'integer',
           minimum: 1,
           maximum: 200,
           default: 5,
           description:
-            "Max memories to return. Schema allows 1–200; in enumeration mode (`exhaustive: true`) the server honors up to 200, while ranked mode is typically clamped server-side to ~50. Default 5.",
+            'Max memories to return. Schema allows 1–200; in enumeration mode (`exhaustive: true`) the server honors up to 200, while ranked mode is typically clamped server-side to ~50. Default 5.',
         },
         time_query: {
-          type: "string",
+          type: 'string',
           description:
             'Natural language time filter: "today", "yesterday", "last week", "last 30 days"',
         },
         start: {
-          type: "string",
-          description: "ISO timestamp lower bound (alternative to time_query)",
+          type: 'string',
+          description: 'ISO timestamp lower bound (alternative to time_query)',
         },
         end: {
-          type: "string",
-          description: "ISO timestamp upper bound",
+          type: 'string',
+          description: 'ISO timestamp upper bound',
         },
         tags: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            "Filter by tags. Use project name as first tag for scoping.",
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Filter by tags. Use project name as first tag for scoping.',
         },
         tag_mode: {
-          type: "string",
-          enum: ["any", "all"],
-          description:
-            '"any" matches memories with any tag (default), "all" requires all tags',
+          type: 'string',
+          enum: ['any', 'all'],
+          description: '"any" matches memories with any tag (default), "all" requires all tags',
         },
         tag_match: {
-          type: "string",
-          enum: ["exact", "prefix"],
-          description:
-            '"exact" for exact tag match (default), "prefix" for starts-with matching',
+          type: 'string',
+          enum: ['exact', 'prefix'],
+          description: '"exact" for exact tag match (default), "prefix" for starts-with matching',
         },
         expand_entities: {
-          type: "boolean",
+          type: 'boolean',
           description:
-            "Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. Use for \"What is X's sister's job?\" type questions.",
+            'Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. Use for "What is X\'s sister\'s job?" type questions.',
         },
         expand_relations: {
-          type: "boolean",
-          description:
-            "Follow graph relationships from seed results to find related memories.",
+          type: 'boolean',
+          description: 'Follow graph relationships from seed results to find related memories.',
         },
         expand_respect_tags: {
-          type: "boolean",
+          type: 'boolean',
           description:
-            "Ranked-mode only. When true, graph/entity expansion stays within the original tag scope; when false, expansion may include related context outside the tags.",
+            'Ranked-mode only. When true, graph/entity expansion stays within the original tag scope; when false, expansion may include related context outside the tags.',
         },
         auto_decompose: {
-          type: "boolean",
+          type: 'boolean',
           description:
-            "Auto-extract entities and topics from query to generate supplementary searches.",
+            'Auto-extract entities and topics from query to generate supplementary searches.',
         },
         expansion_limit: {
-          type: "integer",
+          type: 'integer',
           minimum: 1,
           maximum: 500,
           default: 25,
-          description: "Max total expanded memories (default: 25)",
+          description: 'Max total expanded memories (default: 25)',
         },
         relation_limit: {
-          type: "integer",
+          type: 'integer',
           minimum: 1,
           maximum: 200,
           default: 5,
-          description: "Max relations to follow per seed memory (default: 5)",
+          description: 'Max relations to follow per seed memory (default: 5)',
         },
         expand_min_importance: {
-          type: "number",
+          type: 'number',
           minimum: 0,
           maximum: 1,
           description:
-            "Minimum importance score for expanded results. Filters out low-relevance memories during graph/entity expansion. Recommended: 0.3-0.5 for broad context, 0.6-0.8 for focused results. Seed results are never filtered, only expanded ones.",
+            'Minimum importance score for expanded results. Filters out low-relevance memories during graph/entity expansion. Recommended: 0.3-0.5 for broad context, 0.6-0.8 for focused results. Seed results are never filtered, only expanded ones.',
         },
         expand_min_strength: {
-          type: "number",
+          type: 'number',
           minimum: 0,
           maximum: 1,
           description:
-            "Minimum relation strength to follow during graph expansion. Only traverses edges above this threshold. Recommended: 0.3 for exploratory, 0.6+ for high-confidence connections only. Does not affect entity expansion.",
+            'Minimum relation strength to follow during graph expansion. Only traverses edges above this threshold. Recommended: 0.3 for exploratory, 0.6+ for high-confidence connections only. Does not affect entity expansion.',
         },
         current_only: {
-          type: "boolean",
+          type: 'boolean',
           default: true,
           description:
-            "Ranked-mode only. When true, server suppresses archived, not-yet-valid, expired, invalidated, or superseded memories from active context.",
+            'Ranked-mode only. When true, server suppresses archived, not-yet-valid, expired, invalidated, or superseded memories from active context.',
         },
         state_debug: {
-          type: "boolean",
+          type: 'boolean',
           default: false,
           description:
-            "Ranked-mode only. Include state-filter suppression/replacement IDs and reasons when current_only is true.",
+            'Ranked-mode only. Include state-filter suppression/replacement IDs and reasons when current_only is true.',
         },
         state_mode: {
-          type: "string",
-          enum: ["current", "history"],
+          type: 'string',
+          enum: ['current', 'history'],
           description:
-            "Ranked-mode only. `current` returns active memories; `history` allows superseded/invalidated memories for audit timelines. Prefer this over current_only for new clients.",
+            'Ranked-mode only. `current` returns active memories; `history` allows superseded/invalidated memories for audit timelines. Prefer this over current_only for new clients.',
         },
         recency_bias: {
-          type: "string",
-          enum: ["auto", "on", "off"],
+          type: 'string',
+          enum: ['auto', 'on', 'off'],
           description:
-            "Ranked-mode only. Controls service recency boosting: auto lets the service infer, on forces boosting, off disables it.",
+            'Ranked-mode only. Controls service recency boosting: auto lets the service infer, on forces boosting, off disables it.',
         },
         scope_fallback: {
-          type: "boolean",
+          type: 'boolean',
           description:
-            "Ranked-mode only. Allow fallback outside the requested tag scope when scoped recall has weak evidence; diagnostics report tag_scope and outside_tag_scope.",
+            'Ranked-mode only. Allow fallback outside the requested tag scope when scoped recall has weak evidence; diagnostics report tag_scope and outside_tag_scope.',
         },
         min_score: {
-          type: "number",
+          type: 'number',
           minimum: 0,
           maximum: 1,
           description:
-            "Ranked-mode only. Minimum final score threshold before results are returned.",
+            'Ranked-mode only. Minimum final score threshold before results are returned.',
         },
         adaptive_floor: {
-          type: "boolean",
+          type: 'boolean',
           description:
             "Ranked-mode only. Enable the service's adaptive score floor when filtering weak matches.",
         },
         context: {
-          type: "string",
+          type: 'string',
           description:
             'Context label (e.g., "coding-style", "architecture"). Boosts matching preferences.',
         },
         language: {
-          type: "string",
+          type: 'string',
           description:
             'Programming language hint (e.g., "python", "typescript"). Prioritizes language-specific memories.',
         },
         active_path: {
-          type: "string",
-          description:
-            'Current file path for language auto-detection (e.g., "src/auth.ts")',
+          type: 'string',
+          description: 'Current file path for language auto-detection (e.g., "src/auth.ts")',
         },
         context_tags: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            'Priority tags to boost in results (e.g., ["coding-style", "preferences"])',
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Priority tags to boost in results (e.g., ["coding-style", "preferences"])',
         },
         context_types: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            'Priority memory types to boost (e.g., ["Style", "Preference"])',
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Priority memory types to boost (e.g., ["Style", "Preference"])',
         },
         priority_ids: {
-          type: "array",
-          items: { type: "string" },
-          description: "Specific memory IDs to ensure are included in results",
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Specific memory IDs to ensure are included in results',
         },
         per_query_limit: {
-          type: "integer",
+          type: 'integer',
           minimum: 1,
           maximum: 50,
-          description:
-            "Per-query result limit when using queries[] (default: 5)",
+          description: 'Per-query result limit when using queries[] (default: 5)',
         },
         sort: {
-          type: "string",
-          enum: [
-            "score",
-            "time_desc",
-            "time_asc",
-            "updated_desc",
-            "updated_asc",
-          ],
-          description:
-            "Result ordering (use time_* for chronological recaps)",
+          type: 'string',
+          enum: ['score', 'time_desc', 'time_asc', 'updated_desc', 'updated_asc'],
+          description: 'Result ordering (use time_* for chronological recaps)',
         },
         format: {
-          type: "string",
-          enum: ["text", "items", "detailed", "json"],
-          default: "text",
+          type: 'string',
+          enum: ['text', 'items', 'detailed', 'json'],
+          default: 'text',
           description:
             'Output format: text (default), items (one block per memory), detailed (adds type/confidence/metadata keys/relation stubs), json (raw per-memory fields incl. full content/metadata/relations; whole-response token budget still applies). text/items/detailed are summary-first: each memory shows its stored 1-2 sentence summary when available, else a content preview — fetch a full record via memory_id.',
         },
         offset: {
-          type: "integer",
+          type: 'integer',
           minimum: 0,
-          description: "Result offset for pagination",
+          description: 'Result offset for pagination',
         },
       },
     },
     outputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         count: {
-          type: "integer",
-          description: "Number of memories returned",
+          type: 'integer',
+          description: 'Number of memories returned',
         },
         mode: {
-          type: "string",
-          enum: ["ranked", "enumeration", "id_fetch"],
-          description: "Mode that produced the result.",
+          type: 'string',
+          enum: ['ranked', 'enumeration', 'id_fetch'],
+          description: 'Mode that produced the result.',
         },
         has_more: {
-          type: "boolean",
-          description:
-            "Enumeration mode only: true if more pages exist past `offset + limit`.",
+          type: 'boolean',
+          description: 'Enumeration mode only: true if more pages exist past `offset + limit`.',
         },
         limit: {
-          type: "integer",
-          description: "Enumeration mode only: page size used for this response.",
+          type: 'integer',
+          description: 'Enumeration mode only: page size used for this response.',
         },
         offset: {
-          type: "integer",
-          description: "Enumeration mode only: offset used for this response.",
+          type: 'integer',
+          description: 'Enumeration mode only: offset used for this response.',
         },
         results: {
-          type: "array",
-          description: "Array of matching memories with scores",
+          type: 'array',
+          description: 'Array of matching memories with scores',
           items: {
-            type: "object",
+            type: 'object',
             properties: {
-              memory_id: { type: "string" },
+              memory_id: { type: 'string' },
               summary: {
-                type: "string",
+                type: 'string',
                 description:
-                  "Stored 1-2 sentence summary. In budgeted formats it replaces content when present.",
+                  'Stored 1-2 sentence summary. In budgeted formats it replaces content when present.',
               },
               content: {
-                type: "string",
+                type: 'string',
                 description:
-                  "Memory content (preview in budgeted formats; omitted when summary is shown).",
+                  'Memory content (preview in budgeted formats; omitted when summary is shown).',
               },
               content_truncated: {
-                type: "boolean",
+                type: 'boolean',
                 description:
-                  "True when content is a preview; fetch the full record via recall_memory({ memory_id }).",
+                  'True when content is a preview; fetch the full record via recall_memory({ memory_id }).',
               },
               content_chars: {
-                type: "integer",
+                type: 'integer',
                 description:
-                  "Original content length when content was previewed or replaced by summary.",
+                  'Original content length when content was previewed or replaced by summary.',
               },
-              tags: { type: "array", items: { type: "string" } },
-              importance: { type: "number" },
-              final_score: { type: "number" },
-              match_type: { type: "string" },
-              created_at: { type: "string" },
-              updated_at: { type: "string" },
+              tags: { type: 'array', items: { type: 'string' } },
+              importance: { type: 'number' },
+              final_score: { type: 'number' },
+              match_type: { type: 'string' },
+              created_at: { type: 'string' },
+              updated_at: { type: 'string' },
               deduped_from: {
-                type: "array",
-                items: { type: "string" },
-                description:
-                  "Result IDs merged into this result during multi-query deduplication.",
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Result IDs merged into this result during multi-query deduplication.',
               },
               outside_tag_scope: {
-                type: "boolean",
+                type: 'boolean',
                 description:
-                  "True when scope_fallback admitted this result outside the requested tag scope.",
+                  'True when scope_fallback admitted this result outside the requested tag scope.',
               },
               jit_enriched: {
-                type: "boolean",
-                description:
-                  "True when the service enriched the memory during recall.",
+                type: 'boolean',
+                description: 'True when the service enriched the memory during recall.',
               },
               state_replaces: {
-                type: "string",
+                type: 'string',
                 description:
-                  "ID of the suppressed memory this result replaced during current-state filtering.",
+                  'ID of the suppressed memory this result replaced during current-state filtering.',
               },
             },
           },
         },
         truncation: {
-          type: "object",
+          type: 'object',
           description:
-            "Present when trailing results were dropped to fit the response budget: { applied, omitted_results, reason }.",
+            'Present when trailing results were dropped to fit the response budget: { applied, omitted_results, reason }.',
         },
         dedup_removed: {
-          type: "integer",
-          description:
-            "Number of duplicate results removed (when using multiple queries)",
+          type: 'integer',
+          description: 'Number of duplicate results removed (when using multiple queries)',
         },
         query: {
-          type: "string",
-          description: "Query text executed by ranked recall.",
+          type: 'string',
+          description: 'Query text executed by ranked recall.',
         },
         sort: {
-          type: "string",
-          description: "Sort mode applied by the service.",
+          type: 'string',
+          description: 'Sort mode applied by the service.',
         },
         exclude_tags: {
-          type: "array",
-          items: { type: "string" },
-          description: "Tags excluded from ranked recall.",
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tags excluded from ranked recall.',
         },
         state_filter: {
-          type: "object",
+          type: 'object',
           description:
-            "Current-state filtering diagnostics. Includes aggregate counts by default and detailed IDs/reasons only when state_debug=true.",
+            'Current-state filtering diagnostics. Includes aggregate counts by default and detailed IDs/reasons only when state_debug=true.',
         },
         state_mode: {
-          type: "string",
-          enum: ["current", "history"],
-          description: "State mode applied by ranked recall.",
+          type: 'string',
+          enum: ['current', 'history'],
+          description: 'State mode applied by ranked recall.',
         },
         tag_scope: {
-          type: "object",
-          description:
-            "Tag-scope diagnostics including whether scoped evidence was strong enough.",
+          type: 'object',
+          description: 'Tag-scope diagnostics including whether scoped evidence was strong enough.',
         },
         scope_fallback: {
-          type: "boolean",
-          description:
-            "True when recall allowed outside-scope fallback results.",
+          type: 'boolean',
+          description: 'True when recall allowed outside-scope fallback results.',
         },
         recency_bias: {
-          type: "string",
-          enum: ["auto", "on", "off"],
-          description: "Recency bias mode applied by the service.",
+          type: 'string',
+          enum: ['auto', 'on', 'off'],
+          description: 'Recency bias mode applied by the service.',
         },
         score_filter: {
-          type: "object",
+          type: 'object',
           description:
-            "Score filtering diagnostics such as min_score, adaptive_floor, and filtered_count.",
+            'Score filtering diagnostics such as min_score, adaptive_floor, and filtered_count.',
         },
         queries: {
-          type: "array",
-          items: { type: "string" },
-          description: "Query variants executed by the service.",
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Query variants executed by the service.',
         },
         vector_search: {
-          type: "object",
-          description: "Vector-search diagnostics from the service.",
+          type: 'object',
+          description: 'Vector-search diagnostics from the service.',
         },
         jit_enriched_count: {
-          type: "integer",
-          description: "Number of memories enriched inline during recall.",
+          type: 'integer',
+          description: 'Number of memories enriched inline during recall.',
         },
         query_time_ms: {
-          type: "number",
-          description: "Service recall latency in milliseconds.",
+          type: 'number',
+          description: 'Service recall latency in milliseconds.',
         },
         entities: {
-          type: "array",
-          items: { type: "object" },
-          description: "Entity identity diagnostics injected by the service.",
+          type: 'array',
+          items: { type: 'object' },
+          description: 'Entity identity diagnostics injected by the service.',
         },
       },
-      required: ["count", "results"],
+      required: ['count', 'results'],
     },
   },
   {
-    name: "associate_memories",
-    title: "Associate Memories",
+    name: 'associate_memories',
+    title: 'Associate Memories',
     description: `Create typed relationships between memories. This builds a knowledge graph that improves recall by surfacing related context. Supports single-pair mode or batch mode with associations[] (max 500).
 
 **When to use:**
@@ -1108,7 +1084,9 @@ const tools: Tool[] = [
 - To connect patterns with their concrete examples
 
 **Authorable relationship types:**
-${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\n')}
+${Object.entries(RELATION_TYPE_METADATA)
+  .map(([k, v]) => `- ${k}: ${v}`)
+  .join('\n')}
 
 **Read-only/internal relations:**
 - System/internal relations such as SIMILAR_TO, PRECEDED_BY, EXPLAINS, SHARES_THEME, PARALLEL_CONTEXT, and DISCOVERED may appear in recall results, but they are not valid inputs for associate_memories.
@@ -1118,114 +1096,113 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
 - associate_memories({ memory1_id: "new-decision", memory2_id: "old-decision", type: "EVOLVED_INTO", strength: 0.8 })
 - associate_memories({ associations: [{ memory1_id: "a", memory2_id: "b", type: "RELATES_TO", strength: 0.8 }] })`,
     annotations: {
-      title: "Associate Memories",
+      title: 'Associate Memories',
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
-    _meta: { "anthropic/alwaysLoad": true },
+    _meta: { 'anthropic/alwaysLoad': true },
     inputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         memory1_id: {
-          type: "string",
-          description:
-            "ID of the source memory (from store_memory response or recall results)",
+          type: 'string',
+          description: 'ID of the source memory (from store_memory response or recall results)',
         },
         memory2_id: {
-          type: "string",
-          description: "ID of the target memory to link to",
+          type: 'string',
+          description: 'ID of the target memory to link to',
         },
         type: {
-          type: "string",
+          type: 'string',
           enum: [...AUTHORABLE_RELATION_TYPES],
-          description: "Relationship type between the two memories",
+          description: 'Relationship type between the two memories',
         },
         strength: {
-          type: "number",
+          type: 'number',
           minimum: 0,
           maximum: 1,
           description:
-            "Relationship strength: 0.9+ direct causation, 0.7-0.9 strong relation, 0.5-0.7 moderate",
+            'Relationship strength: 0.9+ direct causation, 0.7-0.9 strong relation, 0.5-0.7 moderate',
         },
         ...ASSOCIATION_PROPERTY_SCHEMAS,
         associations: {
-          type: "array",
+          type: 'array',
           minItems: 1,
           maxItems: 500,
           description:
-            "Batch mode. Up to 500 associations. Do not combine with top-level memory1_id/memory2_id/type/strength.",
+            'Batch mode. Up to 500 associations. Do not combine with top-level memory1_id/memory2_id/type/strength.',
           items: {
-            type: "object",
+            type: 'object',
             properties: {
               memory1_id: {
-                type: "string",
-                description: "ID of the source memory",
+                type: 'string',
+                description: 'ID of the source memory',
               },
               memory2_id: {
-                type: "string",
-                description: "ID of the target memory",
+                type: 'string',
+                description: 'ID of the target memory',
               },
               type: {
-                type: "string",
+                type: 'string',
                 enum: [...AUTHORABLE_RELATION_TYPES],
-                description: "Relationship type between the two memories",
+                description: 'Relationship type between the two memories',
               },
               strength: {
-                type: "number",
+                type: 'number',
                 minimum: 0,
                 maximum: 1,
-                description: "Relationship strength from 0 to 1",
+                description: 'Relationship strength from 0 to 1',
               },
               ...ASSOCIATION_PROPERTY_SCHEMAS,
             },
-            required: ["memory1_id", "memory2_id", "type", "strength"],
+            required: ['memory1_id', 'memory2_id', 'type', 'strength'],
           },
         },
       },
     },
     outputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         success: {
-          type: "boolean",
+          type: 'boolean',
           description:
-            "Whether every requested association was created. False for partial batch responses.",
+            'Whether every requested association was created. False for partial batch responses.',
         },
         message: {
-          type: "string",
-          description: "Confirmation message",
+          type: 'string',
+          description: 'Confirmation message',
         },
         created_count: {
-          type: "integer",
-          description: "Batch mode: number of associations created.",
+          type: 'integer',
+          description: 'Batch mode: number of associations created.',
         },
         failed_count: {
-          type: "integer",
-          description: "Batch mode: number of associations that failed.",
+          type: 'integer',
+          description: 'Batch mode: number of associations that failed.',
         },
         succeeded: {
-          type: "array",
-          description: "Batch mode: successful association records.",
-          items: { type: "object" },
+          type: 'array',
+          description: 'Batch mode: successful association records.',
+          items: { type: 'object' },
         },
         failed: {
-          type: "array",
-          description: "Batch mode: failed association records with errors.",
-          items: { type: "object" },
+          type: 'array',
+          description: 'Batch mode: failed association records with errors.',
+          items: { type: 'object' },
         },
         summary: {
-          type: "string",
-          description: "Batch mode: service summary.",
+          type: 'string',
+          description: 'Batch mode: service summary.',
         },
       },
-      required: ["success", "message"],
+      required: ['success', 'message'],
     },
   },
   {
-    name: "update_memory",
-    title: "Update Memory",
+    name: 'update_memory',
+    title: 'Update Memory',
     description: `Update an existing memory's content, tags, importance, or metadata. Use this to correct or enhance memories rather than storing duplicates.
 
 **When to use:**
@@ -1239,91 +1216,90 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
 - update_memory({ memory_id: "abc123", tags: ["project-x", "critical", "auth"] })  // Add tags
 - update_memory({ memory_id: "abc123", content: "Updated: PostgreSQL chosen for ACID + team expertise" })`,
     annotations: {
-      title: "Update Memory",
+      title: 'Update Memory',
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
     inputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         memory_id: {
-          type: "string",
-          description:
-            "ID of the memory to update (from store_memory or recall results)",
+          type: 'string',
+          description: 'ID of the memory to update (from store_memory or recall results)',
         },
         content: {
-          type: "string",
-          description: "New content (replaces existing)",
+          type: 'string',
+          description: 'New content (replaces existing)',
         },
         tags: {
-          type: "array",
-          items: { type: "string" },
-          description: "New tags (replaces existing)",
+          type: 'array',
+          items: { type: 'string' },
+          description: 'New tags (replaces existing)',
         },
         importance: {
-          type: "number",
+          type: 'number',
           minimum: 0,
           maximum: 1,
-          description: "New importance score",
+          description: 'New importance score',
         },
         metadata: {
-          type: "object",
-          description: "New metadata (merged with existing)",
+          type: 'object',
+          description: 'New metadata (merged with existing)',
         },
         timestamp: {
-          type: "string",
-          description: "Override creation timestamp",
+          type: 'string',
+          description: 'Override creation timestamp',
         },
         t_valid: {
-          type: "string",
-          description: "ISO 8601 timestamp when the memory becomes valid",
+          type: 'string',
+          description: 'ISO 8601 timestamp when the memory becomes valid',
         },
         t_invalid: {
-          type: "string",
-          description: "ISO 8601 timestamp when the memory expires or was superseded",
+          type: 'string',
+          description: 'ISO 8601 timestamp when the memory expires or was superseded',
         },
         updated_at: {
-          type: "string",
-          description: "Explicit update timestamp",
+          type: 'string',
+          description: 'Explicit update timestamp',
         },
         last_accessed: {
-          type: "string",
-          description: "Last access timestamp",
+          type: 'string',
+          description: 'Last access timestamp',
         },
         type: {
-          type: "string",
+          type: 'string',
           enum: [...MEMORY_TYPES],
-          description: "Memory type classification",
+          description: 'Memory type classification',
         },
         confidence: {
-          type: "number",
+          type: 'number',
           minimum: 0,
           maximum: 1,
-          description: "Confidence score for the memory",
+          description: 'Confidence score for the memory',
         },
       },
-      required: ["memory_id"],
+      required: ['memory_id'],
     },
     outputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         memory_id: {
-          type: "string",
-          description: "ID of the updated memory",
+          type: 'string',
+          description: 'ID of the updated memory',
         },
         message: {
-          type: "string",
-          description: "Confirmation message",
+          type: 'string',
+          description: 'Confirmation message',
         },
       },
-      required: ["memory_id", "message"],
+      required: ['memory_id', 'message'],
     },
   },
   {
-    name: "delete_memory",
-    title: "Delete Memory",
+    name: 'delete_memory',
+    title: 'Delete Memory',
     description: `Delete a memory by ID (\`memory_id\`) or bulk-delete by tag (\`tags\`). Use sparingly — consider \`update_memory\` instead.
 
 **Mode 1 — Single (default):** pass \`memory_id\` to delete one memory and its embedding. Idempotent: re-running on the same ID is a no-op.
@@ -1340,55 +1316,55 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
 - delete_memory({ memory_id: "abc123" })  // Mode 1
 - delete_memory({ tags: ["benchmark-test"] })  // Mode 2, bulk by tag`,
     annotations: {
-      title: "Delete Memory",
+      title: 'Delete Memory',
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,
       openWorldHint: false,
     },
     inputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         memory_id: {
-          type: "string",
+          type: 'string',
           description:
-            "Single-delete mode (XOR with `tags`). ID of the memory to delete (from store_memory or recall results).",
+            'Single-delete mode (XOR with `tags`). ID of the memory to delete (from store_memory or recall results).',
         },
         tags: {
-          type: "array",
-          items: { type: "string" },
+          type: 'array',
+          items: { type: 'string' },
           description:
-            "Bulk-delete mode (XOR with `memory_id`). Bulk-deletes ALL memories tagged with ANY of these tags. Exact match, case-insensitive. No dry-run.",
+            'Bulk-delete mode (XOR with `memory_id`). Bulk-deletes ALL memories tagged with ANY of these tags. Exact match, case-insensitive. No dry-run.',
         },
       },
     },
     outputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         memory_id: {
-          type: "string",
-          description: "Single-delete result: ID of the deleted memory.",
+          type: 'string',
+          description: 'Single-delete result: ID of the deleted memory.',
         },
         deleted_count: {
-          type: "integer",
-          description: "Bulk-delete result: number of memories deleted.",
+          type: 'integer',
+          description: 'Bulk-delete result: number of memories deleted.',
         },
         tags: {
-          type: "array",
-          items: { type: "string" },
-          description: "Bulk-delete result: tags that were used for the bulk delete.",
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Bulk-delete result: tags that were used for the bulk delete.',
         },
         message: {
-          type: "string",
-          description: "Confirmation message",
+          type: 'string',
+          description: 'Confirmation message',
         },
       },
-      required: ["message"],
+      required: ['message'],
     },
   },
   {
-    name: "check_database_health",
-    title: "Check Database Health",
+    name: 'check_database_health',
+    title: 'Check Database Health',
     description: `Check the health status of the AutoMem service and its connected databases (FalkorDB graph + Qdrant vectors).
 
 **When to use:**
@@ -1399,40 +1375,40 @@ ${Object.entries(RELATION_TYPE_METADATA).map(([k, v]) => `- ${k}: ${v}`).join('\
 **Example:**
 - check_database_health({})`,
     annotations: {
-      title: "Check Database Health",
+      title: 'Check Database Health',
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
     inputSchema: {
-      type: "object",
+      type: 'object',
       properties: {},
     },
     outputSchema: {
-      type: "object",
+      type: 'object',
       properties: {
         status: {
-          type: "string",
-          enum: ["healthy", "degraded", "error"],
+          type: 'string',
+          enum: ['healthy', 'degraded', 'error'],
           description:
-            "Overall health status. degraded means the service is reachable but a backend or sync check needs attention.",
+            'Overall health status. degraded means the service is reachable but a backend or sync check needs attention.',
         },
         backend: {
-          type: "string",
-          description: "Backend type (automem)",
+          type: 'string',
+          description: 'Backend type (automem)',
         },
         statistics: {
-          type: "object",
+          type: 'object',
           description:
-            "Database statistics and diagnostics, including memory/vector counts, sync_status, vector_dimensions, and enrichment state when provided.",
+            'Database statistics and diagnostics, including memory/vector counts, sync_status, vector_dimensions, and enrichment state when provided.',
         },
         error: {
-          type: "string",
-          description: "Error message if status is error",
+          type: 'string',
+          description: 'Error message if status is error',
         },
       },
-      required: ["status", "backend"],
+      required: ['status', 'backend'],
     },
   },
 ];
@@ -1446,7 +1422,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case "store_memory": {
+      case 'store_memory': {
         const storeArgs = args as unknown as StoreMemoryArgs;
 
         // Content size governance applies to single-store mode only. In batch mode the client
@@ -1455,8 +1431,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const SOFT_LIMIT = 500;
         const HARD_LIMIT = 2000;
         const isBatchMode = Array.isArray(storeArgs.memories);
-        const contentLength = isBatchMode ? 0 : (storeArgs.content?.length || 0);
-        let sizeWarning = "";
+        const contentLength = isBatchMode ? 0 : storeArgs.content?.length || 0;
+        let sizeWarning = '';
 
         if (!isBatchMode) {
           // Hard limit: reject oversized content outright (single mode only)
@@ -1464,12 +1440,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return {
               content: [
                 {
-                  type: "text",
+                  type: 'text',
                   text: `❌ Memory rejected: Content length (${contentLength} chars) exceeds hard limit (${HARD_LIMIT} chars).\n\nPlease split into smaller, focused memories or summarize the content before storing.`,
                 },
               ],
               structuredContent: {
-                error: "content_too_large",
+                error: 'content_too_large',
                 content_length: contentLength,
                 hard_limit: HARD_LIMIT,
                 message: `Content exceeds maximum allowed length of ${HARD_LIMIT} characters`,
@@ -1489,9 +1465,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (isBatchMode) {
           const stored = result.stored ?? result.memory_ids?.length ?? 0;
           const ids = result.memory_ids ?? [];
-          const idPreview = ids.length > 10
-            ? `${ids.slice(0, 10).join(', ')}, …(+${ids.length - 10})`
-            : ids.join(', ');
+          const idPreview =
+            ids.length > 10
+              ? `${ids.slice(0, 10).join(', ')}, …(+${ids.length - 10})`
+              : ids.join(', ');
           const output = {
             stored,
             memory_ids: ids,
@@ -1505,7 +1482,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return {
             content: [
               {
-                type: "text",
+                type: 'text',
                 text: `Stored ${stored} memories.${idPreview ? `\nIDs: ${idPreview}` : ''}\nMessage: ${result.message}`,
               },
             ],
@@ -1518,8 +1495,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (result.superseded_memory_id) {
           responseText += `\nSuperseded memory ID: ${result.superseded_memory_id}`;
         }
-        if (typeof result.association_created === "boolean") {
-          responseText += `\nAssociation created: ${result.association_created ? "yes" : "no"}`;
+        if (typeof result.association_created === 'boolean') {
+          responseText += `\nAssociation created: ${result.association_created ? 'yes' : 'no'}`;
         }
         if (result.message) {
           responseText += `\nMessage: ${result.message}`;
@@ -1541,7 +1518,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ...(result.superseded_memory_id && {
             superseded_memory_id: result.superseded_memory_id,
           }),
-          ...(typeof result.association_created === "boolean" && {
+          ...(typeof result.association_created === 'boolean' && {
             association_created: result.association_created,
           }),
           ...(summarized && {
@@ -1558,7 +1535,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [
             {
-              type: "text",
+              type: 'text',
               text: responseText,
             },
           ],
@@ -1566,14 +1543,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "recall_memory": {
-        return buildRecallMemoryResponse(
-          client,
-          args as unknown as RecallMemoryArgs
-        );
+      case 'recall_memory': {
+        return buildRecallMemoryResponse(client, args as unknown as RecallMemoryArgs);
       }
 
-      case "associate_memories": {
+      case 'associate_memories': {
         const associateArgs = args as unknown as AssociateMemoryArgs;
         const result = await client.associateMemories(associateArgs);
         const output = {
@@ -1586,21 +1560,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           summary: result.summary,
         };
         const batchSuffix =
-          typeof result.created_count === "number" || typeof result.failed_count === "number"
+          typeof result.created_count === 'number' || typeof result.failed_count === 'number'
             ? `\n\nCreated: ${result.created_count ?? 0}\nFailed: ${result.failed_count ?? 0}`
-            : "";
+            : '';
         return {
           content: [
             {
-              type: "text",
-              text: `${result.success ? "Association created successfully!" : "Association completed with failures."}\n\nMessage: ${result.message}${batchSuffix}`,
+              type: 'text',
+              text: `${result.success ? 'Association created successfully!' : 'Association completed with failures.'}\n\nMessage: ${result.message}${batchSuffix}`,
             },
           ],
           structuredContent: output,
         };
       }
 
-      case "update_memory": {
+      case 'update_memory': {
         const updateArgs = args as unknown as UpdateMemoryArgs;
         const result = await client.updateMemory(updateArgs);
         const output = {
@@ -1610,7 +1584,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [
             {
-              type: "text",
+              type: 'text',
               text: `Memory ${result.memory_id} updated successfully!`,
             },
           ],
@@ -1618,7 +1592,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "delete_memory": {
+      case 'delete_memory': {
         const deleteArgs = args as unknown as DeleteMemoryArgs;
         const result = await client.deleteMemory(deleteArgs);
 
@@ -1633,7 +1607,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return {
             content: [
               {
-                type: "text",
+                type: 'text',
                 text: `Bulk delete complete: removed ${result.deleted_count} memor${result.deleted_count === 1 ? 'y' : 'ies'} matching tag(s) ${tags.join(', ')}.`,
               },
             ],
@@ -1648,7 +1622,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [
             {
-              type: "text",
+              type: 'text',
               text: `Memory ${result.memory_id} deleted successfully!`,
             },
           ],
@@ -1656,12 +1630,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "check_database_health": {
+      case 'check_database_health': {
         const health = await client.checkHealth();
         const statusEmoji =
-          health.status === "healthy" ? "✅" : health.status === "degraded" ? "⚠️" : "❌";
+          health.status === 'healthy' ? '✅' : health.status === 'degraded' ? '⚠️' : '❌';
 
-        let statsText = "";
+        let statsText = '';
         if (health.statistics.falkordb) {
           statsText += `\nFalkorDB: ${formatHealthComponent(health.statistics.falkordb)}`;
         }
@@ -1671,10 +1645,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (health.statistics.graph) {
           statsText += `\nGraph: ${health.statistics.graph}`;
         }
-        if (typeof health.statistics.memory_count === "number") {
+        if (typeof health.statistics.memory_count === 'number') {
           statsText += `\nMemory count: ${health.statistics.memory_count}`;
         }
-        if (typeof health.statistics.vector_count === "number") {
+        if (typeof health.statistics.vector_count === 'number') {
           statsText += `\nVector count: ${health.statistics.vector_count}`;
         }
         if (health.statistics.sync_status) {
@@ -1687,7 +1661,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           statsText += `\nTimestamp: ${health.statistics.timestamp}`;
         }
 
-        const errorText = health.error ? `\nError: ${health.error}` : "";
+        const errorText = health.error ? `\nError: ${health.error}` : '';
 
         const output = {
           status: health.status,
@@ -1699,7 +1673,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [
             {
-              type: "text",
+              type: 'text',
               text: `${statusEmoji} AutoMem Health Status\n\nStatus: ${health.status}\nBackend: ${health.backend}${statsText}${errorText}`,
             },
           ],
@@ -1711,12 +1685,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Unknown tool: ${name}`);
     }
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     return {
       content: [
         {
-          type: "text",
+          type: 'text',
           text: `Error: ${errorMessage}`,
         },
       ],
@@ -1751,14 +1724,14 @@ async function main() {
 
   // Layer 1 — stdin EOF (clean client disconnect). Node already drains the
   // event loop and exits on EOF; this makes the intent explicit.
-  process.stdin.on("end", () => shutdown(0));
-  process.stdin.on("close", () => shutdown(0));
+  process.stdin.on('end', () => shutdown(0));
+  process.stdin.on('close', () => shutdown(0));
 
   // Layer 2 — transport/protocol closed by the SDK.
   server.onclose = () => shutdown(0);
 
   // Layer 3 — supervisor signals (graceful termination).
-  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
     process.on(sig, () => shutdown(0));
   }
 
@@ -1772,12 +1745,12 @@ async function main() {
   startParentWatchdog(parentPid, watchdogMs, () => shutdown(0));
 
   await server.connect(transport);
-  if (process.env.AUTOMEM_LOG_LEVEL === "debug") {
-    console.error("AutoMem MCP server running");
+  if (process.env.AUTOMEM_LOG_LEVEL === 'debug') {
+    console.error('AutoMem MCP server running');
   }
 }
 
 main().catch((error) => {
-  console.error("Server error:", error);
+  console.error('Server error:', error);
   process.exit(1);
 });

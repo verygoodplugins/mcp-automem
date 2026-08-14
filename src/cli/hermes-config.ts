@@ -51,23 +51,20 @@ function parseHermesDocument(raw: string, configPath: string) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Failed to parse Hermes config at ${configPath}: ${reason}. Fix the YAML syntax and re-run.`,
-      { cause: error },
+      { cause: error }
     );
   }
   if (doc.errors.length > 0) {
     const reason = doc.errors.map((err) => err.message).join('; ');
     throw new Error(
-      `Failed to parse Hermes config at ${configPath}: ${reason}. Fix the YAML syntax and re-run.`,
+      `Failed to parse Hermes config at ${configPath}: ${reason}. Fix the YAML syntax and re-run.`
     );
   }
   return doc;
 }
 
 export function resolveHermesPaths(opts: { dir?: string } = {}): HermesPaths {
-  const home =
-    opts.dir ??
-    process.env.HERMES_HOME ??
-    path.join(os.homedir(), '.hermes');
+  const home = opts.dir ?? process.env.HERMES_HOME ?? path.join(os.homedir(), '.hermes');
   return {
     home,
     configPath: path.join(home, 'config.yaml'),
@@ -75,10 +72,7 @@ export function resolveHermesPaths(opts: { dir?: string } = {}): HermesPaths {
   };
 }
 
-export function buildAutoMemServerEntry(
-  endpoint: string,
-  apiKey?: string,
-): AutoMemServerEntry {
+export function buildAutoMemServerEntry(endpoint: string, apiKey?: string): AutoMemServerEntry {
   const env: Record<string, string> = {
     AUTOMEM_API_URL: endpoint,
   };
@@ -135,13 +129,19 @@ function readCredentialsFromConfig(configPath: string): HermesCredentials {
   if (!fs.existsSync(configPath)) return {};
   let parsed: Record<string, unknown> | null;
   try {
-    parsed = parseYaml(fs.readFileSync(configPath, 'utf8') || '{}') as Record<string, unknown> | null;
+    parsed = parseYaml(fs.readFileSync(configPath, 'utf8') || '{}') as Record<
+      string,
+      unknown
+    > | null;
   } catch {
     return {};
   }
-  const servers = isRecord(parsed?.mcp_servers) ? (parsed!.mcp_servers as Record<string, unknown>) : null;
+  const servers = isRecord(parsed?.mcp_servers)
+    ? (parsed!.mcp_servers as Record<string, unknown>)
+    : null;
   // The AutoMem MCP server is always registered under the `automem` key.
-  const entry = servers && isRecord(servers.automem) ? (servers.automem as Record<string, unknown>) : null;
+  const entry =
+    servers && isRecord(servers.automem) ? (servers.automem as Record<string, unknown>) : null;
   const env = entry && isRecord(entry.env) ? (entry.env as Record<string, unknown>) : null;
   if (!env) return {};
   return {
@@ -226,7 +226,7 @@ function upsertViaYaml(
   configPath: string,
   name: string,
   entry: AutoMemServerEntry,
-  opts: UpsertOptions,
+  opts: UpsertOptions
 ): boolean {
   const existed = fs.existsSync(configPath);
   const raw = existed ? fs.readFileSync(configPath, 'utf8') : '';
@@ -235,9 +235,10 @@ function upsertViaYaml(
   let existing: unknown;
   try {
     const parsed = parseYaml(raw || '{}') as Record<string, unknown> | null;
-    existing = parsed?.mcp_servers && typeof parsed.mcp_servers === 'object'
-      ? (parsed.mcp_servers as Record<string, unknown>)[name] ?? null
-      : null;
+    existing =
+      parsed?.mcp_servers && typeof parsed.mcp_servers === 'object'
+        ? ((parsed.mcp_servers as Record<string, unknown>)[name] ?? null)
+        : null;
   } catch {
     existing = null;
   }
@@ -250,7 +251,10 @@ function upsertViaYaml(
   // Seed an empty mcp_servers map when starting from scratch so setIn always
   // has a real Map node to traverse into. parseDocument preserves comments on
   // round-trip when the input is non-empty.
-  const doc = raw.trim().length > 0 ? parseHermesDocument(raw, configPath) : parseDocument('mcp_servers: {}\n');
+  const doc =
+    raw.trim().length > 0
+      ? parseHermesDocument(raw, configPath)
+      : parseDocument('mcp_servers: {}\n');
   doc.setIn(['mcp_servers', name], doc.createNode(entry));
   // Force block-style serialization (`key:\n  value`) — Hermes' YAML loader
   // and most human readers expect block, not flow (`{key: value}`).
@@ -268,10 +272,7 @@ function upsertViaYaml(
     log(`📦 Backup created: ${backup}`, opts.quiet);
   }
   fs.writeFileSync(configPath, serialized, 'utf8');
-  log(
-    `✅ ${existed ? 'Updated' : 'Created'}: ${path.basename(configPath)}`,
-    opts.quiet,
-  );
+  log(`✅ ${existed ? 'Updated' : 'Created'}: ${path.basename(configPath)}`, opts.quiet);
   return true;
 }
 
@@ -287,7 +288,7 @@ export async function upsertMcpServer(
   paths: HermesPaths,
   name: string,
   entry: AutoMemServerEntry,
-  opts: UpsertOptions = {},
+  opts: UpsertOptions = {}
 ): Promise<UpsertResult> {
   if (opts.dryRun) {
     log(`[DRY RUN] Would upsert mcp_servers.${name} in: ${paths.configPath}`, opts.quiet);
@@ -301,7 +302,7 @@ export async function upsertMcpServer(
 export function upsertHermesMemoryProvider(
   configPath: string,
   provider: string,
-  opts: UpsertOptions = {},
+  opts: UpsertOptions = {}
 ): boolean {
   const existed = fs.existsSync(configPath);
   const raw = existed ? fs.readFileSync(configPath, 'utf8') : '';
@@ -309,9 +310,10 @@ export function upsertHermesMemoryProvider(
   let existing: unknown;
   try {
     const parsed = parseYaml(raw || '{}') as Record<string, unknown> | null;
-    existing = parsed?.memory && typeof parsed.memory === 'object'
-      ? (parsed.memory as Record<string, unknown>).provider ?? null
-      : null;
+    existing =
+      parsed?.memory && typeof parsed.memory === 'object'
+        ? ((parsed.memory as Record<string, unknown>).provider ?? null)
+        : null;
   } catch {
     existing = null;
   }
@@ -321,7 +323,8 @@ export function upsertHermesMemoryProvider(
     return false;
   }
 
-  const doc = raw.trim().length > 0 ? parseHermesDocument(raw, configPath) : parseDocument('memory: {}\n');
+  const doc =
+    raw.trim().length > 0 ? parseHermesDocument(raw, configPath) : parseDocument('memory: {}\n');
   doc.setIn(['memory', 'provider'], provider);
   const serialized = doc.toString({ collectionStyle: 'block' });
 
@@ -348,7 +351,7 @@ export function upsertHermesMemoryProvider(
 export function removeMcpServerEntry(
   configPath: string,
   name: string,
-  opts: UpsertOptions = {},
+  opts: UpsertOptions = {}
 ): boolean {
   if (!fs.existsSync(configPath)) return false;
   const raw = fs.readFileSync(configPath, 'utf8');
@@ -358,9 +361,10 @@ export function removeMcpServerEntry(
     return false;
   }
   const parsed = parseYaml(raw || '{}') as Record<string, unknown> | null;
-  const entry = parsed?.mcp_servers && typeof parsed.mcp_servers === 'object'
-    ? (parsed.mcp_servers as Record<string, unknown>)[name]
-    : undefined;
+  const entry =
+    parsed?.mcp_servers && typeof parsed.mcp_servers === 'object'
+      ? (parsed.mcp_servers as Record<string, unknown>)[name]
+      : undefined;
   if (opts.onlyIfAutoMem && !isAutoMemMcpEntry(entry)) {
     return false;
   }
@@ -382,7 +386,7 @@ export function removeMcpServerEntry(
 export function removeHermesMemoryProvider(
   configPath: string,
   provider: string,
-  opts: UpsertOptions = {},
+  opts: UpsertOptions = {}
 ): boolean {
   if (!fs.existsSync(configPath)) return false;
   const raw = fs.readFileSync(configPath, 'utf8');

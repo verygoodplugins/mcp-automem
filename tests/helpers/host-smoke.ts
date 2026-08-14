@@ -148,12 +148,7 @@ export class StdioMcpClient {
   private stderrBuffer = '';
   private invalidStdout: string[] = [];
 
-  constructor(
-    command: string,
-    args: string[],
-    env: NodeJS.ProcessEnv,
-    cwd: string,
-  ) {
+  constructor(command: string, args: string[], env: NodeJS.ProcessEnv, cwd: string) {
     this.child = spawn(command, args, {
       cwd,
       env,
@@ -168,7 +163,7 @@ export class StdioMcpClient {
     });
     this.child.on('exit', (code, signal) => {
       const error = new Error(
-        `MCP server exited before response (code=${code}, signal=${signal})\n${this.stderrBuffer}`,
+        `MCP server exited before response (code=${code}, signal=${signal})\n${this.stderrBuffer}`
       );
       for (const pending of this.pending.values()) {
         pending.reject(error);
@@ -294,7 +289,7 @@ export function hermesPythonPath(): string | null {
   }
   candidates.push(
     path.resolve(path.dirname(wrapper), '..', 'hermes-agent', 'venv', 'bin', 'python'),
-    path.join(process.env.HOME ?? '', '.hermes', 'hermes-agent', 'venv', 'bin', 'python'),
+    path.join(process.env.HOME ?? '', '.hermes', 'hermes-agent', 'venv', 'bin', 'python')
   );
 
   for (const python of candidates) {

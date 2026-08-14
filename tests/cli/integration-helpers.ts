@@ -28,7 +28,8 @@ export function expectOutsideRealHermesHome(paths: string[]): void {
   for (const filePath of paths) {
     const resolved = path.resolve(filePath);
     // Reject both ~/.hermes itself and anything under it.
-    const insideRealHome = resolved === realHermesHome || resolved.startsWith(`${realHermesHome}${path.sep}`);
+    const insideRealHome =
+      resolved === realHermesHome || resolved.startsWith(`${realHermesHome}${path.sep}`);
     expect(insideRealHome, `${filePath} must not touch the real ~/.hermes`).toBe(false);
   }
 }
@@ -54,12 +55,14 @@ export function listBackups(filePath: string): string[] {
     .sort();
 }
 
-export function readMcpServerSummary(configPath: string): Record<
-  string,
-  { command?: string; args: string[]; envKeys: string[] }
-> {
+export function readMcpServerSummary(
+  configPath: string
+): Record<string, { command?: string; args: string[]; envKeys: string[] }> {
   const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
-    mcp_servers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }>;
+    mcp_servers?: Record<
+      string,
+      { command?: string; args?: string[]; env?: Record<string, string> }
+    >;
   } | null;
   const servers = parsed?.mcp_servers ?? {};
   return Object.fromEntries(

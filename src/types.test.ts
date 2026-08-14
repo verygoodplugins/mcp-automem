@@ -42,9 +42,7 @@ const INTERNAL_RELATION_TYPES = [
 describe('Type Definitions', () => {
   describe('Relation constants', () => {
     it('should expose exactly the 11 public authorable relationship types', () => {
-      expect([...AUTHORABLE_RELATION_TYPES]).toEqual(
-        [...EXPECTED_AUTHORABLE_RELATION_TYPES]
-      );
+      expect([...AUTHORABLE_RELATION_TYPES]).toEqual([...EXPECTED_AUTHORABLE_RELATION_TYPES]);
     });
 
     it('should keep RELATION_TYPES as a compatibility alias', () => {
@@ -103,10 +101,7 @@ describe('Type Definitions', () => {
 
     it('should accept batch-mode memories[] without content', () => {
       const args: StoreMemoryArgs = {
-        memories: [
-          { content: 'one' },
-          { content: 'two', tags: ['x'] },
-        ],
+        memories: [{ content: 'one' }, { content: 'two', tags: ['x'] }],
       };
       expect(args.memories).toHaveLength(2);
       expect(args.content).toBeUndefined();
@@ -128,7 +123,7 @@ describe('Type Definitions', () => {
     it('should allow query or queries', () => {
       const withQuery: RecallMemoryArgs = { query: 'test' };
       const withQueries: RecallMemoryArgs = { queries: ['q1', 'q2'] };
-      
+
       expect(withQuery.query).toBe('test');
       expect(withQueries.queries).toHaveLength(2);
     });
@@ -203,7 +198,7 @@ describe('Type Definitions', () => {
 
     it('should accept all 11 relationship types', () => {
       const types: AssociateMemoryArgs['type'][] = [...AUTHORABLE_RELATION_TYPES];
-      
+
       for (const type of types) {
         const args: AssociateMemoryArgs = {
           memory1_id: 'a',
@@ -306,10 +301,10 @@ describe('Type Constraints', () => {
     it('should only allow "any" or "all"', () => {
       const anyMode: RecallMemoryArgs = { tag_mode: 'any' };
       const allMode: RecallMemoryArgs = { tag_mode: 'all' };
-      
+
       expect(anyMode.tag_mode).toBe('any');
       expect(allMode.tag_mode).toBe('all');
-      
+
       // This should be a type error if uncommented:
       // const invalidMode: RecallMemoryArgs = { tag_mode: 'invalid' };
     });
@@ -319,7 +314,7 @@ describe('Type Constraints', () => {
     it('should only allow "exact" or "prefix"', () => {
       const exact: RecallMemoryArgs = { tag_match: 'exact' };
       const prefix: RecallMemoryArgs = { tag_match: 'prefix' };
-      
+
       expect(exact.tag_match).toBe('exact');
       expect(prefix.tag_match).toBe('prefix');
     });

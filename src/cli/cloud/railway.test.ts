@@ -26,7 +26,10 @@ function makeFakeRailway(
   const calls: string[][] = [];
   const interactive: string[] = [];
   const cwds: Array<string | undefined> = [];
-  const run = (args: string[], opts?: { interactive?: boolean; cwd?: string }): RailwayCommandResult => {
+  const run = (
+    args: string[],
+    opts?: { interactive?: boolean; cwd?: string }
+  ): RailwayCommandResult => {
     calls.push(args);
     if (opts?.interactive) interactive.push(args.join(' '));
     cwds.push(opts?.cwd);
@@ -34,27 +37,45 @@ function makeFakeRailway(
     if (sub === 'whoami') {
       return {
         code: overrides.whoamiCode ?? 0,
-        stdout: overrides.whoamiStdout ?? '{"name":"tester","workspaces":[{"id":"ws-1","name":"Personal"}]}',
+        stdout:
+          overrides.whoamiStdout ??
+          '{"name":"tester","workspaces":[{"id":"ws-1","name":"Personal"}]}',
         stderr: '',
       };
     }
     if (sub === 'login') return { code: 0, stdout: 'Logged in', stderr: '' };
-    if (sub === 'init') return { code: overrides.initCode ?? 0, stdout: '{"id":"proj-1","name":"automem"}', stderr: '' };
+    if (sub === 'init')
+      return {
+        code: overrides.initCode ?? 0,
+        stdout: '{"id":"proj-1","name":"automem"}',
+        stderr: '',
+      };
     if (sub === 'status') {
       return {
         code: overrides.statusCode ?? 0,
         stdout:
           overrides.statusStdout ??
-          JSON.stringify({ id: 'proj-1', environments: { edges: [{ node: { id: 'env-prod', name: 'production' } }] } }),
+          JSON.stringify({
+            id: 'proj-1',
+            environments: { edges: [{ node: { id: 'env-prod', name: 'production' } }] },
+          }),
         stderr: '',
       };
     }
     if (sub === 'link') return { code: overrides.linkCode ?? 0, stdout: '', stderr: '' };
     if (sub === 'domain') {
-      return { code: 0, stdout: JSON.stringify({ domain: overrides.domain ?? 'automem-prod.up.railway.app' }), stderr: '' };
+      return {
+        code: 0,
+        stdout: JSON.stringify({ domain: overrides.domain ?? 'automem-prod.up.railway.app' }),
+        stderr: '',
+      };
     }
     if (sub === 'variable') {
-      return { code: 0, stdout: JSON.stringify(overrides.variables ?? { AUTOMEM_API_TOKEN: 'rw-token-123' }), stderr: '' };
+      return {
+        code: 0,
+        stdout: JSON.stringify(overrides.variables ?? { AUTOMEM_API_TOKEN: 'rw-token-123' }),
+        stderr: '',
+      };
     }
     return { code: 1, stdout: '', stderr: `unknown: ${args.join(' ')}` };
   };
@@ -161,7 +182,9 @@ describe('Railway provider', () => {
       runCommand: fake.run,
       selectWorkspace: async (workspaces) => workspaces[0],
     });
-    await expect(provider.authorize({ preferPaste: true })).rejects.toThrow(/multiple railway workspaces/i);
+    await expect(provider.authorize({ preferPaste: true })).rejects.toThrow(
+      /multiple railway workspaces/i
+    );
   });
 
   it('runs `railway login` INTERACTIVELY when not signed in, then proceeds', async () => {
@@ -357,7 +380,9 @@ describe('Railway provider', () => {
         throw new Error('api boom');
       },
     });
-    await expect(provider.deploy({ token: 'railway-cli', workspaceId: 'ws-1' })).rejects.toThrow(/railway|link|provision/i);
+    await expect(provider.deploy({ token: 'railway-cli', workspaceId: 'ws-1' })).rejects.toThrow(
+      /railway|link|provision/i
+    );
   });
 
   // --- waitUntilReady + fetchCredentials ---
@@ -374,7 +399,10 @@ describe('Railway provider', () => {
       return { code: 0, stdout: '{}', stderr: '' };
     };
     const provider = createRailwayProvider({ runCommand: run, sleep: async () => {} });
-    const ready = await provider.waitUntilReady({ token: 'railway-cli', workdir: '/tmp/wd' }, { name: 'automem', status: 'DEPLOYED' });
+    const ready = await provider.waitUntilReady(
+      { token: 'railway-cli', workdir: '/tmp/wd' },
+      { name: 'automem', status: 'DEPLOYED' }
+    );
     expect(ready.name).toBe('automem');
     expect(domainCalls).toBeGreaterThanOrEqual(3); // kept polling until the domain showed up
   });
@@ -382,23 +410,41 @@ describe('Railway provider', () => {
   it('waitUntilReady never polls Railway’s deploy workflow (the call that false-negatives)', async () => {
     const fake = makeFakeRailway();
     const provider = createRailwayProvider({ runCommand: fake.run, sleep: async () => {} });
-    await provider.waitUntilReady({ token: 'railway-cli', workdir: '/tmp/wd' }, { name: 'automem' });
+    await provider.waitUntilReady(
+      { token: 'railway-cli', workdir: '/tmp/wd' },
+      { name: 'automem' }
+    );
     expect(fake.calls.some((c) => c[0] === 'domain')).toBe(true);
     expect(fake.calls.some((c) => c[0] === 'deployment')).toBe(false);
   });
 
   it('waitUntilReady gives up after its poll budget without throwing (fetchCredentials then surfaces the error)', async () => {
     const run = (args: string[]): RailwayCommandResult =>
-      args[0] === 'domain' ? { code: 0, stdout: '{}', stderr: '' } : { code: 0, stdout: '{}', stderr: '' };
-    const provider = createRailwayProvider({ runCommand: run, sleep: async () => {}, domainPollAttempts: 3 });
-    const ready = await provider.waitUntilReady({ token: 'railway-cli', workdir: '/tmp/wd' }, { name: 'automem' });
+      args[0] === 'domain'
+        ? { code: 0, stdout: '{}', stderr: '' }
+        : { code: 0, stdout: '{}', stderr: '' };
+    const provider = createRailwayProvider({
+      runCommand: run,
+      sleep: async () => {},
+      domainPollAttempts: 3,
+    });
+    const ready = await provider.waitUntilReady(
+      { token: 'railway-cli', workdir: '/tmp/wd' },
+      { name: 'automem' }
+    );
     expect(ready.name).toBe('automem'); // resolves, does not throw
   });
 
   it('captures the read domain + AUTOMEM_API_TOKEN as credentials, in the deploy workdir', async () => {
-    const fake = makeFakeRailway({ domain: 'mem.up.railway.app', variables: { AUTOMEM_API_TOKEN: 'rw-tok' } });
+    const fake = makeFakeRailway({
+      domain: 'mem.up.railway.app',
+      variables: { AUTOMEM_API_TOKEN: 'rw-tok' },
+    });
     const provider = createRailwayProvider({ runCommand: fake.run });
-    const creds = await provider.fetchCredentials({ token: 'railway-cli', workdir: '/tmp/iso-wd' }, { name: 'automem' });
+    const creds = await provider.fetchCredentials(
+      { token: 'railway-cli', workdir: '/tmp/iso-wd' },
+      { name: 'automem' }
+    );
     expect(creds.endpoint).toBe('https://mem.up.railway.app');
     expect(creds.apiKey).toBe('rw-tok');
     const domainIdx = fake.calls.findIndex((c) => c[0] === 'domain');
@@ -406,7 +452,9 @@ describe('Railway provider', () => {
   });
 
   it('prefers AUTOMEM_API_KEY over AUTOMEM_API_TOKEN when both are set (migration-proof)', async () => {
-    const fake = makeFakeRailway({ variables: { AUTOMEM_API_KEY: 'new-key', AUTOMEM_API_TOKEN: 'old-tok' } });
+    const fake = makeFakeRailway({
+      variables: { AUTOMEM_API_KEY: 'new-key', AUTOMEM_API_TOKEN: 'old-tok' },
+    });
     const provider = createRailwayProvider({ runCommand: fake.run });
     const creds = await provider.fetchCredentials({ token: 'railway-cli' }, { name: 'automem' });
     expect(creds.apiKey).toBe('new-key');
@@ -415,9 +463,9 @@ describe('Railway provider', () => {
   it('throws when the template API token cannot be captured', async () => {
     const fake = makeFakeRailway({ variables: {} });
     const provider = createRailwayProvider({ runCommand: fake.run });
-    await expect(provider.fetchCredentials({ token: 'railway-cli' }, { name: 'automem' })).rejects.toThrow(
-      /api token/i
-    );
+    await expect(
+      provider.fetchCredentials({ token: 'railway-cli' }, { name: 'automem' })
+    ).rejects.toThrow(/api token/i);
   });
 
   it('reads the existing domain rather than generating one with a default port', async () => {
@@ -435,11 +483,16 @@ describe('Railway provider', () => {
         ? { code: 0, stdout: '{}', stderr: '' }
         : { code: 0, stdout: '{"AUTOMEM_API_TOKEN":"t"}', stderr: '' };
     const provider = createRailwayProvider({ runCommand: run });
-    await expect(provider.fetchCredentials({ token: 'railway-cli' }, { name: 'automem' })).rejects.toThrow(/domain/i);
+    await expect(
+      provider.fetchCredentials({ token: 'railway-cli' }, { name: 'automem' })
+    ).rejects.toThrow(/domain/i);
   });
 
   it('uses a domain that already carries a scheme as-is (enables http for local testing)', async () => {
-    const fake = makeFakeRailway({ domain: 'http://127.0.0.1:5005', variables: { AUTOMEM_API_TOKEN: 't' } });
+    const fake = makeFakeRailway({
+      domain: 'http://127.0.0.1:5005',
+      variables: { AUTOMEM_API_TOKEN: 't' },
+    });
     const provider = createRailwayProvider({ runCommand: fake.run });
     const creds = await provider.fetchCredentials({ token: 'railway-cli' }, { name: 'automem' });
     expect(creds.endpoint).toBe('http://127.0.0.1:5005');

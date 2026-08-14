@@ -50,17 +50,18 @@ function runHook(shell: Shell, scriptBase: string, payload: string, tmpDir: stri
   if (shell === 'bash') {
     const bashScript = toUnix(scriptPath);
     const bashTmp = toUnix(tmpDir);
-    result = spawnSync(
-      'bash',
-      ['-c', `export TMPDIR="${bashTmp}"; exec bash "${bashScript}"`],
-      { input: payload, encoding: 'utf8', timeout: 15000 }
-    );
+    result = spawnSync('bash', ['-c', `export TMPDIR="${bashTmp}"; exec bash "${bashScript}"`], {
+      input: payload,
+      encoding: 'utf8',
+      timeout: 15000,
+    });
   } else {
-    result = spawnSync(
-      'pwsh',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
-      { input: payload, encoding: 'utf8', timeout: 15000, env: { ...process.env, TEMP: tmpDir, TMP: tmpDir } }
-    );
+    result = spawnSync('pwsh', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+      input: payload,
+      encoding: 'utf8',
+      timeout: 15000,
+      env: { ...process.env, TEMP: tmpDir, TMP: tmpDir },
+    });
   }
   return result.stdout ?? '';
 }
@@ -75,10 +76,12 @@ function transcriptWith(userTurns: number): string {
 }
 
 function transcriptWithNestedUserMessages(): string {
-  return [
-    '{"type":"user.message","data":{"text":"real user event"}}',
-    '{"type":"tool.result","data":{"events":[{"type":"user.message"},{"type":"user.message"},{"type":"user.message"},{"type":"user.message"}]}}',
-  ].join('\n') + '\n';
+  return (
+    [
+      '{"type":"user.message","data":{"text":"real user event"}}',
+      '{"type":"tool.result","data":{"events":[{"type":"user.message"},{"type":"user.message"},{"type":"user.message"},{"type":"user.message"}]}}',
+    ].join('\n') + '\n'
+  );
 }
 
 const SHELLS: Array<{ shell: Shell; available: () => boolean }> = [

@@ -76,7 +76,7 @@ export type ClaudeCodePluginInstallResult = { needsManualApiKey: boolean };
 // manual commands every time.
 function isAlreadyPresent(result: PluginCommandResult): boolean {
   return /already (installed|added|exists|registered|enabled)/i.test(
-    `${result.stdout}\n${result.stderr}`,
+    `${result.stdout}\n${result.stderr}`
   );
 }
 
@@ -102,7 +102,7 @@ export async function installClaudeCodePlugin(params: {
     if (added.code !== 0 && !isAlreadyPresent(added)) {
       throw new InstallError(
         "Couldn't add the AutoMem marketplace via `claude plugin marketplace add`.",
-        'Run the two /plugin commands inside Claude Code instead (shown below).',
+        'Run the two /plugin commands inside Claude Code instead (shown below).'
       );
     }
   }
@@ -111,7 +111,7 @@ export async function installClaudeCodePlugin(params: {
   if (installed.code !== 0 && !isAlreadyPresent(installed)) {
     throw new InstallError(
       "Couldn't install the Claude Code plugin via `claude plugin install`.",
-      'Run the two /plugin commands inside Claude Code instead (shown below).',
+      'Run the two /plugin commands inside Claude Code instead (shown below).'
     );
   }
 
@@ -121,13 +121,7 @@ export async function installClaudeCodePlugin(params: {
 // How the guided installer wires Claude Code. Defaults to the recommended plugin.
 export type ClaudeCodeMode = 'plugin' | 'settings';
 
-export const AGENT_CLIENTS = [
-  'codex',
-  'claude-code',
-  'cursor',
-  'openclaw',
-  'hermes',
-] as const;
+export const AGENT_CLIENTS = ['codex', 'claude-code', 'cursor', 'openclaw', 'hermes'] as const;
 
 export type AgentClient = (typeof AGENT_CLIENTS)[number];
 export const DEFAULT_AGENT_CLIENTS = [
@@ -222,7 +216,10 @@ type DetectOptions = {
 type VerifyEndpointOptions = {
   endpoint: string;
   apiKey?: string;
-  fetchFn?: (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{
+  fetchFn?: (
+    url: string,
+    init?: { headers?: Record<string, string>; signal?: AbortSignal }
+  ) => Promise<{
     ok: boolean;
     status: number;
     json?: () => Promise<unknown>;
@@ -245,7 +242,11 @@ type WaitEndpointOptions = VerifyEndpointOptions & {
   stableChecks?: number;
 };
 
-type CommandRunner = (command: string, args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }) => void;
+type CommandRunner = (
+  command: string,
+  args: string[],
+  options?: { cwd?: string; env?: NodeJS.ProcessEnv }
+) => void;
 
 const AUTOMEM_REPO = 'https://github.com/verygoodplugins/automem';
 const REDACTED = '<redacted>';
@@ -349,7 +350,9 @@ function parseClients(value: string | undefined): AgentClient[] | undefined {
     .filter(Boolean);
   const invalid = requested.find((client) => !AGENT_CLIENTS.includes(client as AgentClient));
   if (invalid) {
-    throw new Error(`Invalid AutoMem client: ${invalid}. Expected one of ${AGENT_CLIENTS.join(', ')}.`);
+    throw new Error(
+      `Invalid AutoMem client: ${invalid}. Expected one of ${AGENT_CLIENTS.join(', ')}.`
+    );
   }
   return requested as AgentClient[];
 }
@@ -506,7 +509,7 @@ function hermesPaths(environment: InstallEnvironment, mode: HermesInstallMode): 
     base.push(
       path.join(environment.clientRoots.hermes, 'plugins', 'automem', '__init__.py'),
       path.join(environment.clientRoots.hermes, 'plugins', 'automem', 'plugin.yaml'),
-      path.join(environment.clientRoots.hermes, '.env'),
+      path.join(environment.clientRoots.hermes, '.env')
     );
   }
   return base;
@@ -642,7 +645,8 @@ export function buildInstallPlan(params: {
           actions.push({
             kind: 'manual-step',
             title: 'Install the Claude Code plugin (recommended)',
-            detail: 'Run these inside Claude Code — the plugin bundles the MCP server, hooks, and auto-updates.',
+            detail:
+              'Run these inside Claude Code — the plugin bundles the MCP server, hooks, and auto-updates.',
             client,
             paths: [],
             commands: [...CLAUDE_CODE_PLUGIN_COMMANDS],
@@ -653,11 +657,12 @@ export function buildInstallPlan(params: {
       actions.push({
         kind: 'install-agent',
         title: `Install ${clientLabel(client)} integration`,
-        detail: client === 'hermes'
-          ? `Run the Hermes AutoMem installer in ${options.hermesMode} mode with reviewed paths and backups.`
-          : client === 'claude-code'
-            ? 'Write the settings-level Claude Code hooks + permissions (plugin is the recommended alternative).'
-            : `Run the ${clientLabel(client)} AutoMem installer with reviewed paths and backups.`,
+        detail:
+          client === 'hermes'
+            ? `Run the Hermes AutoMem installer in ${options.hermesMode} mode with reviewed paths and backups.`
+            : client === 'claude-code'
+              ? 'Write the settings-level Claude Code hooks + permissions (plugin is the recommended alternative).'
+              : `Run the ${clientLabel(client)} AutoMem installer with reviewed paths and backups.`,
         client,
         paths: agentPaths(client, environment, options),
       });
@@ -669,7 +674,9 @@ export function buildInstallPlan(params: {
     endpoint,
     apiKeyProvided: Boolean(options.apiKey),
     localDir,
-    requiresReview: actions.some((action) => action.paths.length > 0 || action.kind === 'prepare-local'),
+    requiresReview: actions.some(
+      (action) => action.paths.length > 0 || action.kind === 'prepare-local'
+    ),
     actions,
   };
 }
@@ -719,7 +726,9 @@ export function validateInstallPrerequisites(
   return missing;
 }
 
-export async function verifyAutoMemEndpoint(options: VerifyEndpointOptions): Promise<{ ok: true } | { ok: false; message: string }> {
+export async function verifyAutoMemEndpoint(
+  options: VerifyEndpointOptions
+): Promise<{ ok: true } | { ok: false; message: string }> {
   const endpoint = options.endpoint.replace(/\/$/, '');
   const fetchFn = options.fetchFn ?? globalThis.fetch;
   if (!fetchFn) {
@@ -733,7 +742,12 @@ export async function verifyAutoMemEndpoint(options: VerifyEndpointOptions): Pro
   const withTimeout = async (
     url: string,
     init?: { headers?: Record<string, string> }
-  ): Promise<{ ok: boolean; status: number; json?: () => Promise<unknown>; text?: () => Promise<string> }> => {
+  ): Promise<{
+    ok: boolean;
+    status: number;
+    json?: () => Promise<unknown>;
+    text?: () => Promise<string>;
+  }> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -778,7 +792,10 @@ export async function verifyAutoMemEndpoint(options: VerifyEndpointOptions): Pro
         },
       });
       if (!recall.ok) {
-        return { ok: false, message: `Authenticated recall probe failed with HTTP ${recall.status}.` };
+        return {
+          ok: false,
+          message: `Authenticated recall probe failed with HTTP ${recall.status}.`,
+        };
       }
     }
 
@@ -829,7 +846,9 @@ export async function waitForAutoMemEndpoint(
 
   // Reaching here means we ran out of attempts. `last` may be a failure, or a success
   // that never strung together `stableChecks` in a row (kept flickering).
-  const detail = last.ok ? `did not stay healthy for ${stableChecks} consecutive checks` : last.message;
+  const detail = last.ok
+    ? `did not stay healthy for ${stableChecks} consecutive checks`
+    : last.message;
   return {
     ok: false,
     message: `AutoMem endpoint did not become healthy after ${attempts} attempts: ${detail}`,
@@ -871,7 +890,11 @@ function readEnvFileValue(filePath: string, key: string): string | undefined {
   return value || undefined;
 }
 
-function defaultRunCommand(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): void {
+function defaultRunCommand(
+  command: string,
+  args: string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
+): void {
   execFileSync(command, args, {
     cwd: options.cwd,
     env: options.env ?? process.env,
@@ -1033,14 +1056,22 @@ function clientGlyph(client: AgentClient, theme: RenderTheme): string {
 // One concise line per stage. The title already names the action, so detail is
 // only the single most useful fact (or nothing for an agent install). Secrets are
 // never rendered as values — "+ API key" stands in for a provided key.
-function renderActionDetail(action: InstallAction, plan: InstallPlan, theme: RenderTheme): string[] {
+function renderActionDetail(
+  action: InstallAction,
+  plan: InstallPlan,
+  theme: RenderTheme
+): string[] {
   const detail = (value: string): string => `     ${theme.style.dim(value)}`;
   const endpoint = (plan.endpoint ?? '<prompted>').replace(/\/$/, '');
   switch (action.kind) {
     case 'verify-endpoint':
       return [detail(`${endpoint}/health${plan.apiKeyProvided ? '  + auth probe' : ''}`)];
     case 'write-env':
-      return [detail(`AUTOMEM_API_URL=${plan.endpoint ?? '<prompted>'}${plan.apiKeyProvided ? '  + API key' : ''}`)];
+      return [
+        detail(
+          `AUTOMEM_API_URL=${plan.endpoint ?? '<prompted>'}${plan.apiKeyProvided ? '  + API key' : ''}`
+        ),
+      ];
     case 'prepare-local':
       return [detail(`docker compose in ${tildify(plan.localDir)}`)];
     case 'provision-cloud':
@@ -1090,7 +1121,9 @@ export function renderInstallPlan(
       action.kind === 'install-agent' && action.client
         ? `${clientGlyph(action.client, theme)} ${action.title}`
         : action.title;
-    out.push(`  ${tagStyle(theme, action.kind)(`[${actionTag(action)}]`)} ${theme.style.bold(title)}`);
+    out.push(
+      `  ${tagStyle(theme, action.kind)(`[${actionTag(action)}]`)} ${theme.style.bold(title)}`
+    );
     out.push(...renderActionDetail(action, plan, theme));
     for (const cmd of action.commands ?? []) {
       out.push(`     ${theme.style.gold('$')} ${cmd}`);
@@ -1103,7 +1136,10 @@ export function renderInstallPlan(
   }
 
   if (writesFiles) {
-    out.push('', `  ${theme.style.dim(`backups ${theme.symbol.arrow} each changed file keeps a .bak copy`)}`);
+    out.push(
+      '',
+      `  ${theme.style.dim(`backups ${theme.symbol.arrow} each changed file keeps a .bak copy`)}`
+    );
   }
 
   return out.join('\n');
@@ -1118,15 +1154,25 @@ async function resolveInteractiveOptions(
 ): Promise<ResolvedInstallOptions> {
   let target = parsed.target;
   if (!target) {
-    target = await cancelable(promptSelect<InstallTarget>({
-      message: 'Where should AutoMem run?',
-      options: [
-        { value: 'cloud', label: 'Hosted Cloud', hint: 'InstaPods or Railway — guided deploy' },
-        { value: 'local', label: 'Local Docker', hint: 'Clone AutoMem and start Docker Compose on this machine' },
-        { value: 'existing', label: 'Existing Endpoint', hint: 'Use an AutoMem URL you already have' },
-      ],
-      initialValue: 'cloud',
-    }));
+    target = await cancelable(
+      promptSelect<InstallTarget>({
+        message: 'Where should AutoMem run?',
+        options: [
+          { value: 'cloud', label: 'Hosted Cloud', hint: 'InstaPods or Railway — guided deploy' },
+          {
+            value: 'local',
+            label: 'Local Docker',
+            hint: 'Clone AutoMem and start Docker Compose on this machine',
+          },
+          {
+            value: 'existing',
+            label: 'Existing Endpoint',
+            hint: 'Use an AutoMem URL you already have',
+          },
+        ],
+        initialValue: 'cloud',
+      })
+    );
   }
 
   let endpoint = parsed.endpoint;
@@ -1162,10 +1208,12 @@ async function resolveInteractiveOptions(
 
   if (target === 'local') {
     localDir = (
-      await cancelable(promptText({
-        message: 'Local AutoMem server directory',
-        defaultValue: localDir,
-      }))
+      await cancelable(
+        promptText({
+          message: 'Local AutoMem server directory',
+          defaultValue: localDir,
+        })
+      )
     ).trim();
     endpoint = endpoint ?? DEFAULT_AUTOMEM_API_URL;
   }
@@ -1173,24 +1221,30 @@ async function resolveInteractiveOptions(
   // InstaPods/Railway provision endpoint + token during apply. 'existing', and the
   // cloud 'other' option, collect them here up front. (A cloud run with an explicit
   // --endpoint still skips provisioning via the apply-phase `!endpoint` guard.)
-  const collectEndpointHere = target === 'existing' || (target === 'cloud' && cloudProvider === 'other');
+  const collectEndpointHere =
+    target === 'existing' || (target === 'cloud' && cloudProvider === 'other');
 
   if (collectEndpointHere && !endpoint) {
     endpoint = (
-      await cancelable(promptText({
-        message: 'AutoMem API URL',
-        validate: (value) =>
-          /^https?:\/\/\S+$/.test(value.trim()) || 'Enter a URL like https://your-automem.example',
-      }))
+      await cancelable(
+        promptText({
+          message: 'AutoMem API URL',
+          validate: (value) =>
+            /^https?:\/\/\S+$/.test(value.trim()) ||
+            'Enter a URL like https://your-automem.example',
+        })
+      )
     ).trim();
   }
 
   if (collectEndpointHere && !apiKey) {
     // Masked: the key must never echo in cleartext as the user types.
     const entered = (
-      await cancelable(promptPassword({
-        message: 'AutoMem API key (leave blank if this endpoint does not require one)',
-      }))
+      await cancelable(
+        promptPassword({
+          message: 'AutoMem API key (leave blank if this endpoint does not require one)',
+        })
+      )
     ).trim();
     apiKey = entered || undefined;
   }
@@ -1198,64 +1252,72 @@ async function resolveInteractiveOptions(
   let clients = parsed.clients;
   if (!parsed.noAgentInstall && !clientsExplicit) {
     const detected = new Set(environment.detectedClients.map((client) => client.client));
-    const selected = await cancelable(promptMultiselect<AgentClient>({
-      message: 'Install AutoMem into which agents?',
-      options: AGENT_CLIENTS.map((client) => ({
-        value: client,
-        label: clientLabel(client),
-        hint: detected.has(client) ? 'detected on this machine' : 'not detected, still installable',
-      })),
-      // Pre-check everything detected on this machine (Hermes included) so a
-      // user who already runs an agent reaches its follow-up prompts by default.
-      initialValues: AGENT_CLIENTS.filter((client) => detected.has(client)),
-      required: false,
-    }));
+    const selected = await cancelable(
+      promptMultiselect<AgentClient>({
+        message: 'Install AutoMem into which agents?',
+        options: AGENT_CLIENTS.map((client) => ({
+          value: client,
+          label: clientLabel(client),
+          hint: detected.has(client)
+            ? 'detected on this machine'
+            : 'not detected, still installable',
+        })),
+        // Pre-check everything detected on this machine (Hermes included) so a
+        // user who already runs an agent reaches its follow-up prompts by default.
+        initialValues: AGENT_CLIENTS.filter((client) => detected.has(client)),
+        required: false,
+      })
+    );
     clients = selected.length > 0 ? selected : [];
   }
 
   let hermesMode = parsed.hermesMode;
   if (!parsed.noAgentInstall && clients.includes('hermes') && !hermesModeExplicit) {
-    hermesMode = await cancelable(promptSelect<HermesInstallMode>({
-      message: 'How should AutoMem integrate with Hermes?',
-      options: [
-        {
-          value: 'provider',
-          label: 'Native memory provider',
-          hint: 'recommended; replaces Hermes built-in memory provider selection',
-        },
-        {
-          value: 'mcp',
-          label: 'MCP tools only',
-          hint: 'portable tools, no provider replacement',
-        },
-        {
-          value: 'both',
-          label: 'Both',
-          hint: 'advanced; exposes two AutoMem paths',
-        },
-      ],
-      initialValue: 'provider',
-    }));
+    hermesMode = await cancelable(
+      promptSelect<HermesInstallMode>({
+        message: 'How should AutoMem integrate with Hermes?',
+        options: [
+          {
+            value: 'provider',
+            label: 'Native memory provider',
+            hint: 'recommended; replaces Hermes built-in memory provider selection',
+          },
+          {
+            value: 'mcp',
+            label: 'MCP tools only',
+            hint: 'portable tools, no provider replacement',
+          },
+          {
+            value: 'both',
+            label: 'Both',
+            hint: 'advanced; exposes two AutoMem paths',
+          },
+        ],
+        initialValue: 'provider',
+      })
+    );
   }
 
   let claudeCodeMode = parsed.claudeCodeMode;
   if (!parsed.noAgentInstall && clients.includes('claude-code') && !claudeCodeModeExplicit) {
-    claudeCodeMode = await cancelable(promptSelect<ClaudeCodeMode>({
-      message: 'How should AutoMem integrate with Claude Code?',
-      options: [
-        {
-          value: 'plugin',
-          label: 'Plugin (recommended)',
-          hint: 'bundles the MCP server + hooks, prompts for your endpoint, auto-updates',
-        },
-        {
-          value: 'settings',
-          label: 'Settings-level install',
-          hint: 'writes ~/.claude hooks + permissions directly; no auto-update',
-        },
-      ],
-      initialValue: 'plugin',
-    }));
+    claudeCodeMode = await cancelable(
+      promptSelect<ClaudeCodeMode>({
+        message: 'How should AutoMem integrate with Claude Code?',
+        options: [
+          {
+            value: 'plugin',
+            label: 'Plugin (recommended)',
+            hint: 'bundles the MCP server + hooks, prompts for your endpoint, auto-updates',
+          },
+          {
+            value: 'settings',
+            label: 'Settings-level install',
+            hint: 'writes ~/.claude hooks + permissions directly; no auto-update',
+          },
+        ],
+        initialValue: 'plugin',
+      })
+    );
   }
 
   return {
@@ -1271,13 +1333,16 @@ async function resolveInteractiveOptions(
   };
 }
 
-async function applyAgentInstall(client: AgentClient, params: {
-  endpoint?: string;
-  apiKey?: string;
-  dryRun: boolean;
-  hermesMode: HermesInstallMode;
-  claudeCodeMode: ClaudeCodeMode;
-}): Promise<void> {
+async function applyAgentInstall(
+  client: AgentClient,
+  params: {
+    endpoint?: string;
+    apiKey?: string;
+    dryRun: boolean;
+    hermesMode: HermesInstallMode;
+    claudeCodeMode: ClaudeCodeMode;
+  }
+): Promise<void> {
   // quiet: true everywhere — the guided installer shows its own themed checklist,
   // so the per-agent installers must not dump their own ✅/📦 output into the flow.
   switch (client) {
@@ -1434,7 +1499,9 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       const local = await prepareLocalServer({ localDir: plan.localDir, apiKey, dryRun: false });
       endpoint = local.endpoint;
       apiKey = local.apiKey;
-      process.stdout.write(`  ${theme.style.gold(theme.symbol.check)} Local AutoMem server ready\n`);
+      process.stdout.write(
+        `  ${theme.style.gold(theme.symbol.check)} Local AutoMem server ready\n`
+      );
 
       const spin = startSpinner('Waiting for AutoMem to come online…');
       const ready = await waitForAutoMemEndpoint({ endpoint });
@@ -1468,11 +1535,19 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       // domain needs DNS). Budget ~5 min (150 × 2s) so we don't false-fail verify on a
       // still-booting deployment (the embedding-model download is the long pole).
       if (endpoint) {
-        const spin = startSpinner('Waiting for AutoMem to come online (a fresh deploy can take a few minutes)…');
+        const spin = startSpinner(
+          'Waiting for AutoMem to come online (a fresh deploy can take a few minutes)…'
+        );
         // stableChecks: a fresh deploy flickers during early boot (health up before the
         // auth'd recall blueprint registers / the container restarts once), so require a
         // few consecutive health+recall passes before declaring it ready.
-        const ready = await waitForAutoMemEndpoint({ endpoint, apiKey, attempts: 150, intervalMs: 2000, stableChecks: 3 });
+        const ready = await waitForAutoMemEndpoint({
+          endpoint,
+          apiKey,
+          attempts: 150,
+          intervalMs: 2000,
+          stableChecks: 3,
+        });
         if (ready.ok) {
           spin.stop('AutoMem is online');
         } else {
@@ -1516,7 +1591,12 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       // Retry rather than single-shot: a just-provisioned cloud endpoint can still
       // flicker for a beat after the warmup (the happy path passes on attempt 1, so
       // local/existing targets see no added delay).
-      const verify = await waitForAutoMemEndpoint({ endpoint, apiKey, attempts: 8, intervalMs: 2000 });
+      const verify = await waitForAutoMemEndpoint({
+        endpoint,
+        apiKey,
+        attempts: 8,
+        intervalMs: 2000,
+      });
       if (!verify.ok) {
         list.fail('verify');
         throw new InstallError("Couldn't verify the AutoMem endpoint.", verify.message);
@@ -1559,7 +1639,10 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
               runCommand: defaultPluginCommand,
             });
             if (pluginInstall.needsManualApiKey) {
-              list.fail(key, `${clientGlyph(client, theme)} Claude Code plugin needs API key configuration`);
+              list.fail(
+                key,
+                `${clientGlyph(client, theme)} Claude Code plugin needs API key configuration`
+              );
               agentFailures.push({
                 client,
                 message:
@@ -1591,7 +1674,10 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           });
           list.done(key, `${clientGlyph(client, theme)} ${clientLabel(client)} configured`);
         } catch (agentErr) {
-          list.fail(key, `${clientGlyph(client, theme)} ${clientLabel(client)} needs a manual step`);
+          list.fail(
+            key,
+            `${clientGlyph(client, theme)} ${clientLabel(client)} needs a manual step`
+          );
           agentFailures.push({
             client,
             message: agentErr instanceof Error ? agentErr.message : String(agentErr),
@@ -1623,7 +1709,9 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     }
     if (agentFailures.length > 0) {
       const subject =
-        agentFailures.length === 1 ? '1 agent needs a manual step:' : `${agentFailures.length} agents need a manual step:`;
+        agentFailures.length === 1
+          ? '1 agent needs a manual step:'
+          : `${agentFailures.length} agents need a manual step:`;
       nextSteps.push(subject);
       for (const failure of agentFailures) {
         nextSteps.push(`  ${failure.hint ?? manualFixHint(failure.client)}`);

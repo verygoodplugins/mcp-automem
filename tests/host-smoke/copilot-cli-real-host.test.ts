@@ -31,7 +31,17 @@ describe.runIf(hasCopilotCli())('Copilot CLI real MCP configuration boundary', (
     homes.push(home);
     const spec = HOST_SMOKE_SPECS.find((candidate) => candidate.host === 'copilot-cli')!;
 
-    const added = runCopilot(home, ['mcp', 'add', '--json', '--tools', '*', 'automem', '--', 'node', '--version']);
+    const added = runCopilot(home, [
+      'mcp',
+      'add',
+      '--json',
+      '--tools',
+      '*',
+      'automem',
+      '--',
+      'node',
+      '--version',
+    ]);
     expect(added.status, added.stderr).toBe(0);
 
     const inspected = runCopilot(home, ['mcp', 'get', 'automem', '--json']);

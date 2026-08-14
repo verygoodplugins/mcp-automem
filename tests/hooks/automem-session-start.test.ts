@@ -14,9 +14,10 @@ import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HOOKS_DIR } from './helpers';
 
-function runSessionStart(
-  options: { cwd?: string; input?: string; env?: NodeJS.ProcessEnv } = {}
-): { stdout: string; exitCode: number } {
+function runSessionStart(options: { cwd?: string; input?: string; env?: NodeJS.ProcessEnv } = {}): {
+  stdout: string;
+  exitCode: number;
+} {
   const hookPath = path.join(HOOKS_DIR, 'automem-session-start.sh');
   const result = spawnSync('bash', [hookPath], {
     encoding: 'utf8',

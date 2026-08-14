@@ -138,7 +138,11 @@ finally:
       DOTENV_CONFIG_QUIET: 'true',
     },
   });
-  const lastJsonLine = stdout.trim().split(/\r?\n/).reverse().find((line) => line.startsWith('{'));
+  const lastJsonLine = stdout
+    .trim()
+    .split(/\r?\n/)
+    .reverse()
+    .find((line) => line.startsWith('{'));
   if (!lastJsonLine) {
     throw new Error(`Hermes inspection did not emit JSON:\n${stdout}`);
   }
@@ -239,7 +243,11 @@ finally:
       DOTENV_CONFIG_QUIET: 'true',
     },
   });
-  const lastJsonLine = stdout.trim().split(/\r?\n/).reverse().find((line) => line.startsWith('{'));
+  const lastJsonLine = stdout
+    .trim()
+    .split(/\r?\n/)
+    .reverse()
+    .find((line) => line.startsWith('{'));
   if (!lastJsonLine) {
     throw new Error(`Hermes offline turn inspection did not emit JSON:\n${stdout}`);
   }
@@ -303,7 +311,11 @@ print(json.dumps({
       DOTENV_CONFIG_QUIET: 'true',
     },
   });
-  const lastJsonLine = stdout.trim().split(/\r?\n/).reverse().find((line) => line.startsWith('{'));
+  const lastJsonLine = stdout
+    .trim()
+    .split(/\r?\n/)
+    .reverse()
+    .find((line) => line.startsWith('{'));
   if (!lastJsonLine) {
     throw new Error(`Hermes provider contract did not emit JSON:\n${stdout}`);
   }
@@ -313,7 +325,7 @@ print(json.dumps({
 async function runHermesProviderPrefetchSequence(
   home: string,
   prompts: string[],
-  cwd: string = REPO_ROOT,
+  cwd: string = REPO_ROOT
 ): Promise<string[]> {
   if (!HERMES_PYTHON) {
     throw new Error('Hermes Python is not available');
@@ -358,7 +370,11 @@ print(json.dumps(outputs))
       DOTENV_CONFIG_QUIET: 'true',
     },
   });
-  const lastJsonLine = stdout.trim().split(/\r?\n/).reverse().find((line) => line.startsWith('['));
+  const lastJsonLine = stdout
+    .trim()
+    .split(/\r?\n/)
+    .reverse()
+    .find((line) => line.startsWith('['));
   if (!lastJsonLine) {
     throw new Error(`Hermes provider prefetch flow did not emit JSON:\n${stdout}`);
   }
@@ -416,7 +432,11 @@ print(json.dumps({
       DOTENV_CONFIG_QUIET: 'true',
     },
   });
-  const lastJsonLine = stdout.trim().split(/\r?\n/).reverse().find((line) => line.startsWith('{'));
+  const lastJsonLine = stdout
+    .trim()
+    .split(/\r?\n/)
+    .reverse()
+    .find((line) => line.startsWith('{'));
   if (!lastJsonLine) {
     throw new Error(`Hermes provider recall tool did not emit JSON:\n${stdout}`);
   }
@@ -504,7 +524,9 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
       configureHermesMcpServerForLocalSource(tmpDir, fakeApi);
 
       const inspection = await inspectHermesTools(tmpDir);
-      const openaiAutomem = inspection.openaiNames.filter((name) => name.includes('automem')).sort();
+      const openaiAutomem = inspection.openaiNames
+        .filter((name) => name.includes('automem'))
+        .sort();
       const anthropicAutomem = inspection.anthropicOAuthNames
         .filter((name) => name.includes('automem'))
         .sort();
@@ -525,7 +547,7 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
         expect(turn.memoryContext).not.toContain('remembered host smoke detail');
       }
     },
-    45_000,
+    45_000
   );
 
   it('provider contract recalls, honors disabled tools, and keeps auto-capture off by default', async () => {
@@ -549,7 +571,9 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     // tools — it should point at the MCP surface instead.
     expect(contract.systemPrompt).not.toContain('automem_* tools for intentional');
     expect(contract.systemPrompt).toContain('mcp_automem_*');
-    expect(fakeApi.requests.some((request) => request.method === 'POST' && request.path === '/memory')).toBe(false);
+    expect(
+      fakeApi.requests.some((request) => request.method === 'POST' && request.path === '/memory')
+    ).toBe(false);
   }, 45_000);
 
   it('provider system prompt advertises automem_* tools only when they are registered', async () => {
@@ -599,14 +623,16 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     const recalls = recallRequests(fakeApi);
     expect(recalls).toHaveLength(5);
 
-    const preference = recalls.find((url) => url.searchParams.getAll('tags').includes('preference'));
+    const preference = recalls.find((url) =>
+      url.searchParams.getAll('tags').includes('preference')
+    );
     expect(preference?.searchParams.get('limit')).toBe('5');
     expect(preference?.searchParams.get('sort')).toBe('updated_desc');
     expect(preference?.searchParams.get('format')).toBe('detailed');
     expect(preference?.searchParams.has('query')).toBe(false);
 
     const firstContext = recalls.find(
-      (url) => url.searchParams.get('query') === 'Hermes AutoMem provider blueprint',
+      (url) => url.searchParams.get('query') === 'Hermes AutoMem provider blueprint'
     );
     expect(firstContext?.searchParams.get('limit')).toBe('10');
     expect(firstContext?.searchParams.get('time_query')).toBe('last 90 days');
@@ -614,21 +640,21 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     expect(firstContext?.searchParams.getAll('tags')).toContain('mcp-automem');
 
     const topicShift = recalls.find(
-      (url) => url.searchParams.get('query') === 'Railway deployment status',
+      (url) => url.searchParams.get('query') === 'Railway deployment status'
     );
     expect(topicShift?.searchParams.get('limit')).toBe('10');
     expect(topicShift?.searchParams.get('time_query')).toBe('last 90 days');
     expect(topicShift?.searchParams.getAll('tags')).toEqual([]);
 
     const explicit = recalls.find(
-      (url) => url.searchParams.get('query') === 'What do you remember about Krakow trip?',
+      (url) => url.searchParams.get('query') === 'What do you remember about Krakow trip?'
     );
     expect(explicit?.searchParams.get('limit')).toBe('10');
     expect(explicit?.searchParams.get('time_query')).toBe('last 90 days');
     expect(explicit?.searchParams.getAll('tags')).toEqual([]);
 
     const debug = recalls.find((url) =>
-      url.searchParams.get('query')?.startsWith('TimeoutError stack trace failing'),
+      url.searchParams.get('query')?.startsWith('TimeoutError stack trace failing')
     );
     expect(debug?.searchParams.get('limit')).toBe('10');
     expect(debug?.searchParams.get('format')).toBe('detailed');
@@ -652,11 +678,11 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     await runHermesProviderPrefetchSequence(
       tmpDir,
       ['Hermes AutoMem provider blueprint'],
-      ambiguousProjectDir,
+      ambiguousProjectDir
     );
 
     const context = recallRequests(fakeApi).find(
-      (url) => url.searchParams.get('query') === 'Hermes AutoMem provider blueprint',
+      (url) => url.searchParams.get('query') === 'Hermes AutoMem provider blueprint'
     );
     expect(context?.searchParams.get('limit')).toBe('10');
     expect(context?.searchParams.getAll('tags')).toEqual([]);
@@ -676,13 +702,13 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     await runHermesProviderPrefetchSequence(tmpDir, ['what do we know about mcp-automem Hermes?']);
 
     const generalContext = recallRequests(fakeApi).find(
-      (url) => url.searchParams.get('query') === 'do we like Example Contact?',
+      (url) => url.searchParams.get('query') === 'do we like Example Contact?'
     );
     expect(generalContext?.searchParams.get('limit')).toBe('10');
     expect(generalContext?.searchParams.getAll('tags')).toEqual([]);
 
     const projectContext = recallRequests(fakeApi).find(
-      (url) => url.searchParams.get('query') === 'what do we know about mcp-automem Hermes?',
+      (url) => url.searchParams.get('query') === 'what do we know about mcp-automem Hermes?'
     );
     expect(projectContext?.searchParams.get('limit')).toBe('10');
     expect(projectContext?.searchParams.getAll('tags')).toContain('mcp-automem');
@@ -708,8 +734,8 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
           request.method === 'GET' &&
           request.path.startsWith('/recall?') &&
           request.path.includes('query=provider+explicit+recall') &&
-          request.path.includes('limit=10'),
-      ),
+          request.path.includes('limit=10')
+      )
     ).toBe(true);
   }, 45_000);
 
@@ -769,7 +795,7 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
           AUTOMEM_API_TOKEN: '',
           DOTENV_CONFIG_QUIET: 'true',
         },
-      },
+      }
     );
 
     // The block is wrapped by Hermes' own build_memory_context_block, so this is
@@ -807,7 +833,7 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
           AUTOMEM_API_TOKEN: '',
           DOTENV_CONFIG_QUIET: 'true',
         },
-      },
+      }
     );
 
     expect(stdout).not.toContain('<memory-context>');
@@ -843,7 +869,7 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
       const turn = await inspectHermesOfflineTurn(tmpDir);
       expect(turn.duplicateToolNames).toEqual({});
     },
-    60_000,
+    60_000
   );
 
   it('reproduces and cleans the pre-release duplicate AutoMem tool state', async () => {
