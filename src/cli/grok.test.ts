@@ -169,6 +169,62 @@ describe('grok setup', () => {
     expect(fs.readFileSync(realRules, 'utf8')).not.toContain('tags: ["some-project"]');
   });
 
+  it('does not hand a shell-exported key to a different endpoint', async () => {
+    // The shell's key belongs to the shell's endpoint; --endpoint elsewhere must not
+    // disclose it to that host.
+    process.env.AUTOMEM_API_URL = 'https://shell.example.test';
+    process.env.AUTOMEM_API_KEY = 'sk-shell-host';
+
+    await applyGrokSetup({ endpoint: 'https://elsewhere.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('https://elsewhere.example.test');
+    expect(parsed.mcp_servers.memory.env).not.toHaveProperty('AUTOMEM_API_KEY');
+  });
+
+  it('uses a shell-exported key when it belongs to the chosen endpoint', async () => {
+    process.env.AUTOMEM_API_URL = 'https://shell.example.test';
+    process.env.AUTOMEM_API_KEY = 'sk-shell-host';
+
+    await applyGrokSetup({ endpoint: 'https://shell.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('sk-shell-host');
+  });
+
+  it('uses an unbound shell key when no endpoint is exported', async () => {
+    delete process.env.AUTOMEM_API_URL;
+    process.env.AUTOMEM_API_KEY = 'sk-unbound';
+
+    await applyGrokSetup({ endpoint: 'https://anywhere.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('sk-unbound');
+  });
+
+  it('refuses to write rules over the Grok config file', async () => {
+    const configPath = path.join(tmpDir, 'config.toml');
+    await applyGrokSetup({ endpoint: 'https://automem.example.test', quiet: true });
+    const before = fs.readFileSync(configPath, 'utf8');
+
+    await expect(
+      applyGrokSetup({
+        endpoint: 'https://automem.example.test',
+        quiet: true,
+        rulesPath: configPath,
+      })
+    ).rejects.toThrow(/that is the Grok config file/);
+
+    // The registration survives rather than being overwritten with Markdown.
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+  });
+
   it('keeps the stored API key when the endpoint is unchanged', async () => {
     await applyGrokSetup({
       endpoint: 'https://same.example.test',

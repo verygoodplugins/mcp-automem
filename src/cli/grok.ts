@@ -58,7 +58,15 @@ function sameFile(a: string, b: string): boolean {
     try {
       return fs.realpathSync(p);
     } catch {
-      return path.resolve(p);
+      // Not created yet — the first-install case. Resolve the parent instead, so a
+      // symlinked `~/.grok` still matches a `--rules` path spelled through its real
+      // directory; falling straight back to a lexical compare would call them different
+      // files and bake a project into the global rules.
+      try {
+        return path.join(fs.realpathSync(path.dirname(p)), path.basename(p));
+      } catch {
+        return path.resolve(p);
+      }
     }
   };
   return real(a) === real(b);
@@ -112,18 +120,35 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
     process.env.AUTOMEM_ENDPOINT ||
     existingCreds.endpoint ||
     DEFAULT_AUTOMEM_API_URL;
-  // A stored key belongs to the endpoint it was issued for. Carrying it over to a
-  // different host would send that secret as a Bearer credential to a server that was
-  // never meant to have it, so only reuse it when the endpoint is unchanged — compared
-  // the way the client compares it, since AutoMemClient strips a trailing slash and
-  // `https://x` and `https://x/` are the same server.
-  const reusableStoredKey =
-    existingCreds.endpoint &&
-    normalizeEndpoint(existingCreds.endpoint) === normalizeEndpoint(endpoint)
-      ? existingCreds.apiKey
-      : undefined;
-  const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? reusableStoredKey;
+  // A key belongs to the endpoint it was issued for. Handing it to a different host
+  // discloses the secret to a server that was never meant to have it, so every
+  // inherited key is paired with the endpoint it came from before being reused.
+  // Compared the way the client compares endpoints, since AutoMemClient strips a
+  // trailing slash and `https://x` and `https://x/` are the same server.
+  const sameEndpoint = (candidate?: string): boolean =>
+    Boolean(candidate) && normalizeEndpoint(candidate!) === normalizeEndpoint(endpoint);
+
+  // The shell's key belongs to the shell's endpoint. `--endpoint other` with
+  // AUTOMEM_API_URL/AUTOMEM_API_KEY exported would otherwise ship that key to `other`.
+  // An exported key with no exported endpoint is not bound to anything, so it stands.
+  const envEndpoint = process.env.AUTOMEM_API_URL || process.env.AUTOMEM_ENDPOINT;
+  const envKey = readAutoMemApiKeyFromEnv();
+  const reusableEnvKey = !envEndpoint || sameEndpoint(envEndpoint) ? envKey : undefined;
+
+  const reusableStoredKey = sameEndpoint(existingCreds.endpoint) ? existingCreds.apiKey : undefined;
+
+  const apiKey = cliOptions.apiKey ?? reusableEnvKey ?? reusableStoredKey;
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
+
+  // `--rules` pointing at config.toml (directly or through a symlink) would write the
+  // server entry as TOML and then overwrite the whole file with Markdown rules,
+  // destroying the registration it just made and leaving Grok an unparseable config.
+  if (sameFile(rulesPath, paths.configPath)) {
+    throw new Error(
+      `Refusing to write AutoMem rules to ${rulesPath}: that is the Grok config file. ` +
+        'Point --rules at a Markdown rules file (for example <grok-home>/AGENTS.md).'
+    );
+  }
   const disabledServers = readDisabledMcpServers(paths.configPath);
 
   // ~/.grok/AGENTS.md is injected into every Grok session regardless of which repo it
