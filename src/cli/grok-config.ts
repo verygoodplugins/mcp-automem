@@ -166,7 +166,21 @@ function spliceMemoryTable(
 
   let spliced: string[];
   if (located) {
-    spliced = [...lines.slice(0, located.start), ...next, ...lines.slice(located.end)];
+    const before = lines.slice(0, located.start);
+    const after = lines.slice(located.end);
+    // Removing a table mid-file leaves the blank line that preceded it next to the
+    // one that followed it. TOML ignores the extra blank, so the verify below would
+    // accept it and every install/uninstall cycle would add another. Collapse the seam.
+    if (
+      next.length === 0 &&
+      before.length > 0 &&
+      after.length > 0 &&
+      before[before.length - 1].trim() === '' &&
+      after[0].trim() === ''
+    ) {
+      before.pop();
+    }
+    spliced = [...before, ...next, ...after];
   } else {
     // No existing table: append, keeping exactly one blank line as separator.
     const head = [...lines];

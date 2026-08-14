@@ -96,10 +96,28 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
   const finalContent = upsertRulesWithMarkers(existingContent, processed);
   writeFileWithBackup(rulesPath, finalContent, cliOptions);
 
+  // Diagnostics describe existing state rather than work performed, so they belong in
+  // the preview too — a dry run is exactly when someone wants to hear about them.
+  const diagnostics: string[] = [];
+  if (!apiKey) {
+    diagnostics.push(
+      '  ⚠️  No AUTOMEM_API_KEY set — set one before connecting to a remote AutoMem instance'
+    );
+  }
+  if (disabledServers.includes(GROK_MCP_SERVER_NAME)) {
+    // This top-level list gates MCP servers independently of a server's own `enabled`
+    // flag, so the install can look successful while AutoMem never loads.
+    diagnostics.push(
+      `  ⚠️  "${GROK_MCP_SERVER_NAME}" is listed in disabled_mcp_servers — Grok may ignore the server entry.`,
+      `      Remove it from that list in ${path.basename(paths.configPath)} to enable AutoMem.`
+    );
+  }
+
   // A dry run has written nothing, so it must not claim it did. The per-step
-  // "[DRY RUN] Would …" lines above are the whole report in that mode.
+  // "[DRY RUN] Would …" lines above are the whole report of pending work.
   if (cliOptions.dryRun) {
     log('\n📊 Dry run — no files were changed.', cliOptions.quiet);
+    for (const line of diagnostics) log(line, cliOptions.quiet);
     return;
   }
 
@@ -109,24 +127,7 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
     cliOptions.quiet
   );
   log(`  ✅ AutoMem rules installed in ${path.basename(rulesPath)}`, cliOptions.quiet);
-  if (!apiKey) {
-    log(
-      '  ⚠️  No AUTOMEM_API_KEY set — set one before connecting to a remote AutoMem instance',
-      cliOptions.quiet
-    );
-  }
-  if (disabledServers.includes(GROK_MCP_SERVER_NAME)) {
-    // Grok honors this top-level list over the server entry, so the install would
-    // look successful while the server never loads.
-    log(
-      `  ⚠️  "${GROK_MCP_SERVER_NAME}" is listed in disabled_mcp_servers — Grok will not load it.`,
-      cliOptions.quiet
-    );
-    log(
-      `      Remove it from that list in ${path.basename(paths.configPath)} to enable AutoMem.`,
-      cliOptions.quiet
-    );
-  }
+  for (const line of diagnostics) log(line, cliOptions.quiet);
 
   log('\n✨ Grok AutoMem setup complete! Next steps:', cliOptions.quiet);
   log('  1. Start a new Grok session (existing sessions keep the old MCP child)', cliOptions.quiet);
