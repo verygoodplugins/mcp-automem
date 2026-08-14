@@ -172,6 +172,82 @@ describe('grok-config', () => {
       expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
     });
 
+    it('refuses to overwrite a non-AutoMem server named memory', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      const original = [
+        '[mcp_servers.memory]',
+        'command = "some-other-memory-server"',
+        'args = ["--serve"]',
+        '',
+      ].join('\n');
+      fs.writeFileSync(configPath, original);
+
+      expect(() =>
+        upsertGrokMemoryServer(configPath, buildGrokAutoMemServerEntry('https://automem.example'), {
+          quiet: true,
+        })
+      ).toThrow(/Refusing to overwrite/);
+
+      // The user's server survives untouched.
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(original);
+    });
+
+    it('surfaces the collision during a dry run rather than at write time', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      fs.writeFileSync(
+        configPath,
+        ['[mcp_servers.memory]', 'command = "some-other-memory-server"', ''].join('\n')
+      );
+
+      expect(() =>
+        upsertGrokMemoryServer(configPath, buildGrokAutoMemServerEntry('https://automem.example'), {
+          dryRun: true,
+          quiet: true,
+        })
+      ).toThrow(/Refusing to overwrite/);
+    });
+
+    it('restricts the config to the owner when it carries an API key', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      upsertGrokMemoryServer(
+        configPath,
+        buildGrokAutoMemServerEntry('https://automem.example', 'sk-secret'),
+        { quiet: true }
+      );
+      expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
+    });
+
+    it('tightens an existing world-readable config and its backup once a key is added', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      // Pre-existing config written without a key, at default permissions.
+      upsertGrokMemoryServer(configPath, buildGrokAutoMemServerEntry('https://automem.example'), {
+        quiet: true,
+      });
+      fs.chmodSync(configPath, 0o644);
+
+      upsertGrokMemoryServer(
+        configPath,
+        buildGrokAutoMemServerEntry('https://automem.example', 'sk-secret'),
+        { quiet: true }
+      );
+
+      expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
+      // The backup holds the same file; if it were left 0644 the tightening is moot.
+      const backups = fs.readdirSync(tmpDir).filter((f) => f.startsWith('config.toml.bak'));
+      expect(backups.length).toBeGreaterThan(0);
+      for (const backup of backups) {
+        expect(fs.statSync(path.join(tmpDir, backup)).mode & 0o777).toBe(0o600);
+      }
+    });
+
+    it('leaves permissions alone when no API key is written', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      upsertGrokMemoryServer(configPath, buildGrokAutoMemServerEntry('https://automem.example'), {
+        quiet: true,
+      });
+      expect(fs.statSync(configPath).mode & 0o777).not.toBe(0o600);
+    });
+
     it('fails the dry run on malformed TOML instead of deferring to the real run', () => {
       const configPath = path.join(tmpDir, 'config.toml');
       fs.writeFileSync(configPath, 'mcp_servers = {memory = \n');
@@ -348,12 +424,16 @@ describe('grok-config', () => {
 
     it('falls back to a full rewrite when the entry is an inline table', () => {
       const configPath = path.join(tmpDir, 'config.toml');
-      // Dotted/inline forms have no `[mcp_servers.memory]` header to splice.
+      // Dotted/inline forms have no `[mcp_servers.memory]` header to splice. The entry
+      // is AutoMem's own (hand-written in a form the installer does not emit), so this
+      // exercises the rewrite fallback rather than the non-AutoMem refusal above.
       fs.writeFileSync(
         configPath,
-        ['# leading comment', 'mcp_servers.memory = { command = "npx", enabled = true }', ''].join(
-          '\n'
-        )
+        [
+          '# leading comment',
+          'mcp_servers.memory = { command = "npx", args = ["-y", "@verygoodplugins/mcp-automem"] }',
+          '',
+        ].join('\n')
       );
 
       const result = upsertGrokMemoryServer(
