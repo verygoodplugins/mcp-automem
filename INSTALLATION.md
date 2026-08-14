@@ -1047,6 +1047,15 @@ This writes:
 
 Override the Grok home with `$GROK_HOME` or `--dir`.
 
+Only the `[mcp_servers.memory]` table is touched — the rest of `config.toml` keeps its
+comments, multi-line strings, and formatting. Every write backs the file up first, and
+`--dry-run` reports whether the entry would be added, updated, or left unchanged without
+writing anything. To wire it up by hand instead, copy
+[`templates/grok/config.toml`](templates/grok/config.toml).
+
+> If `disabled_mcp_servers` in `config.toml` contains `"memory"`, Grok ignores the server
+> entry entirely. The installer warns when it sees this; remove the name from that list.
+
 ### Verify
 
 ```bash
