@@ -9,7 +9,12 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { applyCopilotSetup, COPILOT_USAGE, EVENT_NAMES, runCopilotSetup } from '../src/cli/copilot.js';
+import {
+  applyCopilotSetup,
+  COPILOT_USAGE,
+  EVENT_NAMES,
+  runCopilotSetup,
+} from '../src/cli/copilot.js';
 import type { CopilotHookFile } from '../src/cli/copilot.js';
 
 function createTempDir(): string {
