@@ -89,7 +89,7 @@ describe('hermes-config', () => {
         { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
         'automem',
         buildAutoMemServerEntry('http://127.0.0.1:8001', 'sk-x'),
-        { quiet: true },
+        { quiet: true }
       );
       expect(result.method).toBe('yaml');
       expect(result.changed).toBe(true);
@@ -116,14 +116,14 @@ describe('hermes-config', () => {
           '      - -c',
           '      - echo hi',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
 
       await upsertMcpServer(
         { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
         'automem',
         buildAutoMemServerEntry('http://127.0.0.1:8001'),
-        { quiet: true },
+        { quiet: true }
       );
 
       const finalText = fs.readFileSync(configPath, 'utf8');
@@ -156,7 +156,7 @@ describe('hermes-config', () => {
         { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
         'automem',
         buildAutoMemServerEntry('http://127.0.0.1:8001'),
-        { dryRun: true, quiet: true },
+        { dryRun: true, quiet: true }
       );
       expect(result.method).toBe('dry-run');
       expect(fs.existsSync(configPath)).toBe(false);
@@ -176,7 +176,7 @@ describe('hermes-config', () => {
           '  other:',
           '    command: bash',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
       const changed = removeMcpServerEntry(configPath, 'automem', { quiet: true });
       expect(changed).toBe(true);
@@ -207,13 +207,15 @@ describe('hermes-config', () => {
           '  other:',
           '    command: bash',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
 
-      expect(removeMcpServerEntry(configPath, 'memory', {
-        quiet: true,
-        onlyIfAutoMem: true,
-      })).toBe(true);
+      expect(
+        removeMcpServerEntry(configPath, 'memory', {
+          quiet: true,
+          onlyIfAutoMem: true,
+        })
+      ).toBe(true);
 
       const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
         mcp_servers: Record<string, unknown>;
@@ -233,13 +235,15 @@ describe('hermes-config', () => {
           '    args:',
           '      - other-memory-server.py',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
 
-      expect(removeMcpServerEntry(configPath, 'memory', {
-        quiet: true,
-        onlyIfAutoMem: true,
-      })).toBe(false);
+      expect(
+        removeMcpServerEntry(configPath, 'memory', {
+          quiet: true,
+          onlyIfAutoMem: true,
+        })
+      ).toBe(false);
 
       const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
         mcp_servers: Record<string, unknown>;
@@ -261,16 +265,18 @@ describe('hermes-config', () => {
           { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
           'automem',
           buildAutoMemServerEntry('http://127.0.0.1:8001'),
-          { quiet: true },
-        ),
-      ).rejects.toThrow(/Failed to parse Hermes config at .*config\.yaml.*Fix the YAML syntax and re-run/s);
+          { quiet: true }
+        )
+      ).rejects.toThrow(
+        /Failed to parse Hermes config at .*config\.yaml.*Fix the YAML syntax and re-run/s
+      );
     });
 
     it('removeMcpServerEntry throws on malformed YAML instead of corrupting it', () => {
       const configPath = path.join(tmpDir, 'config.yaml');
       fs.writeFileSync(configPath, MALFORMED);
       expect(() => removeMcpServerEntry(configPath, 'automem', { quiet: true })).toThrow(
-        /Fix the YAML syntax and re-run/,
+        /Fix the YAML syntax and re-run/
       );
     });
   });
@@ -293,7 +299,7 @@ describe('hermes-config', () => {
           '      AUTOMEM_API_URL: https://remote.automem.test',
           '      AUTOMEM_API_KEY: sk-remote',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
       const creds = readExistingHermesCredentials(paths(tmpDir));
       expect(creds.endpoint).toBe('https://remote.automem.test');
@@ -303,7 +309,7 @@ describe('hermes-config', () => {
     it('falls back to ~/.hermes/.env and strips quotes', () => {
       fs.writeFileSync(
         path.join(tmpDir, '.env'),
-        'AUTOMEM_API_URL=https://env.automem.test\nAUTOMEM_API_KEY="sk-env"\n',
+        'AUTOMEM_API_URL=https://env.automem.test\nAUTOMEM_API_KEY="sk-env"\n'
       );
       const creds = readExistingHermesCredentials(paths(tmpDir));
       expect(creds.endpoint).toBe('https://env.automem.test');
@@ -320,7 +326,7 @@ describe('hermes-config', () => {
           '      AUTOMEM_ENDPOINT: https://legacy.automem.test',
           '      AUTOMEM_API_KEY: sk-legacy',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
       const creds = readExistingHermesCredentials(paths(tmpDir));
       expect(creds.endpoint).toBe('https://legacy.automem.test');
@@ -330,7 +336,7 @@ describe('hermes-config', () => {
     it('recovers a legacy AUTOMEM_ENDPOINT from .env when AUTOMEM_API_URL is absent', () => {
       fs.writeFileSync(
         path.join(tmpDir, '.env'),
-        'AUTOMEM_ENDPOINT=https://legacy-env.automem.test\nAUTOMEM_API_KEY=sk-env\n',
+        'AUTOMEM_ENDPOINT=https://legacy-env.automem.test\nAUTOMEM_API_KEY=sk-env\n'
       );
       const creds = readExistingHermesCredentials(paths(tmpDir));
       expect(creds.endpoint).toBe('https://legacy-env.automem.test');
@@ -344,7 +350,7 @@ describe('hermes-config', () => {
           'AUTOMEM_ENDPOINT=https://legacy-env.automem.test',
           'AUTOMEM_API_URL=https://env.automem.test',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
       const creds = readExistingHermesCredentials(paths(tmpDir));
       expect(creds.endpoint).toBe('https://env.automem.test');
@@ -360,11 +366,11 @@ describe('hermes-config', () => {
           '      AUTOMEM_API_URL: https://config.automem.test',
           '      AUTOMEM_API_KEY: sk-config',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
       fs.writeFileSync(
         path.join(tmpDir, '.env'),
-        'AUTOMEM_API_URL=https://env.automem.test\nAUTOMEM_API_KEY=sk-env\n',
+        'AUTOMEM_API_URL=https://env.automem.test\nAUTOMEM_API_KEY=sk-env\n'
       );
       const creds = readExistingHermesCredentials(paths(tmpDir));
       expect(creds.endpoint).toBe('https://config.automem.test');
@@ -381,7 +387,7 @@ describe('hermes-config', () => {
           '      AUTOMEM_API_URL: ""',
           '      AUTOMEM_API_KEY: ""',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
       const creds = readExistingHermesCredentials(paths(tmpDir));
       expect(creds.endpoint).toBeUndefined();
@@ -403,12 +409,7 @@ describe('hermes-config', () => {
       const configPath = path.join(tmpDir, 'config.yaml');
       fs.writeFileSync(
         configPath,
-        [
-          'model: claude-opus',
-          'memory:',
-          '  provider: ""',
-          '',
-        ].join('\n'),
+        ['model: claude-opus', 'memory:', '  provider: ""', ''].join('\n')
       );
 
       expect(upsertHermesMemoryProvider(configPath, 'automem', { quiet: true })).toBe(true);

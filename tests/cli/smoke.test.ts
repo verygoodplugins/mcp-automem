@@ -245,7 +245,9 @@ describe('CLI Smoke Tests', () => {
         cwd: testProjectDir,
       });
 
-      expect((result.stdout + result.stderr).toLowerCase()).toMatch(/project|my-cool-project|cursor/i);
+      expect((result.stdout + result.stderr).toLowerCase()).toMatch(
+        /project|my-cool-project|cursor/i
+      );
     });
   });
 
@@ -356,14 +358,7 @@ describe('CLI Smoke Tests', () => {
       fs.mkdirSync(workspaceDir, { recursive: true });
 
       const output = runCliExpectSuccess(
-        [
-          'openclaw',
-          '--mode',
-          'skill',
-          '--workspace',
-          workspaceDir,
-          '--dry-run',
-        ],
+        ['openclaw', '--mode', 'skill', '--workspace', workspaceDir, '--dry-run'],
         { cwd: workspaceDir }
       );
 
@@ -378,15 +373,7 @@ describe('CLI Smoke Tests', () => {
       fs.mkdirSync(homeDir, { recursive: true });
 
       const result = runCli(
-        [
-          'openclaw',
-          '--mode',
-          'mcp',
-          '--workspace',
-          workspaceDir,
-          '--api-key',
-          'super-secret-key',
-        ],
+        ['openclaw', '--mode', 'mcp', '--workspace', workspaceDir, '--api-key', 'super-secret-key'],
         {
           cwd: workspaceDir,
           env: {
@@ -421,14 +408,7 @@ describe('CLI Smoke Tests', () => {
       fs.writeFileSync(path.join(workspaceSkillDir, 'SKILL.md'), '# old workspace skill');
 
       const output = runCliExpectSuccess(
-        [
-          'openclaw',
-          '--mode',
-          'plugin',
-          '--workspace',
-          workspaceDir,
-          '--dry-run',
-        ],
+        ['openclaw', '--mode', 'plugin', '--workspace', workspaceDir, '--dry-run'],
         {
           cwd: workspaceDir,
           env: {
@@ -481,19 +461,35 @@ describe('Template Generation', () => {
   it('should have OpenClaw plugin and skill templates', () => {
     expect(fs.existsSync(path.resolve(__dirname, '../../openclaw.plugin.json'))).toBe(true);
     expect(fs.existsSync(path.resolve(__dirname, '../../skills/automem/SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-mcp/SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-legacy/SKILL.md'))).toBe(true);
+    expect(
+      fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-mcp/SKILL.md'))
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-legacy/SKILL.md'))
+    ).toBe(true);
   });
 
   it('plugin-distributed Claude Code runtime assets should match the canonical templates', () => {
     const pairs: Array<[string, string]> = [
-      ['templates/claude-code/hooks/automem-session-start.sh', 'plugins/automem/scripts/session-start.sh'],
-      ['templates/claude-code/hooks/automem-stop-nudge.sh', 'plugins/automem/scripts/stop-nudge.sh'],
-      ['templates/claude-code/hooks/automem-track-store.sh', 'plugins/automem/scripts/track-store.sh'],
+      [
+        'templates/claude-code/hooks/automem-session-start.sh',
+        'plugins/automem/scripts/session-start.sh',
+      ],
+      [
+        'templates/claude-code/hooks/automem-stop-nudge.sh',
+        'plugins/automem/scripts/stop-nudge.sh',
+      ],
+      [
+        'templates/claude-code/hooks/automem-track-store.sh',
+        'plugins/automem/scripts/track-store.sh',
+      ],
     ];
 
     for (const [canonical, pluginCopy] of pairs) {
-      const canonicalContent = fs.readFileSync(path.resolve(__dirname, `../../${canonical}`), 'utf8');
+      const canonicalContent = fs.readFileSync(
+        path.resolve(__dirname, `../../${canonical}`),
+        'utf8'
+      );
       const pluginContent = fs.readFileSync(path.resolve(__dirname, `../../${pluginCopy}`), 'utf8');
       expect(pluginContent, `${pluginCopy} drifted from ${canonical}`).toBe(canonicalContent);
     }
@@ -625,7 +621,9 @@ describe('Template Generation', () => {
     );
 
     // Keeps the cross-project preference-recall pattern.
-    expect(userRulesTemplate).toContain('personal coding preferences <project-name> collaboration style');
+    expect(userRulesTemplate).toContain(
+      'personal coding preferences <project-name> collaboration style'
+    );
 
     // 3.0.0 global-rule concepts that must be present.
     expect(userRulesTemplate).toContain('Corrections are gold');
@@ -695,7 +693,10 @@ describe('Template Generation', () => {
 
   it('Claude Code docs should prefer the plugin and keep the CLI installer as the settings-level alternative', () => {
     const readme = fs.readFileSync(path.resolve(__dirname, '../../README.md'), 'utf8');
-    const pluginReadme = fs.readFileSync(path.resolve(__dirname, '../../plugins/automem/README.md'), 'utf8');
+    const pluginReadme = fs.readFileSync(
+      path.resolve(__dirname, '../../plugins/automem/README.md'),
+      'utf8'
+    );
     const deprecations = fs.readFileSync(path.resolve(__dirname, '../../DEPRECATION.md'), 'utf8');
     const claudeCodeGuide = fs.readFileSync(
       path.resolve(__dirname, '../../templates/CLAUDE_CODE_INTEGRATION.md'),
@@ -737,9 +738,7 @@ describe('Template Generation', () => {
       permissions: { allow: string[]; deny?: unknown; ask?: unknown };
     };
     expect(parsedSettings.permissions.allow).toHaveLength(6);
-    expect(parsedSettings.permissions.allow.every((p) => p.startsWith('mcp__memory__'))).toBe(
-      true
-    );
+    expect(parsedSettings.permissions.allow.every((p) => p.startsWith('mcp__memory__'))).toBe(true);
     expect(parsedSettings.env).toBeUndefined();
     expect(parsedSettings.permissions.deny).toBeUndefined();
     expect(parsedSettings.permissions.ask).toBeUndefined();

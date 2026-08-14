@@ -123,7 +123,7 @@ describe('host-toolkit', () => {
     it('reads name from package.json and strips scope', () => {
       fs.writeFileSync(
         path.join(tmpDir, 'package.json'),
-        JSON.stringify({ name: '@scope/my-pkg' }),
+        JSON.stringify({ name: '@scope/my-pkg' })
       );
       expect(detectProjectName(tmpDir)).toBe('my-pkg');
     });
@@ -209,7 +209,8 @@ describe('host-toolkit', () => {
 
   describe('mergeEnvContent', () => {
     it('preserves foreign keys, comments, and blank lines while updating in place', () => {
-      const existing = ['# header comment', 'FOO=bar', '', 'AUTOMEM_API_URL=http://old:1'].join('\n') + '\n';
+      const existing =
+        ['# header comment', 'FOO=bar', '', 'AUTOMEM_API_URL=http://old:1'].join('\n') + '\n';
       const merged = mergeEnvContent(existing, { AUTOMEM_API_URL: 'http://new:2' });
       const lines = merged.split(/\r?\n/);
       expect(lines).toContain('# header comment');
@@ -246,15 +247,18 @@ describe('host-toolkit', () => {
       expect(mode).toBe(0o600);
     });
 
-    it.skipIf(process.platform === 'win32')('tightens an existing world-readable secret file and its backup to 0o600', () => {
-      const target = path.join(tmpDir, '.env');
-      fs.writeFileSync(target, 'AUTOMEM_API_KEY=old\n', { mode: 0o644 });
-      fs.chmodSync(target, 0o644);
-      writeFileWithBackup(target, 'AUTOMEM_API_KEY=new\n', { quiet: true, secret: true });
-      expect(fs.statSync(target).mode & 0o777).toBe(0o600);
-      const backup = `${target}.bak`;
-      expect(fs.existsSync(backup)).toBe(true);
-      expect(fs.statSync(backup).mode & 0o777).toBe(0o600);
-    });
+    it.skipIf(process.platform === 'win32')(
+      'tightens an existing world-readable secret file and its backup to 0o600',
+      () => {
+        const target = path.join(tmpDir, '.env');
+        fs.writeFileSync(target, 'AUTOMEM_API_KEY=old\n', { mode: 0o644 });
+        fs.chmodSync(target, 0o644);
+        writeFileWithBackup(target, 'AUTOMEM_API_KEY=new\n', { quiet: true, secret: true });
+        expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+        const backup = `${target}.bak`;
+        expect(fs.existsSync(backup)).toBe(true);
+        expect(fs.statSync(backup).mode & 0o777).toBe(0o600);
+      }
+    );
   });
 });

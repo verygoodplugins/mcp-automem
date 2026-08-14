@@ -170,9 +170,7 @@ describe('buildRecallMemoryResponse', () => {
     expect(response.structuredContent).toMatchObject({
       state_filter: stateFilter,
     });
-    expect(response.content[0].text).toContain(
-      'state filter suppressed 2, replacements 1'
-    );
+    expect(response.content[0].text).toContain('state filter suppressed 2, replacements 1');
   });
 
   it('surfaces recall scope, recency, score, and per-result diagnostics', async () => {
@@ -578,7 +576,9 @@ describe('buildRecallMemoryResponse', () => {
     // Modeled on the live 2026-06-10 failure: 26 ranked results, mixed relation
     // counts, enrichment metadata, ~400-char contents, 200-char summaries. The
     // old formatter produced ~65k chars from 16 of these and blew the MCP cap.
-    const relationCounts = [5, 2, 5, 5, 5, 5, 0, 3, 5, 5, 5, 1, 5, 5, 5, 2, 5, 4, 5, 0, 5, 3, 5, 5, 2, 5];
+    const relationCounts = [
+      5, 2, 5, 5, 5, 5, 0, 3, 5, 5, 5, 1, 5, 5, 5, 2, 5, 4, 5, 0, 5, 3, 5, 5, 2, 5,
+    ];
     const manyResults = relationCounts.map((relCount, i) => ({
       id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
       match_type: 'semantic',

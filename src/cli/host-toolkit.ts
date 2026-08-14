@@ -36,7 +36,7 @@ export function writeFileWithBackup(
   content: string,
   // `secret: true` restricts the file (and its backup) to 0o600 — pass it for
   // secret-bearing files like a .env carrying an API key or server token.
-  opts: Pick<CommonOptions, 'dryRun' | 'quiet'> & { secret?: boolean },
+  opts: Pick<CommonOptions, 'dryRun' | 'quiet'> & { secret?: boolean }
 ): WriteResult {
   if (opts.dryRun) {
     log(`[DRY RUN] Would write: ${targetPath}`, opts.quiet);
@@ -128,7 +128,10 @@ export function mergeEnvContent(existing: string, updates: Record<string, string
     }
   }
 
-  const content = lines.map((entry) => entry.line).join(os.EOL).replace(/\s+$/, '');
+  const content = lines
+    .map((entry) => entry.line)
+    .join(os.EOL)
+    .replace(/\s+$/, '');
   return content.length ? `${content}${os.EOL}` : '';
 }
 
@@ -194,7 +197,7 @@ export type ExtraFlag =
  */
 export function parseCommonFlags(
   args: string[],
-  extra: Record<string, ExtraFlag> = {},
+  extra: Record<string, ExtraFlag> = {}
 ): CommonOptions {
   const options: CommonOptions = {};
 

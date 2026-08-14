@@ -2,7 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildHermesSnippet, buildMcpConfigJson, buildSummaryInstructions, DEFAULT_AUTOMEM_API_URL } from './templates.js';
+import {
+  buildClaudeCodeExport,
+  buildClaudeDesktopSnippet,
+  buildHermesSnippet,
+  buildMcpConfigJson,
+  buildSummaryInstructions,
+  DEFAULT_AUTOMEM_API_URL,
+} from './templates.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
 import { mergeEnvContent } from './host-toolkit.js';
 
@@ -129,20 +136,20 @@ export async function runSetup(args: string[] = []): Promise<void> {
   const existingValues = loadEnvValues(envPath);
   // `||` not `??`: an empty value (e.g. a blank AUTOMEM_API_URL= line) must
   // fall through to the next source, matching the server's own resolution.
-  const defaultEndpoint = options.endpoint
-    || existingValues[ENV_API_URL_KEY]
-    || existingValues[LEGACY_ENV_ENDPOINT_KEY]
-    || process.env[ENV_API_URL_KEY]
-    || process.env[LEGACY_ENV_ENDPOINT_KEY]
-    || DEFAULT_AUTOMEM_API_URL;
+  const defaultEndpoint =
+    options.endpoint ||
+    existingValues[ENV_API_URL_KEY] ||
+    existingValues[LEGACY_ENV_ENDPOINT_KEY] ||
+    process.env[ENV_API_URL_KEY] ||
+    process.env[LEGACY_ENV_ENDPOINT_KEY] ||
+    DEFAULT_AUTOMEM_API_URL;
 
-  const defaultApiKey = options.apiKey
-    ?? existingValues[ENV_API_KEY]
-    ?? process.env[ENV_API_KEY]
-    ?? '';
+  const defaultApiKey =
+    options.apiKey ?? existingValues[ENV_API_KEY] ?? process.env[ENV_API_KEY] ?? '';
 
-  const endpoint = options.endpoint
-    ?? await promptValue('AutoMem API URL', DEFAULT_AUTOMEM_API_URL, defaultEndpoint);
+  const endpoint =
+    options.endpoint ??
+    (await promptValue('AutoMem API URL', DEFAULT_AUTOMEM_API_URL, defaultEndpoint));
 
   let apiKey = options.apiKey ?? defaultApiKey;
   if (!options.apiKey && input.isTTY && output.isTTY) {
@@ -204,7 +211,9 @@ export async function runSetup(args: string[] = []): Promise<void> {
   // copy-pasted and shared; the real key lives in ~/.hermes/.env / config.yaml.
   console.log(buildHermesSnippet(endpoint, '${AUTOMEM_API_KEY}'));
   console.log('\nOr run: npx @verygoodplugins/mcp-automem hermes');
-  console.log('\nUse `npx @verygoodplugins/mcp-automem config --format=json` to print this snippet again later.');
+  console.log(
+    '\nUse `npx @verygoodplugins/mcp-automem config --format=json` to print this snippet again later.'
+  );
 
   if (options.claudeCode) {
     await applyClaudeCodeSetup({
@@ -217,9 +226,8 @@ export async function runSetup(args: string[] = []): Promise<void> {
 
 export async function runConfig(args: string[] = []): Promise<void> {
   const options = parseConfigArgs(args);
-  const endpoint = process.env[ENV_API_URL_KEY]
-    || process.env[LEGACY_ENV_ENDPOINT_KEY]
-    || DEFAULT_AUTOMEM_API_URL;
+  const endpoint =
+    process.env[ENV_API_URL_KEY] || process.env[LEGACY_ENV_ENDPOINT_KEY] || DEFAULT_AUTOMEM_API_URL;
   const apiKey = process.env[ENV_API_KEY] ?? '${AUTOMEM_API_KEY}';
 
   if (options.format === 'json') {

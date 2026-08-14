@@ -79,10 +79,10 @@ function formatEnvValue(value: string): string {
 function mergeHermesEnvFile(
   envPath: string,
   updates: Record<string, string | undefined>,
-  options: Pick<CommonOptions, 'dryRun' | 'quiet'>,
+  options: Pick<CommonOptions, 'dryRun' | 'quiet'>
 ): void {
   const filtered = Object.fromEntries(
-    Object.entries(updates).filter((entry): entry is [string, string] => Boolean(entry[1])),
+    Object.entries(updates).filter((entry): entry is [string, string] => Boolean(entry[1]))
   );
   if (Object.keys(filtered).length === 0) return;
 
@@ -116,9 +116,15 @@ function mergeHermesEnvFile(
     }
   }
 
-  const content = lines.map((entry) => entry.line).join('\n').replace(/\s+$/, '');
+  const content = lines
+    .map((entry) => entry.line)
+    .join('\n')
+    .replace(/\s+$/, '');
   fs.mkdirSync(path.dirname(envPath), { recursive: true });
-  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   try {
     fs.chmodSync(envPath, 0o600);
   } catch {
@@ -130,7 +136,7 @@ function mergeHermesEnvFile(
 function removeHermesEnvKeys(
   envPath: string,
   keys: string[],
-  options: Pick<CommonOptions, 'dryRun' | 'quiet'>,
+  options: Pick<CommonOptions, 'dryRun' | 'quiet'>
 ): boolean {
   if (!fs.existsSync(envPath)) return false;
   const keySet = new Set(keys);
@@ -147,7 +153,10 @@ function removeHermesEnvKeys(
   }
 
   const content = filtered.join('\n').replace(/\s+$/, '');
-  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   try {
     fs.chmodSync(envPath, 0o600);
   } catch {
@@ -162,7 +171,7 @@ function installHermesProvider(
   endpoint: string,
   apiKey: string | undefined,
   providerToolsEnabled: boolean,
-  options: Pick<CommonOptions, 'dryRun' | 'quiet'>,
+  options: Pick<CommonOptions, 'dryRun' | 'quiet'>
 ): void {
   const providerRoot = path.join(paths.home, 'plugins', HERMES_PROVIDER_NAME);
   const files = ['__init__.py', 'plugin.yaml', 'cli.py', 'automem_policy.py'];
@@ -180,7 +189,7 @@ function installHermesProvider(
       AUTOMEM_API_KEY: apiKey,
       AUTOMEM_HERMES_PROVIDER_TOOLS: providerToolsEnabled ? 'true' : 'false',
     },
-    options,
+    options
   );
 
   upsertHermesMemoryProvider(paths.configPath, HERMES_PROVIDER_NAME, options);
@@ -236,7 +245,11 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
       dryRun: cliOptions.dryRun,
       quiet: cliOptions.quiet,
     });
-    removeHermesEnvKeys(path.join(paths.home, '.env'), ['AUTOMEM_HERMES_PROVIDER_TOOLS'], cliOptions);
+    removeHermesEnvKeys(
+      path.join(paths.home, '.env'),
+      ['AUTOMEM_HERMES_PROVIDER_TOOLS'],
+      cliOptions
+    );
   }
 
   if (mode === 'mcp' || mode === 'both') {
@@ -257,47 +270,63 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
 
   const templateContent = fs.readFileSync(
     path.join(HERMES_TEMPLATE_ROOT, 'memory-rules.md'),
-    'utf8',
+    'utf8'
   );
   const processed = replaceTemplateVars(templateContent, {
     PROJECT_NAME: projectName,
     HERMES_MODE_RULES: renderHermesModeRules(mode),
   });
 
-  const existingContent = fs.existsSync(rulesPath)
-    ? fs.readFileSync(rulesPath, 'utf8')
-    : null;
+  const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
   const finalContent = upsertRulesWithMarkers(existingContent, processed);
   writeFileWithBackup(rulesPath, finalContent, cliOptions);
 
   log('\n📊 Configuration Status:', cliOptions.quiet);
   if (mode === 'mcp' || mode === 'both') {
-    log(`  ✅ mcp_servers.${HERMES_MCP_SERVER_NAME} written to ${path.basename(paths.configPath)}`, cliOptions.quiet);
+    log(
+      `  ✅ mcp_servers.${HERMES_MCP_SERVER_NAME} written to ${path.basename(paths.configPath)}`,
+      cliOptions.quiet
+    );
   }
   if (mode === 'provider' || mode === 'both') {
     log(`  ✅ memory.provider set to ${HERMES_PROVIDER_NAME}`, cliOptions.quiet);
     log(`  ✅ Hermes provider installed in plugins/${HERMES_PROVIDER_NAME}`, cliOptions.quiet);
-    log('  ℹ️  If `hermes plugins list` shows AutoMem as not enabled, that is expected for memory providers', cliOptions.quiet);
+    log(
+      '  ℹ️  If `hermes plugins list` shows AutoMem as not enabled, that is expected for memory providers',
+      cliOptions.quiet
+    );
   }
   log(`  ✅ AutoMem rules installed in ${path.basename(rulesPath)}`, cliOptions.quiet);
   if (!apiKey) {
-    log('  ⚠️  No AUTOMEM_API_KEY set — set one before connecting to a remote AutoMem instance', cliOptions.quiet);
+    log(
+      '  ⚠️  No AUTOMEM_API_KEY set — set one before connecting to a remote AutoMem instance',
+      cliOptions.quiet
+    );
   }
 
   log('\n✨ Hermes AutoMem setup complete! Next steps:', cliOptions.quiet);
   log('  1. Restart Hermes (or run /reload-mcp) to pick up AutoMem changes', cliOptions.quiet);
   if (mode === 'mcp') {
     log('  2. Verify MCP tools: hermes mcp test automem', cliOptions.quiet);
-    log('  3. Start a task — Hermes should use the mcp_automem_* tools when relevant', cliOptions.quiet);
+    log(
+      '  3. Start a task — Hermes should use the mcp_automem_* tools when relevant',
+      cliOptions.quiet
+    );
   } else if (mode === 'both') {
     log('  2. Verify MCP tools: hermes mcp test automem', cliOptions.quiet);
     log('  3. Verify provider mode: hermes memory status', cliOptions.quiet);
     log('  4. Run diagnostics: hermes automem doctor', cliOptions.quiet);
-    log('  5. Explicit tools use mcp_automem_*; provider recall is injected into the model payload', cliOptions.quiet);
+    log(
+      '  5. Explicit tools use mcp_automem_*; provider recall is injected into the model payload',
+      cliOptions.quiet
+    );
   } else {
     log('  2. Verify provider mode: hermes memory status', cliOptions.quiet);
     log('  3. Run diagnostics: hermes automem doctor', cliOptions.quiet);
-    log('  4. Recall context is injected into the model payload; Hermes may not print it in the terminal UI', cliOptions.quiet);
+    log(
+      '  4. Recall context is injected into the model payload; Hermes may not print it in the terminal UI',
+      cliOptions.quiet
+    );
   }
 }
 

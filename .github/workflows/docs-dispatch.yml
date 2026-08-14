@@ -6,13 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       base_sha:
-        description: "Base SHA or ref for the docs diff. Defaults to head^."
+        description: 'Base SHA or ref for the docs diff. Defaults to head^.'
         required: false
       head_sha:
-        description: "Head SHA or ref to document. Defaults to main."
+        description: 'Head SHA or ref to document. Defaults to main.'
         required: false
       reason:
-        description: "Why docs should be audited."
+        description: 'Why docs should be audited.'
         required: false
 
 permissions:

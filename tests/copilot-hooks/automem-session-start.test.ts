@@ -15,7 +15,11 @@ function sessionStartSuite(shell: Shell) {
   const tmpDirs: string[] = [];
   afterEach(() => {
     while (tmpDirs.length) {
-      try { fs.rmSync(tmpDirs.pop()!, { recursive: true, force: true }); } catch { /* */ }
+      try {
+        fs.rmSync(tmpDirs.pop()!, { recursive: true, force: true });
+      } catch {
+        /* */
+      }
     }
   });
 

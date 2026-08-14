@@ -314,7 +314,10 @@ const storeMemorySchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    content: { type: 'string', description: 'Single-mode (XOR with `memories`). Memory content to store.' },
+    content: {
+      type: 'string',
+      description: 'Single-mode (XOR with `memories`). Memory content to store.',
+    },
     memories: {
       type: 'array',
       maxItems: 500,
@@ -348,7 +351,8 @@ const storeMemorySchema = {
     last_accessed: { type: 'string' },
     supersedes_memory_id: {
       type: 'string',
-      description: 'Single-mode supersede/correction workflow. Existing memory ID replaced by this new memory.',
+      description:
+        'Single-mode supersede/correction workflow. Existing memory ID replaced by this new memory.',
     },
     supersede_relation: {
       type: 'string',
@@ -366,9 +370,19 @@ const recallMemorySchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    memory_id: { type: 'string', description: 'Mode 1: ID fetch. When set, ignores all other params.' },
-    exhaustive: { type: 'boolean', description: 'Mode 2: tag enumeration. When true with `tags`, paginated exact-match listing.' },
-    exclude_tags: { type: 'array', items: { type: 'string' }, description: 'Ranked-mode only. Tags to exclude.' },
+    memory_id: {
+      type: 'string',
+      description: 'Mode 1: ID fetch. When set, ignores all other params.',
+    },
+    exhaustive: {
+      type: 'boolean',
+      description: 'Mode 2: tag enumeration. When true with `tags`, paginated exact-match listing.',
+    },
+    exclude_tags: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Ranked-mode only. Tags to exclude.',
+    },
     query: { type: 'string' },
     queries: { type: 'array', items: { type: 'string' } },
     embedding: { type: 'array', items: { type: 'number' } },
@@ -388,7 +402,8 @@ const recallMemorySchema = {
     expand_min_strength: { type: 'number' },
     current_only: {
       type: 'boolean',
-      description: 'Ranked-mode only. Suppress archived, expired, not-yet-valid, invalidated, or superseded memories. Defaults to true server-side.',
+      description:
+        'Ranked-mode only. Suppress archived, expired, not-yet-valid, invalidated, or superseded memories. Defaults to true server-side.',
     },
     state_debug: {
       type: 'boolean',
@@ -435,7 +450,8 @@ const deleteMemorySchema = {
     tags: {
       type: 'array',
       items: { type: 'string' },
-      description: 'Bulk-delete mode (XOR with `memory_id`). Deletes all memories tagged with ANY of these (exact, case-insensitive). No dry-run.',
+      description:
+        'Bulk-delete mode (XOR with `memory_id`). Deletes all memories tagged with ANY of these (exact, case-insensitive). No dry-run.',
     },
   },
 };

@@ -62,10 +62,7 @@ const files: Array<[string, string]> = [
     'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',
     renderClaudeDesktopInstructions({ templateVersion }),
   ],
-  [
-    'templates/CLAUDE_MD_MEMORY_RULES.md',
-    renderClaudeMdMemoryRules({ templateVersion }),
-  ],
+  ['templates/CLAUDE_MD_MEMORY_RULES.md', renderClaudeMdMemoryRules({ templateVersion })],
   [
     'templates/hermes/memory-rules.md',
     renderHermesMemoryRules({

@@ -62,16 +62,11 @@ const ASSOCIATION_OPTIONAL_PROP_FIELDS = [
   'transformation',
   'role',
 ] as const;
-const SUPERSEDE_RELATIONS: readonly SupersedeRelationType[] = [
-  'INVALIDATED_BY',
-  'EVOLVED_INTO',
-];
+const SUPERSEDE_RELATIONS: readonly SupersedeRelationType[] = ['INVALIDATED_BY', 'EVOLVED_INTO'];
 
 function nonEmptyTags(tags: unknown): string[] {
   if (!Array.isArray(tags)) return [];
-  return tags
-    .map((t) => (typeof t === 'string' ? t.trim() : ''))
-    .filter((t) => t.length > 0);
+  return tags.map((t) => (typeof t === 'string' ? t.trim() : '')).filter((t) => t.length > 0);
 }
 
 function errorMessage(error: unknown): string {
@@ -110,10 +105,8 @@ function sanitizeAssociationInput(
   association: Partial<AssociationInput>,
   indexLabel: string
 ): AssociationInput {
-  const memory1Id =
-    typeof association.memory1_id === 'string' ? association.memory1_id.trim() : '';
-  const memory2Id =
-    typeof association.memory2_id === 'string' ? association.memory2_id.trim() : '';
+  const memory1Id = typeof association.memory1_id === 'string' ? association.memory1_id.trim() : '';
+  const memory2Id = typeof association.memory2_id === 'string' ? association.memory2_id.trim() : '';
   const type = association.type;
   const strength = association.strength;
 
@@ -194,8 +187,10 @@ export class AutoMemClient {
       clearTimeout(timeoutId);
       if (error instanceof Error && retryCount < maxRetries) {
         const delay = baseDelay * Math.pow(2, retryCount);
-        console.error(`[AutoMem] Network error, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        console.error(
+          `[AutoMem] Network error, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
         return this.makeRequest(method, path, body, retryCount + 1);
       }
 
@@ -218,8 +213,10 @@ export class AutoMemClient {
 
       if (isRetryable && retryCount < maxRetries) {
         const delay = baseDelay * Math.pow(2, retryCount); // 500ms, 1s, 2s
-        console.error(`[AutoMem] Retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        console.error(
+          `[AutoMem] Retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
         return this.makeRequest(method, path, body, retryCount + 1);
       }
 
@@ -258,14 +255,9 @@ export class AutoMemClient {
     }
 
     const supersedesMemoryId =
-      typeof args.supersedes_memory_id === 'string'
-        ? args.supersedes_memory_id.trim()
-        : '';
+      typeof args.supersedes_memory_id === 'string' ? args.supersedes_memory_id.trim() : '';
     const supersedeRelation = args.supersede_relation || 'INVALIDATED_BY';
-    if (
-      supersedesMemoryId &&
-      !SUPERSEDE_RELATIONS.includes(supersedeRelation)
-    ) {
+    if (supersedesMemoryId && !SUPERSEDE_RELATIONS.includes(supersedeRelation)) {
       throw new Error(
         `store_memory: supersede_relation must be one of ${SUPERSEDE_RELATIONS.join(', ')}`
       );
@@ -297,10 +289,7 @@ export class AutoMemClient {
     }
 
     const response = await this.makeRequest('POST', 'memory', body);
-    const memoryId =
-      response.memory_id ??
-      response.id ??
-      response.response?.memory_id;
+    const memoryId = response.memory_id ?? response.id ?? response.response?.memory_id;
 
     if (!supersedesMemoryId) {
       return {
@@ -403,8 +392,7 @@ export class AutoMemClient {
 
     const response = await this.makeRequest('POST', 'memory/batch', { memories: sanitized });
     const memoryIds: string[] = Array.isArray(response.memory_ids) ? response.memory_ids : [];
-    const stored: number =
-      typeof response.stored === 'number' ? response.stored : memoryIds.length;
+    const stored: number = typeof response.stored === 'number' ? response.stored : memoryIds.length;
     return {
       memory_ids: memoryIds,
       stored,
@@ -430,9 +418,7 @@ export class AutoMemClient {
     if (args.exhaustive === true) {
       const cleanTags = nonEmptyTags(args.tags);
       if (cleanTags.length === 0) {
-        throw new Error(
-          'recall_memory: `exhaustive: true` requires non-empty `tags`'
-        );
+        throw new Error('recall_memory: `exhaustive: true` requires non-empty `tags`');
       }
       if (args.tag_match && args.tag_match !== 'exact') {
         throw new Error(
@@ -495,7 +481,7 @@ export class AutoMemClient {
     }
 
     if (Array.isArray(args.queries) && args.queries.length > 0) {
-      args.queries.filter(q => q && q.trim()).forEach((q) => params.append('queries', q));
+      args.queries.filter((q) => q && q.trim()).forEach((q) => params.append('queries', q));
     }
 
     if (args.limit) {
@@ -715,11 +701,7 @@ export class AutoMemClient {
     }
   }
 
-  private async listByTag(
-    tags: string[],
-    limit?: number,
-    offset?: number
-  ): Promise<RecallResult> {
+  private async listByTag(tags: string[], limit?: number, offset?: number): Promise<RecallResult> {
     const params = new URLSearchParams();
     tags.forEach((tag) => params.append('tags', tag));
     if (typeof limit === 'number' && limit > 0) {
@@ -755,7 +737,9 @@ export class AutoMemClient {
         throw new Error('associate_memories: `associations` must contain at least one item');
       }
       if (args.associations.length > BATCH_MAX_ITEMS) {
-        throw new Error(`associate_memories: \`associations\` exceeds max ${BATCH_MAX_ITEMS} items`);
+        throw new Error(
+          `associate_memories: \`associations\` exceeds max ${BATCH_MAX_ITEMS} items`
+        );
       }
 
       const associations = args.associations.map((association, index) =>
@@ -805,9 +789,7 @@ export class AutoMemClient {
     try {
       const response = await this.makeRequest('GET', 'health');
       const serviceStatus =
-        response.status === 'healthy' || response.status === 'degraded'
-          ? response.status
-          : 'error';
+        response.status === 'healthy' || response.status === 'degraded' ? response.status : 'error';
 
       return {
         status: serviceStatus,
@@ -842,7 +824,11 @@ export class AutoMemClient {
       throw new Error('memory_id is required');
     }
 
-    const response = await this.makeRequest('PATCH', `memory/${encodeURIComponent(memoryId)}`, updates);
+    const response = await this.makeRequest(
+      'PATCH',
+      `memory/${encodeURIComponent(memoryId)}`,
+      updates
+    );
     return {
       memory_id: response.memory_id || memoryId,
       message: response.message || 'Memory updated successfully',
