@@ -134,6 +134,41 @@ describe('grok setup', () => {
     expect(parsed.mcp_servers.memory.env).not.toHaveProperty('AUTOMEM_API_KEY');
   });
 
+  it('treats a trailing slash as the same endpoint and keeps the key', async () => {
+    // AutoMemClient strips the trailing slash, so these address the same server;
+    // dropping the key here would leave every request unauthenticated.
+    await applyGrokSetup({
+      endpoint: 'https://same.example.test',
+      apiKey: 'sk-keep-me',
+      quiet: true,
+    });
+    await applyGrokSetup({ endpoint: 'https://same.example.test/', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('sk-keep-me');
+  });
+
+  it('keeps the global rules project-agnostic through a symlinked path', async () => {
+    // A dotfiles setup: ~/.grok/AGENTS.md is a symlink, and --rules names the real file.
+    const realRules = path.join(tmpDir, 'dotfiles', 'grok-AGENTS.md');
+    fs.mkdirSync(path.dirname(realRules), { recursive: true });
+    fs.writeFileSync(realRules, '# dotfiles-managed\n');
+    fs.symlinkSync(realRules, path.join(tmpDir, 'AGENTS.md'));
+
+    await applyGrokSetup({
+      endpoint: 'https://automem.example.test',
+      quiet: true,
+      rulesPath: realRules,
+      projectName: 'some-project',
+    });
+
+    // Same file as the global rules, so the project tag must stay a placeholder.
+    expect(fs.readFileSync(realRules, 'utf8')).toContain('tags: ["<project-slug>"]');
+    expect(fs.readFileSync(realRules, 'utf8')).not.toContain('tags: ["some-project"]');
+  });
+
   it('keeps the stored API key when the endpoint is unchanged', async () => {
     await applyGrokSetup({
       endpoint: 'https://same.example.test',
