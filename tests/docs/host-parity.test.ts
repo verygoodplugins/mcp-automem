@@ -35,13 +35,22 @@ function readRepoFile(relativePath: string): string {
  */
 const HAND_WRITTEN_RULES: readonly string[] = ['copilot'];
 
-/** Rules artifact each client's installer reads, when it ships one. */
-const RULES_TEMPLATES: Partial<Record<AgentClient | 'copilot', string>> = {
+/**
+ * Rules artifact each client's installer reads. Deliberately a **total** Record with an
+ * explicit `null` for clients that ship none: a `Partial` would let a new client omit
+ * its entry and skip the generator check silently — the exact drift this suite exists
+ * to catch. Adding to `AgentClient` is a compile error until it is declared here.
+ */
+const RULES_TEMPLATES: Record<AgentClient | 'copilot', string | null> = {
   codex: 'templates/codex/memory-rules.md',
   cursor: 'templates/cursor/automem.mdc.template',
   hermes: 'templates/hermes/memory-rules.md',
   grok: 'templates/grok/memory-rules.md',
   copilot: 'templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md',
+  // Ships hooks, not a rules file; its policy lives in the generated hook scripts.
+  'claude-code': null,
+  // Renders policy in-process at runtime (renderOpenClawPolicyContext), no template.
+  openclaw: null,
 };
 
 describe('host integration parity', () => {
@@ -72,10 +81,11 @@ describe('host integration parity', () => {
   });
 
   it('gives every installer client at least one host smoke spec', () => {
+    // Uninstall support and setup-boundary coverage are unrelated concerns. Reusing the
+    // uninstall exclusion here previously let OpenClaw — an installable, default-selected
+    // client — escape smoke coverage entirely while this suite still passed.
     const covered = new Set(HOST_SMOKE_SPECS.map((spec) => spec.client));
     for (const client of AGENT_CLIENTS) {
-      const excluded = (UNINSTALL_UNSUPPORTED_CLIENTS as readonly string[]).includes(client);
-      if (excluded) continue; // No uninstall path yet, so no meaningful round-trip to smoke.
       expect(
         covered.has(client),
         `AGENT_CLIENTS includes '${client}' but tests/helpers/host-specs.ts has no spec for it.`
