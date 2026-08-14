@@ -12,6 +12,7 @@ import {
 import {
   buildGrokAutoMemServerEntry,
   GROK_MCP_SERVER_NAME,
+  readDisabledMcpServers,
   readExistingGrokCredentials,
   resolveGrokPaths,
   upsertGrokMemoryServer,
@@ -70,6 +71,7 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
     DEFAULT_AUTOMEM_API_URL;
   const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? existingCreds.apiKey;
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
+  const disabledServers = readDisabledMcpServers(paths.configPath);
 
   log(`\n🔧 Setting up Grok AutoMem for: ${projectName}`, cliOptions.quiet);
   log(`📁 Grok home: ${paths.home}`, cliOptions.quiet);
@@ -94,6 +96,13 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
   const finalContent = upsertRulesWithMarkers(existingContent, processed);
   writeFileWithBackup(rulesPath, finalContent, cliOptions);
 
+  // A dry run has written nothing, so it must not claim it did. The per-step
+  // "[DRY RUN] Would …" lines above are the whole report in that mode.
+  if (cliOptions.dryRun) {
+    log('\n📊 Dry run — no files were changed.', cliOptions.quiet);
+    return;
+  }
+
   log('\n📊 Configuration Status:', cliOptions.quiet);
   log(
     `  ✅ mcp_servers.${GROK_MCP_SERVER_NAME} written to ${path.basename(paths.configPath)}`,
@@ -103,6 +112,18 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
   if (!apiKey) {
     log(
       '  ⚠️  No AUTOMEM_API_KEY set — set one before connecting to a remote AutoMem instance',
+      cliOptions.quiet
+    );
+  }
+  if (disabledServers.includes(GROK_MCP_SERVER_NAME)) {
+    // Grok honors this top-level list over the server entry, so the install would
+    // look successful while the server never loads.
+    log(
+      `  ⚠️  "${GROK_MCP_SERVER_NAME}" is listed in disabled_mcp_servers — Grok will not load it.`,
+      cliOptions.quiet
+    );
+    log(
+      `      Remove it from that list in ${path.basename(paths.configPath)} to enable AutoMem.`,
       cliOptions.quiet
     );
   }

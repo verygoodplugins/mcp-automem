@@ -313,6 +313,24 @@ export function removeGrokMemoryServer(configPath: string, opts: UpsertOptions =
   return true;
 }
 
+/**
+ * Grok's top-level `disabled_mcp_servers` list wins over a server's own `enabled`
+ * flag, so a config can carry a perfectly valid `[mcp_servers.memory]` that Grok
+ * never loads. Returns the list so callers can warn instead of reporting success.
+ */
+export function readDisabledMcpServers(configPath: string): string[] {
+  if (!fs.existsSync(configPath)) return [];
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = parseGrokDocument(fs.readFileSync(configPath, 'utf8'), configPath);
+  } catch {
+    return [];
+  }
+  const disabled = parsed.disabled_mcp_servers;
+  if (!Array.isArray(disabled)) return [];
+  return disabled.filter((name): name is string => typeof name === 'string');
+}
+
 export interface GrokCredentials {
   endpoint?: string;
   apiKey?: string;
