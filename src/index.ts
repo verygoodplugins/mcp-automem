@@ -59,14 +59,30 @@ const KNOWN_COMMANDS = new Set([
   "queue",
   "recall",
 ]);
+const commandArgs = process.argv.slice(3);
 const isMachineReadableCommand =
-  command === "config" && process.argv.slice(3).some(
+  command === "config" && commandArgs.some(
     (arg) => arg === "--json" || arg === "--format=json" || arg === "--format"
   );
+// Every host handler documents --quiet as "suppress output", and a help request
+// exists to print a usage block — in both cases the dotenv banner is exactly the
+// noise the caller asked us not to emit. Covers `help`/`--help`/`-h` as the
+// command and as a flag on a subcommand (e.g. `copilot --help`).
+const isHelpRequest =
+  command === "help" ||
+  command === "--help" ||
+  command === "-h" ||
+  commandArgs.some((arg) => arg === "--help" || arg === "-h");
+const wantsQuietOutput = commandArgs.some((arg) => arg === "--quiet");
 // The guided installer renders a branded splash + curated review; the dotenv
 // banner would corrupt that output, so silence it here too.
 const shouldSilenceDotenv =
-  isServerMode || isMachineReadableCommand || command === "install" || !KNOWN_COMMANDS.has(command);
+  isServerMode ||
+  isMachineReadableCommand ||
+  isHelpRequest ||
+  wantsQuietOutput ||
+  command === "install" ||
+  !KNOWN_COMMANDS.has(command);
 
 // Prevent dotenv from writing its banner to stdout when the caller expects clean
 // machine-readable output (stdio server mode, or `config --format=json`).
