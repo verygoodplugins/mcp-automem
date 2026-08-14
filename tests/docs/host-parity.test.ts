@@ -9,7 +9,11 @@ import {
   UNINSTALL_UNSUPPORTED_CLIENTS,
   type AgentClient,
 } from '../../src/cli/clients.js';
+import { uninstallHandlerPlatforms } from '../../src/cli/uninstall.js';
 import { HOST_SMOKE_SPECS } from '../helpers/host-specs.js';
+
+/** Derived, not hard-coded: a second standalone host must declare its rules artifact too. */
+type StandalonePlatform = (typeof STANDALONE_PLATFORMS)[number];
 
 /**
  * Adding a host used to mean updating six independent hand-maintained lists, and only
@@ -41,7 +45,7 @@ const HAND_WRITTEN_RULES: readonly string[] = ['copilot'];
  * its entry and skip the generator check silently — the exact drift this suite exists
  * to catch. Adding to `AgentClient` is a compile error until it is declared here.
  */
-const RULES_TEMPLATES: Record<AgentClient | 'copilot', string | null> = {
+const RULES_TEMPLATES: Record<AgentClient | StandalonePlatform, string | null> = {
   codex: 'templates/codex/memory-rules.md',
   cursor: 'templates/cursor/automem.mdc.template',
   hermes: 'templates/hermes/memory-rules.md',
@@ -70,12 +74,22 @@ describe('host integration parity', () => {
     }
   });
 
-  it('routes every uninstall platform through the uninstall command', () => {
-    const source = readRepoFile('src/cli/uninstall.ts');
+  it('routes every uninstall platform through a registered handler', () => {
+    // Asserted against the real dispatch map, not a source substring: `options.platform
+    // === 'cursor'` (and 'claude-code', 'copilot') also appear in the --clean-all and
+    // next-steps blocks, so a grep stayed green even with the dispatch branch deleted.
+    const handled = new Set(uninstallHandlerPlatforms());
     for (const platform of UNINSTALL_PLATFORMS) {
       expect(
-        source.includes(`options.platform === '${platform}'`),
-        `uninstall accepts '${platform}' but runUninstall never dispatches it.`
+        handled.has(platform),
+        `uninstall accepts '${platform}' but no handler is registered for it.`
+      ).toBe(true);
+    }
+    // And nothing is reachable that the CLI does not accept.
+    for (const platform of handled) {
+      expect(
+        (UNINSTALL_PLATFORMS as readonly string[]).includes(platform),
+        `A handler exists for '${platform}' but parseUninstallArgs rejects it.`
       ).toBe(true);
     }
   });

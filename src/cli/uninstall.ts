@@ -717,6 +717,28 @@ function isAutoMemMcpServer(server: unknown): boolean {
   return values.some((value) => value.includes('mcp-automem'));
 }
 
+/**
+ * Platform → handler. A total `Record` rather than an if-chain so TypeScript rejects a
+ * new `UninstallPlatform` that has no handler, and so the parity suite can assert the
+ * mapping directly. Grepping the source for `options.platform === 'x'` could not: the
+ * same predicate appears in the `--clean-all` and next-steps blocks below, so deleting
+ * a real dispatch branch still left a match.
+ */
+const UNINSTALL_HANDLERS: Record<UninstallPlatform, (options: UninstallOptions) => Promise<void>> =
+  {
+    cursor: uninstallCursor,
+    'claude-code': uninstallClaudeCode,
+    copilot: uninstallCopilot,
+    codex: uninstallCodex,
+    hermes: uninstallHermes,
+    grok: uninstallGrok,
+  };
+
+/** Platforms with a registered uninstall handler, for the parity suite. */
+export function uninstallHandlerPlatforms(): string[] {
+  return Object.keys(UNINSTALL_HANDLERS);
+}
+
 export async function runUninstall(options: UninstallOptions): Promise<void> {
   log(`\n🚮 AutoMem Uninstaller`, options.quiet);
   log(`   Platform: ${options.platform}`, options.quiet);
@@ -733,19 +755,7 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
   }
 
   // Platform-specific uninstall
-  if (options.platform === 'cursor') {
-    await uninstallCursor(options);
-  } else if (options.platform === 'claude-code') {
-    await uninstallClaudeCode(options);
-  } else if (options.platform === 'copilot') {
-    await uninstallCopilot(options);
-  } else if (options.platform === 'codex') {
-    await uninstallCodex(options);
-  } else if (options.platform === 'hermes') {
-    await uninstallHermes(options);
-  } else if (options.platform === 'grok') {
-    await uninstallGrok(options);
-  }
+  await UNINSTALL_HANDLERS[options.platform](options);
 
   // Clean up external changes (Claude Desktop config) if requested
   if (options.cleanAll) {
