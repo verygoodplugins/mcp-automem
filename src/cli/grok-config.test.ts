@@ -276,6 +276,76 @@ describe('grok-config', () => {
       expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('sk-new');
     });
 
+    // The fixtures above all end up with the AutoMem table at EOF, where trailing-newline
+    // normalization hides seam problems. A table with neighbours on both sides is the
+    // shape a pre-existing install actually has.
+    it('round-trips an AutoMem table that sits between two other tables', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      const original = [
+        '# top comment',
+        '[cli]',
+        'installer = "internal"',
+        '',
+        '[mcp_servers.memory]',
+        'command = "npx"',
+        'args = [ "-y", "@verygoodplugins/mcp-automem" ]',
+        'enabled = true',
+        '',
+        '[mcp_servers.memory.env]',
+        'AUTOMEM_API_URL = "https://old.example"',
+        '',
+        '[mcp_servers.other]',
+        'command = "bash"',
+        '',
+      ].join('\n');
+      fs.writeFileSync(configPath, original);
+
+      // Updating in place must not disturb the neighbours...
+      upsertGrokMemoryServer(configPath, buildGrokAutoMemServerEntry('https://new.example'), {
+        quiet: true,
+      });
+      const updated = fs.readFileSync(configPath, 'utf8');
+      expect(updated).toContain('# top comment');
+      expect(updated).toContain('[mcp_servers.other]');
+      expect(updated).toContain('https://new.example');
+
+      // ...and removing it must close the gap rather than leave a growing run of blanks.
+      removeGrokMemoryServer(configPath, { quiet: true, onlyIfAutoMem: true });
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(
+        [
+          '# top comment',
+          '[cli]',
+          'installer = "internal"',
+          '',
+          '[mcp_servers.other]',
+          'command = "bash"',
+          '',
+        ].join('\n')
+      );
+    });
+
+    it('does not accumulate blank lines across repeated install/uninstall cycles', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      const original = [
+        '[cli]',
+        'installer = "internal"',
+        '',
+        '[mcp_servers.other]',
+        'command = "bash"',
+        '',
+      ].join('\n');
+      fs.writeFileSync(configPath, original);
+
+      for (let i = 0; i < 3; i += 1) {
+        upsertGrokMemoryServer(configPath, buildGrokAutoMemServerEntry('https://automem.example'), {
+          quiet: true,
+        });
+        removeGrokMemoryServer(configPath, { quiet: true, onlyIfAutoMem: true });
+      }
+
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(original);
+    });
+
     it('falls back to a full rewrite when the entry is an inline table', () => {
       const configPath = path.join(tmpDir, 'config.toml');
       // Dotted/inline forms have no `[mcp_servers.memory]` header to splice.
