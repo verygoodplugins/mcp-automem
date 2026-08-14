@@ -42,6 +42,28 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Endpoint equality as the API client sees it — a trailing slash is not a new host. */
+function normalizeEndpoint(value: string): string {
+  return value.trim().replace(/\/+$/, '');
+}
+
+/**
+ * Whether two paths name the same file. Resolves symlinks, because the global rules
+ * file is commonly a symlink into a dotfiles repo and `--rules <real target>` then
+ * spells the same file differently. Falls back to lexical resolution for paths that do
+ * not exist yet, which is the normal case on a first install.
+ */
+function sameFile(a: string, b: string): boolean {
+  const real = (p: string): string => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  return real(a) === real(b);
+}
+
 function upsertRulesWithMarkers(existing: string | null, block: string, rulesPath: string): string {
   const normalize = (s: string) => `${s.replace(/\n+$/, '')}\n`;
   if (!existing) {
@@ -92,9 +114,12 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
     DEFAULT_AUTOMEM_API_URL;
   // A stored key belongs to the endpoint it was issued for. Carrying it over to a
   // different host would send that secret as a Bearer credential to a server that was
-  // never meant to have it, so only reuse it when the endpoint is unchanged.
+  // never meant to have it, so only reuse it when the endpoint is unchanged — compared
+  // the way the client compares it, since AutoMemClient strips a trailing slash and
+  // `https://x` and `https://x/` are the same server.
   const reusableStoredKey =
-    existingCreds.endpoint && existingCreds.endpoint === endpoint
+    existingCreds.endpoint &&
+    normalizeEndpoint(existingCreds.endpoint) === normalizeEndpoint(endpoint)
       ? existingCreds.apiKey
       : undefined;
   const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? reusableStoredKey;
@@ -106,7 +131,9 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
   // every later recall and mistags every store, silently, because tags filter before
   // scoring. The decision is the target file, not the flags: `--name` with the default
   // path, or `--rules` pointed at the global file, are still writing the global file.
-  const writesGlobalRules = path.resolve(rulesPath) === path.resolve(paths.agentsPath);
+  // Compared by file identity, not spelling: the global rules are commonly a symlink
+  // into a dotfiles repo, and `--rules <the real target>` addresses the same file.
+  const writesGlobalRules = sameFile(rulesPath, paths.agentsPath);
   const rulesProjectName = writesGlobalRules ? GLOBAL_PROJECT_PLACEHOLDER : projectName;
 
   log(`\n🔧 Setting up Grok AutoMem for: ${projectName}`, cliOptions.quiet);
