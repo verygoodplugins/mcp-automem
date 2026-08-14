@@ -584,6 +584,25 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
   }
 }
 
+/**
+ * Usage block for `mcp-automem copilot`. Single source of truth: printed by
+ * `copilot --help` and interpolated into the top-level `help` output in
+ * src/index.ts, so the two can't drift.
+ */
+export const COPILOT_USAGE = `COPILOT SETUP:
+  npx @verygoodplugins/mcp-automem copilot [options]
+
+  Options:
+    --format <cli|vscode|both>  Memory rules and hook event name casing. cli = camelCase
+                           hooks + CLI rules only. vscode = PascalCase hooks + VS Code
+                           rules only. both = camelCase hooks + both rule sets (default).
+    --profile <full|lean>  Hook profile. lean = session only (default); full = all hooks.
+    --dir <path>           Target directory (default: $COPILOT_HOME or ~/.copilot)
+    --dry-run             Show what would be changed
+    --yes, -y             Skip confirmation prompts
+    --quiet               Suppress non-error output
+    --help, -h            Print this usage block and exit without installing`;
+
 // T016: CLI argument parser
 function parseCopilotArgs(args: string[]): CopilotSetupOptions {
   const options: CopilotSetupOptions = {};
@@ -632,6 +651,15 @@ function parseCopilotArgs(args: string[]): CopilotSetupOptions {
 }
 
 export async function runCopilotSetup(args: string[] = []): Promise<void> {
+  // Short-circuit before parsing: --help must never touch the filesystem, and
+  // the value-flag guards in parseCopilotArgs exit(1) on a trailing --dir or
+  // --format, which would swallow the help request. Return rather than exit so
+  // the caller in src/index.ts still owns the exit code (0).
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(COPILOT_USAGE);
+    return;
+  }
+
   const options = parseCopilotArgs(args);
 
   // T027: Validate --format

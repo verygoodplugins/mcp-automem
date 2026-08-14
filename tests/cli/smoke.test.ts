@@ -98,6 +98,56 @@ describe('CLI Smoke Tests', () => {
     });
   });
 
+  describe('clean output contract', () => {
+    // A help request prints a usage block and --quiet is documented as
+    // "suppress output"; the dotenv banner is exactly the noise both opt out
+    // of. Regression guard for `copilot` joining KNOWN_COMMANDS, which flipped
+    // the banner on for every copilot invocation.
+    //
+    // Only `copilot` is exercised with a subcommand flag here. Every other host
+    // handler still ignores --help and installs (see parseCommonFlags), so
+    // `claude-code --help` would rewrite the developer's real ~/.claude during
+    // `npm test`, and `cursor`/`codex --help` would write into the repo. Those
+    // commands get a case here once they short-circuit on help too.
+    const helpInvocations = [['help'], ['--help'], ['copilot', '--help'], ['copilot', '-h']];
+
+    for (const args of helpInvocations) {
+      it(`\`${args.join(' ')}\` prints no dotenv banner`, () => {
+        // Isolated even though these paths write nothing today: if the help
+        // short-circuit ever regresses, the blast radius stays in the temp dir.
+        const copilotHome = fs.mkdtempSync(path.join(tempDir, 'banner-home-'));
+
+        const result = runCli(args, { env: { COPILOT_HOME: copilotHome } });
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout + result.stderr).not.toContain('injected env');
+      });
+    }
+
+    it('`copilot --help` writes nothing to COPILOT_HOME', () => {
+      const copilotHome = fs.mkdtempSync(path.join(tempDir, 'copilot-home-'));
+
+      const result = runCli(['copilot', '--help'], { env: { COPILOT_HOME: copilotHome } });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('COPILOT SETUP:');
+      expect(fs.readdirSync(copilotHome)).toEqual([]);
+    });
+
+    it('`copilot --quiet` installs without emitting the dotenv banner', () => {
+      const copilotHome = fs.mkdtempSync(path.join(tempDir, 'copilot-quiet-home-'));
+
+      const result = runCli(['copilot', '--quiet', '--yes'], {
+        env: { COPILOT_HOME: copilotHome },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout + result.stderr).not.toContain('injected env');
+      // --quiet suppresses progress output but must not suppress the install.
+      expect(fs.existsSync(path.join(copilotHome, 'hooks'))).toBe(true);
+    });
+  });
+
   describe('config command', () => {
     it('should output config with MCP server snippet', () => {
       const output = runCliExpectSuccess(['config']);

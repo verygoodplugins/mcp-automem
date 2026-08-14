@@ -16,7 +16,7 @@ import { runClaudeCodeSetup } from "./cli/claude-code.js";
 import { runCursorSetup } from "./cli/cursor.js";
 import { runCodexSetup } from "./cli/codex.js";
 import { runOpenClawSetup } from "./cli/openclaw.js";
-import { runCopilotSetup } from "./cli/copilot.js";
+import { COPILOT_USAGE, runCopilotSetup } from "./cli/copilot.js";
 import { runHermesSetup } from "./cli/hermes.js";
 import { runMigrateCommand } from "./cli/migrate.js";
 import { runUninstallCommand } from "./cli/uninstall.js";
@@ -49,6 +49,7 @@ const KNOWN_COMMANDS = new Set([
   "install",
   "config",
   "claude-code",
+  "copilot",
   "cursor",
   "codex",
   "openclaw",
@@ -58,14 +59,30 @@ const KNOWN_COMMANDS = new Set([
   "queue",
   "recall",
 ]);
+const commandArgs = process.argv.slice(3);
 const isMachineReadableCommand =
-  command === "config" && process.argv.slice(3).some(
+  command === "config" && commandArgs.some(
     (arg) => arg === "--json" || arg === "--format=json" || arg === "--format"
   );
+// Every host handler documents --quiet as "suppress output", and a help request
+// exists to print a usage block — in both cases the dotenv banner is exactly the
+// noise the caller asked us not to emit. Covers `help`/`--help`/`-h` as the
+// command and as a flag on a subcommand (e.g. `copilot --help`).
+const isHelpRequest =
+  command === "help" ||
+  command === "--help" ||
+  command === "-h" ||
+  commandArgs.some((arg) => arg === "--help" || arg === "-h");
+const wantsQuietOutput = commandArgs.some((arg) => arg === "--quiet");
 // The guided installer renders a branded splash + curated review; the dotenv
 // banner would corrupt that output, so silence it here too.
 const shouldSilenceDotenv =
-  isServerMode || isMachineReadableCommand || command === "install" || !KNOWN_COMMANDS.has(command);
+  isServerMode ||
+  isMachineReadableCommand ||
+  isHelpRequest ||
+  wantsQuietOutput ||
+  command === "install" ||
+  !KNOWN_COMMANDS.has(command);
 
 // Prevent dotenv from writing its banner to stdout when the caller expects clean
 // machine-readable output (stdio server mode, or `config --format=json`).
@@ -227,18 +244,7 @@ CLAUDE CODE SETUP:
     --quiet               Suppress output
     --yes, -y             Skip confirmation prompts
 
-COPILOT SETUP:
-  npx @verygoodplugins/mcp-automem copilot [options]
-  
-  Options:
-    --format <cli|vscode|both>  Memory rules and hook event name casing. cli = camelCase
-                           hooks + CLI rules only. vscode = PascalCase hooks + VS Code
-                           rules only. both = camelCase hooks + both rule sets (default).
-    --profile <full|lean>  Hook profile. lean = session only (default); full = all hooks.
-    --dir <path>           Target directory (default: $COPILOT_HOME or ~/.copilot)
-    --dry-run             Show what would be changed
-    --yes, -y             Skip confirmation prompts
-    --quiet               Suppress non-error output
+${COPILOT_USAGE}
 
 MIGRATION:
   npx @verygoodplugins/mcp-automem migrate --from <source> --to <target>
