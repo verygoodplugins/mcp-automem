@@ -240,6 +240,44 @@ describe('grok-config', () => {
       }
     });
 
+    it('tightens an unchanged config that already holds a key', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      const entry = buildGrokAutoMemServerEntry('https://automem.example', 'sk-secret');
+      upsertGrokMemoryServer(configPath, entry, { quiet: true });
+      // Simulate a hand-written (or previously mis-permissioned) secret-bearing config.
+      fs.chmodSync(configPath, 0o644);
+
+      // Re-running with an identical entry writes nothing — but must still not leave a
+      // world-readable credential behind.
+      const result = upsertGrokMemoryServer(configPath, entry, { quiet: true });
+      expect(result.changed).toBe(false);
+      expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
+    });
+
+    it('protects a backup that retains a key being removed from the entry', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      upsertGrokMemoryServer(
+        configPath,
+        buildGrokAutoMemServerEntry('https://first.example', 'sk-old-host'),
+        { quiet: true }
+      );
+      fs.chmodSync(configPath, 0o644);
+
+      // Switching endpoints drops the key from the *new* entry, but the backup still
+      // contains the old one.
+      upsertGrokMemoryServer(configPath, buildGrokAutoMemServerEntry('https://second.example'), {
+        quiet: true,
+      });
+
+      const backups = fs.readdirSync(tmpDir).filter((f) => f.startsWith('config.toml.bak'));
+      expect(backups.length).toBeGreaterThan(0);
+      for (const backup of backups) {
+        const full = path.join(tmpDir, backup);
+        expect(fs.readFileSync(full, 'utf8')).toContain('sk-old-host');
+        expect(fs.statSync(full).mode & 0o777).toBe(0o600);
+      }
+    });
+
     it('leaves permissions alone when no API key is written', () => {
       const configPath = path.join(tmpDir, 'config.toml');
       upsertGrokMemoryServer(configPath, buildGrokAutoMemServerEntry('https://automem.example'), {
@@ -451,6 +489,27 @@ describe('grok-config', () => {
   });
 
   describe('removeGrokMemoryServer', () => {
+    it('protects the uninstall backup when the removed entry held a key', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      upsertGrokMemoryServer(
+        configPath,
+        buildGrokAutoMemServerEntry('https://automem.example', 'sk-uninstall'),
+        { quiet: true }
+      );
+      fs.chmodSync(configPath, 0o644);
+
+      removeGrokMemoryServer(configPath, { quiet: true, onlyIfAutoMem: true });
+
+      const backups = fs.readdirSync(tmpDir).filter((f) => f.startsWith('config.toml.bak'));
+      const withKey = backups.filter((f) =>
+        fs.readFileSync(path.join(tmpDir, f), 'utf8').includes('sk-uninstall')
+      );
+      expect(withKey.length).toBeGreaterThan(0);
+      for (const backup of withKey) {
+        expect(fs.statSync(path.join(tmpDir, backup)).mode & 0o777).toBe(0o600);
+      }
+    });
+
     it('removes AutoMem memory entry and leaves siblings intact', () => {
       const configPath = path.join(tmpDir, 'config.toml');
       upsertGrokMemoryServer(configPath, buildGrokAutoMemServerEntry('http://127.0.0.1:8001'), {
