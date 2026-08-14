@@ -62,8 +62,10 @@ describe('grok setup', () => {
     const agents = fs.readFileSync(agentsPath, 'utf8');
     expect(agents).toContain(GROK_RULES_START);
     expect(agents).toContain(GROK_RULES_END);
-    expect(agents).toContain('demo-project');
     expect(agents).toContain('memory__recall_memory');
+    // This is the global rules file, so the project tag stays a placeholder even
+    // though --name was given; see the dedicated cases below.
+    expect(agents).toContain('tags: ["<project-slug>"]');
   });
 
   // ~/.grok/AGENTS.md loads in every Grok session, whatever repo it runs in. Baking
@@ -79,16 +81,31 @@ describe('grok setup', () => {
     expect(agents).not.toContain('tags: ["mcp-automem"]');
   });
 
-  it('bakes in a real project only when the caller scopes the rules', async () => {
+  // The target file decides, not the flags: --name and --rules can both still be
+  // pointing at the global file, where a real project tag is always wrong.
+  it('keeps the global rules project-agnostic even when flags name a project', async () => {
     await applyGrokSetup({
       endpoint: 'https://automem.example.test',
       quiet: true,
       projectName: 'demo-project',
     });
-    expect(fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8')).toContain(
-      'tags: ["demo-project"]'
-    );
+    const viaName = fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8');
+    expect(viaName).toContain('tags: ["<project-slug>"]');
+    expect(viaName).not.toContain('tags: ["demo-project"]');
 
+    // --rules aimed explicitly at the global path is still the global path.
+    await applyGrokSetup({
+      endpoint: 'https://automem.example.test',
+      quiet: true,
+      projectName: 'demo-project',
+      rulesPath: path.join(tmpDir, 'AGENTS.md'),
+    });
+    expect(fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8')).toContain(
+      'tags: ["<project-slug>"]'
+    );
+  });
+
+  it('bakes in a real project for a project-local rules file', async () => {
     const projectRules = path.join(tmpDir, 'project', 'AGENTS.md');
     fs.mkdirSync(path.dirname(projectRules), { recursive: true });
     await applyGrokSetup({
@@ -97,8 +114,38 @@ describe('grok setup', () => {
       rulesPath: projectRules,
       projectName: 'scoped-project',
     });
-    // A --rules target is project-local, so a real project name is correct there.
     expect(fs.readFileSync(projectRules, 'utf8')).toContain('tags: ["scoped-project"]');
+  });
+
+  it('does not carry a stored API key over to a different endpoint', async () => {
+    await applyGrokSetup({
+      endpoint: 'https://first.example.test',
+      apiKey: 'sk-first-host',
+      quiet: true,
+    });
+
+    // Re-point at another host with no --api-key: the old host's key must not follow.
+    await applyGrokSetup({ endpoint: 'https://second.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('https://second.example.test');
+    expect(parsed.mcp_servers.memory.env).not.toHaveProperty('AUTOMEM_API_KEY');
+  });
+
+  it('keeps the stored API key when the endpoint is unchanged', async () => {
+    await applyGrokSetup({
+      endpoint: 'https://same.example.test',
+      apiKey: 'sk-keep-me',
+      quiet: true,
+    });
+    await applyGrokSetup({ endpoint: 'https://same.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('sk-keep-me');
   });
 
   it('preserves existing credentials on re-run without flags', async () => {
