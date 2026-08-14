@@ -156,12 +156,34 @@ describe('Grok real host contract', () => {
         });
         expect(associated.structuredContent).toBeDefined();
 
-        const paths = fakeApi.requests.map((request) => request.path);
-        expect(paths).toContain('/health');
-        expect(paths.some((p) => p.startsWith('/recall'))).toBe(true);
-        expect(paths).toContain('/memory');
-        expect(paths).toContain('/memory/mem-1');
-        expect(paths).toContain('/associate');
+        // Routes, methods and payloads: the fake API accepts any body, so asserting
+        // only the route would let a dropped or renamed field through.
+        const find = (method: string, pathMatch: (p: string) => boolean) => {
+          const request = fakeApi.requests.find((r) => r.method === method && pathMatch(r.path));
+          expect(request, `no ${method} request matching`).toBeDefined();
+          return request!;
+        };
+
+        expect(find('GET', (p) => p === '/health').path).toBe('/health');
+
+        const recallParams = new URLSearchParams(
+          find('GET', (p) => p.startsWith('/recall')).path.split('?')[1] ?? ''
+        );
+        expect(recallParams.get('query')).toBe('grok smoke');
+        expect(recallParams.get('limit')).toBe('1');
+
+        expect(find('POST', (p) => p === '/memory').body).toMatchObject({
+          content: 'grok host smoke memory',
+          tags: ['grok-smoke'],
+          importance: 0.6,
+        });
+        expect(find('PATCH', (p) => p === '/memory/mem-1').body).toMatchObject({ importance: 0.8 });
+        expect(find('POST', (p) => p === '/associate').body).toMatchObject({
+          memory1_id: 'mem-1',
+          memory2_id: 'mem-2',
+          type: 'RELATES_TO',
+          strength: 0.7,
+        });
 
         // stdio must stay clean JSON-RPC or Grok cannot parse the stream at all.
         expect(client.invalidStdoutLines).toEqual([]);
