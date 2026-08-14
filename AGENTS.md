@@ -318,7 +318,15 @@ When adding or changing a client host integration, test the real host boundary i
 - Assert tool names are unique across the final provider payload, not just within AutoMem tools.
 - Add uninstall coverage for every file, config key, plugin directory, and environment key the installer writes.
 - Redact secrets and isolate env vars; never let a real `AUTOMEM_API_KEY` leak into temp config or snapshots.
-- Keep `tests/helpers/host-specs.ts` updated as the executable host integration contract for Hermes, Claude Code, Codex, Cursor, Grok, and future platforms.
+- Keep `tests/helpers/host-specs.ts` updated as the executable host integration contract for Hermes, Claude Code, Codex, Cursor, Copilot, Grok, and future platforms. Each spec's `host` is the MCP *registration surface* (Copilot has two: CLI and VS Code); `client` ties it back to the installer client in `src/cli/clients.ts`.
+
+### Adding a host
+
+`src/cli/clients.ts` is the client registry — `AGENT_CLIENTS` plus the exclusion lists that record where a client is deliberately unsupported. Uninstall platforms and the CLI's known-commands set are derived from it, so those cannot drift.
+
+`tests/docs/host-parity.test.ts` enforces the rest: every client needs an uninstall path, a host smoke spec, a dispatch branch, and — if it ships a rules template — a renderer registered in `scripts/sync-memory-policy.ts`. When a gap is knowingly accepted, add it to the exclusion list in that test (or in `clients.ts`) with a reason. Do not delete the assertion.
+
+Known debt tracked this way: OpenClaw has no uninstall path (`UNINSTALL_UNSUPPORTED_CLIENTS`), and Copilot's memory rules are still hand-written rather than generated (`HAND_WRITTEN_RULES`) — the drift that caused #186.
 
 Documentation changes are part of the integration contract. Any new host mode or uninstall behavior should be reflected in `INSTALLATION.md` and covered by a smoke/doc assertion.
 

@@ -13,9 +13,10 @@ import {
 } from './hermes-config.js';
 import { removeGrokMemoryServer, resolveGrokPaths } from './grok-config.js';
 import { GROK_RULES_END, GROK_RULES_START, stripGrokRulesMarkers } from './grok.js';
+import { UNINSTALL_PLATFORMS, type UninstallPlatform } from './clients.js';
 
 interface UninstallOptions {
-  platform: 'cursor' | 'claude-code' | 'copilot' | 'codex' | 'hermes' | 'grok';
+  platform: UninstallPlatform;
   projectDir?: string;
   rulesPath?: string;
   cleanAll?: boolean;
@@ -781,14 +782,13 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
 }
 
 export function parseUninstallArgs(args: string[]): UninstallOptions | null {
-  const allowed = ['cursor', 'claude-code', 'copilot', 'codex', 'hermes', 'grok'] as const;
-  if (args.length === 0 || !allowed.includes(args[0] as (typeof allowed)[number])) {
-    console.error(
-      '❌ Error: Platform required (cursor, claude-code, copilot, codex, hermes, or grok)'
-    );
-    console.error(
-      'Usage: mcp-automem uninstall <cursor|claude-code|copilot|codex|hermes|grok> [options]'
-    );
+  // Derived from AGENT_CLIENTS so a new installer client cannot quietly ship without
+  // an uninstall path — it either lands here or is listed in UNINSTALL_UNSUPPORTED_CLIENTS.
+  const allowed = UNINSTALL_PLATFORMS;
+  if (args.length === 0 || !allowed.includes(args[0] as UninstallPlatform)) {
+    const list = allowed.join(', ');
+    console.error(`❌ Error: Platform required (${list})`);
+    console.error(`Usage: mcp-automem uninstall <${allowed.join('|')}> [options]`);
     return null;
   }
 
