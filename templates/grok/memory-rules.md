@@ -18,20 +18,24 @@ AutoMem is wired as the `memory` MCP server in `~/.grok/config.toml` (native con
 
 Drop the project tag gate when the slug collides with common topic words: `api`, `app`, `test`, `video`. Use semantic query alone in that case.
 
+Always run `search_tool` before the first `use_tool` on MCP servers.
+
 ## Session start — two-phase recall
 
 Standardized defaults: preferences limit 20, task-context limit 30, 90-day task window.
 
 Preferences and task context are independent recalls - issue them in parallel in a single message.
 
-Always run `search_tool` before the first `use_tool` on MCP servers.
-
 Preferences first:
 
 ```javascript
 use_tool({
   tool_name: "memory__recall_memory",
-  tool_input: { tags: ["preference"], limit: 20, sort: "updated_desc" }
+  tool_input: {
+    tags: ["preference"],
+    limit: 20,
+    sort: "updated_desc"
+  }
 })
 ```
 
@@ -57,7 +61,10 @@ Debug context, only when actively investigating a concrete symptom:
 ```javascript
 use_tool({
   tool_name: "memory__recall_memory",
-  tool_input: { query: "<error symptom or exact message>", limit: 20 }
+  tool_input: {
+    query: "<error symptom or exact message>",
+    limit: 20
+  }
 })
 ```
 
