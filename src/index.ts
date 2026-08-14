@@ -51,8 +51,7 @@ const KNOWN_COMMANDS = new Set([
   'install',
   'config',
   // Per-host setup commands come from the client registry so routing a new host
-  // cannot leave it unrecognized here. Covers the same seven main lists by hand,
-  // including 'copilot' via STANDALONE_PLATFORMS.
+  // cannot leave it unrecognized here — the drift that left `copilot` missing.
   ...HOST_SETUP_COMMANDS,
   'migrate',
   'uninstall',
