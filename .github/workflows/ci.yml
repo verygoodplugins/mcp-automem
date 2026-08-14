@@ -1,8 +1,11 @@
 name: CI
 
 on:
+  # No base-branch filter: `pull_request.branches` matches the *base*, so a stacked PR
+  # (one targeting another feature branch rather than main) ran only semantic-pr-title
+  # and was merged untested. Every PR gets the full suite; push stays main-only so
+  # feature branches do not double-run.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
