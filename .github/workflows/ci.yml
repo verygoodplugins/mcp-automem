@@ -36,11 +36,14 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
-          cache: "npm"
+          node-version: '24'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Format check
+        run: npm run format:check
 
       - name: Lint
         run: npm run lint
@@ -74,7 +77,7 @@ jobs:
           # website-bootstrap (curl | sh) scenario can never be silently skipped again.
           # A missing/renamed checkout now fails the build instead of going green-untested.
           AUTOMEM_INSTALL_SH: ${{ github.workspace }}/automem-website/public/install.sh
-          AUTOMEM_REQUIRE_INSTALL_SH: "1"
+          AUTOMEM_REQUIRE_INSTALL_SH: '1'
         run: npm run test:e2e
 
   hooks-windows:
@@ -85,8 +88,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
-          cache: "npm"
+          node-version: '24'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
