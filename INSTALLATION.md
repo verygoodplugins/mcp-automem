@@ -716,6 +716,7 @@ Re-running the command also deletes the orphaned files from the retired session-
 | `--dry-run` | | Preview changes without writing files |
 | `--yes` | | Skip confirmation prompts |
 | `--quiet` | | Suppress output |
+| `--help`, `-h` | | Print the usage block and exit without installing |
 
 > **Nudge note:** Copilot's `agentStop` output contract is `{decision, reason}` -- a `block` decision re-prompts the agent using `reason`. Unlike Claude Code's `Stop` hook it cannot inject hidden, non-prompting context, so the storage nudge is opt-in (`--profile full`) only; the default `lean` install keeps session end silent. The nudge fires at most once per session and only after a substantive session (>= 5 `user.message` turns in the transcript).
 

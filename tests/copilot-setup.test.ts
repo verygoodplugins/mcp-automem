@@ -4,12 +4,12 @@
  * event name remapping), installMemoryRules, and --format validation.
  */
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { applyCopilotSetup, EVENT_NAMES } from '../src/cli/copilot.js';
+import { applyCopilotSetup, COPILOT_USAGE, EVENT_NAMES, runCopilotSetup } from '../src/cli/copilot.js';
 import type { CopilotHookFile } from '../src/cli/copilot.js';
 
 function createTempDir(): string {
@@ -568,5 +568,63 @@ describe('session-start bash script', () => {
     expect(parsed.additionalContext).toContain(projectName);
 
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+});
+
+describe('copilot --help', () => {
+  let tempDir: string;
+  let previousCopilotHome: string | undefined;
+  let stdout: string[];
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    tempDir = createTempDir();
+    // runCopilotSetup resolves its target from COPILOT_HOME when --dir is absent,
+    // so point it at an empty temp dir: a --help run that still installs will
+    // leave evidence here instead of writing to the developer's ~/.copilot.
+    previousCopilotHome = process.env.COPILOT_HOME;
+    process.env.COPILOT_HOME = tempDir;
+
+    stdout = [];
+    logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      stdout.push(args.map(String).join(' '));
+    });
+    // --help returns rather than exiting (src/index.ts owns the exit code), and
+    // the arg parser exits(1) on a value flag with no value. Throwing here turns
+    // either exit into a clean failure instead of tearing down the vitest worker.
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit');
+    });
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    exitSpy.mockRestore();
+    if (previousCopilotHome === undefined) {
+      delete process.env.COPILOT_HOME;
+    } else {
+      process.env.COPILOT_HOME = previousCopilotHome;
+    }
+    cleanupDir(tempDir);
+  });
+
+  for (const flag of ['--help', '-h']) {
+    it(`${flag} prints the usage block and writes nothing`, async () => {
+      await runCopilotSetup([flag]);
+
+      expect(fs.readdirSync(tempDir)).toEqual([]);
+      expect(stdout.join('\n')).toBe(COPILOT_USAGE);
+      expect(stdout.join('\n')).toContain('COPILOT SETUP:');
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+  }
+
+  it('short-circuits before the parser can reject a valueless flag', async () => {
+    await runCopilotSetup(['--help', '--format']);
+
+    expect(fs.readdirSync(tempDir)).toEqual([]);
+    expect(stdout.join('\n')).toBe(COPILOT_USAGE);
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 });

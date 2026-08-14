@@ -16,7 +16,7 @@ import { runClaudeCodeSetup } from "./cli/claude-code.js";
 import { runCursorSetup } from "./cli/cursor.js";
 import { runCodexSetup } from "./cli/codex.js";
 import { runOpenClawSetup } from "./cli/openclaw.js";
-import { runCopilotSetup } from "./cli/copilot.js";
+import { COPILOT_USAGE, runCopilotSetup } from "./cli/copilot.js";
 import { runHermesSetup } from "./cli/hermes.js";
 import { runMigrateCommand } from "./cli/migrate.js";
 import { runUninstallCommand } from "./cli/uninstall.js";
@@ -49,6 +49,7 @@ const KNOWN_COMMANDS = new Set([
   "install",
   "config",
   "claude-code",
+  "copilot",
   "cursor",
   "codex",
   "openclaw",
@@ -227,18 +228,7 @@ CLAUDE CODE SETUP:
     --quiet               Suppress output
     --yes, -y             Skip confirmation prompts
 
-COPILOT SETUP:
-  npx @verygoodplugins/mcp-automem copilot [options]
-  
-  Options:
-    --format <cli|vscode|both>  Memory rules and hook event name casing. cli = camelCase
-                           hooks + CLI rules only. vscode = PascalCase hooks + VS Code
-                           rules only. both = camelCase hooks + both rule sets (default).
-    --profile <full|lean>  Hook profile. lean = session only (default); full = all hooks.
-    --dir <path>           Target directory (default: $COPILOT_HOME or ~/.copilot)
-    --dry-run             Show what would be changed
-    --yes, -y             Skip confirmation prompts
-    --quiet               Suppress non-error output
+${COPILOT_USAGE}
 
 MIGRATION:
   npx @verygoodplugins/mcp-automem migrate --from <source> --to <target>
