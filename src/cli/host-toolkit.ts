@@ -17,6 +17,21 @@ export function log(message: string, quiet?: boolean): void {
   }
 }
 
+/**
+ * Endpoint equality as the API client sees it: AutoMemClient strips a trailing slash,
+ * so `https://x` and `https://x/` are the same server. Shared because credential
+ * pairing depends on it — a key must never follow a "changed" endpoint that is only
+ * spelled differently, and must never ride along to one that genuinely differs.
+ */
+export function normalizeEndpoint(value: string): string {
+  return value.trim().replace(/\/+$/, '');
+}
+
+/** Whether two endpoint spellings address the same server. */
+export function sameEndpoint(a?: string, b?: string): boolean {
+  return Boolean(a) && Boolean(b) && normalizeEndpoint(a!) === normalizeEndpoint(b!);
+}
+
 export function backupPath(filePath: string): string {
   let candidate = `${filePath}.bak`;
   let counter = 1;

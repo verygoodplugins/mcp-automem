@@ -7,6 +7,7 @@ import {
   log,
   parseCommonFlags,
   replaceTemplateVars,
+  sameEndpoint,
   writeFileWithBackup,
 } from './host-toolkit.js';
 import {
@@ -40,11 +41,6 @@ export const GLOBAL_PROJECT_PLACEHOLDER = '<project-slug>';
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** Endpoint equality as the API client sees it — a trailing slash is not a new host. */
-function normalizeEndpoint(value: string): string {
-  return value.trim().replace(/\/+$/, '');
 }
 
 /**
@@ -125,17 +121,18 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
   // inherited key is paired with the endpoint it came from before being reused.
   // Compared the way the client compares endpoints, since AutoMemClient strips a
   // trailing slash and `https://x` and `https://x/` are the same server.
-  const sameEndpoint = (candidate?: string): boolean =>
-    Boolean(candidate) && normalizeEndpoint(candidate!) === normalizeEndpoint(endpoint);
+  const matchesChosenEndpoint = (candidate?: string): boolean => sameEndpoint(candidate, endpoint);
 
   // The shell's key belongs to the shell's endpoint. `--endpoint other` with
   // AUTOMEM_API_URL/AUTOMEM_API_KEY exported would otherwise ship that key to `other`.
   // An exported key with no exported endpoint is not bound to anything, so it stands.
   const envEndpoint = process.env.AUTOMEM_API_URL || process.env.AUTOMEM_ENDPOINT;
   const envKey = readAutoMemApiKeyFromEnv();
-  const reusableEnvKey = !envEndpoint || sameEndpoint(envEndpoint) ? envKey : undefined;
+  const reusableEnvKey = !envEndpoint || matchesChosenEndpoint(envEndpoint) ? envKey : undefined;
 
-  const reusableStoredKey = sameEndpoint(existingCreds.endpoint) ? existingCreds.apiKey : undefined;
+  const reusableStoredKey = matchesChosenEndpoint(existingCreds.endpoint)
+    ? existingCreds.apiKey
+    : undefined;
 
   const apiKey = cliOptions.apiKey ?? reusableEnvKey ?? reusableStoredKey;
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;

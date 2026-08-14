@@ -85,6 +85,40 @@ describe('guided install helpers', () => {
     ).toBe('flag-key');
   });
 
+  it('does not forward an environment key to a different --endpoint', () => {
+    // The per-host installers receive this as an *explicit* apiKey, which bypasses their
+    // own endpoint-pairing checks — so the pairing has to hold here. An inherited key
+    // belongs to the endpoint it was exported alongside.
+    const parsed = parseInstallArgs(['--endpoint', 'https://new.example'], {
+      AUTOMEM_API_URL: 'https://old.example',
+      AUTOMEM_API_KEY: 'env-secret',
+    });
+    expect(parsed.endpoint).toBe('https://new.example');
+    expect(parsed.apiKey).toBeUndefined();
+
+    // Same host spelled with a trailing slash is the same host; the key still applies.
+    expect(
+      parseInstallArgs(['--endpoint', 'https://old.example/'], {
+        AUTOMEM_API_URL: 'https://old.example',
+        AUTOMEM_API_KEY: 'env-secret',
+      }).apiKey
+    ).toBe('env-secret');
+
+    // An explicit --api-key is the operator naming the credential for this run.
+    expect(
+      parseInstallArgs(['--endpoint', 'https://new.example', '--api-key', 'flag-key'], {
+        AUTOMEM_API_URL: 'https://old.example',
+        AUTOMEM_API_KEY: 'env-secret',
+      }).apiKey
+    ).toBe('flag-key');
+
+    // No exported endpoint means the key is not bound to one — the curl|sh path.
+    expect(
+      parseInstallArgs(['--endpoint', 'https://new.example'], { AUTOMEM_API_KEY: 'env-secret' })
+        .apiKey
+    ).toBe('env-secret');
+  });
+
   it('rejects unknown install targets and clients', () => {
     expect(() => parseInstallArgs(['--target', 'serverless'])).toThrow(/invalid install target/i);
     expect(() => parseInstallArgs(['--clients', 'codex,nope'])).toThrow(/invalid AutoMem client/i);
