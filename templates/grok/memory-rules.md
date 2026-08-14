@@ -20,6 +20,8 @@ Drop the project tag gate when the slug collides with common topic words: `api`,
 
 Always run `search_tool` before the first `use_tool` on MCP servers.
 
+Project tag: use the slug of the repository you are working in. When the examples below show `<project-slug>`, substitute it — these rules load in every Grok session, so no single project is baked in. Drop the tag gate entirely when there is no project or the slug collides with a common word.
+
 ## Session start — two-phase recall
 
 Standardized defaults: preferences limit 20, task-context limit 30, 90-day task window.

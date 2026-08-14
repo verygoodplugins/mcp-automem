@@ -31,6 +31,13 @@ const TEMPLATE_ROOT = path.resolve(fileURLToPath(new URL('../../templates/grok',
 export const GROK_RULES_START = '<!-- BEGIN AUTOMEM GROK RULES -->';
 export const GROK_RULES_END = '<!-- END AUTOMEM GROK RULES -->';
 
+/**
+ * Stands in for the project tag when the rules land in the global
+ * `~/.grok/AGENTS.md`. Matches what the Claude Desktop instructions use for the
+ * same reason: the file is not project-scoped, so no single slug can be correct.
+ */
+export const GLOBAL_PROJECT_PLACEHOLDER = '<project-slug>';
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -73,6 +80,16 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
   const disabledServers = readDisabledMcpServers(paths.configPath);
 
+  // The default rules target is the GLOBAL ~/.grok/AGENTS.md, which Grok injects into
+  // every session regardless of which repo it is run in. Baking the install-time
+  // project into it would hard-gate all later recalls to that one slug and tag every
+  // store with it — tags are a hard filter, so the damage is silent. Keep the
+  // placeholder there and only bake in a real name when the caller scopes it.
+  const writesGlobalRules = rulesPath === paths.agentsPath;
+  const scopedByCaller = cliOptions.projectName !== undefined || cliOptions.rulesPath !== undefined;
+  const rulesProjectName =
+    writesGlobalRules && !scopedByCaller ? GLOBAL_PROJECT_PLACEHOLDER : projectName;
+
   log(`\n🔧 Setting up Grok AutoMem for: ${projectName}`, cliOptions.quiet);
   log(`📁 Grok home: ${paths.home}`, cliOptions.quiet);
   log(`📄 Config: ${paths.configPath}`, cliOptions.quiet);
@@ -90,7 +107,7 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
 
   const templateContent = fs.readFileSync(path.join(TEMPLATE_ROOT, 'memory-rules.md'), 'utf8');
   const processed = replaceTemplateVars(templateContent, {
-    PROJECT_NAME: projectName,
+    PROJECT_NAME: rulesProjectName,
   });
   const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
   const finalContent = upsertRulesWithMarkers(existingContent, processed);

@@ -81,6 +81,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** Best-effort 0600. Windows and exotic filesystems have no POSIX mode to set. */
+function restrictToOwner(filePath: string): void {
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Non-POSIX platform; nothing to tighten.
+  }
+}
+
 function isAutoMemMcpEntry(entry: unknown): boolean {
   if (!isRecord(entry)) return false;
   const haystack = JSON.stringify({
@@ -224,6 +233,18 @@ export function upsertGrokMemoryServer(
     : {};
   const existing = servers[GROK_MCP_SERVER_NAME] ?? null;
 
+  // `memory` is a plausible name for someone else's MCP server. Uninstall already
+  // refuses to touch a non-AutoMem entry (`onlyIfAutoMem`); install must be just as
+  // careful, or it silently destroys a working integration. Checked before the
+  // dry-run branch so a preview surfaces the collision too.
+  if (existing !== null && !isAutoMemMcpEntry(existing)) {
+    throw new Error(
+      `Refusing to overwrite mcp_servers.${GROK_MCP_SERVER_NAME} in ${configPath}: ` +
+        'it points at a server that is not AutoMem. Rename or remove that entry, ' +
+        'then re-run — AutoMem will not replace it.'
+    );
+  }
+
   if (deepEqual(existing, entry)) {
     log(
       `✓ Unchanged: ${path.basename(configPath)} (mcp_servers.${GROK_MCP_SERVER_NAME})`,
@@ -258,14 +279,27 @@ export function upsertGrokMemoryServer(
     );
   }
   const serialized = spliced ?? stringifyToml(doc);
+  // Once the entry carries AUTOMEM_API_KEY the config is a secret file. Writing it
+  // under a typical 022 umask would leave it 0644 and readable by other local
+  // accounts, so match the 0600 treatment host-toolkit gives secret writes — and
+  // apply it to the backup, which holds the same key.
+  const holdsSecret = Boolean(entry.env.AUTOMEM_API_KEY);
 
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   if (existed) {
     const backup = backupPath(configPath);
     fs.copyFileSync(configPath, backup);
+    if (holdsSecret) restrictToOwner(backup);
     log(`📦 Backup created: ${backup}`, opts.quiet);
   }
-  fs.writeFileSync(configPath, serialized, 'utf8');
+  fs.writeFileSync(
+    configPath,
+    serialized,
+    holdsSecret ? { encoding: 'utf8', mode: 0o600 } : 'utf8'
+  );
+  // writeFileSync's mode only applies when it creates the file, so an existing
+  // 0644 config keeps its permissions without this.
+  if (holdsSecret) restrictToOwner(configPath);
   log(`✅ ${existed ? 'Updated' : 'Created'}: ${path.basename(configPath)}`, opts.quiet);
   return { method: 'toml', changed: true };
 }

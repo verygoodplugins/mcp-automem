@@ -66,6 +66,41 @@ describe('grok setup', () => {
     expect(agents).toContain('memory__recall_memory');
   });
 
+  // ~/.grok/AGENTS.md loads in every Grok session, whatever repo it runs in. Baking
+  // the install-time project into it would hard-gate every later recall to that slug
+  // and tag every store with it.
+  it('keeps the global rules project-agnostic', async () => {
+    await applyGrokSetup({ endpoint: 'https://automem.example.test', quiet: true });
+
+    const agents = fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8');
+    // The tag gate itself must stay a placeholder, not the installer's cwd.
+    expect(agents).toContain('tags: ["<project-slug>"]');
+    expect(agents).toContain('use the slug of the repository you are working in');
+    expect(agents).not.toContain('tags: ["mcp-automem"]');
+  });
+
+  it('bakes in a real project only when the caller scopes the rules', async () => {
+    await applyGrokSetup({
+      endpoint: 'https://automem.example.test',
+      quiet: true,
+      projectName: 'demo-project',
+    });
+    expect(fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8')).toContain(
+      'tags: ["demo-project"]'
+    );
+
+    const projectRules = path.join(tmpDir, 'project', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(projectRules), { recursive: true });
+    await applyGrokSetup({
+      endpoint: 'https://automem.example.test',
+      quiet: true,
+      rulesPath: projectRules,
+      projectName: 'scoped-project',
+    });
+    // A --rules target is project-local, so a real project name is correct there.
+    expect(fs.readFileSync(projectRules, 'utf8')).toContain('tags: ["scoped-project"]');
+  });
+
   it('preserves existing credentials on re-run without flags', async () => {
     await applyGrokSetup({
       endpoint: 'https://automem.example.test',

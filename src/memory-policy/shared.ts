@@ -745,6 +745,10 @@ export function renderGrokMemoryRules(params: ToolRuleRenderOptions): string {
     '',
     'Always run `search_tool` before the first `use_tool` on MCP servers.',
     '',
+    // These rules normally live in the global ~/.grok/AGENTS.md and load in every
+    // session, so the project tag below cannot be fixed at install time.
+    'Project tag: use the slug of the repository you are working in. When the examples below show `<project-slug>`, substitute it — these rules load in every Grok session, so no single project is baked in. Drop the tag gate entirely when there is no project or the slug collides with a common word.',
+    '',
     renderRecallRulesSection({ projectName: params.projectName, style }),
     '',
     renderStorageRulesSection(style, params.projectName),
