@@ -93,4 +93,65 @@ describe('grok setup', () => {
     expect(fs.existsSync(path.join(tmpDir, 'config.toml'))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, 'AGENTS.md'))).toBe(false);
   });
+
+  it('dry-run does not claim files were written', async () => {
+    const lines: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => void lines.push(args.join(' '));
+    try {
+      await applyGrokSetup({
+        endpoint: 'https://automem.example.test',
+        dryRun: true,
+        projectName: 'demo',
+      });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const output = lines.join('\n');
+    expect(output).toContain('[DRY RUN]');
+    expect(output).toContain('Dry run — no files were changed.');
+    // The success report belongs to real runs only.
+    expect(output).not.toContain('written to');
+    expect(output).not.toContain('rules installed in');
+    expect(output).not.toContain('setup complete');
+  });
+
+  it('warns when disabled_mcp_servers would keep Grok from loading AutoMem', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'config.toml'),
+      ['disabled_mcp_servers = ["memory", "wordpress"]', ''].join('\n')
+    );
+
+    const lines: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => void lines.push(args.join(' '));
+    try {
+      await applyGrokSetup({ endpoint: 'https://automem.example.test', projectName: 'demo' });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const output = lines.join('\n');
+    expect(output).toContain('listed in disabled_mcp_servers');
+    expect(output).toContain('Grok will not load it');
+  });
+
+  it('stays quiet about disabled_mcp_servers when memory is not in the list', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'config.toml'),
+      ['disabled_mcp_servers = ["wordpress"]', ''].join('\n')
+    );
+
+    const lines: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => void lines.push(args.join(' '));
+    try {
+      await applyGrokSetup({ endpoint: 'https://automem.example.test', projectName: 'demo' });
+    } finally {
+      console.log = originalLog;
+    }
+
+    expect(lines.join('\n')).not.toContain('disabled_mcp_servers');
+  });
 });
