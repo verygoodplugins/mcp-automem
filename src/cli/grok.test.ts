@@ -165,6 +165,33 @@ describe('grok setup', () => {
     expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('sk-persist');
   });
 
+  // Appending past a half-written block leaves one start and two ends, so the *next*
+  // run replaces everything between the original start and the appended end — silently
+  // eating whatever the user wrote in between.
+  it('refuses to append when the rules file has a one-sided marker', async () => {
+    const rulesPath = path.join(tmpDir, 'AGENTS.md');
+    const handWritten = ['# My notes', GROK_RULES_START, 'half a block, no end marker', ''].join(
+      '\n'
+    );
+    fs.writeFileSync(rulesPath, handWritten);
+
+    await expect(
+      applyGrokSetup({ endpoint: 'https://automem.example.test', quiet: true })
+    ).rejects.toThrow(/without a matching/);
+
+    // The user's file is left exactly as it was.
+    expect(fs.readFileSync(rulesPath, 'utf8')).toBe(handWritten);
+  });
+
+  it('refuses on a stray end marker too', async () => {
+    const rulesPath = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(rulesPath, ['# My notes', GROK_RULES_END, ''].join('\n'));
+
+    await expect(
+      applyGrokSetup({ endpoint: 'https://automem.example.test', quiet: true })
+    ).rejects.toThrow(/without a matching/);
+  });
+
   it('dry-run does not write files', async () => {
     await applyGrokSetup({
       endpoint: 'https://automem.example.test',

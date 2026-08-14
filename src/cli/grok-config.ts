@@ -90,6 +90,21 @@ function restrictToOwner(filePath: string): void {
   }
 }
 
+/**
+ * Whether an mcp_servers entry carries an API key.
+ *
+ * Secrecy is a property of the *file*, not of the entry being written, so every path
+ * that touches config.toml has to consider both the incoming entry and whatever is
+ * already on disk. Two ways to get this wrong, both real: a file that already holds a
+ * key and is not being changed still needs tightening, and a backup taken while
+ * removing or replacing a key still contains it.
+ */
+function entryHasApiKey(entry: unknown): boolean {
+  if (!isRecord(entry)) return false;
+  const env = entry.env;
+  return isRecord(env) && typeof env.AUTOMEM_API_KEY === 'string' && env.AUTOMEM_API_KEY.length > 0;
+}
+
 function isAutoMemMcpEntry(entry: unknown): boolean {
   if (!isRecord(entry)) return false;
   const haystack = JSON.stringify({
@@ -245,7 +260,14 @@ export function upsertGrokMemoryServer(
     );
   }
 
+  // The file is secret-bearing if either side holds a key: the entry being written, or
+  // what is already on disk (which the backup below will also contain).
+  const holdsSecret = entryHasApiKey(existing) || entryHasApiKey(entry);
+
   if (deepEqual(existing, entry)) {
+    // Nothing to write, but a hand-written config carrying a key can still be 0644 —
+    // returning early used to leave it that way.
+    if (holdsSecret && !opts.dryRun) restrictToOwner(configPath);
     log(
       `✓ Unchanged: ${path.basename(configPath)} (mcp_servers.${GROK_MCP_SERVER_NAME})`,
       opts.quiet
@@ -279,11 +301,11 @@ export function upsertGrokMemoryServer(
     );
   }
   const serialized = spliced ?? stringifyToml(doc);
-  // Once the entry carries AUTOMEM_API_KEY the config is a secret file. Writing it
-  // under a typical 022 umask would leave it 0644 and readable by other local
-  // accounts, so match the 0600 treatment host-toolkit gives secret writes — and
-  // apply it to the backup, which holds the same key.
-  const holdsSecret = Boolean(entry.env.AUTOMEM_API_KEY);
+  // A config carrying AUTOMEM_API_KEY is a secret file. Writing it under a typical 022
+  // umask would leave it 0644 and readable by other local accounts, so match the 0600
+  // treatment host-toolkit gives secret writes. `holdsSecret` covers the outgoing key
+  // too: switching endpoints drops the key from the new entry, but `copyFileSync`
+  // preserves the source mode, so the backup would keep the old credential world-readable.
 
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   if (existed) {
@@ -352,6 +374,9 @@ export function removeGrokMemoryServer(configPath: string, opts: UpsertOptions =
 
   const backup = backupPath(configPath);
   fs.copyFileSync(configPath, backup);
+  // Uninstalling a keyed entry leaves the credential in the backup, and copyFileSync
+  // preserves the source's mode — so a 0644 config yields a 0644 copy of the secret.
+  if (entryHasApiKey(entry)) restrictToOwner(backup);
   fs.writeFileSync(configPath, spliced ?? stringifyToml(doc), 'utf8');
   log(
     `🗑️  Removed mcp_servers.${GROK_MCP_SERVER_NAME} from ${path.basename(configPath)}`,
