@@ -10,7 +10,7 @@ import { applyGrokSetup } from './grok.js';
 import { applyOpenClawSetup } from './openclaw.js';
 import { resolveGrokPaths } from './grok-config.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
-import { mergeEnvContent, writeFileWithBackup } from './host-toolkit.js';
+import { mergeEnvContent, sameEndpoint, writeFileWithBackup } from './host-toolkit.js';
 import { provisionViaInstaPodsLink, provisionViaRailway } from './cloud/installer-bridge.js';
 // Re-exported so existing importers (and install.test.ts) keep a stable path.
 export { formatEnvValue } from './host-toolkit.js';
@@ -373,8 +373,13 @@ export function parseInstallArgs(
   let target = parseTarget(env.AUTOMEM_INSTALL_TARGET);
   let cloudProvider = parseCloudProvider(env.AUTOMEM_CLOUD_PROVIDER);
   let clients = parseClients(env.AUTOMEM_CLIENTS);
-  let endpoint = env.AUTOMEM_API_URL || env.AUTOMEM_ENDPOINT;
-  let apiKey = env.AUTOMEM_API_KEY || env.AUTOMEM_API_TOKEN;
+  const envEndpoint = env.AUTOMEM_API_URL || env.AUTOMEM_ENDPOINT;
+  const envApiKey = env.AUTOMEM_API_KEY || env.AUTOMEM_API_TOKEN;
+  let endpoint = envEndpoint;
+  let apiKey = envApiKey;
+  // Whether the key came from --api-key rather than the environment. An explicit flag
+  // is the operator naming the credential for this run; an inherited one is not.
+  let apiKeyFromFlag = false;
   let localDir = env.AUTOMEM_LOCAL_DIR;
   let hermesMode = parseHermesMode(env.AUTOMEM_HERMES_MODE);
   let claudeCodeMode = parseClaudeCodeMode(env.AUTOMEM_CLAUDE_CODE_MODE);
@@ -407,6 +412,7 @@ export function parseInstallArgs(
         break;
       case '--api-key':
         apiKey = assertValue(args, i, arg);
+        apiKeyFromFlag = true;
         i += 1;
         break;
       case '--local-dir':
@@ -434,6 +440,20 @@ export function parseInstallArgs(
       default:
         break;
     }
+  }
+
+  // An environment key belongs to the environment's endpoint. Selecting a different
+  // host with --endpoint must not forward that credential to it — the per-host
+  // installers receive this as an explicit apiKey, which bypasses their own pairing
+  // checks, so the pairing has to happen here too.
+  if (
+    !apiKeyFromFlag &&
+    envApiKey &&
+    envEndpoint &&
+    endpoint &&
+    !sameEndpoint(endpoint, envEndpoint)
+  ) {
+    apiKey = undefined;
   }
 
   return {
