@@ -42,7 +42,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function upsertRulesWithMarkers(existing: string | null, block: string): string {
+function upsertRulesWithMarkers(existing: string | null, block: string, rulesPath: string): string {
   const normalize = (s: string) => `${s.replace(/\n+$/, '')}\n`;
   if (!existing) {
     return normalize(block);
@@ -53,6 +53,20 @@ function upsertRulesWithMarkers(existing: string | null, block: string): string 
     const before = existing.slice(0, startIdx);
     const after = existing.slice(endIdx + GROK_RULES_END.length);
     return normalize(`${before}${block}${after}`);
+  }
+  // One-sided markers (an interrupted run, or a hand edit that deleted half the block)
+  // used to fall through to "append". That is quietly destructive: the file then holds
+  // one start marker and two ends, so the *next* run replaces everything between the
+  // original start and the appended end — deleting whatever the user wrote in between.
+  // Refuse instead; the repair is a judgement call about their content, not ours.
+  if (startIdx !== -1 || endIdx !== -1) {
+    const present = startIdx !== -1 ? GROK_RULES_START : GROK_RULES_END;
+    const missing = startIdx !== -1 ? GROK_RULES_END : GROK_RULES_START;
+    throw new Error(
+      `${rulesPath} has ${present} without a matching ${missing}. ` +
+        'Appending would let a later run delete the content between them. ' +
+        `Restore or remove the stray marker (or point --rules elsewhere), then re-run.`
+    );
   }
   const sep = existing.endsWith('\n') ? '\n' : '\n\n';
   return normalize(`${existing}${sep}${block}`);
@@ -115,7 +129,7 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
     PROJECT_NAME: rulesProjectName,
   });
   const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
-  const finalContent = upsertRulesWithMarkers(existingContent, processed);
+  const finalContent = upsertRulesWithMarkers(existingContent, processed, rulesPath);
   writeFileWithBackup(rulesPath, finalContent, cliOptions);
 
   // Diagnostics describe existing state rather than work performed, so they belong in

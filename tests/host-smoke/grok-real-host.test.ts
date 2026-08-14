@@ -118,6 +118,9 @@ describe('Grok real host contract', () => {
           'check_database_health',
         ]);
 
+        // AGENTS.md's host-integration contract asks for health, recall, store, update
+        // and associate against the fake API — exercising only two would let the rest
+        // regress with this test still green.
         const health = await client.request('tools/call', {
           name: 'check_database_health',
           arguments: {},
@@ -129,6 +132,36 @@ describe('Grok real host contract', () => {
           arguments: { query: 'grok smoke', limit: 1 },
         });
         expect(recalled.structuredContent.count).toBe(1);
+
+        const stored = await client.request('tools/call', {
+          name: 'store_memory',
+          arguments: { content: 'grok host smoke memory', tags: ['grok-smoke'], importance: 0.6 },
+        });
+        expect(stored.structuredContent.memory_id).toBe('mem-1');
+
+        const updated = await client.request('tools/call', {
+          name: 'update_memory',
+          arguments: { memory_id: 'mem-1', importance: 0.8 },
+        });
+        expect(updated.structuredContent.memory_id).toBe('mem-1');
+
+        const associated = await client.request('tools/call', {
+          name: 'associate_memories',
+          arguments: {
+            memory1_id: 'mem-1',
+            memory2_id: 'mem-2',
+            type: 'RELATES_TO',
+            strength: 0.7,
+          },
+        });
+        expect(associated.structuredContent).toBeDefined();
+
+        const paths = fakeApi.requests.map((request) => request.path);
+        expect(paths).toContain('/health');
+        expect(paths.some((p) => p.startsWith('/recall'))).toBe(true);
+        expect(paths).toContain('/memory');
+        expect(paths).toContain('/memory/mem-1');
+        expect(paths).toContain('/associate');
 
         // stdio must stay clean JSON-RPC or Grok cannot parse the stream at all.
         expect(client.invalidStdoutLines).toEqual([]);
