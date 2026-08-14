@@ -108,6 +108,88 @@ function parseGrokDocument(raw: string, configPath: string): Record<string, unkn
   }
 }
 
+const MEMORY_TABLE_HEADER = new RegExp(`^\\s*\\[mcp_servers\\.${GROK_MCP_SERVER_NAME}\\]\\s*$`);
+const MEMORY_SUBTABLE_HEADER = new RegExp(
+  `^\\s*\\[mcp_servers\\.${GROK_MCP_SERVER_NAME}\\.[^\\]]+\\]\\s*$`
+);
+const ANY_TABLE_HEADER = /^\s*\[/;
+
+/**
+ * Byte range of the `[mcp_servers.memory]` table and its sub-tables, as line indices
+ * into `lines`. Null when the entry is absent or expressed some other way (inline
+ * table, dotted keys) — callers fall back to a whole-document rewrite.
+ */
+function locateMemoryTableLines(lines: string[]): { start: number; end: number } | null {
+  const start = lines.findIndex((line) => MEMORY_TABLE_HEADER.test(line));
+  if (start === -1) return null;
+
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (!ANY_TABLE_HEADER.test(lines[i])) continue;
+    // `[mcp_servers.memory.env]` and friends belong to the block we are replacing.
+    if (MEMORY_SUBTABLE_HEADER.test(lines[i])) continue;
+    end = i;
+    break;
+  }
+
+  // Trim trailing blank lines back to the owning block so replacement doesn't
+  // accumulate or swallow the separator before the next table.
+  while (end > start + 1 && lines[end - 1].trim() === '') end -= 1;
+  return { start, end };
+}
+
+/** Serialize just the AutoMem entry, as its own `[mcp_servers.memory]` table block. */
+function renderMemoryTableBlock(entry: GrokAutoMemServerEntry): string[] {
+  return stringifyToml({ mcp_servers: { [GROK_MCP_SERVER_NAME]: entry } })
+    .replace(/\n+$/, '')
+    .split('\n');
+}
+
+/**
+ * Rewrite `configPath` by splicing only the AutoMem table, leaving every other byte
+ * of the user's config untouched.
+ *
+ * Grok configs are hand-maintained and carry things a parse/stringify round-trip
+ * destroys: comments, multi-line `"""` subagent instructions (which collapse into
+ * escaped one-liners), and array formatting. So the parsed document is used only to
+ * decide *what* to write; the file itself is edited as text.
+ *
+ * Returns null when the splice can't be verified, so the caller can fall back.
+ */
+function spliceMemoryTable(
+  raw: string,
+  expected: Record<string, unknown>,
+  next: string[]
+): string | null {
+  const lines = raw.split('\n');
+  const located = locateMemoryTableLines(lines);
+
+  let spliced: string[];
+  if (located) {
+    spliced = [...lines.slice(0, located.start), ...next, ...lines.slice(located.end)];
+  } else {
+    // No existing table: append, keeping exactly one blank line as separator.
+    const head = [...lines];
+    while (head.length > 0 && head[head.length - 1].trim() === '') head.pop();
+    spliced = head.length > 0 ? [...head, '', ...next] : [...next];
+  }
+
+  const candidate = `${spliced.join('\n').replace(/\n+$/, '')}\n`;
+
+  // Verify by round-tripping: the spliced text must parse, and must parse to exactly
+  // the document we intended. This is what makes the line-scanning above safe — a
+  // table header matched inside a multi-line string would fail this check, not corrupt
+  // the user's file.
+  try {
+    const reparsed = parseToml(candidate) as unknown;
+    if (!isRecord(reparsed)) return null;
+    if (!deepEqual(reparsed, expected)) return null;
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Merge AutoMem into ~/.grok/config.toml under `mcp_servers.memory`, preserving
  * unrelated servers and top-level keys. Returns whether the file changed.
@@ -117,13 +199,10 @@ export function upsertGrokMemoryServer(
   entry: GrokAutoMemServerEntry,
   opts: UpsertOptions = {}
 ): UpsertResult {
-  if (opts.dryRun) {
-    log(`[DRY RUN] Would upsert mcp_servers.${GROK_MCP_SERVER_NAME} in: ${configPath}`, opts.quiet);
-    return { method: 'dry-run', changed: false };
-  }
-
   const existed = fs.existsSync(configPath);
   const raw = existed ? fs.readFileSync(configPath, 'utf8') : '';
+  // Parse even on dry runs: it is the only way to report add-vs-update-vs-unchanged
+  // honestly, and a malformed config should fail the preview, not just the real run.
   const doc = parseGrokDocument(raw, configPath);
 
   const servers = isRecord(doc.mcp_servers)
@@ -136,12 +215,35 @@ export function upsertGrokMemoryServer(
       `✓ Unchanged: ${path.basename(configPath)} (mcp_servers.${GROK_MCP_SERVER_NAME})`,
       opts.quiet
     );
-    return { method: 'toml', changed: false };
+    return { method: opts.dryRun ? 'dry-run' : 'toml', changed: false };
   }
 
   servers[GROK_MCP_SERVER_NAME] = entry;
   doc.mcp_servers = servers;
-  const serialized = stringifyToml(doc);
+
+  if (opts.dryRun) {
+    const verb = existing ? 'update' : 'add';
+    log(
+      `[DRY RUN] Would ${verb} mcp_servers.${GROK_MCP_SERVER_NAME} in: ${configPath}`,
+      opts.quiet
+    );
+    return { method: 'dry-run', changed: false };
+  }
+
+  const spliced = existed ? spliceMemoryTable(raw, doc, renderMemoryTableBlock(entry)) : null;
+  if (existed && !spliced) {
+    // Fall back loudly: the rewrite is correct but reformats the whole document,
+    // dropping comments and collapsing multi-line strings.
+    log(
+      `⚠️  Could not edit mcp_servers.${GROK_MCP_SERVER_NAME} in place in ${path.basename(configPath)} — rewriting the whole file.`,
+      opts.quiet
+    );
+    log(
+      '   Comments and multi-line string formatting will be lost (a backup is kept).',
+      opts.quiet
+    );
+  }
+  const serialized = spliced ?? stringifyToml(doc);
 
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   if (existed) {
@@ -186,9 +288,23 @@ export function removeGrokMemoryServer(configPath: string, opts: UpsertOptions =
     doc.mcp_servers = servers;
   }
 
+  // Splice out just the AutoMem table so the rest of the config keeps its comments
+  // and formatting; fall back to a full rewrite only when that can't be verified.
+  const spliced = spliceMemoryTable(raw, doc, []);
+  if (!spliced) {
+    log(
+      `⚠️  Could not remove mcp_servers.${GROK_MCP_SERVER_NAME} in place in ${path.basename(configPath)} — rewriting the whole file.`,
+      opts.quiet
+    );
+    log(
+      '   Comments and multi-line string formatting will be lost (a backup is kept).',
+      opts.quiet
+    );
+  }
+
   const backup = backupPath(configPath);
   fs.copyFileSync(configPath, backup);
-  fs.writeFileSync(configPath, stringifyToml(doc), 'utf8');
+  fs.writeFileSync(configPath, spliced ?? stringifyToml(doc), 'utf8');
   log(
     `🗑️  Removed mcp_servers.${GROK_MCP_SERVER_NAME} from ${path.basename(configPath)}`,
     opts.quiet
