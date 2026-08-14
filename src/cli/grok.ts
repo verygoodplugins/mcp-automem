@@ -76,19 +76,24 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
     process.env.AUTOMEM_ENDPOINT ||
     existingCreds.endpoint ||
     DEFAULT_AUTOMEM_API_URL;
-  const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? existingCreds.apiKey;
+  // A stored key belongs to the endpoint it was issued for. Carrying it over to a
+  // different host would send that secret as a Bearer credential to a server that was
+  // never meant to have it, so only reuse it when the endpoint is unchanged.
+  const reusableStoredKey =
+    existingCreds.endpoint && existingCreds.endpoint === endpoint
+      ? existingCreds.apiKey
+      : undefined;
+  const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? reusableStoredKey;
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
   const disabledServers = readDisabledMcpServers(paths.configPath);
 
-  // The default rules target is the GLOBAL ~/.grok/AGENTS.md, which Grok injects into
-  // every session regardless of which repo it is run in. Baking the install-time
-  // project into it would hard-gate all later recalls to that one slug and tag every
-  // store with it — tags are a hard filter, so the damage is silent. Keep the
-  // placeholder there and only bake in a real name when the caller scopes it.
-  const writesGlobalRules = rulesPath === paths.agentsPath;
-  const scopedByCaller = cliOptions.projectName !== undefined || cliOptions.rulesPath !== undefined;
-  const rulesProjectName =
-    writesGlobalRules && !scopedByCaller ? GLOBAL_PROJECT_PLACEHOLDER : projectName;
+  // ~/.grok/AGENTS.md is injected into every Grok session regardless of which repo it
+  // runs in, so no single project tag can be correct there — a baked-in slug hard-gates
+  // every later recall and mistags every store, silently, because tags filter before
+  // scoring. The decision is the target file, not the flags: `--name` with the default
+  // path, or `--rules` pointed at the global file, are still writing the global file.
+  const writesGlobalRules = path.resolve(rulesPath) === path.resolve(paths.agentsPath);
+  const rulesProjectName = writesGlobalRules ? GLOBAL_PROJECT_PLACEHOLDER : projectName;
 
   log(`\n🔧 Setting up Grok AutoMem for: ${projectName}`, cliOptions.quiet);
   log(`📁 Grok home: ${paths.home}`, cliOptions.quiet);
