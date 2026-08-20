@@ -596,11 +596,20 @@ export function buildSkillConfigEntry(params: {
       ? { AUTOMEM_DEFAULT_TAGS: params.defaultTags.join(',') }
       : {}),
   };
-  // Explicit deletes, not omitted spreads: `...existingEnv` and `...existing` already
-  // copied both credential locations forward.
-  for (const name of AUTOMEM_API_KEY_NAMES) {
-    if (apiKey && Object.prototype.hasOwnProperty.call(env, name)) env[name] = apiKey;
-    else delete env[name];
+  // Blank overrides, not deletes. Deleting clears the value the spread copied forward,
+  // but this env block is layered over the host's own when the skill's curl commands
+  // and the mcporter subprocess run — so an absent name lets a shell-exported key,
+  // issued for a different endpoint, pass through to a server this entry just
+  // repointed. Same boundary, and the same treatment, as the Grok and Hermes entries.
+  if (apiKey) {
+    // A resolved key lives in the top-level `apiKey` field, which is what OpenClaw maps
+    // into the skill's environment; an env copy is only synced when the entry already
+    // carried one, so the entry shape does not change.
+    for (const name of AUTOMEM_API_KEY_NAMES) {
+      if (Object.prototype.hasOwnProperty.call(env, name)) env[name] = apiKey;
+    }
+  } else {
+    for (const name of AUTOMEM_API_KEY_NAMES) env[name] = '';
   }
 
   const entry: Record<string, unknown> = { ...existing, enabled: true, env };

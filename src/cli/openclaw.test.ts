@@ -24,6 +24,7 @@ import {
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { readAutoMemApiKeyFromEnv } from '../env.js';
 
 describe('openclaw cli helpers', () => {
   it('parses the new openclaw flags with plugin defaults', () => {
@@ -651,7 +652,42 @@ describe('openclaw stored-key pairing in config builders', () => {
       defaultTags: [],
     });
     expect(JSON.stringify(entry)).not.toContain('sk-host-a');
-    expect(entry.env as Record<string, unknown>).not.toHaveProperty('AUTOMEM_API_KEY');
+    // Blank, not absent: this env block is layered over the host's own, so an absent
+    // name lets a shell-exported key pass through to the repointed server.
+    expect((entry.env as Record<string, unknown>).AUTOMEM_API_KEY).toBe('');
+    expect((entry.env as Record<string, unknown>).AUTOMEM_API_TOKEN).toBe('');
+  });
+
+  // The boundary itself: OpenClaw layers this env over its own for the skill's curl
+  // commands and the mcporter subprocess, so a rejected key must be shadowed, not
+  // merely removed. Same treatment as the Grok and Hermes entries.
+  it('shadows a rejected key so an inherited one cannot reach the repointed server', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-host-a', env: { AUTOMEM_API_URL: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    const env = entry.env as Record<string, string>;
+    const childEnv = {
+      AUTOMEM_API_URL: 'https://host-a.test',
+      AUTOMEM_API_KEY: 'sk-inherited',
+      ...env,
+    };
+    expect(childEnv.AUTOMEM_API_URL).toBe('https://host-b.test');
+    expect(readAutoMemApiKeyFromEnv(childEnv)).toBeUndefined();
+  });
+
+  it('shadows an inherited legacy token too', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-host-a', env: { AUTOMEM_API_URL: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    const childEnv = {
+      AUTOMEM_API_TOKEN: 'sk-inherited-legacy',
+      ...(entry.env as Record<string, string>),
+    };
+    expect(readAutoMemApiKeyFromEnv(childEnv)).toBeUndefined();
   });
 
   it('drops an env-block legacy token stored for a different endpoint', () => {
@@ -682,7 +718,8 @@ describe('openclaw stored-key pairing in config builders', () => {
       apiKey: 'sk-new',
       defaultTags: [],
     });
-    expect(entry.env as Record<string, unknown>).not.toHaveProperty('AUTOMEM_API_KEY');
+    // A resolved key lives in the top-level field; no env copy is introduced.
+    expect((entry.env as Record<string, unknown>).AUTOMEM_API_KEY).toBeUndefined();
     expect(entry.apiKey).toBe('sk-new');
   });
 
