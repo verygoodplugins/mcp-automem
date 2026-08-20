@@ -8,12 +8,23 @@ import { buildDefaultProjectTags } from '../memory-policy/shared.js';
 import { buildStartupProfileFromResults } from '../openclaw-startup-profile.js';
 import {
   AUTOMEM_API_KEY_NAMES,
+  describeMarkedBlockDefect,
   readApiKeyFrom,
   readEndpointFrom,
   resolveInheritedApiKey,
   sameEndpoint,
+  scanMarkedBlock,
+  stripMarkedBlock,
+  type MarkedBlockMarkers,
 } from './host-toolkit.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
+
+export const OPENCLAW_RULES_START = '<!-- BEGIN AUTOMEM OPENCLAW RULES -->';
+export const OPENCLAW_RULES_END = '<!-- END AUTOMEM OPENCLAW RULES -->';
+const OPENCLAW_RULES_MARKERS: MarkedBlockMarkers = {
+  start: OPENCLAW_RULES_START,
+  end: OPENCLAW_RULES_END,
+};
 
 export type OpenClawSetupMode = 'plugin' | 'mcp' | 'skill';
 export type OpenClawSetupScope = 'workspace' | 'shared';
@@ -430,19 +441,27 @@ function readMcporterConfig(configPath: string): JsonObject {
 /**
  * Remove old AGENTS.md AutoMem block if present from previous installs.
  */
-function cleanOldAgentsBlock(workspaceDir: string, options: OpenClawSetupOptions): boolean {
+export function cleanOldAgentsBlock(workspaceDir: string, options: OpenClawSetupOptions): boolean {
   const agentsPath = path.join(workspaceDir, 'AGENTS.md');
   if (!fs.existsSync(agentsPath)) {
     return false;
   }
 
   const content = fs.readFileSync(agentsPath, 'utf8');
-  const startMarker = '<!-- BEGIN AUTOMEM OPENCLAW RULES -->';
-  const endMarker = '<!-- END AUTOMEM OPENCLAW RULES -->';
-  const startIndex = content.indexOf(startMarker);
-  const endIndex = content.indexOf(endMarker);
+  const scan = scanMarkedBlock(content, OPENCLAW_RULES_MARKERS);
 
-  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
+  if (scan.absent) {
+    return false;
+  }
+
+  if (!scan.paired) {
+    // Stripping across a stray marker walks from a start to the *next* end and takes
+    // the user's content in between with it. This is a best-effort cleanup of a legacy
+    // block, so leave the file alone and say why rather than guessing at a repair.
+    console.warn(
+      `Warning: left ${agentsPath} untouched — ${describeMarkedBlockDefect(scan, OPENCLAW_RULES_MARKERS)}. ` +
+        'Remove the stray marker by hand, then re-run.'
+    );
     return false;
   }
 
@@ -455,9 +474,7 @@ function cleanOldAgentsBlock(workspaceDir: string, options: OpenClawSetupOptions
   fs.copyFileSync(agentsPath, backup);
   log(`Backup created: ${backup}`, options.quiet);
 
-  const before = content.slice(0, startIndex).trimEnd();
-  const after = content.slice(endIndex + endMarker.length).trimStart();
-  const cleaned = `${before}${after ? `\n\n${after}` : ''}\n`;
+  const cleaned = `${stripMarkedBlock(content, OPENCLAW_RULES_MARKERS).replace(/\n+$/, '')}\n`;
 
   fs.writeFileSync(agentsPath, cleaned, 'utf8');
   log('Removed old AutoMem block from AGENTS.md', options.quiet);

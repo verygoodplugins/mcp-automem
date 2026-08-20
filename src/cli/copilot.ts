@@ -8,6 +8,20 @@ import {
   type CopilotInstallFormat,
   type CopilotHookSurface,
 } from './hook-model.js';
+import {
+  describeMarkedBlockDefect,
+  scanMarkedBlock,
+  stripMarkedBlock,
+  upsertMarkedBlock,
+  type MarkedBlockMarkers,
+} from './host-toolkit.js';
+
+export const COPILOT_RULES_START = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
+export const COPILOT_RULES_END = '<!-- END AUTOMEM MEMORY RULES -->';
+const COPILOT_RULES_MARKERS: MarkedBlockMarkers = {
+  start: COPILOT_RULES_START,
+  end: COPILOT_RULES_END,
+};
 
 // --- Type Definitions (T002, T003) ---
 
@@ -188,12 +202,18 @@ function removeCliMemoryRules(targetPath: string, options: CopilotSetupOptions):
     return false;
   }
 
-  const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
-  const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
   const existing = fs.readFileSync(targetPath, 'utf8');
-  const start = existing.indexOf(startMarker);
-  const end = existing.indexOf(endMarker);
-  if (start === -1 || end === -1) {
+  const scan = scanMarkedBlock(existing, COPILOT_RULES_MARKERS);
+  if (scan.absent) {
+    return false;
+  }
+  if (!scan.paired) {
+    // Stripping across a stray marker walks from a start to the *next* end and takes
+    // the user's content in between with it. Leave the file alone and say why.
+    console.warn(
+      `Warning: left ${targetPath} untouched — ${describeMarkedBlockDefect(scan, COPILOT_RULES_MARKERS)}. ` +
+        'Remove the stray marker by hand, then re-run.'
+    );
     return false;
   }
   if (options.dryRun) {
@@ -201,9 +221,7 @@ function removeCliMemoryRules(targetPath: string, options: CopilotSetupOptions):
     return true;
   }
 
-  const updated = (existing.slice(0, start) + existing.slice(end + endMarker.length))
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  const updated = stripMarkedBlock(existing, COPILOT_RULES_MARKERS).trim();
   if (!updated) {
     return removeFileWithBackup(targetPath, options);
   }
@@ -462,33 +480,21 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
       }
       const rulesBlock = templateContent.slice(blockStart, blockEnd + '</memory_rules>'.length);
 
-      const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
-      const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
-      const markedBlock = `${startMarker}\n${rulesBlock}\n${endMarker}`;
+      const markedBlock = `${COPILOT_RULES_START}\n${rulesBlock}\n${COPILOT_RULES_END}`;
+
+      const existing = fs.existsSync(cliTargetPath) ? fs.readFileSync(cliTargetPath, 'utf8') : '';
+      // Validated before the dry-run bail so a preview surfaces a rules file this
+      // command would refuse to rewrite, instead of promising an update that throws.
+      const updated = upsertMarkedBlock(
+        existing.length > 0 ? existing : null,
+        markedBlock,
+        COPILOT_RULES_MARKERS,
+        cliTargetPath
+      );
 
       if (options.dryRun) {
         log(`dry-run: would update ${cliTargetPath} (memory rules block)`, options.quiet);
         return;
-      }
-
-      const existing = fs.existsSync(cliTargetPath) ? fs.readFileSync(cliTargetPath, 'utf8') : '';
-
-      let updated: string;
-      const existingStart = existing.indexOf(startMarker);
-      const existingEnd = existing.indexOf(endMarker);
-
-      if (existingStart !== -1 && existingEnd !== -1) {
-        // Replace existing block
-        const before = existing.slice(0, existingStart);
-        const after = existing.slice(existingEnd + endMarker.length);
-        updated = `${before}${markedBlock}${after}`;
-      } else if (existing.length > 0) {
-        // Append to existing file
-        const sep = existing.endsWith('\n') ? '\n' : '\n\n';
-        updated = `${existing}${sep}${markedBlock}\n`;
-      } else {
-        // New file
-        updated = `${markedBlock}\n`;
       }
 
       if (updated !== existing) {

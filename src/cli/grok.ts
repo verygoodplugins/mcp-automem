@@ -5,9 +5,12 @@ import {
   CommonOptions,
   detectProjectName,
   log,
+  type MarkedBlockMarkers,
   parseCommonFlags,
   replaceTemplateVars,
   resolveInheritedApiKey,
+  stripMarkedBlock,
+  upsertMarkedBlock,
   writeFileWithBackup,
 } from './host-toolkit.js';
 import {
@@ -30,6 +33,7 @@ const TEMPLATE_ROOT = path.resolve(fileURLToPath(new URL('../../templates/grok',
 
 export const GROK_RULES_START = '<!-- BEGIN AUTOMEM GROK RULES -->';
 export const GROK_RULES_END = '<!-- END AUTOMEM GROK RULES -->';
+const GROK_RULES_MARKERS: MarkedBlockMarkers = { start: GROK_RULES_START, end: GROK_RULES_END };
 
 /**
  * Stands in for the project tag when the rules land in the global
@@ -37,10 +41,6 @@ export const GROK_RULES_END = '<!-- END AUTOMEM GROK RULES -->';
  * same reason: the file is not project-scoped, so no single slug can be correct.
  */
 export const GLOBAL_PROJECT_PLACEHOLDER = '<project-slug>';
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /**
  * Whether two paths name the same file. Resolves symlinks, because the global rules
@@ -67,68 +67,8 @@ function sameFile(a: string, b: string): boolean {
   return real(a) === real(b);
 }
 
-function countOccurrences(haystack: string, needle: string): number {
-  let count = 0;
-  let from = 0;
-  for (;;) {
-    const idx = haystack.indexOf(needle, from);
-    if (idx === -1) return count;
-    count += 1;
-    from = idx + needle.length;
-  }
-}
-
-function upsertRulesWithMarkers(existing: string | null, block: string, rulesPath: string): string {
-  const normalize = (s: string) => `${s.replace(/\n+$/, '')}\n`;
-  if (!existing) {
-    return normalize(block);
-  }
-  const starts = countOccurrences(existing, GROK_RULES_START);
-  const ends = countOccurrences(existing, GROK_RULES_END);
-
-  if (starts === 0 && ends === 0) {
-    const sep = existing.endsWith('\n') ? '\n' : '\n\n';
-    return normalize(`${existing}${sep}${block}`);
-  }
-
-  // Anything other than exactly one correctly ordered pair is refused rather than
-  // repaired. Every malformed shape here destroys user content if we replace anyway:
-  //
-  //  - One-sided (an interrupted run, or a hand edit that deleted half the block):
-  //    appending leaves one start and two ends, so the *next* run replaces everything
-  //    from the original start to the appended end.
-  //  - Two starts before one end: replacing from the first start through the end
-  //    deletes the second marker and whatever the user wrote between them — and the
-  //    file looks well-formed to a one-sided check, which is why counting is the test.
-  //
-  // Repairing these means guessing which side of a stray marker the user's content
-  // belongs to. That is their judgement to make, not ours.
-  const startIdx = existing.indexOf(GROK_RULES_START);
-  const endIdx = existing.indexOf(GROK_RULES_END);
-  const wellFormed = starts === 1 && ends === 1 && startIdx !== -1 && endIdx > startIdx;
-  if (!wellFormed) {
-    const detail =
-      starts === 1 && ends === 1
-        ? `its ${GROK_RULES_END} precedes its ${GROK_RULES_START}`
-        : `found ${starts} start and ${ends} end marker${ends === 1 ? '' : 's'}`;
-    throw new Error(
-      `${rulesPath} does not contain exactly one ${GROK_RULES_START} … ${GROK_RULES_END} block ` +
-        `(${detail}). Rewriting it would delete the content between the stray markers. ` +
-        'Restore or remove them (or point --rules elsewhere), then re-run.'
-    );
-  }
-
-  const before = existing.slice(0, startIdx);
-  const after = existing.slice(endIdx + GROK_RULES_END.length);
-  return normalize(`${before}${block}${after}`);
-}
-
 export function stripGrokRulesMarkers(existing: string): string {
-  const pattern = new RegExp(
-    `\\n?${escapeRegExp(GROK_RULES_START)}[\\s\\S]*?${escapeRegExp(GROK_RULES_END)}\\n?`,
-    'g'
-  );
-  return existing.replace(pattern, '\n').replace(/\n{3,}/g, '\n\n');
+  return stripMarkedBlock(existing, GROK_RULES_MARKERS);
 }
 
 export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void> {
@@ -179,8 +119,8 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
   log(`📄 Rules: ${rulesPath}\n`, cliOptions.quiet);
 
   // Everything that can reject the run happens before anything is written. Both the
-  // rules content and the server entry are computed up front: upsertRulesWithMarkers
-  // throws on a one-sided marker, and building the entry is pure. Validating after the
+  // rules content and the server entry are computed up front: upsertMarkedBlock
+  // throws on a stray marker, and building the entry is pure. Validating after the
   // config write would leave a failed run having already replaced the live endpoint and
   // credentials while telling the user to repair their rules file and re-run.
   const templateContent = fs.readFileSync(path.join(TEMPLATE_ROOT, 'memory-rules.md'), 'utf8');
@@ -188,7 +128,7 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
     PROJECT_NAME: rulesProjectName,
   });
   const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
-  const finalContent = upsertRulesWithMarkers(existingContent, processed, rulesPath);
+  const finalContent = upsertMarkedBlock(existingContent, processed, GROK_RULES_MARKERS, rulesPath);
   const entry = buildGrokAutoMemServerEntry(endpoint, apiKey);
 
   const result = upsertGrokMemoryServer(paths.configPath, entry, {

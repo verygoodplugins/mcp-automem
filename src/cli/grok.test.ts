@@ -306,6 +306,43 @@ describe('grok setup', () => {
     expect(configBefore).not.toContain('https://other.example.test');
   });
 
+  // Two starts and one end: both markers are present and correctly ordered, so an
+  // indexOf-based check calls the file well-formed and replaces from the first start
+  // through the end — silently deleting the second marker and the user's notes.
+  it('refuses when the rules file has two start markers and one end', async () => {
+    const rulesPath = path.join(tmpDir, 'AGENTS.md');
+    const handWritten = [
+      '# My notes',
+      GROK_RULES_START,
+      'stale half-block',
+      GROK_RULES_START,
+      'notes the user wrote between the markers',
+      GROK_RULES_END,
+      '',
+    ].join('\n');
+    fs.writeFileSync(rulesPath, handWritten);
+
+    await expect(
+      applyGrokSetup({ endpoint: 'https://automem.example.test', quiet: true })
+    ).rejects.toThrow(/found 2 start markers and 1 end marker/);
+
+    expect(fs.readFileSync(rulesPath, 'utf8')).toBe(handWritten);
+  });
+
+  it('refuses when the end marker precedes the start marker', async () => {
+    const rulesPath = path.join(tmpDir, 'AGENTS.md');
+    const handWritten = ['# My notes', GROK_RULES_END, 'user content', GROK_RULES_START, ''].join(
+      '\n'
+    );
+    fs.writeFileSync(rulesPath, handWritten);
+
+    await expect(
+      applyGrokSetup({ endpoint: 'https://automem.example.test', quiet: true })
+    ).rejects.toThrow(/precedes/);
+
+    expect(fs.readFileSync(rulesPath, 'utf8')).toBe(handWritten);
+  });
+
   it('refuses on a stray end marker too', async () => {
     const rulesPath = path.join(tmpDir, 'AGENTS.md');
     fs.writeFileSync(rulesPath, ['# My notes', GROK_RULES_END, ''].join('\n'));

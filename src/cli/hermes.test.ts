@@ -651,5 +651,87 @@ describe('hermes setup handler', () => {
       expect(env.AUTOMEM_API_URL).toBe('https://legacy.example.test');
       expect(env.AUTOMEM_API_KEY).toBe('sk-legacy');
     });
+  // Two starts and one end: both markers are present and correctly ordered, so an
+  // indexOf-based check calls the file well-formed and replaces from the first start
+  // through the end — silently deleting the second marker and the user's notes.
+  it('refuses when the rules file has two start markers and one end', async () => {
+    const agentsPath = path.join(tmpDir, 'AGENTS.md');
+    const handWritten = [
+      '# Existing Hermes Rules',
+      '<!-- BEGIN AUTOMEM HERMES RULES -->',
+      'stale half-block',
+      '<!-- BEGIN AUTOMEM HERMES RULES -->',
+      'notes the user wrote between the markers',
+      '<!-- END AUTOMEM HERMES RULES -->',
+      '',
+    ].join('\n');
+    fs.writeFileSync(agentsPath, handWritten);
+
+    await expect(
+      applyHermesSetup({
+        targetDir: tmpDir,
+        projectName: 'test-project',
+        endpoint: 'https://example.automem.test',
+        quiet: true,
+      })
+    ).rejects.toThrow(/found 2 start markers and 1 end marker/);
+
+    expect(fs.readFileSync(agentsPath, 'utf8')).toBe(handWritten);
+  });
+
+  it('refuses a one-sided Hermes marker instead of appending', async () => {
+    const agentsPath = path.join(tmpDir, 'AGENTS.md');
+    const handWritten = ['# Notes', '<!-- BEGIN AUTOMEM HERMES RULES -->', 'half a block', ''].join(
+      '\n'
+    );
+    fs.writeFileSync(agentsPath, handWritten);
+
+    await expect(
+      applyHermesSetup({
+        targetDir: tmpDir,
+        projectName: 'test-project',
+        endpoint: 'https://example.automem.test',
+        quiet: true,
+      })
+    ).rejects.toThrow(/without a matching/);
+
+    expect(fs.readFileSync(agentsPath, 'utf8')).toBe(handWritten);
+  });
+
+  // Dropping the legacy Codex block is a migration, not this run's responsibility. A
+  // stray Codex marker must not block the Hermes install — the Codex block is simply
+  // left alone, markers and all, for the user to sort out.
+  it('installs anyway when a stale Codex block has a stray marker', async () => {
+    const agentsPath = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(
+      agentsPath,
+      [
+        '# Existing Hermes Rules',
+        '',
+        '<!-- BEGIN AUTOMEM CODEX RULES -->',
+        'stale codex guidance',
+        '<!-- BEGIN AUTOMEM CODEX RULES -->',
+        'notes the user wrote between the markers',
+        '<!-- END AUTOMEM CODEX RULES -->',
+        '',
+        'Keep this unrelated Hermes rule.',
+        '',
+      ].join('\n')
+    );
+
+    await applyHermesSetup({
+      mode: 'provider',
+      targetDir: tmpDir,
+      projectName: 'test-project',
+      endpoint: 'https://example.automem.test',
+      quiet: true,
+    });
+
+    const agents = fs.readFileSync(agentsPath, 'utf8');
+    expect(agents).toContain('<!-- BEGIN AUTOMEM HERMES RULES -->');
+    expect(agents).toContain('Keep this unrelated Hermes rule.');
+    // Nothing between the stray Codex markers was taken along with the migration.
+    expect(agents).toContain('notes the user wrote between the markers');
+    expect(agents).toContain('<!-- END AUTOMEM CODEX RULES -->');
   });
 });

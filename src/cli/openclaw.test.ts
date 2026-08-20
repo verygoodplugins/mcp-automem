@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   allowAutoMemTools,
   allowPluginWhenAllowlistExists,
@@ -20,6 +20,9 @@ import {
   redactConfigForOutput,
   replaceOpenClawMemorySystem,
   resolveApiKey,
+  cleanOldAgentsBlock,
+  OPENCLAW_RULES_END,
+  OPENCLAW_RULES_START,
 } from './openclaw.js';
 import fs from 'fs';
 import os from 'os';
@@ -770,5 +773,107 @@ describe('openclaw stored-key pairing in config builders', () => {
       defaultTags: [],
     });
     expect(entry.apiKey).toBe('sk-same');
+describe('cleanOldAgentsBlock', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-agents-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const setupOptions = { mode: 'plugin', scope: 'workspace', quiet: true } as const;
+
+  it('removes a well-formed legacy block and keeps the surrounding content', () => {
+    const agentsPath = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(
+      agentsPath,
+      [
+        '# Workspace notes',
+        '',
+        OPENCLAW_RULES_START,
+        'stale automem guidance',
+        OPENCLAW_RULES_END,
+        '',
+        '# Keep this',
+        '',
+      ].join('\n')
+    );
+
+    expect(cleanOldAgentsBlock(tmpDir, setupOptions)).toBe(true);
+
+    const content = fs.readFileSync(agentsPath, 'utf8');
+    expect(content).toBe('# Workspace notes\n\n# Keep this\n');
+  });
+
+  it('reports nothing to do when the file has no AutoMem markers', () => {
+    const agentsPath = path.join(tmpDir, 'AGENTS.md');
+    fs.writeFileSync(agentsPath, '# Workspace notes\n');
+
+    expect(cleanOldAgentsBlock(tmpDir, setupOptions)).toBe(false);
+    expect(fs.readFileSync(agentsPath, 'utf8')).toBe('# Workspace notes\n');
+  });
+
+  // Stripping walks from a start to the *next* end, so on two starts and one end it
+  // takes the second marker and everything the user wrote between them.
+  it('leaves the file alone when it has two start markers and one end', () => {
+    const agentsPath = path.join(tmpDir, 'AGENTS.md');
+    const handWritten = [
+      '# Workspace notes',
+      OPENCLAW_RULES_START,
+      'stale half-block',
+      OPENCLAW_RULES_START,
+      'notes the user wrote between the markers',
+      OPENCLAW_RULES_END,
+      '',
+    ].join('\n');
+    fs.writeFileSync(agentsPath, handWritten);
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => void warnings.push(args.join(' '));
+    try {
+      expect(cleanOldAgentsBlock(tmpDir, setupOptions)).toBe(false);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(fs.readFileSync(agentsPath, 'utf8')).toBe(handWritten);
+    expect(warnings.join('\n')).toMatch(/found 2 start markers and 1 end marker/);
+  });
+
+  it('leaves the file alone when the end marker precedes the start marker', () => {
+    const agentsPath = path.join(tmpDir, 'AGENTS.md');
+    const handWritten = [
+      '# Workspace notes',
+      OPENCLAW_RULES_END,
+      'user content',
+      OPENCLAW_RULES_START,
+      '',
+    ].join('\n');
+    fs.writeFileSync(agentsPath, handWritten);
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => void warnings.push(args.join(' '));
+    try {
+      expect(cleanOldAgentsBlock(tmpDir, setupOptions)).toBe(false);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(fs.readFileSync(agentsPath, 'utf8')).toBe(handWritten);
+    expect(warnings.join('\n')).toMatch(/precedes/);
+  });
+
+  it('writes nothing in dry-run mode', () => {
+    const agentsPath = path.join(tmpDir, 'AGENTS.md');
+    const original = [OPENCLAW_RULES_START, 'stale', OPENCLAW_RULES_END, ''].join('\n');
+    fs.writeFileSync(agentsPath, original);
+
+    expect(cleanOldAgentsBlock(tmpDir, { ...setupOptions, dryRun: true })).toBe(true);
+    expect(fs.readFileSync(agentsPath, 'utf8')).toBe(original);
   });
 });

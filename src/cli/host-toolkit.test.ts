@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import {
   backupPath,
+  describeMarkedBlockDefect,
   detectProjectName,
   formatEnvValue,
   isAutoMemServerEntry,
@@ -16,8 +17,14 @@ import {
   replaceTemplateVars,
   parseEnvAssignment,
   resolveInheritedApiKey,
+  scanMarkedBlock,
+  stripMarkedBlock,
+  upsertMarkedBlock,
   writeFileWithBackup,
 } from './host-toolkit.js';
+
+const MARKERS = { start: '<!-- BEGIN TEST RULES -->', end: '<!-- END TEST RULES -->' };
+const BLOCK = `${MARKERS.start}\nrules body\n${MARKERS.end}\n`;
 
 describe('host-toolkit', () => {
   let tmpDir: string;
@@ -266,6 +273,153 @@ describe('host-toolkit', () => {
         expect(fs.statSync(backup).mode & 0o777).toBe(0o600);
       }
     );
+  });
+
+  describe('scanMarkedBlock', () => {
+    it('reports an untouched file as absent', () => {
+      const scan = scanMarkedBlock('# Notes\n', MARKERS);
+      expect(scan).toMatchObject({ starts: 0, ends: 0, absent: true, paired: false });
+    });
+
+    it('reports one ordered pair as a single block', () => {
+      const scan = scanMarkedBlock(`# Notes\n\n${BLOCK}`, MARKERS);
+      expect(scan).toMatchObject({ starts: 1, ends: 1, paired: true, singlePair: true });
+    });
+
+    it('counts repeated markers instead of stopping at the first', () => {
+      const content = [MARKERS.start, 'first', MARKERS.start, 'second', MARKERS.end, ''].join('\n');
+      const scan = scanMarkedBlock(content, MARKERS);
+      // Both markers are present, so an indexOf check calls this well-formed. The
+      // counts are what make it refusable.
+      expect(scan.startIndex).not.toBe(-1);
+      expect(scan.endIndex).toBeGreaterThan(scan.startIndex);
+      expect(scan).toMatchObject({ starts: 2, ends: 1, paired: false, singlePair: false });
+    });
+
+    it('rejects a reversed pair', () => {
+      const scan = scanMarkedBlock(`${MARKERS.end}\nbody\n${MARKERS.start}\n`, MARKERS);
+      expect(scan).toMatchObject({ starts: 1, ends: 1, paired: false, singlePair: false });
+    });
+
+    it('accepts two properly nested pairs as paired but not a single block', () => {
+      const scan = scanMarkedBlock(`${BLOCK}\n${BLOCK}`, MARKERS);
+      expect(scan).toMatchObject({ starts: 2, ends: 2, paired: true, singlePair: false });
+    });
+
+    it('rejects two pairs whose markers interleave out of order', () => {
+      const content = [MARKERS.start, 'a', MARKERS.start, 'b', MARKERS.end, MARKERS.end, ''].join(
+        '\n'
+      );
+      expect(scanMarkedBlock(content, MARKERS)).toMatchObject({
+        starts: 2,
+        ends: 2,
+        paired: false,
+      });
+    });
+  });
+
+  describe('upsertMarkedBlock', () => {
+    it('writes the block with one trailing newline into a new file', () => {
+      expect(upsertMarkedBlock(null, BLOCK, MARKERS, 'rules.md')).toBe(
+        `${MARKERS.start}\nrules body\n${MARKERS.end}\n`
+      );
+    });
+
+    it('appends below unrelated content', () => {
+      const result = upsertMarkedBlock('# Notes\n', BLOCK, MARKERS, 'rules.md');
+      expect(result).toBe(`# Notes\n\n${MARKERS.start}\nrules body\n${MARKERS.end}\n`);
+    });
+
+    it('replaces an existing block and is byte-stable across re-runs', () => {
+      const first = upsertMarkedBlock('# Notes\n', BLOCK, MARKERS, 'rules.md');
+      const second = upsertMarkedBlock(first, BLOCK, MARKERS, 'rules.md');
+      expect(second).toBe(first);
+      const third = upsertMarkedBlock(second, BLOCK, MARKERS, 'rules.md');
+      expect(third).toBe(second);
+    });
+
+    it('keeps content that follows the block', () => {
+      const existing = `# Top\n\n${MARKERS.start}\nold\n${MARKERS.end}\n\n# Bottom\n`;
+      const result = upsertMarkedBlock(existing, BLOCK, MARKERS, 'rules.md');
+      expect(result).toBe(`# Top\n\n${MARKERS.start}\nrules body\n${MARKERS.end}\n\n# Bottom\n`);
+    });
+
+    // Normalizing only the end of the file hides a growing seam: the block template
+    // ends with a newline and `after` opens with one, so a naive join adds a blank
+    // line per run to every file that has content below the block.
+    it('is byte-stable across re-runs when content follows the block', () => {
+      const existing = `# Top\n\n${MARKERS.start}\nold\n${MARKERS.end}\n\n# Bottom\n`;
+      const first = upsertMarkedBlock(existing, BLOCK, MARKERS, 'rules.md');
+      const second = upsertMarkedBlock(first, BLOCK, MARKERS, 'rules.md');
+      const third = upsertMarkedBlock(second, BLOCK, MARKERS, 'rules.md');
+      expect(second).toBe(first);
+      expect(third).toBe(first);
+    });
+
+    it('refuses two start markers and one end', () => {
+      const existing = [MARKERS.start, 'stale', MARKERS.start, 'user notes', MARKERS.end, ''].join(
+        '\n'
+      );
+      expect(() => upsertMarkedBlock(existing, BLOCK, MARKERS, 'rules.md')).toThrow(
+        /found 2 start markers and 1 end marker/
+      );
+    });
+
+    it('refuses a one-sided start marker', () => {
+      expect(() =>
+        upsertMarkedBlock(`# Notes\n${MARKERS.start}\nhalf\n`, BLOCK, MARKERS, 'rules.md')
+      ).toThrow(/without a matching/);
+    });
+
+    it('refuses a one-sided end marker', () => {
+      expect(() =>
+        upsertMarkedBlock(`# Notes\n${MARKERS.end}\n`, BLOCK, MARKERS, 'rules.md')
+      ).toThrow(/without a matching/);
+    });
+
+    it('refuses a reversed pair', () => {
+      expect(() =>
+        upsertMarkedBlock(`${MARKERS.end}\nbody\n${MARKERS.start}\n`, BLOCK, MARKERS, 'rules.md')
+      ).toThrow(/precedes/);
+    });
+
+    it('refuses two complete blocks rather than picking one', () => {
+      expect(() => upsertMarkedBlock(`${BLOCK}\n${BLOCK}`, BLOCK, MARKERS, 'rules.md')).toThrow(
+        /found 2 start markers and 2 end markers/
+      );
+    });
+
+    it('names the file in the error so the user knows what to repair', () => {
+      expect(() =>
+        upsertMarkedBlock(`${MARKERS.start}\n`, BLOCK, MARKERS, '/tmp/AGENTS.md')
+      ).toThrow(/\/tmp\/AGENTS\.md/);
+    });
+  });
+
+  describe('stripMarkedBlock', () => {
+    it('removes the block and collapses the blank lines left behind', () => {
+      const existing = `# Top\n\n${BLOCK}\n# Bottom\n`;
+      expect(stripMarkedBlock(existing, MARKERS)).toBe('# Top\n\n# Bottom\n');
+    });
+
+    it('leaves content without markers alone', () => {
+      expect(stripMarkedBlock('# Top\n', MARKERS)).toBe('# Top\n');
+    });
+
+    it('removes every properly paired block', () => {
+      expect(stripMarkedBlock(`# Top\n\n${BLOCK}\n${BLOCK}\n# Bottom\n`, MARKERS)).toBe(
+        '# Top\n\n# Bottom\n'
+      );
+    });
+  });
+
+  describe('describeMarkedBlockDefect', () => {
+    it('singularizes a lone marker count', () => {
+      const scan = scanMarkedBlock(`${MARKERS.start}\n${MARKERS.start}\n${MARKERS.end}\n`, MARKERS);
+      expect(describeMarkedBlockDefect(scan, MARKERS)).toBe(
+        'found 2 start markers and 1 end marker'
+      );
+    });
   });
 });
 
