@@ -498,8 +498,11 @@ export function upsertMarkedBlock(
   // `after` opens with whatever separated the old block from the content below it, and
   // the block template carries its own trailing newline. Joining both blindly inserts
   // one more blank line every single run — normalizing only the end of the file hides
-  // that when the block is last and lets it grow forever when it is not.
-  return normalize(`${before}${block.replace(/\n+$/, '')}${after}`);
+  // that when the block is last and lets it grow forever when it is not. Dropping the
+  // block's newline needs `after` to supply one, which a hand-edited file may not, so
+  // the seam puts one back rather than running the end marker into the next line.
+  const seam = after && !after.startsWith('\n') ? '\n' : '';
+  return normalize(`${before}${block.replace(/\n+$/, '')}${seam}${after}`);
 }
 
 /**

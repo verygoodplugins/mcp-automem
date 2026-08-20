@@ -356,6 +356,16 @@ describe('host-toolkit', () => {
       expect(third).toBe(first);
     });
 
+    // The installer always writes `END\n`, but a hand-edited file can put text right
+    // after the end marker. Trimming the block's own newline must not run the marker
+    // into that line.
+    it('keeps the end marker on its own line when text follows it immediately', () => {
+      const existing = `${MARKERS.start}\nold\n${MARKERS.end}trailing text\n`;
+      const result = upsertMarkedBlock(existing, BLOCK, MARKERS, 'rules.md');
+      expect(result).toBe(`${MARKERS.start}\nrules body\n${MARKERS.end}\ntrailing text\n`);
+      expect(upsertMarkedBlock(result, BLOCK, MARKERS, 'rules.md')).toBe(result);
+    });
+
     it('refuses two start markers and one end', () => {
       const existing = [MARKERS.start, 'stale', MARKERS.start, 'user notes', MARKERS.end, ''].join(
         '\n'

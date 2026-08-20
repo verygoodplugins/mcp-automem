@@ -13,6 +13,13 @@ import {
 } from './hermes-config.js';
 import { removeGrokMemoryServer, resolveGrokPaths } from './grok-config.js';
 import { GROK_RULES_END, GROK_RULES_START, stripGrokRulesMarkers } from './grok.js';
+// Marker literals come from the host modules that write them. Re-typing the strings
+// here is the hand-written duplication that caused #186; the strip logic below is
+// deliberately left as-is (its output shape differs from the install-time helper and
+// is pinned by uninstall.test.ts).
+import { CODEX_RULES_END, CODEX_RULES_START } from './codex.js';
+import { COPILOT_RULES_END, COPILOT_RULES_START } from './copilot.js';
+import { HERMES_RULES_END, HERMES_RULES_START } from './hermes.js';
 import { UNINSTALL_PLATFORMS, type UninstallPlatform } from './clients.js';
 
 interface UninstallOptions {
@@ -308,8 +315,8 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
   }
 
   if (fs.existsSync(rulesFile)) {
-    const start = '<!-- BEGIN AUTOMEM HERMES RULES -->';
-    const end = '<!-- END AUTOMEM HERMES RULES -->';
+    const start = HERMES_RULES_START;
+    const end = HERMES_RULES_END;
     const raw = fs.readFileSync(rulesFile, 'utf8');
     const startIdx = raw.indexOf(start);
     const endIdx = raw.indexOf(end);
@@ -418,8 +425,8 @@ async function uninstallCodex(options: UninstallOptions): Promise<void> {
     return;
   }
 
-  const start = '<!-- BEGIN AUTOMEM CODEX RULES -->';
-  const end = '<!-- END AUTOMEM CODEX RULES -->';
+  const start = CODEX_RULES_START;
+  const end = CODEX_RULES_END;
   const raw = fs.readFileSync(rulesFile, 'utf8');
   const startIdx = raw.indexOf(start);
   const endIdx = raw.indexOf(end);
@@ -624,8 +631,8 @@ async function uninstallCopilot(options: UninstallOptions): Promise<void> {
   // Strip AutoMem marker block from copilot-instructions.md
   const cliRulesPath = path.join(copilotDir, 'copilot-instructions.md');
   if (fs.existsSync(cliRulesPath)) {
-    const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
-    const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
+    const startMarker = COPILOT_RULES_START;
+    const endMarker = COPILOT_RULES_END;
     const content = fs.readFileSync(cliRulesPath, 'utf8');
     const startIdx = content.indexOf(startMarker);
     const endIdx = content.indexOf(endMarker);

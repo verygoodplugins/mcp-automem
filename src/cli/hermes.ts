@@ -45,8 +45,8 @@ const HERMES_TEMPLATE_ROOT = path.resolve(
 const HERMES_PROVIDER_TEMPLATE_ROOT = path.join(HERMES_TEMPLATE_ROOT, 'provider');
 const HERMES_MCP_SERVER_NAME = 'automem';
 const HERMES_PROVIDER_NAME = 'automem';
-const HERMES_RULES_START = '<!-- BEGIN AUTOMEM HERMES RULES -->';
-const HERMES_RULES_END = '<!-- END AUTOMEM HERMES RULES -->';
+export const HERMES_RULES_START = '<!-- BEGIN AUTOMEM HERMES RULES -->';
+export const HERMES_RULES_END = '<!-- END AUTOMEM HERMES RULES -->';
 const HERMES_RULES_MARKERS: MarkedBlockMarkers = {
   start: HERMES_RULES_START,
   end: HERMES_RULES_END,
