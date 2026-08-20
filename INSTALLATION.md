@@ -78,6 +78,17 @@ the plan.
 > Without a TTY and without `--yes`/`--dry-run`, `install` prints the review
 > plan and stops without writing — re-run with `--yes` to apply.
 
+**API keys are paired with their endpoint.** A key belongs to the AutoMem
+instance it was issued for, so the installers never carry one to a different
+host. If you re-run against a new `--endpoint` without passing `--api-key`, any
+key inherited from your shell (`AUTOMEM_API_KEY` / `AUTOMEM_API_TOKEN`) or from
+the agent's existing config is dropped rather than reused, and a key already
+persisted in the project `.env` is removed — the MCP server loads that file at
+startup, so leaving it would send the old credential to the new host. Pass
+`--api-key` to set the credential for the new endpoint. A key exported with no
+endpoint alongside it is not bound to anything and is still used; a re-run at
+the *same* endpoint keeps the key it already has.
+
 **Removing AutoMem:** uninstall is per-agent —
 `npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes|grok>`
 (add `--clean-all` to also drop the MCP server config). OpenClaw owns its own
