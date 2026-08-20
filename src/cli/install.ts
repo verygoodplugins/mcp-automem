@@ -2,13 +2,16 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
+import { AGENT_CLIENTS, DEFAULT_AGENT_CLIENTS, type AgentClient } from './clients.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
 import { applyCodexSetup } from './codex.js';
 import { applyCursorSetup } from './cursor.js';
 import { applyHermesSetup, type HermesInstallMode } from './hermes.js';
+import { applyGrokSetup } from './grok.js';
 import { applyOpenClawSetup } from './openclaw.js';
+import { resolveGrokPaths } from './grok-config.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
-import { mergeEnvContent, writeFileWithBackup } from './host-toolkit.js';
+import { mergeEnvContent, sameEndpoint, writeFileWithBackup } from './host-toolkit.js';
 import { provisionViaInstaPodsLink, provisionViaRailway } from './cloud/installer-bridge.js';
 // Re-exported so existing importers (and install.test.ts) keep a stable path.
 export { formatEnvValue } from './host-toolkit.js';
@@ -121,15 +124,10 @@ export async function installClaudeCodePlugin(params: {
 // How the guided installer wires Claude Code. Defaults to the recommended plugin.
 export type ClaudeCodeMode = 'plugin' | 'settings';
 
-export const AGENT_CLIENTS = ['codex', 'claude-code', 'cursor', 'openclaw', 'hermes'] as const;
-
-export type AgentClient = (typeof AGENT_CLIENTS)[number];
-export const DEFAULT_AGENT_CLIENTS = [
-  'codex',
-  'claude-code',
-  'cursor',
-  'openclaw',
-] as const satisfies readonly AgentClient[];
+// Re-exported so existing importers (and the CLI surface) keep one entry point,
+// while the definitions themselves stay dependency-free in ./clients.js.
+export { AGENT_CLIENTS, DEFAULT_AGENT_CLIENTS };
+export type { AgentClient };
 export type InstallTarget = 'local' | 'cloud' | 'existing';
 // Hosted-cloud sub-target: InstaPods (open the setup page → paste the emailed
 // URL+key), Railway (guided via the railway CLI), or 'other' (paste credentials
@@ -364,8 +362,13 @@ export function parseInstallArgs(
   let target = parseTarget(env.AUTOMEM_INSTALL_TARGET);
   let cloudProvider = parseCloudProvider(env.AUTOMEM_CLOUD_PROVIDER);
   let clients = parseClients(env.AUTOMEM_CLIENTS);
-  let endpoint = env.AUTOMEM_API_URL || env.AUTOMEM_ENDPOINT;
-  let apiKey = env.AUTOMEM_API_KEY || env.AUTOMEM_API_TOKEN;
+  const envEndpoint = env.AUTOMEM_API_URL || env.AUTOMEM_ENDPOINT;
+  const envApiKey = env.AUTOMEM_API_KEY || env.AUTOMEM_API_TOKEN;
+  let endpoint = envEndpoint;
+  let apiKey = envApiKey;
+  // Whether the key came from --api-key rather than the environment. An explicit flag
+  // is the operator naming the credential for this run; an inherited one is not.
+  let apiKeyFromFlag = false;
   let localDir = env.AUTOMEM_LOCAL_DIR;
   let hermesMode = parseHermesMode(env.AUTOMEM_HERMES_MODE);
   let claudeCodeMode = parseClaudeCodeMode(env.AUTOMEM_CLAUDE_CODE_MODE);
@@ -398,6 +401,7 @@ export function parseInstallArgs(
         break;
       case '--api-key':
         apiKey = assertValue(args, i, arg);
+        apiKeyFromFlag = true;
         i += 1;
         break;
       case '--local-dir':
@@ -425,6 +429,20 @@ export function parseInstallArgs(
       default:
         break;
     }
+  }
+
+  // An environment key belongs to the environment's endpoint. Selecting a different
+  // host with --endpoint must not forward that credential to it — the per-host
+  // installers receive this as an explicit apiKey, which bypasses their own pairing
+  // checks, so the pairing has to happen here too.
+  if (
+    !apiKeyFromFlag &&
+    envApiKey &&
+    envEndpoint &&
+    endpoint &&
+    !sameEndpoint(endpoint, envEndpoint)
+  ) {
+    apiKey = undefined;
   }
 
   return {
@@ -470,6 +488,7 @@ export function detectInstallEnvironment(options: DetectOptions = {}): InstallEn
     cursor: path.join(homeDir, '.cursor'),
     openclaw: path.join(homeDir, '.openclaw'),
     hermes: env.HERMES_HOME || path.join(homeDir, '.hermes'),
+    grok: env.GROK_HOME || path.join(homeDir, '.grok'),
   };
 
   const candidates: DetectedClient[] = AGENT_CLIENTS.map((client) => ({
@@ -544,6 +563,10 @@ function agentPaths(
       return [path.join(environment.clientRoots.openclaw, 'openclaw.json')];
     case 'hermes':
       return hermesPaths(environment, options.hermesMode);
+    case 'grok': {
+      const grok = resolveGrokPaths({ dir: environment.clientRoots.grok });
+      return [grok.configPath, grok.agentsPath];
+    }
   }
 }
 
@@ -983,6 +1006,8 @@ function clientLabel(client: AgentClient): string {
       return 'OpenClaw';
     case 'hermes':
       return 'Hermes';
+    case 'grok':
+      return 'Grok Build';
   }
 }
 
@@ -1000,6 +1025,8 @@ export function manualFixHint(client: AgentClient): string {
       return 'Codex: re-run  npx @verygoodplugins/mcp-automem install --clients codex';
     case 'claude-code':
       return 'Claude Code: re-run  npx @verygoodplugins/mcp-automem install --clients claude-code';
+    case 'grok':
+      return 'Grok: re-run  npx @verygoodplugins/mcp-automem install --clients grok';
   }
 }
 
@@ -1049,6 +1076,7 @@ function clientGlyph(client: AgentClient, theme: RenderTheme): string {
     cursor: '❯',
     openclaw: '◆',
     hermes: '☿',
+    grok: '⚡',
   };
   return glyphs[client] ?? '•';
 }
@@ -1376,6 +1404,15 @@ async function applyAgentInstall(
     case 'hermes':
       await applyHermesSetup({
         mode: params.hermesMode,
+        endpoint: params.endpoint ?? DEFAULT_AUTOMEM_API_URL,
+        apiKey: params.apiKey,
+        dryRun: params.dryRun,
+        quiet: true,
+        yes: true,
+      });
+      break;
+    case 'grok':
+      await applyGrokSetup({
         endpoint: params.endpoint ?? DEFAULT_AUTOMEM_API_URL,
         apiKey: params.apiKey,
         dryRun: params.dryRun,

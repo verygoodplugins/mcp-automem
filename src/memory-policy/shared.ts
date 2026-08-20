@@ -421,18 +421,80 @@ function quote(value: string): string {
   return JSON.stringify(value);
 }
 
+/**
+ * How a host spells an AutoMem tool call in its rules.
+ *
+ * `direct` hosts (Codex, Cursor, Claude Code/Desktop, Hermes) expose the tools as
+ * callable names and take arguments directly: `mcp__memory__recall_memory({ … })`.
+ *
+ * `wrapped` hosts route every MCP call through one generic dispatcher, so the tool
+ * name becomes an argument: Grok's `use_tool({ tool_name: "memory__recall_memory",
+ * tool_input: { … } })`. Emitting the direct form for those hosts produces rules the
+ * model cannot execute — the failure mode that shipped for Copilot in #186.
+ */
+export type ToolCallStyle =
+  | { kind: 'direct'; toolPrefix: string }
+  | { kind: 'wrapped'; wrapper: string; toolPrefix: string };
+
+function directStyle(toolPrefix: string): ToolCallStyle {
+  return { kind: 'direct', toolPrefix };
+}
+
 function renderToolCallName(toolPrefix: string, toolName: string): string {
   return `${toolPrefix}${toolName}`;
 }
 
-function renderToolBehaviorSection(): string {
+/** Prose reference to a tool. Wrapped hosts backtick it — it is a string, not a callable. */
+function toolRef(style: ToolCallStyle, toolName: string): string {
+  const full = renderToolCallName(style.toolPrefix, toolName);
+  return style.kind === 'wrapped' ? `\`${full}\`` : full;
+}
+
+/**
+ * Multi-line call. `argLines` carry their own two-space indent and trailing commas so
+ * the direct path stays byte-identical to what it emitted before this abstraction existed.
+ */
+function toolCallBlock(style: ToolCallStyle, toolName: string, argLines: string[]): string[] {
+  const full = renderToolCallName(style.toolPrefix, toolName);
+  if (style.kind === 'direct') {
+    return [`${full}({`, ...argLines, '})'];
+  }
+  return [
+    `${style.wrapper}({`,
+    `  tool_name: ${quote(full)},`,
+    '  tool_input: {',
+    ...argLines.map((line) => `  ${line}`),
+    '  }',
+    '})',
+  ];
+}
+
+/** Single-line call, for the compact steps of the atomic ritual. */
+function toolCallInline(style: ToolCallStyle, toolName: string, args: string): string {
+  const full = renderToolCallName(style.toolPrefix, toolName);
+  if (style.kind === 'direct') {
+    return `${full}({ ${args} })`;
+  }
+  return `${style.wrapper}({ tool_name: ${quote(full)}, tool_input: { ${args} } })`;
+}
+
+function renderToolBehaviorSection(style: ToolCallStyle): string {
+  // The recovery path for a budget-truncated response has to be callable on the host
+  // reading it. Direct hosts can invoke the tool by name, so the generic short form is
+  // correct there (and keeps every existing generated artifact byte-identical). A
+  // wrapped host has no callable `recall_memory` at all, so the bare form is an
+  // instruction it cannot follow — the exact failure this style abstraction exists for.
+  const idFetch =
+    style.kind === 'wrapped'
+      ? toolCallInline(style, 'recall_memory', 'memory_id: "<id>"')
+      : 'recall_memory({ memory_id })';
   return [
     "## Tool's real behavior (validated against production corpus)",
     '',
     '- **Tags are a hard gate** - memories without matching tags are excluded before scoring. Use tags for stable categories like `preference` and `bugfix`; do not guess topic tags.',
     '- **One good query beats `queries[]` + `auto_decompose`** for focused tasks. Use `queries[]` only for genuinely multi-topic questions.',
     '- **`limit` caps at 50.** Routine recall should use enough budget to be useful.',
-    '- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id })`.',
+    `- **Default \`text\` format shows content previews with created/updated timestamps and importance.** \`detailed\` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with \`${idFetch}\`.`,
     '- **`store_memory` can silently fail.** Verify important stores by recalling a distinctive phrase; retry once if missing.',
     '- **Bare tag convention** - use `automem`, not `project/automem`; no `lang/` prefixes, platform tags, or date-stamped tags. `entity:*:*` tags are server-injected.',
     '',
@@ -444,17 +506,35 @@ function renderToolBehaviorSection(): string {
 
 function renderRecallRulesSection(params: {
   projectName: string;
-  toolPrefix: string;
+  style: ToolCallStyle;
   desktop?: boolean;
   cursor?: boolean;
 }): string {
-  const recall = renderToolCallName(params.toolPrefix, 'recall_memory');
-  const projectTagLine = params.desktop
-    ? ''
-    : `  tags: [${quote(params.projectName)}],        // drop if slug collides with a common word\n`;
-  const cursorRankers = params.cursor
-    ? '  language: "<typescript|python|...>", // optional ranker - boosts, does not gate\n  active_path: "<current file path>"   // optional Cursor ranker\n'
-    : '  language: "<typescript|python|go|rust|...>" // optional ranker\n';
+  const preferenceArgs = [
+    '  tags: ["preference"],',
+    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.preferenceRecallLimit},`,
+    '  sort: "updated_desc"',
+  ];
+  const taskContextArgs = [
+    '  query: "<proper nouns, product names, people, tools, specific topics from the user\'s message>",',
+    ...(params.desktop
+      ? []
+      : [
+          `  tags: [${quote(params.projectName)}],        // drop if slug collides with a common word`,
+        ]),
+    `  time_query: "last ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallWindowDays} days",`,
+    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallLimit},`,
+    ...(params.cursor
+      ? [
+          '  language: "<typescript|python|...>", // optional ranker - boosts, does not gate',
+          '  active_path: "<current file path>"   // optional Cursor ranker',
+        ]
+      : ['  language: "<typescript|python|go|rust|...>" // optional ranker']),
+  ];
+  const debugArgs = [
+    '  query: "<error symptom or exact message>",',
+    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.debugRecallLimit}`,
+  ];
   const heading = params.desktop
     ? '## Conversation start - semantic-first recall'
     : '## Session start — two-phase recall';
@@ -482,22 +562,13 @@ function renderRecallRulesSection(params: {
     'Preferences first:',
     '',
     '```javascript',
-    `${recall}({`,
-    '  tags: ["preference"],',
-    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.preferenceRecallLimit},`,
-    '  sort: "updated_desc"',
-    '})',
+    ...toolCallBlock(params.style, 'recall_memory', preferenceArgs),
     '```',
     '',
     'Task context: one semantic query built from proper nouns, products, files, error strings, tools, and specific topics in the user message.',
     '',
     '```javascript',
-    `${recall}({`,
-    '  query: "<proper nouns, product names, people, tools, specific topics from the user\'s message>",',
-    `${projectTagLine}  time_query: "last ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallWindowDays} days",`,
-    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallLimit},`,
-    cursorRankers.trimEnd(),
-    '})',
+    ...toolCallBlock(params.style, 'recall_memory', taskContextArgs),
     '```',
     '',
     'Skip task-context recall for pure syntax questions, trivial edits, one-off calculations, direct factual queries about current files, or casual openings.',
@@ -505,10 +576,7 @@ function renderRecallRulesSection(params: {
     'Debug context, only when actively investigating a concrete symptom:',
     '',
     '```javascript',
-    `${recall}({`,
-    '  query: "<error symptom or exact message>",',
-    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.debugRecallLimit}`,
-    '})',
+    ...toolCallBlock(params.style, 'recall_memory', debugArgs),
     '```',
     '',
     'No tag gate on debug recall - bugfix/solution tagging is incomplete and a hard gate hides cross-corpus fixes.',
@@ -519,11 +587,61 @@ function renderRecallRulesSection(params: {
   ].join('\n');
 }
 
-function renderStorageRulesSection(toolPrefix: string, projectName: string): string {
-  const recall = renderToolCallName(toolPrefix, 'recall_memory');
-  const store = renderToolCallName(toolPrefix, 'store_memory');
-  const update = renderToolCallName(toolPrefix, 'update_memory');
-  const associate = renderToolCallName(toolPrefix, 'associate_memories');
+/**
+ * The four-step ritual, told two ways. Direct hosts bind results to variables and
+ * await them; wrapped hosts have no promise API to bind, so the steps are numbered
+ * comments with placeholder ids. Forcing one template to serve both would produce
+ * `const related = await use_tool(…)` — syntactically fine, semantically wrong.
+ */
+function renderAtomicRitual(style: ToolCallStyle, projectName: string): string[] {
+  const storeArgs = [
+    '  content: "Brief title. Context + reasoning. Outcome.",',
+    '  type: "Preference",',
+    `  tags: ["correction", ${quote(projectName)}],`,
+    '  importance: 0.9,',
+    '  confidence: 0.95',
+  ];
+
+  if (style.kind === 'direct') {
+    const recall = renderToolCallName(style.toolPrefix, 'recall_memory');
+    const store = renderToolCallName(style.toolPrefix, 'store_memory');
+    const associate = renderToolCallName(style.toolPrefix, 'associate_memories');
+    return [
+      `const related = await ${recall}({ query: "<what is being corrected / decided / named>", limit: 5 })`,
+      `const stored = await ${store}({`,
+      ...storeArgs,
+      '})',
+      `await ${recall}({ query: "<distinctive phrase from content>", limit: 3 })`,
+      'if (related?.results?.length) {',
+      `  await ${associate}({ memory1_id: related.results[0].id, memory2_id: stored.memory_id, type: "INVALIDATED_BY", strength: 0.9 })`,
+      '}',
+    ];
+  }
+
+  return [
+    '// 1) recall related',
+    toolCallInline(
+      style,
+      'recall_memory',
+      'query: "<what is being corrected / decided / named>", limit: 5'
+    ),
+    '// 2) store',
+    ...toolCallBlock(style, 'store_memory', storeArgs),
+    '// 3) verify with a distinctive phrase',
+    toolCallInline(style, 'recall_memory', 'query: "<distinctive phrase from content>", limit: 3'),
+    '// 4) associate when a prior memory exists',
+    ...toolCallBlock(style, 'associate_memories', [
+      '  memory1_id: "<related-id>",',
+      '  memory2_id: "<stored-id>",',
+      '  type: "INVALIDATED_BY",',
+      '  strength: 0.9',
+    ]),
+  ];
+}
+
+function renderStorageRulesSection(style: ToolCallStyle, projectName: string): string {
+  const update = toolRef(style, 'update_memory');
+  const associate = toolRef(style, 'associate_memories');
 
   return [
     '## Storage Discipline',
@@ -531,13 +649,13 @@ function renderStorageRulesSection(toolPrefix: string, projectName: string): str
     'Store only durable decisions, corrections, explicit preferences, bug-fix root causes, and articulated reusable patterns. Never store secrets, credentials, tokens, PII, session summaries, progress reports, confirmations, speculative context, or attentiveness notes.',
     '',
     '```javascript',
-    `${store}({`,
-    '  content: "Brief title. Context + reasoning. Outcome.",',
-    '  type: "Decision",',
-    `  tags: ["<category>", ${quote(projectName)}, "<language>"], // bare strings; NO platform tag, NO [YYYY-MM]`,
-    '  importance: 0.85,',
-    '  confidence: 0.9',
-    '})',
+    ...toolCallBlock(style, 'store_memory', [
+      '  content: "Brief title. Context + reasoning. Outcome.",',
+      '  type: "Decision",',
+      `  tags: ["<category>", ${quote(projectName)}, "<language>"], // bare strings; NO platform tag, NO [YYYY-MM]`,
+      '  importance: 0.85,',
+      '  confidence: 0.9',
+    ]),
     '```',
     '',
     'Use content of 150-300 chars when possible; put file paths, metrics, exit codes, and other structured details in `metadata`. For facts with a shelf life, use `t_valid` and `t_invalid` instead of date tags.',
@@ -551,18 +669,7 @@ function renderStorageRulesSection(toolPrefix: string, projectName: string): str
     '### The atomic ritual - every store runs all four steps',
     '',
     '```javascript',
-    `const related = await ${recall}({ query: "<what is being corrected / decided / named>", limit: 5 })`,
-    `const stored = await ${store}({`,
-    '  content: "Brief title. Context + reasoning. Outcome.",',
-    '  type: "Preference",',
-    `  tags: ["correction", ${quote(projectName)}],`,
-    '  importance: 0.9,',
-    '  confidence: 0.95',
-    '})',
-    `await ${recall}({ query: "<distinctive phrase from content>", limit: 3 })`,
-    'if (related?.results?.length) {',
-    `  await ${associate}({ memory1_id: related.results[0].id, memory2_id: stored.memory_id, type: "INVALIDATED_BY", strength: 0.9 })`,
-    '}',
+    ...renderAtomicRitual(style, projectName),
     '```',
     '',
     'Step 4 is where the graph gets built. Skipping it is the main reason AutoMem degrades into a flat bag of notes.',
@@ -594,7 +701,7 @@ function renderMemoryVsCurrentState(): string {
 }
 
 export function renderCodexMemoryRules(params: ToolRuleRenderOptions): string {
-  const toolPrefix = params.toolPrefix ?? 'mcp__memory__';
+  const style = directStyle(params.toolPrefix ?? 'mcp__memory__');
   return [
     '<!-- BEGIN AUTOMEM CODEX RULES -->',
     `<!-- automem-template-version: ${params.templateVersion} -->`,
@@ -603,11 +710,11 @@ export function renderCodexMemoryRules(params: ToolRuleRenderOptions): string {
     '',
     'AutoMem is wired as the `memory` MCP server (see `~/.codex/config.toml`). Tools are `mcp__memory__*`. Use this layer proactively for continuity across turns.',
     '',
-    renderToolBehaviorSection(),
+    renderToolBehaviorSection(style),
     '',
-    renderRecallRulesSection({ projectName: params.projectName, toolPrefix }),
+    renderRecallRulesSection({ projectName: params.projectName, style }),
     '',
-    renderStorageRulesSection(toolPrefix, params.projectName),
+    renderStorageRulesSection(style, params.projectName),
     '',
     '## Guidelines',
     '',
@@ -622,12 +729,59 @@ export function renderCodexMemoryRules(params: ToolRuleRenderOptions): string {
   ].join('\n');
 }
 
+/**
+ * Grok Build reaches MCP tools through `search_tool` discovery + a generic `use_tool`
+ * dispatcher, so its rules need the wrapped call style. The native-config warning is
+ * load-bearing: when AutoMem is only present via Grok's Claude/Cursor compat import,
+ * the stdio server starts without AUTOMEM_* env and every recall fails with
+ * "fetch failed" against the default localhost endpoint.
+ */
+export function renderGrokMemoryRules(params: ToolRuleRenderOptions): string {
+  const style: ToolCallStyle = {
+    kind: 'wrapped',
+    wrapper: 'use_tool',
+    toolPrefix: params.toolPrefix ?? 'memory__',
+  };
+  return [
+    '<!-- BEGIN AUTOMEM GROK RULES -->',
+    `<!-- automem-template-version: ${params.templateVersion} -->`,
+    '',
+    `## Memory - AutoMem (persistent context for ${params.projectName})`,
+    '',
+    'AutoMem is wired as the `memory` MCP server in `~/.grok/config.toml` (native config — do not rely on Claude/Cursor compat imports alone). Tools are discovered via `search_tool` and called via `use_tool` as `memory__recall_memory`, `memory__store_memory`, etc.',
+    '',
+    renderToolBehaviorSection(style),
+    '',
+    'Always run `search_tool` before the first `use_tool` on MCP servers.',
+    '',
+    // These rules normally live in the global ~/.grok/AGENTS.md and load in every
+    // session, so the project tag below cannot be fixed at install time.
+    'Project tag: use the slug of the repository you are working in. When the examples below show `<project-slug>`, substitute it — these rules load in every Grok session, so no single project is baked in. Drop the tag gate entirely when there is no project or the slug collides with a common word.',
+    '',
+    renderRecallRulesSection({ projectName: params.projectName, style }),
+    '',
+    renderStorageRulesSection(style, params.projectName),
+    '',
+    '## Guidelines',
+    '',
+    '- Weave recalled context naturally; do not announce memory operations.',
+    '- Prefer high-signal memories: decisions, root causes, reusable patterns, and explicit preferences.',
+    '- Avoid wall-of-text memories; keep them atomic and focused.',
+    '',
+    renderMemoryVsCurrentState(),
+    '',
+    '<!-- END AUTOMEM GROK RULES -->',
+    '',
+  ].join('\n');
+}
+
 export type CursorProjectRuleOptions = ToolRuleRenderOptions & {
   mcpServerName: string;
   mcpToolPrefix: string;
 };
 
 export function renderCursorProjectRule(params: CursorProjectRuleOptions): string {
+  const style = directStyle(params.mcpToolPrefix);
   return [
     '---',
     'description: AutoMem persistent memory - validated two-phase recall, curated storage, mandatory associations',
@@ -642,15 +796,15 @@ export function renderCursorProjectRule(params: CursorProjectRuleOptions): strin
     '',
     `Tools are \`${params.mcpToolPrefix}*\` (e.g. \`${params.mcpToolPrefix}recall_memory\`). Cursor MCP server: \`${params.mcpServerName}\`.`,
     '',
-    renderToolBehaviorSection(),
+    renderToolBehaviorSection(style),
     '',
     renderRecallRulesSection({
       projectName: params.projectName,
-      toolPrefix: params.mcpToolPrefix,
+      style,
       cursor: true,
     }),
     '',
-    renderStorageRulesSection(params.mcpToolPrefix, params.projectName),
+    renderStorageRulesSection(style, params.projectName),
     '',
     '## Optional GPT-5.4 Overlay',
     '',
@@ -673,7 +827,7 @@ export function renderCursorProjectRule(params: CursorProjectRuleOptions): strin
 }
 
 export function renderClaudeDesktopInstructions(params: PolicyTemplateOptions): string {
-  const toolPrefix = 'mcp__memory__';
+  const style = directStyle('mcp__memory__');
   return [
     '# Claude Desktop Personal Preferences Template',
     '',
@@ -693,15 +847,15 @@ export function renderClaudeDesktopInstructions(params: PolicyTemplateOptions): 
     '',
     'Desktop conversations often are not project-scoped. Use semantic recall from the actual content nouns first; add tags only when the user clearly scopes the task.',
     '',
-    renderToolBehaviorSection(),
+    renderToolBehaviorSection(style),
     '',
     renderRecallRulesSection({
       projectName: '<project-slug>',
-      toolPrefix,
+      style,
       desktop: true,
     }),
     '',
-    renderStorageRulesSection(toolPrefix, '<project-slug>'),
+    renderStorageRulesSection(style, '<project-slug>'),
     '',
     renderMemoryVsCurrentState(),
     '',

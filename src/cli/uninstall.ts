@@ -11,9 +11,12 @@ import {
   removeMcpServerEntry,
   resolveHermesPaths,
 } from './hermes-config.js';
+import { removeGrokMemoryServer, resolveGrokPaths } from './grok-config.js';
+import { GROK_RULES_END, GROK_RULES_START, stripGrokRulesMarkers } from './grok.js';
+import { UNINSTALL_PLATFORMS, type UninstallPlatform } from './clients.js';
 
 interface UninstallOptions {
-  platform: 'cursor' | 'claude-code' | 'copilot' | 'codex' | 'hermes';
+  platform: UninstallPlatform;
   projectDir?: string;
   rulesPath?: string;
   cleanAll?: boolean;
@@ -356,6 +359,51 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
   }
 }
 
+async function uninstallGrok(options: UninstallOptions): Promise<void> {
+  const paths = resolveGrokPaths({ dir: options.projectDir });
+  const rulesFile = options.rulesPath ?? paths.agentsPath;
+
+  log('\n🗑️  Uninstalling Grok AutoMem...', options.quiet);
+
+  let didChange = false;
+  if (fs.existsSync(paths.configPath)) {
+    didChange =
+      removeGrokMemoryServer(paths.configPath, {
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+        onlyIfAutoMem: true,
+      }) || didChange;
+  } else {
+    log(`ℹ️  No Grok config at ${paths.configPath}`, options.quiet);
+  }
+
+  if (fs.existsSync(rulesFile)) {
+    const raw = fs.readFileSync(rulesFile, 'utf8');
+    const startIdx = raw.indexOf(GROK_RULES_START);
+    const endIdx = raw.indexOf(GROK_RULES_END);
+
+    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+      log(`ℹ️  No AutoMem rule block in ${rulesFile}`, options.quiet);
+    } else if (options.dryRun) {
+      log(`[DRY RUN] Would strip AutoMem block from: ${rulesFile}`, options.quiet);
+    } else {
+      const next = `${stripGrokRulesMarkers(raw).replace(/\n+$/, '')}\n`;
+      const backupPath = `${rulesFile}.backup.${Date.now()}`;
+      fs.copyFileSync(rulesFile, backupPath);
+      fs.writeFileSync(rulesFile, next, 'utf8');
+      log(`🗑️  Stripped AutoMem block from ${rulesFile}`, options.quiet);
+      log(`   Backup: ${backupPath}`, options.quiet);
+      didChange = true;
+    }
+  }
+
+  if (didChange) {
+    log('\n✅ Grok AutoMem configuration removed', options.quiet);
+  } else if (!options.dryRun) {
+    log('\nℹ️  Nothing to remove for Grok AutoMem', options.quiet);
+  }
+}
+
 async function uninstallCodex(options: UninstallOptions): Promise<void> {
   // Plugin-first codex install is rules-only: it writes a single marked AutoMem
   // block into AGENTS.md (cwd by default, or --rules). Uninstall strips that
@@ -669,6 +717,28 @@ function isAutoMemMcpServer(server: unknown): boolean {
   return values.some((value) => value.includes('mcp-automem'));
 }
 
+/**
+ * Platform → handler. A total `Record` rather than an if-chain so TypeScript rejects a
+ * new `UninstallPlatform` that has no handler, and so the parity suite can assert the
+ * mapping directly. Grepping the source for `options.platform === 'x'` could not: the
+ * same predicate appears in the `--clean-all` and next-steps blocks below, so deleting
+ * a real dispatch branch still left a match.
+ */
+const UNINSTALL_HANDLERS: Record<UninstallPlatform, (options: UninstallOptions) => Promise<void>> =
+  {
+    cursor: uninstallCursor,
+    'claude-code': uninstallClaudeCode,
+    copilot: uninstallCopilot,
+    codex: uninstallCodex,
+    hermes: uninstallHermes,
+    grok: uninstallGrok,
+  };
+
+/** Platforms with a registered uninstall handler, for the parity suite. */
+export function uninstallHandlerPlatforms(): string[] {
+  return Object.keys(UNINSTALL_HANDLERS);
+}
+
 export async function runUninstall(options: UninstallOptions): Promise<void> {
   log(`\n🚮 AutoMem Uninstaller`, options.quiet);
   log(`   Platform: ${options.platform}`, options.quiet);
@@ -685,17 +755,7 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
   }
 
   // Platform-specific uninstall
-  if (options.platform === 'cursor') {
-    await uninstallCursor(options);
-  } else if (options.platform === 'claude-code') {
-    await uninstallClaudeCode(options);
-  } else if (options.platform === 'copilot') {
-    await uninstallCopilot(options);
-  } else if (options.platform === 'codex') {
-    await uninstallCodex(options);
-  } else if (options.platform === 'hermes') {
-    await uninstallHermes(options);
-  }
+  await UNINSTALL_HANDLERS[options.platform](options);
 
   // Clean up external changes (Claude Desktop config) if requested
   if (options.cleanAll) {
@@ -732,12 +792,13 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
 }
 
 export function parseUninstallArgs(args: string[]): UninstallOptions | null {
-  const allowed = ['cursor', 'claude-code', 'copilot', 'codex', 'hermes'] as const;
-  if (args.length === 0 || !allowed.includes(args[0] as (typeof allowed)[number])) {
-    console.error('❌ Error: Platform required (cursor, claude-code, copilot, codex, or hermes)');
-    console.error(
-      'Usage: mcp-automem uninstall <cursor|claude-code|copilot|codex|hermes> [options]'
-    );
+  // Derived from AGENT_CLIENTS so a new installer client cannot quietly ship without
+  // an uninstall path — it either lands here or is listed in UNINSTALL_UNSUPPORTED_CLIENTS.
+  const allowed = UNINSTALL_PLATFORMS;
+  if (args.length === 0 || !allowed.includes(args[0] as UninstallPlatform)) {
+    const list = allowed.join(', ');
+    console.error(`❌ Error: Platform required (${list})`);
+    console.error(`Usage: mcp-automem uninstall <${allowed.join('|')}> [options]`);
     return null;
   }
 

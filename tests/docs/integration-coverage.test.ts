@@ -36,6 +36,7 @@ const DISPLAY_NAMES: Record<AgentClient, string> = {
   cursor: 'Cursor',
   openclaw: 'OpenClaw',
   hermes: 'Hermes',
+  grok: 'Grok Build',
 };
 
 /** Extract a markdown section: its heading line through (excluding) the next heading. */

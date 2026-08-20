@@ -266,7 +266,7 @@ AUTOMEM_RECALL_TOKEN_BUDGET=18000
 **Modify memory policy / recall rules:**
 1. Edit the shared policy source in `src/memory-policy/shared.ts`
 2. Run `npx tsx scripts/sync-memory-policy.ts` (or `npm run build`, which runs it during `prebuild`)
-3. Do not hand-edit generated policy artifacts: `templates/claude-code/hooks/automem-session-start.sh`, `templates/claude-code/hooks/automem-stop-nudge.sh`, `templates/claude-code/hooks/automem-track-store.sh`, `plugins/automem/scripts/session-start.sh`, `plugins/automem/scripts/stop-nudge.sh`, `plugins/automem/scripts/track-store.sh`, `templates/codex/memory-rules.md`, `templates/cursor/automem.mdc.template`, `templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`, `templates/CLAUDE_MD_MEMORY_RULES.md`, `templates/hermes/memory-rules.md`, or `templates/hermes/provider/automem_policy.py`
+3. Do not hand-edit generated policy artifacts: `templates/claude-code/hooks/automem-session-start.sh`, `templates/claude-code/hooks/automem-stop-nudge.sh`, `templates/claude-code/hooks/automem-track-store.sh`, `plugins/automem/scripts/session-start.sh`, `plugins/automem/scripts/stop-nudge.sh`, `plugins/automem/scripts/track-store.sh`, `templates/codex/memory-rules.md`, `templates/cursor/automem.mdc.template`, `templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`, `templates/CLAUDE_MD_MEMORY_RULES.md`, `templates/hermes/memory-rules.md`, `templates/grok/memory-rules.md`, or `templates/hermes/provider/automem_policy.py`
 4. Update `src/memory-policy.test.ts` when the shared policy contract changes
 
 **Modify non-policy hook behavior:**
@@ -318,7 +318,15 @@ When adding or changing a client host integration, test the real host boundary i
 - Assert tool names are unique across the final provider payload, not just within AutoMem tools.
 - Add uninstall coverage for every file, config key, plugin directory, and environment key the installer writes.
 - Redact secrets and isolate env vars; never let a real `AUTOMEM_API_KEY` leak into temp config or snapshots.
-- Keep `tests/helpers/host-specs.ts` updated as the executable host integration contract for Hermes, Claude Code, Codex, Cursor, and future platforms.
+- Keep `tests/helpers/host-specs.ts` updated as the executable host integration contract for Hermes, Claude Code, Codex, Cursor, Copilot, Grok, and future platforms. Each spec's `host` is the MCP *registration surface* (Copilot has two: CLI and VS Code); `client` ties it back to the installer client in `src/cli/clients.ts`.
+
+### Adding a host
+
+`src/cli/clients.ts` is the client registry — `AGENT_CLIENTS` plus the exclusion lists that record where a client is deliberately unsupported. Uninstall platforms and the CLI's known-commands set are derived from it, so those cannot drift.
+
+`tests/docs/host-parity.test.ts` enforces the rest: every client needs an uninstall path, a host smoke spec, a dispatch branch, and — if it ships a rules template — a renderer registered in `scripts/sync-memory-policy.ts`. When a gap is knowingly accepted, add it to the exclusion list in that test (or in `clients.ts`) with a reason. Do not delete the assertion.
+
+Known debt tracked this way: OpenClaw has no uninstall path (`UNINSTALL_UNSUPPORTED_CLIENTS`), and Copilot's memory rules are still hand-written rather than generated (`HAND_WRITTEN_RULES`) — the drift that caused #186.
 
 Documentation changes are part of the integration contract. Any new host mode or uninstall behavior should be reflected in `INSTALLATION.md` and covered by a smoke/doc assertion.
 
