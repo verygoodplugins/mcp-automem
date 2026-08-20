@@ -5,6 +5,7 @@ import path from 'path';
 import { parse as parseToml } from 'smol-toml';
 import {
   buildGrokAutoMemServerEntry,
+  readExistingGrokCredentials,
   removeGrokMemoryServer,
   resolveGrokPaths,
   upsertGrokMemoryServer,
@@ -564,6 +565,112 @@ describe('grok-config', () => {
         mcp_servers: Record<string, unknown>;
       };
       expect(parsed.mcp_servers.memory).toBeDefined();
+    });
+  });
+
+  // The AutoMem service still accepts AUTOMEM_API_TOKEN (Railway template, SSE
+  // sidecar, existing deploys), so every reader has to. Reading only the canonical
+  // name turned a working authenticated install into an unauthenticated one on a
+  // flagless re-run, and left a live token in a world-readable backup.
+  describe('legacy AUTOMEM_API_TOKEN alias', () => {
+    const writeLegacyConfig = (configPath: string): void => {
+      fs.writeFileSync(
+        configPath,
+        [
+          '[mcp_servers.memory]',
+          'command = "npx"',
+          'args = ["-y", "@verygoodplugins/mcp-automem"]',
+          'enabled = true',
+          '',
+          '[mcp_servers.memory.env]',
+          'AUTOMEM_API_URL = "https://legacy.example.test"',
+          'AUTOMEM_API_TOKEN = "sk-legacy"',
+          '',
+        ].join('\n')
+      );
+    };
+
+    it('reads a token-authenticated entry and reports it under the canonical name', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      writeLegacyConfig(configPath);
+
+      expect(readExistingGrokCredentials(configPath)).toEqual({
+        endpoint: 'https://legacy.example.test',
+        apiKey: 'sk-legacy',
+      });
+    });
+
+    it('reads the deprecated AUTOMEM_ENDPOINT alias as the endpoint', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      fs.writeFileSync(
+        configPath,
+        [
+          '[mcp_servers.memory.env]',
+          'AUTOMEM_ENDPOINT = "https://legacy.example.test"',
+          'AUTOMEM_API_KEY = "sk-x"',
+          '',
+        ].join('\n')
+      );
+
+      expect(readExistingGrokCredentials(configPath).endpoint).toBe('https://legacy.example.test');
+    });
+
+    it('treats a token-bearing entry as secret-bearing when tightening the backup', () => {
+      if (process.platform === 'win32') return;
+      const configPath = path.join(tmpDir, 'config.toml');
+      writeLegacyConfig(configPath);
+      fs.chmodSync(configPath, 0o644);
+
+      removeGrokMemoryServer(configPath, { quiet: true });
+
+      const backup = fs
+        .readdirSync(tmpDir)
+        .filter((name) => name.startsWith('config.toml.bak'))
+        .map((name) => path.join(tmpDir, name));
+      expect(backup.length).toBeGreaterThan(0);
+      for (const file of backup) {
+        // The backup still holds the live token, so it must not stay world-readable.
+        expect(fs.readFileSync(file, 'utf8')).toContain('sk-legacy');
+        expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      }
+    });
+  });
+
+  // The ownership predicate used to serialize the whole entry — env values included —
+  // and search it for "mcp-automem", so an unrelated server merely pointing at a host
+  // with that name was overwritable by setup and deletable by uninstall.
+  describe('foreign server ownership', () => {
+    const foreign = [
+      '[mcp_servers.memory]',
+      'command = "other-server"',
+      'args = ["--start"]',
+      '',
+      '[mcp_servers.memory.env]',
+      'UPSTREAM_URL = "https://mcp-automem.internal"',
+      '',
+    ].join('\n');
+
+    it('refuses to overwrite a foreign entry that merely mentions mcp-automem in env', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      fs.writeFileSync(configPath, foreign);
+
+      expect(() =>
+        upsertGrokMemoryServer(
+          configPath,
+          buildGrokAutoMemServerEntry('https://automem.example.test'),
+          { quiet: true }
+        )
+      ).toThrow();
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(foreign);
+    });
+
+    it('leaves that foreign entry alone on uninstall', () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      fs.writeFileSync(configPath, foreign);
+
+      removeGrokMemoryServer(configPath, { quiet: true, onlyIfAutoMem: true });
+
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(foreign);
     });
   });
 });

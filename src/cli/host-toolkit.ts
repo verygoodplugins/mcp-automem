@@ -32,6 +32,144 @@ export function sameEndpoint(a?: string, b?: string): boolean {
   return Boolean(a) && Boolean(b) && normalizeEndpoint(a!) === normalizeEndpoint(b!);
 }
 
+/**
+ * The two names AutoMem accepts for the same credential. `AUTOMEM_API_KEY` is
+ * canonical (the service and its docs standardized on `_KEY`); `AUTOMEM_API_TOKEN`
+ * is the deprecated alias the Railway template, the SSE sidecar, and existing
+ * deploys still set, so every reader has to accept it — see `src/env.ts`. Ordered:
+ * callers take the first match, so the canonical name wins when both are present.
+ */
+export const AUTOMEM_API_KEY_NAMES = ['AUTOMEM_API_KEY', 'AUTOMEM_API_TOKEN'] as const;
+
+/** The two names AutoMem accepts for the endpoint, canonical first. */
+export const AUTOMEM_ENDPOINT_NAMES = ['AUTOMEM_API_URL', 'AUTOMEM_ENDPOINT'] as const;
+
+function firstNonEmpty(
+  source: Record<string, unknown> | undefined,
+  names: readonly string[]
+): string | undefined {
+  if (!source) return undefined;
+  for (const name of names) {
+    const value = String(source[name] ?? '').trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+/** The API key an env-like record carries, under either supported name. */
+export function readApiKeyFrom(source?: Record<string, unknown>): string | undefined {
+  return firstNonEmpty(source, AUTOMEM_API_KEY_NAMES);
+}
+
+/** The endpoint an env-like record carries, under either supported name. */
+export function readEndpointFrom(source?: Record<string, unknown>): string | undefined {
+  return firstNonEmpty(source, AUTOMEM_ENDPOINT_NAMES);
+}
+
+export interface InheritedApiKeyInputs {
+  /** The endpoint this run will write. */
+  endpoint: string;
+  /** `--api-key`. An explicit flag is the operator naming the credential for this run. */
+  explicitKey?: string;
+  /** Endpoint already registered for this host, if any. */
+  storedEndpoint?: string;
+  /** Key already registered for this host, if any. */
+  storedKey?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Resolve which API key a host install should write, pairing every *inherited* key
+ * with the endpoint it was issued for.
+ *
+ * A key belongs to its endpoint. Handing one to a different server discloses the
+ * secret to a host that was never meant to have it, and this has now been filed
+ * against three separate callers, so the rule lives here rather than in each host.
+ *
+ * Precedence: explicit flag, then environment, then whatever is already installed.
+ *
+ * The two inherited sources are deliberately *not* symmetric:
+ *
+ *  - An env key with **no** env endpoint stands. A bare `export AUTOMEM_API_KEY` is
+ *    a normal way to carry a credential; it is bound to nothing, so it cannot be
+ *    bound to the wrong thing.
+ *  - A stored key with **no** stored endpoint is dropped. A host config entry that
+ *    names a key but no URL is malformed, and guessing that it meant the endpoint
+ *    chosen for *this* run is exactly the disclosure this function exists to prevent.
+ *
+ * `CLAUDE_PLUGIN_OPTION_*` is intentionally not read here. Those variables are
+ * exported by Claude Code into the plugin's own MCP subprocess for `src/index.ts`
+ * to resolve; an installer that inherits them picks up a key whose paired
+ * `CLAUDE_PLUGIN_OPTION_API_URL` it never consults. No installer flow sets them.
+ */
+export function resolveInheritedApiKey(inputs: InheritedApiKeyInputs): string | undefined {
+  const explicit = inputs.explicitKey?.trim();
+  if (explicit) return explicit;
+
+  const env = inputs.env ?? process.env;
+  const envKey = readApiKeyFrom(env);
+  if (envKey) {
+    const envEndpoint = readEndpointFrom(env);
+    // Unbound key: nothing to mismatch against.
+    if (!envEndpoint) return envKey;
+    if (sameEndpoint(envEndpoint, inputs.endpoint)) return envKey;
+  }
+
+  const storedKey = inputs.storedKey?.trim();
+  if (storedKey && sameEndpoint(inputs.storedEndpoint, inputs.endpoint)) {
+    return storedKey;
+  }
+
+  return undefined;
+}
+
+/**
+ * Whether an MCP server entry is AutoMem's, and therefore ours to replace or remove.
+ *
+ * Matched on identity, never on free text: an earlier version serialized the whole
+ * entry (env values included) and searched it for `mcp-automem`, so an unrelated
+ * server pointing at a host like `https://mcp-automem.internal` was classified as
+ * ours and could be overwritten by setup or deleted by uninstall.
+ *
+ * Two things count as identity:
+ *  - the package in `command`/`args` — `npx -y @verygoodplugins/mcp-automem`, what we
+ *    write, and `node /path/to/mcp-automem/dist/index.js`, what a linked dev checkout
+ *    looks like. Matched as a whole path segment, so `mcp-automem.internal` does not
+ *    qualify.
+ *  - AutoMem's own env var *names*. Hand-written entries legitimately vary the
+ *    command, and a foreign server that sets `AUTOMEM_API_URL` itself is
+ *    indistinguishable from AutoMem anyway. Names only — never values.
+ */
+const AUTOMEM_PACKAGE_SEGMENT = /(^|[/\\])(@verygoodplugins[/\\])?mcp-automem([/\\]|$)/;
+
+const AUTOMEM_ENV_KEYS: readonly string[] = [
+  ...AUTOMEM_ENDPOINT_NAMES,
+  ...AUTOMEM_API_KEY_NAMES,
+  'AUTOMEM_PROCESS_TAG',
+];
+
+export function isAutoMemServerEntry(entry: unknown): boolean {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+  const record = entry as Record<string, unknown>;
+
+  const candidates: string[] = [];
+  if (typeof record.command === 'string') candidates.push(record.command);
+  if (Array.isArray(record.args)) {
+    for (const arg of record.args) {
+      if (typeof arg === 'string') candidates.push(arg);
+    }
+  }
+  if (candidates.some((value) => AUTOMEM_PACKAGE_SEGMENT.test(value))) return true;
+
+  const env = record.env;
+  if (env && typeof env === 'object' && !Array.isArray(env)) {
+    return AUTOMEM_ENV_KEYS.some((name) =>
+      Object.prototype.hasOwnProperty.call(env as Record<string, unknown>, name)
+    );
+  }
+  return false;
+}
+
 export function backupPath(filePath: string): string {
   let candidate = `${filePath}.bak`;
   let counter = 1;
@@ -147,6 +285,22 @@ export function mergeEnvContent(existing: string, updates: Record<string, string
     .map((entry) => entry.line)
     .join(os.EOL)
     .replace(/\s+$/, '');
+  return content.length ? `${content}${os.EOL}` : '';
+}
+
+// Drop KEY=value lines from an existing .env body, leaving every other line — including
+// comments, blank lines, and unrelated keys — byte-identical. Deletion is a separate
+// operation from mergeEnvContent on purpose: writing `KEY=` would work (the readers
+// treat blank as absent) but leaves a confusing artifact that reads like a
+// deliberately-emptied credential. Pure (no I/O) so callers own the write.
+export function removeEnvContentKeys(existing: string, keys: readonly string[]): string {
+  if (!existing || keys.length === 0) return existing;
+  const doomed = new Set(keys);
+  const kept = existing.split(/\r?\n/).filter((line) => {
+    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
+    return !match || !doomed.has(match[1]);
+  });
+  const content = kept.join(os.EOL).replace(/\s+$/, '');
   return content.length ? `${content}${os.EOL}` : '';
 }
 

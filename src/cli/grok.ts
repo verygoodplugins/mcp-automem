@@ -7,7 +7,7 @@ import {
   log,
   parseCommonFlags,
   replaceTemplateVars,
-  sameEndpoint,
+  resolveInheritedApiKey,
   writeFileWithBackup,
 } from './host-toolkit.js';
 import {
@@ -18,7 +18,6 @@ import {
   resolveGrokPaths,
   upsertGrokMemoryServer,
 } from './grok-config.js';
-import { readAutoMemApiKeyFromEnv } from '../env.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
 export interface GrokSetupOptions extends CommonOptions {
@@ -68,34 +67,60 @@ function sameFile(a: string, b: string): boolean {
   return real(a) === real(b);
 }
 
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0;
+  let from = 0;
+  for (;;) {
+    const idx = haystack.indexOf(needle, from);
+    if (idx === -1) return count;
+    count += 1;
+    from = idx + needle.length;
+  }
+}
+
 function upsertRulesWithMarkers(existing: string | null, block: string, rulesPath: string): string {
   const normalize = (s: string) => `${s.replace(/\n+$/, '')}\n`;
   if (!existing) {
     return normalize(block);
   }
+  const starts = countOccurrences(existing, GROK_RULES_START);
+  const ends = countOccurrences(existing, GROK_RULES_END);
+
+  if (starts === 0 && ends === 0) {
+    const sep = existing.endsWith('\n') ? '\n' : '\n\n';
+    return normalize(`${existing}${sep}${block}`);
+  }
+
+  // Anything other than exactly one correctly ordered pair is refused rather than
+  // repaired. Every malformed shape here destroys user content if we replace anyway:
+  //
+  //  - One-sided (an interrupted run, or a hand edit that deleted half the block):
+  //    appending leaves one start and two ends, so the *next* run replaces everything
+  //    from the original start to the appended end.
+  //  - Two starts before one end: replacing from the first start through the end
+  //    deletes the second marker and whatever the user wrote between them — and the
+  //    file looks well-formed to a one-sided check, which is why counting is the test.
+  //
+  // Repairing these means guessing which side of a stray marker the user's content
+  // belongs to. That is their judgement to make, not ours.
   const startIdx = existing.indexOf(GROK_RULES_START);
   const endIdx = existing.indexOf(GROK_RULES_END);
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const before = existing.slice(0, startIdx);
-    const after = existing.slice(endIdx + GROK_RULES_END.length);
-    return normalize(`${before}${block}${after}`);
-  }
-  // One-sided markers (an interrupted run, or a hand edit that deleted half the block)
-  // used to fall through to "append". That is quietly destructive: the file then holds
-  // one start marker and two ends, so the *next* run replaces everything between the
-  // original start and the appended end — deleting whatever the user wrote in between.
-  // Refuse instead; the repair is a judgement call about their content, not ours.
-  if (startIdx !== -1 || endIdx !== -1) {
-    const present = startIdx !== -1 ? GROK_RULES_START : GROK_RULES_END;
-    const missing = startIdx !== -1 ? GROK_RULES_END : GROK_RULES_START;
+  const wellFormed = starts === 1 && ends === 1 && startIdx !== -1 && endIdx > startIdx;
+  if (!wellFormed) {
+    const detail =
+      starts === 1 && ends === 1
+        ? `its ${GROK_RULES_END} precedes its ${GROK_RULES_START}`
+        : `found ${starts} start and ${ends} end marker${ends === 1 ? '' : 's'}`;
     throw new Error(
-      `${rulesPath} has ${present} without a matching ${missing}. ` +
-        'Appending would let a later run delete the content between them. ' +
-        `Restore or remove the stray marker (or point --rules elsewhere), then re-run.`
+      `${rulesPath} does not contain exactly one ${GROK_RULES_START} … ${GROK_RULES_END} block ` +
+        `(${detail}). Rewriting it would delete the content between the stray markers. ` +
+        'Restore or remove them (or point --rules elsewhere), then re-run.'
     );
   }
-  const sep = existing.endsWith('\n') ? '\n' : '\n\n';
-  return normalize(`${existing}${sep}${block}`);
+
+  const before = existing.slice(0, startIdx);
+  const after = existing.slice(endIdx + GROK_RULES_END.length);
+  return normalize(`${before}${block}${after}`);
 }
 
 export function stripGrokRulesMarkers(existing: string): string {
@@ -116,25 +141,15 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
     process.env.AUTOMEM_ENDPOINT ||
     existingCreds.endpoint ||
     DEFAULT_AUTOMEM_API_URL;
-  // A key belongs to the endpoint it was issued for. Handing it to a different host
-  // discloses the secret to a server that was never meant to have it, so every
-  // inherited key is paired with the endpoint it came from before being reused.
-  // Compared the way the client compares endpoints, since AutoMemClient strips a
-  // trailing slash and `https://x` and `https://x/` are the same server.
-  const matchesChosenEndpoint = (candidate?: string): boolean => sameEndpoint(candidate, endpoint);
-
-  // The shell's key belongs to the shell's endpoint. `--endpoint other` with
-  // AUTOMEM_API_URL/AUTOMEM_API_KEY exported would otherwise ship that key to `other`.
-  // An exported key with no exported endpoint is not bound to anything, so it stands.
-  const envEndpoint = process.env.AUTOMEM_API_URL || process.env.AUTOMEM_ENDPOINT;
-  const envKey = readAutoMemApiKeyFromEnv();
-  const reusableEnvKey = !envEndpoint || matchesChosenEndpoint(envEndpoint) ? envKey : undefined;
-
-  const reusableStoredKey = matchesChosenEndpoint(existingCreds.endpoint)
-    ? existingCreds.apiKey
-    : undefined;
-
-  const apiKey = cliOptions.apiKey ?? reusableEnvKey ?? reusableStoredKey;
+  // A key belongs to the endpoint it was issued for. Pairing every inherited key with
+  // its own endpoint lives in the shared resolver, which all hosts use — the same
+  // disclosure was filed separately against three of them.
+  const apiKey = resolveInheritedApiKey({
+    endpoint,
+    explicitKey: cliOptions.apiKey,
+    storedEndpoint: existingCreds.endpoint,
+    storedKey: existingCreds.apiKey,
+  });
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
 
   // `--rules` pointing at config.toml (directly or through a symlink) would write the
