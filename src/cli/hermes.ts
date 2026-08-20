@@ -7,6 +7,7 @@ import {
   log,
   parseCommonFlags,
   replaceTemplateVars,
+  resolveInheritedApiKey,
   writeFileWithBackup,
 } from './host-toolkit.js';
 import {
@@ -18,7 +19,6 @@ import {
   upsertHermesMemoryProvider,
   upsertMcpServer,
 } from './hermes-config.js';
-import { readAutoMemApiKeyFromEnv } from '../env.js';
 import { renderHermesModeRules } from '../memory-policy/shared.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
@@ -211,7 +211,15 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
     process.env.AUTOMEM_ENDPOINT ||
     existing.endpoint ||
     DEFAULT_AUTOMEM_API_URL;
-  const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? existing.apiKey;
+  // A key belongs to the endpoint it was issued for: an exported key must not follow
+  // `--endpoint <other>` to a host it was never issued for, and neither must the key
+  // already installed for Hermes when the endpoint changes underneath it.
+  const apiKey = resolveInheritedApiKey({
+    endpoint,
+    explicitKey: cliOptions.apiKey,
+    storedEndpoint: existing.endpoint,
+    storedKey: existing.apiKey,
+  });
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
 
   log(`\n🔧 Setting up Hermes AutoMem for: ${projectName}`, cliOptions.quiet);

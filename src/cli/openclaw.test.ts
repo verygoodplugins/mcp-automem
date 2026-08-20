@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   allowAutoMemTools,
   allowPluginWhenAllowlistExists,
@@ -19,6 +19,7 @@ import {
   probeBootstrapBypass,
   redactConfigForOutput,
   replaceOpenClawMemorySystem,
+  resolveApiKey,
 } from './openclaw.js';
 import fs from 'fs';
 import os from 'os';
@@ -523,5 +524,49 @@ describe('openclaw cli helpers', () => {
     });
 
     expect(profile).toContain('Call me Jack');
+  });
+});
+
+describe('openclaw credential/endpoint pairing', () => {
+  const ENDPOINT = 'https://chosen.example.test';
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    for (const key of [
+      'AUTOMEM_API_URL',
+      'AUTOMEM_ENDPOINT',
+      'AUTOMEM_API_KEY',
+      'AUTOMEM_API_TOKEN',
+    ]) {
+      if (originalEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = originalEnv[key];
+    }
+  });
+
+  it('takes --api-key over the environment', () => {
+    process.env.AUTOMEM_API_URL = ENDPOINT;
+    process.env.AUTOMEM_API_KEY = 'sk-env';
+    expect(resolveApiKey({ apiKey: 'sk-flag' }, ENDPOINT)).toBe('sk-flag');
+  });
+
+  it('reuses a shell key exported for the chosen endpoint', () => {
+    process.env.AUTOMEM_API_URL = ENDPOINT;
+    process.env.AUTOMEM_API_KEY = 'sk-env';
+    expect(resolveApiKey({}, ENDPOINT)).toBe('sk-env');
+  });
+
+  // OpenClaw reads no previously installed credential, so this is the only half that
+  // applies to it — but it is the half that discloses a secret.
+  it('does not carry a shell key exported for a different endpoint', () => {
+    process.env.AUTOMEM_API_URL = 'https://elsewhere.example.test';
+    process.env.AUTOMEM_API_KEY = 'sk-env';
+    expect(resolveApiKey({}, ENDPOINT)).toBeUndefined();
+  });
+
+  it('keeps an unbound shell key', () => {
+    delete process.env.AUTOMEM_API_URL;
+    delete process.env.AUTOMEM_ENDPOINT;
+    process.env.AUTOMEM_API_KEY = 'sk-env';
+    expect(resolveApiKey({}, ENDPOINT)).toBe('sk-env');
   });
 });

@@ -21,6 +21,7 @@ describe('hermes setup handler', () => {
   let originalApiUrl: string | undefined;
   let originalApiKey: string | undefined;
   let originalEndpoint: string | undefined;
+  let originalApiToken: string | undefined;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-handler-'));
@@ -28,12 +29,14 @@ describe('hermes setup handler', () => {
     originalApiUrl = process.env.AUTOMEM_API_URL;
     originalApiKey = process.env.AUTOMEM_API_KEY;
     originalEndpoint = process.env.AUTOMEM_ENDPOINT;
+    originalApiToken = process.env.AUTOMEM_API_TOKEN;
     delete process.env.HERMES_HOME;
     delete process.env.AUTOMEM_API_URL;
     delete process.env.AUTOMEM_API_KEY;
     // Clear the legacy alias too — a developer shell exporting it would
     // otherwise win over recovered credentials and make these tests flaky.
     delete process.env.AUTOMEM_ENDPOINT;
+    delete process.env.AUTOMEM_API_TOKEN;
   });
 
   afterEach(() => {
@@ -46,6 +49,7 @@ describe('hermes setup handler', () => {
     restore('AUTOMEM_API_URL', originalApiUrl);
     restore('AUTOMEM_API_KEY', originalApiKey);
     restore('AUTOMEM_ENDPOINT', originalEndpoint);
+    restore('AUTOMEM_API_TOKEN', originalApiToken);
     vi.clearAllMocks();
   });
 
@@ -423,5 +427,103 @@ describe('hermes setup handler', () => {
     expect(agents).toContain('Provider-only mode');
     expect(agents).not.toContain('<!-- BEGIN AUTOMEM CODEX RULES -->');
     expect(agents).not.toContain('mcp__memory__recall_memory');
+  });
+
+  // Hermes carried the same defect the Grok PR filed three times: an inherited key was
+  // written for whatever endpoint this run chose, with no check that the key was issued
+  // for it. No finding named Hermes — it was found by sweeping the callers.
+  describe('credential/endpoint pairing', () => {
+    const readEntryEnv = (): Record<string, string> => {
+      const parsed = parseYaml(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')) as {
+        mcp_servers: { automem: { env: Record<string, string> } };
+      };
+      return parsed.mcp_servers.automem.env;
+    };
+
+    it('does not carry a shell key exported for a different endpoint', async () => {
+      process.env.AUTOMEM_API_URL = 'https://shell.example.test';
+      process.env.AUTOMEM_API_KEY = 'sk-shell';
+
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        endpoint: 'https://chosen.example.test',
+        quiet: true,
+        projectName: 'demo',
+      });
+
+      expect(readEntryEnv().AUTOMEM_API_KEY).toBeUndefined();
+    });
+
+    it('reuses a shell key exported for the chosen endpoint', async () => {
+      process.env.AUTOMEM_API_URL = 'https://chosen.example.test';
+      process.env.AUTOMEM_API_KEY = 'sk-shell';
+
+      await applyHermesSetup({ targetDir: tmpDir, quiet: true, projectName: 'demo' });
+
+      expect(readEntryEnv().AUTOMEM_API_KEY).toBe('sk-shell');
+    });
+
+    it('does not carry the installed key to a different endpoint on re-run', async () => {
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        endpoint: 'https://first.example.test',
+        apiKey: 'sk-first',
+        quiet: true,
+        projectName: 'demo',
+      });
+
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        endpoint: 'https://second.example.test',
+        quiet: true,
+        projectName: 'demo',
+      });
+
+      const env = readEntryEnv();
+      expect(env.AUTOMEM_API_URL).toBe('https://second.example.test');
+      expect(env.AUTOMEM_API_KEY).toBeUndefined();
+    });
+
+    it('preserves the installed key on a flagless re-run at the same endpoint', async () => {
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        endpoint: 'https://same.example.test',
+        apiKey: 'sk-keep',
+        quiet: true,
+        projectName: 'demo',
+      });
+
+      await applyHermesSetup({ targetDir: tmpDir, quiet: true, projectName: 'demo' });
+
+      const env = readEntryEnv();
+      expect(env.AUTOMEM_API_URL).toBe('https://same.example.test');
+      expect(env.AUTOMEM_API_KEY).toBe('sk-keep');
+    });
+
+    it('recovers a credential stored under the deprecated AUTOMEM_API_TOKEN alias', async () => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      fs.writeFileSync(
+        configPath,
+        [
+          'mcp_servers:',
+          '  automem:',
+          '    command: npx',
+          '    args:',
+          '      - -y',
+          '      - "@verygoodplugins/mcp-automem"',
+          '    env:',
+          '      AUTOMEM_API_URL: https://legacy.example.test',
+          '      AUTOMEM_API_TOKEN: sk-legacy',
+          '',
+        ].join('\n')
+      );
+
+      await applyHermesSetup({ targetDir: tmpDir, quiet: true, projectName: 'demo' });
+
+      const env = readEntryEnv();
+      expect(env.AUTOMEM_API_URL).toBe('https://legacy.example.test');
+      expect(env.AUTOMEM_API_KEY).toBe('sk-legacy');
+    });
   });
 });

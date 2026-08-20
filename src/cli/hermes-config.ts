@@ -2,7 +2,14 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { parse as parseYaml, parseDocument } from 'yaml';
-import { backupPath, log } from './host-toolkit.js';
+import {
+  AUTOMEM_API_KEY_NAMES,
+  backupPath,
+  isAutoMemServerEntry,
+  log,
+  readApiKeyFrom,
+  readEndpointFrom,
+} from './host-toolkit.js';
 
 export interface HermesPaths {
   home: string;
@@ -145,11 +152,12 @@ function readCredentialsFromConfig(configPath: string): HermesCredentials {
   const env = entry && isRecord(entry.env) ? (entry.env as Record<string, unknown>) : null;
   if (!env) return {};
   return {
-    // The runtime provider still honors the deprecated AUTOMEM_ENDPOINT, so a
-    // hand-migrated config must survive a setup re-run instead of being reset
-    // to the default endpoint.
-    endpoint: normalizeCred(env.AUTOMEM_API_URL) ?? normalizeCred(env.AUTOMEM_ENDPOINT),
-    apiKey: normalizeCred(env.AUTOMEM_API_KEY),
+    // Both deprecated aliases are honored on read — the runtime still accepts
+    // AUTOMEM_ENDPOINT and AUTOMEM_API_TOKEN, so a hand-migrated or Railway-templated
+    // config must survive a setup re-run instead of being reset to the default
+    // endpoint or rewritten without its credential.
+    endpoint: readEndpointFrom(env),
+    apiKey: readApiKeyFrom(env),
   };
 }
 
@@ -158,15 +166,19 @@ function readCredentialsFromEnvFile(envPath: string): HermesCredentials {
   let endpoint: string | undefined;
   let legacyEndpoint: string | undefined;
   let apiKey: string | undefined;
+  let legacyApiKey: string | undefined;
   for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
     const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
     if (!match) continue;
     const value = normalizeCred(unquoteEnvValue(match[2]));
     if (match[1] === 'AUTOMEM_API_URL') endpoint = value;
     else if (match[1] === 'AUTOMEM_ENDPOINT') legacyEndpoint = value;
-    else if (match[1] === 'AUTOMEM_API_KEY') apiKey = value;
+    else if (match[1] === AUTOMEM_API_KEY_NAMES[0]) apiKey = value;
+    // The deprecated alias, kept as a fallback so a provider .env written from the
+    // Railway template still yields its credential on a flagless re-run.
+    else if (match[1] === AUTOMEM_API_KEY_NAMES[1]) legacyApiKey = value;
   }
-  return { endpoint: endpoint ?? legacyEndpoint, apiKey };
+  return { endpoint: endpoint ?? legacyEndpoint, apiKey: apiKey ?? legacyApiKey };
 }
 
 /**
@@ -207,15 +219,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isAutoMemMcpEntry(entry: unknown): boolean {
-  if (!isRecord(entry)) return false;
-  const haystack = JSON.stringify({
-    command: entry.command,
-    args: entry.args,
-    env: entry.env,
-  });
-  return haystack.includes('@verygoodplugins/mcp-automem') || haystack.includes('mcp-automem');
-}
+const isAutoMemMcpEntry = isAutoMemServerEntry;
 
 /**
  * Merge an MCP server entry into ~/.hermes/config.yaml under `mcp_servers.<name>`,

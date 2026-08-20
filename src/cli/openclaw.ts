@@ -4,15 +4,15 @@ import path from 'path';
 import { execFileSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { AutoMemClient } from '../automem-client.js';
-import { readAutoMemApiKeyFromEnv } from '../env.js';
 import { buildDefaultProjectTags } from '../memory-policy/shared.js';
 import { buildStartupProfileFromResults } from '../openclaw-startup-profile.js';
+import { resolveInheritedApiKey } from './host-toolkit.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
 export type OpenClawSetupMode = 'plugin' | 'mcp' | 'skill';
 export type OpenClawSetupScope = 'workspace' | 'shared';
 
-interface OpenClawSetupOptions {
+export interface OpenClawSetupOptions {
   workspace?: string;
   projectName?: string;
   dryRun?: boolean;
@@ -1105,14 +1105,17 @@ function resolveEndpoint(options: OpenClawSetupOptions): string {
   );
 }
 
-function resolveApiKey(options: OpenClawSetupOptions): string | undefined {
-  return options.apiKey?.trim() || readAutoMemApiKeyFromEnv();
+// A key belongs to the endpoint it was issued for. OpenClaw reads no previously
+// installed credential, so only the environment half applies: an exported key with an
+// exported endpoint must not follow `--endpoint <other>` to a different host.
+export function resolveApiKey(options: OpenClawSetupOptions, endpoint: string): string | undefined {
+  return resolveInheritedApiKey({ endpoint, explicitKey: options.apiKey });
 }
 
 export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Promise<void> {
   const projectName = cliOptions.projectName ?? detectProjectName();
   const endpoint = resolveEndpoint(cliOptions);
-  const apiKey = resolveApiKey(cliOptions);
+  const apiKey = resolveApiKey(cliOptions, endpoint);
   const defaultTags = buildDefaultTags(projectName);
   const workspaceDir = resolveWorkspaceDir(cliOptions.workspace);
   const requiresWorkspace = cliOptions.mode !== 'plugin' || cliOptions.scope === 'workspace';
