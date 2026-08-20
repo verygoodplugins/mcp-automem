@@ -442,6 +442,21 @@ describe('isAutoMemServerEntry', () => {
     ).toBe(true);
   });
 
+  // `npm exec -- <pkg>[@<version>]` is the documented spec, so a pinned entry is the
+  // same package. Rejecting it made setup refuse to update it and uninstall skip it.
+  it('matches a version-pinned package spec', () => {
+    expect(
+      isAutoMemServerEntry({ command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem@0.15.0'] })
+    ).toBe(true);
+  });
+
+  it('matches a dist-tag package spec', () => {
+    expect(
+      isAutoMemServerEntry({ command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem@latest'] })
+    ).toBe(true);
+    expect(isAutoMemServerEntry({ command: 'npx', args: ['-y', 'mcp-automem@next'] })).toBe(true);
+  });
+
   it('matches a linked dev checkout launched by absolute path', () => {
     expect(
       isAutoMemServerEntry({
@@ -478,6 +493,13 @@ describe('isAutoMemServerEntry', () => {
   it('does not claim a foreign server whose args merely mention a similar host', () => {
     expect(
       isAutoMemServerEntry({ command: 'other', args: ['--url', 'https://mcp-automem.internal'] })
+    ).toBe(false);
+    // The version suffix must not open a hole for lookalike hostnames.
+    expect(
+      isAutoMemServerEntry({
+        command: 'other',
+        args: ['--url', 'https://mcp-automem.internal/v1', 'https://user@mcp-automem.example'],
+      })
     ).toBe(false);
   });
 

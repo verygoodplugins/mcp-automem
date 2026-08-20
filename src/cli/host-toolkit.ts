@@ -135,12 +135,15 @@ export function resolveInheritedApiKey(inputs: InheritedApiKeyInputs): string | 
  *  - the package in `command`/`args` — `npx -y @verygoodplugins/mcp-automem`, what we
  *    write, and `node /path/to/mcp-automem/dist/index.js`, what a linked dev checkout
  *    looks like. Matched as a whole path segment, so `mcp-automem.internal` does not
- *    qualify.
+ *    qualify. An npm version or dist-tag suffix is part of the spec npm documents
+ *    (`npm exec -- <pkg>[@<version>]`), so a pinned `…/mcp-automem@0.15.0` is the same
+ *    package — without this, setup refuses to update a pinned entry and uninstall
+ *    skips it.
  *  - AutoMem's own env var *names*. Hand-written entries legitimately vary the
  *    command, and a foreign server that sets `AUTOMEM_API_URL` itself is
  *    indistinguishable from AutoMem anyway. Names only — never values.
  */
-const AUTOMEM_PACKAGE_SEGMENT = /(^|[/\\])(@verygoodplugins[/\\])?mcp-automem([/\\]|$)/;
+const AUTOMEM_PACKAGE_SEGMENT = /(^|[/\\])(@verygoodplugins[/\\])?mcp-automem(@[^/\\]+)?([/\\]|$)/;
 
 const AUTOMEM_ENV_KEYS: readonly string[] = [
   ...AUTOMEM_ENDPOINT_NAMES,
