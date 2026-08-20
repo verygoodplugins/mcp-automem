@@ -86,6 +86,11 @@ export function buildAutoMemServerEntry(endpoint: string, apiKey?: string): Auto
   };
   if (apiKey) {
     env.AUTOMEM_API_KEY = apiKey;
+  } else {
+    // Explicit blanks, not omission — the host layers this env over its own when it
+    // launches the server, so an omitted key leaves a shell-exported one inherited by
+    // a child pointed at a different endpoint. See buildGrokAutoMemServerEntry.
+    for (const name of AUTOMEM_API_KEY_NAMES) env[name] = '';
   }
   return {
     command: 'npx',

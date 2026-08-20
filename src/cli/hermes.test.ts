@@ -451,7 +451,8 @@ describe('hermes setup handler', () => {
         projectName: 'demo',
       });
 
-      expect(readEntryEnv().AUTOMEM_API_KEY).toBeUndefined();
+      // Blank rather than absent — see buildAutoMemServerEntry.
+      expect(readEntryEnv().AUTOMEM_API_KEY).toBe('');
     });
 
     it('reuses a shell key exported for the chosen endpoint', async () => {
@@ -481,7 +482,9 @@ describe('hermes setup handler', () => {
 
       const env = readEntryEnv();
       expect(env.AUTOMEM_API_URL).toBe('https://second.example.test');
-      expect(env.AUTOMEM_API_KEY).toBeUndefined();
+      // Blank rather than absent — see buildAutoMemServerEntry.
+      expect(env.AUTOMEM_API_KEY).toBe('');
+      expect(env.AUTOMEM_API_TOKEN).toBe('');
     });
 
     it('preserves the installed key on a flagless re-run at the same endpoint', async () => {
@@ -572,6 +575,34 @@ describe('hermes setup handler', () => {
       const written = fs.readFileSync(envPath, 'utf8');
       expect(written).not.toContain('sk-legacy');
       expect(written).toContain('UNRELATED=keep');
+    });
+
+    // Switching to mcp mode uninstalls the provider but used to leave its dotenv
+    // credentials behind. Hermes loads that file before MCP discovery, so the key for
+    // the previous endpoint was inherited by a server pointed at the new one.
+    it('clears provider dotenv credentials when switching to mcp mode', async () => {
+      const envPath = path.join(tmpDir, '.env');
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        mode: 'provider',
+        endpoint: 'https://host-a.example.test',
+        apiKey: 'sk-host-a',
+        quiet: true,
+        projectName: 'demo',
+      });
+      expect(fs.readFileSync(envPath, 'utf8')).toContain('sk-host-a');
+
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        mode: 'mcp',
+        endpoint: 'https://host-b.example.test',
+        quiet: true,
+        projectName: 'demo',
+      });
+
+      const written = fs.readFileSync(envPath, 'utf8');
+      expect(written).not.toContain('sk-host-a');
+      expect(written).not.toContain('https://host-a.example.test');
     });
 
     it('recovers a credential stored under the deprecated AUTOMEM_API_TOKEN alias', async () => {

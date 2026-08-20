@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { parse as parseToml } from 'smol-toml';
 import { applyGrokSetup, GROK_RULES_END, GROK_RULES_START } from './grok.js';
+import { readAutoMemApiKeyFromEnv } from '../env.js';
 
 describe('grok setup', () => {
   let tmpDir: string;
@@ -136,7 +137,7 @@ describe('grok setup', () => {
       mcp_servers: { memory: { env: Record<string, string> } };
     };
     expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('https://second.example.test');
-    expect(parsed.mcp_servers.memory.env).not.toHaveProperty('AUTOMEM_API_KEY');
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('');
   });
 
   it('treats a trailing slash as the same endpoint and keeps the key', async () => {
@@ -186,7 +187,7 @@ describe('grok setup', () => {
       mcp_servers: { memory: { env: Record<string, string> } };
     };
     expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('https://elsewhere.example.test');
-    expect(parsed.mcp_servers.memory.env).not.toHaveProperty('AUTOMEM_API_KEY');
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('');
   });
 
   it('uses a shell-exported key when it belongs to the chosen endpoint', async () => {
@@ -491,7 +492,10 @@ describe('grok setup', () => {
       mcp_servers: { memory: { env: Record<string, string> } };
     };
     expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('https://second.example.test');
-    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBeUndefined();
+    // Blank rather than absent, so a shell-exported key cannot be inherited by the
+    // child process the host launches with this env layered over its own.
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('');
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_TOKEN).toBe('');
   });
 
   it('does not carry a shell key exported for another endpoint', async () => {
@@ -503,6 +507,54 @@ describe('grok setup', () => {
     const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
       mcp_servers: { memory: { env: Record<string, string> } };
     };
-    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBeUndefined();
+    // Blank rather than absent, so a shell-exported key cannot be inherited by the
+    // child process the host launches with this env layered over its own.
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('');
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_TOKEN).toBe('');
+  });
+
+  // The boundary that matters: the host launches the server with the entry's env
+  // layered over its own. Omitting the key from the entry does not stop a
+  // shell-exported one — issued for a different endpoint — from reaching the child.
+  it('shadows a shell key so the launched server cannot inherit it', async () => {
+    process.env.AUTOMEM_API_URL = 'https://shell.example.test';
+    process.env.AUTOMEM_API_KEY = 'sk-shell';
+
+    await applyGrokSetup({ endpoint: 'https://chosen.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    // Exactly how the host spawns it.
+    const childEnv = { ...process.env, ...parsed.mcp_servers.memory.env };
+    expect(childEnv.AUTOMEM_API_URL).toBe('https://chosen.example.test');
+    expect(readAutoMemApiKeyFromEnv(childEnv)).toBeUndefined();
+  });
+
+  it('shadows a shell key exported under the deprecated alias too', async () => {
+    process.env.AUTOMEM_ENDPOINT = 'https://shell.example.test';
+    process.env.AUTOMEM_API_TOKEN = 'sk-shell-legacy';
+
+    await applyGrokSetup({ endpoint: 'https://chosen.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    const childEnv = { ...process.env, ...parsed.mcp_servers.memory.env };
+    expect(readAutoMemApiKeyFromEnv(childEnv)).toBeUndefined();
+  });
+
+  it('still hands a resolved key to the launched server', async () => {
+    await applyGrokSetup({
+      endpoint: 'https://chosen.example.test',
+      apiKey: 'sk-real',
+      quiet: true,
+    });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    const childEnv = { ...process.env, ...parsed.mcp_servers.memory.env };
+    expect(readAutoMemApiKeyFromEnv(childEnv)).toBe('sk-real');
   });
 });

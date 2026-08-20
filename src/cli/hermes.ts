@@ -8,6 +8,7 @@ import {
   parseCommonFlags,
   replaceTemplateVars,
   AUTOMEM_API_KEY_NAMES,
+  AUTOMEM_ENDPOINT_NAMES,
   resolveInheritedApiKey,
   writeFileWithBackup,
 } from './host-toolkit.js';
@@ -263,9 +264,14 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
       dryRun: cliOptions.dryRun,
       quiet: cliOptions.quiet,
     });
+    // The provider was just uninstalled, so its dotenv credentials are dead config —
+    // and worse than dead: Hermes loads this file before MCP discovery, so a key left
+    // here for the previous endpoint is inherited by the MCP server whose entry now
+    // names a different one. Removing the endpoint names too, since they belong to the
+    // provider that is going away; a later re-run recovers both from config.yaml.
     removeHermesEnvKeys(
       path.join(paths.home, '.env'),
-      ['AUTOMEM_HERMES_PROVIDER_TOOLS'],
+      ['AUTOMEM_HERMES_PROVIDER_TOOLS', ...AUTOMEM_API_KEY_NAMES, ...AUTOMEM_ENDPOINT_NAMES],
       cliOptions
     );
   }

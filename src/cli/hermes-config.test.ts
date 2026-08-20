@@ -76,9 +76,13 @@ describe('hermes-config', () => {
       });
     });
 
-    it('omits the API key when not provided', () => {
+    it('writes blank credential overrides when no key is provided', () => {
       const entry = buildAutoMemServerEntry('https://api.example.com');
-      expect(entry.env).not.toHaveProperty('AUTOMEM_API_KEY');
+      // Blank, not absent: the host layers this env over its own, so an omitted
+      // key leaves a shell-exported one inherited by the child. A blank shadows it
+      // and reads as absent to the server.
+      expect(entry.env.AUTOMEM_API_KEY).toBe('');
+      expect(entry.env.AUTOMEM_API_TOKEN).toBe('');
     });
   });
 

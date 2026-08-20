@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import {
+  AUTOMEM_API_KEY_NAMES,
   backupPath,
   isAutoMemServerEntry,
   log,
@@ -57,6 +58,15 @@ export function buildGrokAutoMemServerEntry(
   };
   if (apiKey) {
     env.AUTOMEM_API_KEY = apiKey;
+  } else {
+    // Rejection has to be written, not merely omitted. The host launches the server
+    // with the entry's env layered over its own (`{...process.env, ...entry.env}`), so
+    // omitting the key leaves a shell-exported one — issued for whatever endpoint that
+    // shell names — inherited by a child whose URL this entry just pointed somewhere
+    // else. An explicit blank shadows it; readAutoMemApiKeyFromEnv treats blank as
+    // absent, so the server runs unauthenticated instead of authenticating to the
+    // wrong host. Both names, since either one authenticates.
+    for (const name of AUTOMEM_API_KEY_NAMES) env[name] = '';
   }
   return {
     command: 'npx',
