@@ -236,6 +236,25 @@ export function writeFileWithBackup(
   return { status: existed ? 'updated' : 'created' };
 }
 
+/**
+ * The key a `.env` line assigns, or undefined if the line is not an assignment —
+ * recognising the same syntax dotenv does, including an optional `export` prefix.
+ *
+ * The line-based writers must match exactly what the dotenv-based readers accept.
+ * Widening the readers to dotenv without widening this is what let an
+ * `export AUTOMEM_API_KEY=...` line survive a removal request: the reader saw the
+ * stale key and asked for it to go, the remover did not recognise the line, and the
+ * credential stayed live against the new endpoint. Shared by every writer so the two
+ * halves cannot drift apart again.
+ *
+ * `exported` is reported so a rewrite can put the prefix back rather than silently
+ * changing the meaning of the user's file.
+ */
+export function parseEnvAssignment(line: string): { key: string; exported: boolean } | undefined {
+  const match = line.match(/^\s*(export\s+)?([A-Za-z0-9_]+)\s*=/);
+  return match ? { key: match[2], exported: Boolean(match[1]) } : undefined;
+}
+
 // Quote .env values that would otherwise break dotenv parsing — empty strings and
 // anything outside a conservative safe set (so whitespace, #, quotes, and shell
 // metacharacters like $ ; {} stay inert). Shared by the setup and install writers
@@ -254,16 +273,16 @@ export function formatEnvValue(value: string): string {
 // key collides with an Object.prototype member (e.g. `constructor`, `toString`) is
 // preserved verbatim instead of corrupted. Pure (no I/O) so callers own the write.
 export function mergeEnvContent(existing: string, updates: Record<string, string>): string {
-  const lines: Array<{ key?: string; line: string }> = [];
+  const lines: Array<{ key?: string; exported?: boolean; line: string }> = [];
   if (existing) {
     for (const line of existing.split(/\r?\n/)) {
       if (!line.trim()) {
         lines.push({ line });
         continue;
       }
-      const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
-      if (match) {
-        lines.push({ key: match[1], line });
+      const assignment = parseEnvAssignment(line);
+      if (assignment) {
+        lines.push({ key: assignment.key, exported: assignment.exported, line });
       } else {
         lines.push({ line });
       }
@@ -273,7 +292,10 @@ export function mergeEnvContent(existing: string, updates: Record<string, string
   const updatedKeys = new Set<string>();
   for (const entry of lines) {
     if (entry.key && Object.prototype.hasOwnProperty.call(updates, entry.key)) {
-      entry.line = `${entry.key}=${formatEnvValue(updates[entry.key])}`;
+      // The `export ` prefix is put back: dropping it would change what the line means
+      // to a shell sourcing this file.
+      const prefix = entry.exported ? 'export ' : '';
+      entry.line = `${prefix}${entry.key}=${formatEnvValue(updates[entry.key])}`;
       updatedKeys.add(entry.key);
     }
   }
@@ -300,8 +322,8 @@ export function removeEnvContentKeys(existing: string, keys: readonly string[]):
   if (!existing || keys.length === 0) return existing;
   const doomed = new Set(keys);
   const kept = existing.split(/\r?\n/).filter((line) => {
-    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
-    return !match || !doomed.has(match[1]);
+    const assignment = parseEnvAssignment(line);
+    return !assignment || !doomed.has(assignment.key);
   });
   const content = kept.join(os.EOL).replace(/\s+$/, '');
   return content.length ? `${content}${os.EOL}` : '';

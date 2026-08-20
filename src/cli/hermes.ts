@@ -9,6 +9,7 @@ import {
   replaceTemplateVars,
   AUTOMEM_API_KEY_NAMES,
   AUTOMEM_ENDPOINT_NAMES,
+  parseEnvAssignment,
   resolveInheritedApiKey,
   writeFileWithBackup,
 } from './host-toolkit.js';
@@ -93,22 +94,26 @@ function mergeHermesEnvFile(
     return;
   }
 
-  const lines: Array<{ key?: string; line: string }> = [];
+  const lines: Array<{ key?: string; exported?: boolean; line: string }> = [];
   if (fs.existsSync(envPath)) {
     for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
       if (!line.trim()) {
         lines.push({ line });
         continue;
       }
-      const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
-      lines.push(match ? { key: match[1].trim(), line } : { line });
+      const assignment = parseEnvAssignment(line);
+      lines.push(
+        assignment ? { key: assignment.key, exported: assignment.exported, line } : { line }
+      );
     }
   }
 
   const updatedKeys = new Set<string>();
   for (const entry of lines) {
     if (entry.key && Object.prototype.hasOwnProperty.call(filtered, entry.key)) {
-      entry.line = `${entry.key}=${formatEnvValue(filtered[entry.key])}`;
+      // Put the `export ` prefix back rather than silently changing what the line
+      // means to a shell sourcing this file.
+      entry.line = `${entry.exported ? 'export ' : ''}${entry.key}=${formatEnvValue(filtered[entry.key])}`;
       updatedKeys.add(entry.key);
     }
   }
@@ -144,8 +149,8 @@ function removeHermesEnvKeys(
   const keySet = new Set(keys);
   const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
   const filtered = lines.filter((line) => {
-    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
-    return !match || !keySet.has(match[1]);
+    const assignment = parseEnvAssignment(line);
+    return !assignment || !keySet.has(assignment.key);
   });
   if (filtered.join('\n') === lines.join('\n')) return false;
 

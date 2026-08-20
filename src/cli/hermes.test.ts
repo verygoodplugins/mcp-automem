@@ -556,6 +556,27 @@ describe('hermes setup handler', () => {
       expect(written).toContain('AUTOMEM_API_URL=https://same.example.test');
     });
 
+    it('removes an export-prefixed provider key when the endpoint changes', async () => {
+      const envPath = path.join(tmpDir, '.env');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      fs.writeFileSync(
+        envPath,
+        'export AUTOMEM_API_URL=https://host-a.example.test\nexport AUTOMEM_API_KEY=sk-old\nKEEP=1\n'
+      );
+
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        mode: 'provider',
+        endpoint: 'https://host-b.example.test',
+        quiet: true,
+        projectName: 'demo',
+      });
+
+      const written = fs.readFileSync(envPath, 'utf8');
+      expect(written).not.toContain('sk-old');
+      expect(written).toContain('KEEP=1');
+    });
+
     it('removes a legacy provider token when the endpoint changes', async () => {
       const envPath = path.join(tmpDir, '.env');
       fs.mkdirSync(tmpDir, { recursive: true });

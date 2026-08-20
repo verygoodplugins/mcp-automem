@@ -14,6 +14,7 @@ import {
   readJsonFile,
   removeEnvContentKeys,
   replaceTemplateVars,
+  parseEnvAssignment,
   resolveInheritedApiKey,
   writeFileWithBackup,
 } from './host-toolkit.js';
@@ -530,5 +531,44 @@ describe('removeEnvContentKeys', () => {
   it('is a no-op for an empty body or an empty key list', () => {
     expect(removeEnvContentKeys('', ['AUTOMEM_API_KEY'])).toBe('');
     expect(removeEnvContentKeys('KEEP=1', [])).toBe('KEEP=1');
+  });
+});
+
+describe('parseEnvAssignment', () => {
+  // The writers must recognise exactly what the dotenv-based readers accept. Missing
+  // the `export` prefix meant a reader saw a stale key, asked for its removal, and the
+  // remover silently kept the line — leaving the credential live against a new host.
+  it.each([
+    ['plain', 'AUTOMEM_API_KEY=secret', 'AUTOMEM_API_KEY', false],
+    ['export-prefixed', 'export AUTOMEM_API_KEY=secret', 'AUTOMEM_API_KEY', true],
+    ['indented export', '   export  AUTOMEM_API_KEY=secret', 'AUTOMEM_API_KEY', true],
+    ['spaced equals', 'AUTOMEM_API_KEY = secret', 'AUTOMEM_API_KEY', false],
+  ])('reads the key from a %s assignment', (_label, line, key, exported) => {
+    expect(parseEnvAssignment(line)).toEqual({ key, exported });
+  });
+
+  it('returns undefined for comments and blank lines', () => {
+    expect(parseEnvAssignment('# AUTOMEM_API_KEY=secret')).toBeUndefined();
+    expect(parseEnvAssignment('   ')).toBeUndefined();
+    expect(parseEnvAssignment('not an assignment')).toBeUndefined();
+  });
+});
+
+describe('export-prefixed assignments in the writers', () => {
+  it('removeEnvContentKeys drops an export-prefixed credential', () => {
+    const body = 'export AUTOMEM_API_URL=https://old.test\nexport AUTOMEM_API_KEY=sk-old\nKEEP=1\n';
+    const result = removeEnvContentKeys(body, ['AUTOMEM_API_KEY', 'AUTOMEM_API_TOKEN']);
+    expect(result).not.toContain('sk-old');
+    expect(result).toContain('KEEP=1');
+    expect(result).toContain('export AUTOMEM_API_URL=https://old.test');
+  });
+
+  it('mergeEnvContent rewrites an export-prefixed line in place, prefix intact', () => {
+    const body = 'export AUTOMEM_API_URL=https://old.test\n';
+    const result = mergeEnvContent(body, { AUTOMEM_API_URL: 'https://new.test' });
+    expect(result).toContain('export AUTOMEM_API_URL=https://new.test');
+    // Rewritten, not appended — a second assignment would leave the old host named.
+    expect(result).not.toContain('https://old.test');
+    expect(result.match(/AUTOMEM_API_URL=/g)).toHaveLength(1);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
+import { parse as parseDotenvForTest } from 'dotenv';
 import os from 'os';
 import path from 'path';
 import {
@@ -1257,6 +1258,24 @@ describe('writeProjectEnv credential pairing', () => {
     expect(result.previousEndpoint).toBe('https://same.example.test');
     expect(result.removedKeys).toEqual([]);
     expect(fs.readFileSync(envPath, 'utf8')).toContain('sk-keep');
+  });
+
+  // The reader (dotenv) accepts `export KEY=value`; the remover did not. So the key was
+  // correctly identified as stale, removal was requested, and the line survived —
+  // leaving the old credential live against the new endpoint.
+  it('removes an export-prefixed key when the endpoint changes', () => {
+    fs.writeFileSync(
+      envPath,
+      'export AUTOMEM_API_URL=https://old.example.test\nexport AUTOMEM_API_KEY=sk-old\n'
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    // Asserted through the parser that actually loads this file, not against raw text.
+    const effective = parseDotenvForTest(fs.readFileSync(envPath, 'utf8'));
+    expect(effective.AUTOMEM_API_KEY).toBeUndefined();
+    expect(effective.AUTOMEM_API_URL).toBe('https://new.example.test');
   });
 
   it('still removes the key when a quoted endpoint genuinely differs', () => {
