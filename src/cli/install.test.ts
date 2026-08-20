@@ -1240,6 +1240,28 @@ describe('writeProjectEnv credential pairing', () => {
     expect(result.removedKeys).toEqual([]);
   });
 
+  // dotenv applies the LAST assignment, and dotenv is what loads this file at server
+  // startup. Reading the first one reported a stale endpoint, so a key issued for the
+  // effective endpoint looked paired with the earlier line and survived a real change.
+  it('uses the last endpoint assignment when .env has duplicates', () => {
+    fs.writeFileSync(
+      envPath,
+      [
+        'AUTOMEM_API_URL=https://first.example.test',
+        'AUTOMEM_API_URL=https://effective.example.test',
+        'AUTOMEM_API_KEY=sk-effective',
+        '',
+      ].join('\n')
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://first.example.test' });
+
+    const written = fs.readFileSync(envPath, 'utf8');
+    expect(result.previousEndpoint).toBe('https://effective.example.test');
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    expect(written).not.toContain('sk-effective');
+  });
+
   it('compares against the deprecated AUTOMEM_ENDPOINT spelling as well', () => {
     fs.writeFileSync(
       envPath,

@@ -6,7 +6,13 @@ import { fileURLToPath } from 'url';
 import { AutoMemClient } from '../automem-client.js';
 import { buildDefaultProjectTags } from '../memory-policy/shared.js';
 import { buildStartupProfileFromResults } from '../openclaw-startup-profile.js';
-import { readEndpointFrom, resolveInheritedApiKey, sameEndpoint } from './host-toolkit.js';
+import {
+  AUTOMEM_API_KEY_NAMES,
+  readApiKeyFrom,
+  readEndpointFrom,
+  resolveInheritedApiKey,
+  sameEndpoint,
+} from './host-toolkit.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
 export type OpenClawSetupMode = 'plugin' | 'mcp' | 'skill';
@@ -565,29 +571,39 @@ export function buildSkillConfigEntry(params: {
   // reading only the canonical one would call a matching pair unpaired and delete the
   // key out of a working authenticated install.
   const existingEndpoint = readEndpointFrom(existingEnv);
+  // The credential can live in either of two places on disk, and both have to obey the
+  // pairing. Pre-#77 installs wrote it *inside* this env block (`configureEnvVars` set
+  // AUTOMEM_ENDPOINT and AUTOMEM_API_KEY into the same literal); the current shape is a
+  // top-level `apiKey`. Guarding only the top-level field let the env copy ride along:
+  // `...existingEnv` carried the old key forward while both endpoint names beside it
+  // were rewritten to the new host.
   const existingApiKey = sameEndpoint(existingEndpoint, params.endpoint)
-    ? reusableKey(existing.apiKey)
+    ? (reusableKey(existing.apiKey) ?? readApiKeyFrom(existingEnv))
     : undefined;
   const apiKey = params.apiKey?.trim() || existingApiKey;
 
-  const entry: Record<string, unknown> = {
-    ...existing,
-    enabled: true,
-    env: {
-      ...existingEnv,
-      AUTOMEM_API_URL: params.endpoint,
-      // The spread carries a pre-rename AUTOMEM_ENDPOINT forward untouched, which would
-      // leave it naming the *old* host after an endpoint change. Kept in sync when the
-      // entry already uses it, never added when it does not — matching how install.ts
-      // treats the same alias in .env.
-      ...(typeof existingEnv.AUTOMEM_ENDPOINT === 'string'
-        ? { AUTOMEM_ENDPOINT: params.endpoint }
-        : {}),
-      ...(params.defaultTags.length > 0
-        ? { AUTOMEM_DEFAULT_TAGS: params.defaultTags.join(',') }
-        : {}),
-    },
+  const env: Record<string, unknown> = {
+    ...existingEnv,
+    AUTOMEM_API_URL: params.endpoint,
+    // The spread carries a pre-rename AUTOMEM_ENDPOINT forward untouched, which would
+    // leave it naming the *old* host after an endpoint change. Kept in sync when the
+    // entry already uses it, never added when it does not — matching how install.ts
+    // treats the same alias in .env.
+    ...(typeof existingEnv.AUTOMEM_ENDPOINT === 'string'
+      ? { AUTOMEM_ENDPOINT: params.endpoint }
+      : {}),
+    ...(params.defaultTags.length > 0
+      ? { AUTOMEM_DEFAULT_TAGS: params.defaultTags.join(',') }
+      : {}),
   };
+  // Explicit deletes, not omitted spreads: `...existingEnv` and `...existing` already
+  // copied both credential locations forward.
+  for (const name of AUTOMEM_API_KEY_NAMES) {
+    if (apiKey && Object.prototype.hasOwnProperty.call(env, name)) env[name] = apiKey;
+    else delete env[name];
+  }
+
+  const entry: Record<string, unknown> = { ...existing, enabled: true, env };
   if (apiKey) entry.apiKey = apiKey;
   else delete entry.apiKey;
   return entry;

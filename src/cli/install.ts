@@ -967,10 +967,15 @@ function randomToken(): string {
 // is always a fixed literal here, so embedding it in the regex is safe.
 function readEnvFileValue(filePath: string, key: string): string | undefined {
   if (!fs.existsSync(filePath)) return undefined;
-  const line = fs
+  // Last assignment wins, matching dotenv — which is what actually loads this file at
+  // server startup. Taking the first match reported a stale endpoint for a .env with
+  // duplicate assignments, so a key issued for the *effective* endpoint looked paired
+  // with the earlier one and was preserved across a real endpoint change.
+  const matches = fs
     .readFileSync(filePath, 'utf8')
     .split(/\r?\n/)
-    .find((candidate) => new RegExp(`^\\s*${key}\\s*=`).test(candidate));
+    .filter((candidate) => new RegExp(`^\\s*${key}\\s*=`).test(candidate));
+  const line = matches.length ? matches[matches.length - 1] : undefined;
   if (!line) return undefined;
   let value = line.slice(line.indexOf('=') + 1).trim();
   if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
