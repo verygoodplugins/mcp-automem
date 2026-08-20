@@ -284,12 +284,8 @@ describe('hermes setup handler', () => {
     expect(fs.readFileSync(path.join(pluginRoot, 'plugin.yaml'), 'utf8')).toContain(
       'kind: exclusive'
     );
-    expect(fs.readFileSync(path.join(pluginRoot, 'cli.py'), 'utf8')).toContain(
-      'def register_cli'
-    );
-    expect(fs.readFileSync(path.join(pluginRoot, 'cli.py'), 'utf8')).toContain(
-      'doctor'
-    );
+    expect(fs.readFileSync(path.join(pluginRoot, 'cli.py'), 'utf8')).toContain('def register_cli');
+    expect(fs.readFileSync(path.join(pluginRoot, 'cli.py'), 'utf8')).toContain('doctor');
     expect(fs.readFileSync(path.join(pluginRoot, 'automem_policy.py'), 'utf8')).toContain(
       'PREFERENCE_RECALL_LIMIT = 5'
     );
@@ -386,9 +382,9 @@ describe('hermes setup handler', () => {
     expect(fs.readFileSync(path.join(tmpDir, '.env'), 'utf8')).toContain(
       'AUTOMEM_HERMES_PROVIDER_TOOLS=false'
     );
-    expect(fs.readFileSync(path.join(tmpDir, 'plugins', 'automem', '__init__.py'), 'utf8')).toContain(
-      'AUTOMEM_HERMES_PROVIDER_TOOLS'
-    );
+    expect(
+      fs.readFileSync(path.join(tmpDir, 'plugins', 'automem', '__init__.py'), 'utf8')
+    ).toContain('AUTOMEM_HERMES_PROVIDER_TOOLS');
 
     const agents = fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8');
     expect(agents).toContain('Both mode');
@@ -409,7 +405,7 @@ describe('hermes setup handler', () => {
         '<!-- END AUTOMEM CODEX RULES -->',
         '',
         'Keep this unrelated Hermes rule.',
-      ].join('\n'),
+      ].join('\n')
     );
 
     await applyHermesSetup({

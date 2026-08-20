@@ -145,7 +145,8 @@ export async function runQueueCommand(args: string[] = []): Promise<void> {
   });
 
   const remaining: string[] = [];
-  const associations: Array<{ source: string; target: string; type?: string; strength?: number }> = [];
+  const associations: Array<{ source: string; target: string; type?: string; strength?: number }> =
+    [];
   let storedCount = 0;
   let skippedCount = 0;
 
@@ -213,7 +214,9 @@ export async function runQueueCommand(args: string[] = []): Promise<void> {
     for (const relation of associations) {
       if (!relation.source || !relation.target) continue;
       try {
-        const relationType = (relation.type ?? 'RELATES_TO').toString().toUpperCase() as AssociateMemoryArgs['type'];
+        const relationType = (relation.type ?? 'RELATES_TO')
+          .toString()
+          .toUpperCase() as AssociateMemoryArgs['type'];
         await client.associateMemories({
           memory1_id: relation.source,
           memory2_id: relation.target,
@@ -241,5 +244,7 @@ export async function runQueueCommand(args: string[] = []): Promise<void> {
     }
   }
 
-  console.log(`Queue processing complete. Stored: ${storedCount}, skipped: ${skippedCount}, remaining: ${remaining.length}`);
+  console.log(
+    `Queue processing complete. Stored: ${storedCount}, skipped: ${skippedCount}, remaining: ${remaining.length}`
+  );
 }

@@ -126,7 +126,10 @@ function clampPct(pct: number): number {
 export function renderMascot(options: MascotOptions = {}): string {
   const state = options.state ?? 'idle';
   const color = options.color ?? true;
-  const pct = state === 'idle' || state === 'blink' || state === 'sleeping' ? 100 : clampPct(options.pct ?? 100);
+  const pct =
+    state === 'idle' || state === 'blink' || state === 'sleeping'
+      ? 100
+      : clampPct(options.pct ?? 100);
   const fill = Math.round((8 * pct) / 100);
   const shutter = `${rgb(COLORS.gold, '█'.repeat(fill), color)}${rgb(
     COLORS.shutterEmpty,
@@ -158,13 +161,15 @@ function sparklePair(frame: number, color: boolean): [string, string] {
   ];
 }
 
-export function renderInstallerSplash(options: {
-  color?: boolean;
-  mascotState?: MascotState;
-  pct?: number;
-  wordmarkOffset?: number;
-  sparkleFrame?: number;
-} = {}): string {
+export function renderInstallerSplash(
+  options: {
+    color?: boolean;
+    mascotState?: MascotState;
+    pct?: number;
+    wordmarkOffset?: number;
+    sparkleFrame?: number;
+  } = {}
+): string {
   const color = options.color ?? true;
   const mascot = renderMascot({
     pct: options.pct,

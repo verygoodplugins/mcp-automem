@@ -193,9 +193,7 @@ function buildStructuredEnvelope(recallResult: RecallResult): Record<string, unk
   return {
     count: recallResult.count ?? results.length,
     ...(recallResult.mode ? { mode: recallResult.mode } : {}),
-    ...(typeof recallResult.has_more === 'boolean'
-      ? { has_more: recallResult.has_more }
-      : {}),
+    ...(typeof recallResult.has_more === 'boolean' ? { has_more: recallResult.has_more } : {}),
     ...(typeof recallResult.limit === 'number' ? { limit: recallResult.limit } : {}),
     ...(typeof recallResult.offset === 'number' ? { offset: recallResult.offset } : {}),
     ...(typeof recallResult.dedup_removed === 'number'
@@ -226,31 +224,18 @@ function buildStructuredEnvelope(recallResult: RecallResult): Record<string, unk
       : {}),
     ...(recallResult.entities ? { entities: recallResult.entities } : {}),
     ...(recallResult.expansion ? { expansion: recallResult.expansion } : {}),
-    ...(recallResult.entity_expansion
-      ? { entity_expansion: recallResult.entity_expansion }
-      : {}),
-    ...(recallResult.context_priority
-      ? { context_priority: recallResult.context_priority }
-      : {}),
+    ...(recallResult.entity_expansion ? { entity_expansion: recallResult.entity_expansion } : {}),
+    ...(recallResult.context_priority ? { context_priority: recallResult.context_priority } : {}),
     ...(recallResult.state_filter ? { state_filter: recallResult.state_filter } : {}),
   };
 }
 
-function renderTextBlock(
-  item: RecallResultItem,
-  preview: string,
-  index: number
-): string {
+function renderTextBlock(item: RecallResultItem, preview: string, index: number): string {
   const memory = item.memory;
   const tags = memory.tags?.length ? ` [${memory.tags.join(', ')}]` : '';
   const importance =
-    typeof memory.importance === 'number'
-      ? ` (importance: ${memory.importance})`
-      : '';
-  const score =
-    typeof item.final_score === 'number'
-      ? ` score=${item.final_score.toFixed(3)}`
-      : '';
+    typeof memory.importance === 'number' ? ` (importance: ${memory.importance})` : '';
+  const score = typeof item.final_score === 'number' ? ` score=${item.final_score.toFixed(3)}` : '';
   const matchType = item.match_type ? ` [${item.match_type}]` : '';
   const relationNote =
     Array.isArray(item.relations) && item.relations.length
@@ -260,9 +245,7 @@ function renderTextBlock(
     Array.isArray(item.deduped_from) && item.deduped_from.length
       ? ` (deduped x${item.deduped_from.length})`
       : '';
-  const entityNote = item.expanded_from_entity
-    ? ` [via entity: ${item.expanded_from_entity}]`
-    : '';
+  const entityNote = item.expanded_from_entity ? ` [via entity: ${item.expanded_from_entity}]` : '';
   const updatedNote = memory.updated_at ? `  Updated: ${memory.updated_at}` : '';
   return `${index + 1}. ${preview}${tags}${importance}${score}${matchType}${relationNote}${entityNote}${dedupNote}\n   ID: ${
     memory.memory_id
@@ -375,10 +358,7 @@ export async function buildRecallMemoryResponse(
   if ((recallResult.dedup_removed || 0) > 0) {
     notes.push(`${recallResult.dedup_removed} duplicates removed`);
   }
-  if (
-    recallResult.entity_expansion?.enabled &&
-    recallResult.entity_expansion.expanded_count > 0
-  ) {
+  if (recallResult.entity_expansion?.enabled && recallResult.entity_expansion.expanded_count > 0) {
     notes.push(
       `${recallResult.entity_expansion.expanded_count} via entity expansion (${
         recallResult.entity_expansion.entities_found?.join(', ') || 'entities found'

@@ -154,12 +154,19 @@ function readJsonFile(filePath: string): JsonObject {
   }
 }
 
-function writeJsonFileWithBackup(targetPath: string, data: JsonObject, options: OpenClawSetupOptions) {
+function writeJsonFileWithBackup(
+  targetPath: string,
+  data: JsonObject,
+  options: OpenClawSetupOptions
+) {
   const serialized = `${JSON.stringify(data, null, 2)}\n`;
 
   if (options.dryRun) {
     log(`[DRY RUN] Would write ${targetPath}`, options.quiet);
-    log(`[DRY RUN] Redacted preview:\n${JSON.stringify(redactConfigForOutput(data), null, 2)}`, options.quiet);
+    log(
+      `[DRY RUN] Redacted preview:\n${JSON.stringify(redactConfigForOutput(data), null, 2)}`,
+      options.quiet
+    );
     return;
   }
 
@@ -216,7 +223,10 @@ function detectProjectName(): string {
   }
 
   try {
-    const remote = execSync('git remote get-url origin', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+    const remote = execSync('git remote get-url origin', {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
     const match = remote.match(/\/([^/]+?)(\.git)?$/);
     if (match?.[1]) {
       return match[1];
@@ -254,7 +264,9 @@ function looksLikePath(input: string): boolean {
 function resolvePluginSource(input?: string): string {
   const candidate =
     input?.trim() ||
-    (fs.existsSync(BUNDLED_PLUGIN_ROOT) ? BUNDLED_PLUGIN_ROOT : readCurrentPackageName() || DEFAULT_PLUGIN_SOURCE);
+    (fs.existsSync(BUNDLED_PLUGIN_ROOT)
+      ? BUNDLED_PLUGIN_ROOT
+      : readCurrentPackageName() || DEFAULT_PLUGIN_SOURCE);
   return looksLikePath(candidate) ? resolveTildePath(candidate) : candidate;
 }
 
@@ -376,7 +388,8 @@ function readWorkspaceFromConfig(): string | null {
     const config = readJsonFile(configPath);
     const agents = isRecord(config.agents) ? config.agents : undefined;
     const defaults = isRecord(agents?.defaults) ? agents.defaults : undefined;
-    const defaultWorkspace = typeof defaults?.workspace === 'string' ? defaults.workspace : undefined;
+    const defaultWorkspace =
+      typeof defaults?.workspace === 'string' ? defaults.workspace : undefined;
     if (defaultWorkspace) {
       const resolved = resolveTildePath(defaultWorkspace);
       if (fs.existsSync(resolved)) {
@@ -494,9 +507,9 @@ export function buildPluginConfigEntry(params: {
       ...existingConfig,
       endpoint: params.endpoint,
       ...(params.apiKey || existingApiKey ? { apiKey: params.apiKey || existingApiKey } : {}),
-      autoRecall:
-        typeof existingConfig.autoRecall === 'boolean' ? existingConfig.autoRecall : true,
-      ...(typeof existingConfig.autoRecallLimit === 'number' && Number.isFinite(existingConfig.autoRecallLimit)
+      autoRecall: typeof existingConfig.autoRecall === 'boolean' ? existingConfig.autoRecall : true,
+      ...(typeof existingConfig.autoRecallLimit === 'number' &&
+      Number.isFinite(existingConfig.autoRecallLimit)
         ? { autoRecallLimit: existingConfig.autoRecallLimit }
         : {}),
       ...(typeof existingConfig.preferenceRecallLimit === 'number' &&
@@ -534,7 +547,9 @@ export function buildSkillConfigEntry(params: {
   const existing = isRecord(params.existing) ? params.existing : {};
   const existingEnv = isRecord(existing.env) ? existing.env : {};
   const existingApiKey =
-    typeof existing.apiKey === 'string' && existing.apiKey.trim() ? existing.apiKey.trim() : undefined;
+    typeof existing.apiKey === 'string' && existing.apiKey.trim()
+      ? existing.apiKey.trim()
+      : undefined;
 
   return {
     ...existing,
@@ -593,7 +608,9 @@ export function enablePluginsCommand(config: JsonObject): void {
 export function allowPluginWhenAllowlistExists(config: JsonObject, pluginId: string): void {
   const plugins = isRecord(config.plugins) ? { ...config.plugins } : {};
   const allow = Array.isArray(plugins.allow)
-    ? plugins.allow.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    ? plugins.allow.filter(
+        (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+      )
     : [];
 
   if (allow.length === 0 || allow.includes(pluginId)) {
@@ -610,14 +627,21 @@ export function allowPluginWhenAllowlistExists(config: JsonObject, pluginId: str
 export function allowAutoMemTools(config: JsonObject): void {
   const tools = isRecord(config.tools) ? { ...config.tools } : {};
   const allow = Array.isArray(tools.allow)
-    ? tools.allow.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    ? tools.allow.filter(
+        (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+      )
     : [];
   const alsoAllow = Array.isArray(tools.alsoAllow)
-    ? tools.alsoAllow.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    ? tools.alsoAllow.filter(
+        (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+      )
     : [];
   const normalizedAutoMemTools = new Set(OPENCLAW_TOOL_NAMES);
   const legacyAutoMemOnlyAllow =
-    allow.length > 0 && allow.every((entry) => normalizedAutoMemTools.has(entry as (typeof OPENCLAW_TOOL_NAMES)[number]));
+    allow.length > 0 &&
+    allow.every((entry) =>
+      normalizedAutoMemTools.has(entry as (typeof OPENCLAW_TOOL_NAMES)[number])
+    );
 
   if (allow.length > 0 && !legacyAutoMemOnlyAllow) {
     const nextAllow = [...allow];
@@ -669,9 +693,7 @@ export function hasOnboardingArtifacts(workspaceDir: string | null): boolean {
     return false;
   }
 
-  return OPENCLAW_ONBOARDING_ARTIFACTS.some((name) =>
-    fs.existsSync(path.join(workspaceDir, name))
-  );
+  return OPENCLAW_ONBOARDING_ARTIFACTS.some((name) => fs.existsSync(path.join(workspaceDir, name)));
 }
 
 export function isFreshOnboardingTarget(config: JsonObject, workspaceDir: string | null): boolean {
@@ -784,7 +806,10 @@ function archiveSkillOverride(targetPath: string, options: OpenClawSetupOptions)
   return archived;
 }
 
-function archiveLegacySkillOverrides(workspaceDir: string | null, options: OpenClawSetupOptions): string[] {
+function archiveLegacySkillOverrides(
+  workspaceDir: string | null,
+  options: OpenClawSetupOptions
+): string[] {
   const archived: string[] = [];
   const sharedSkillDir = path.join(os.homedir(), '.openclaw', 'skills', OPENCLAW_PLUGIN_ID);
   const workspaceSkillDir = workspaceDir
@@ -843,9 +868,7 @@ export function disableSessionMemoryHook(config: JsonObject) {
   const hooks = isRecord(config.hooks) ? { ...config.hooks } : {};
   const internal = isRecord(hooks.internal) ? { ...hooks.internal } : {};
   const entries = isRecord(internal.entries) ? { ...internal.entries } : {};
-  const sessionMemory = isRecord(entries['session-memory'])
-    ? { ...entries['session-memory'] }
-    : {};
+  const sessionMemory = isRecord(entries['session-memory']) ? { ...entries['session-memory'] } : {};
   sessionMemory.enabled = false;
   entries['session-memory'] = sessionMemory as JsonValue;
   internal.entries = entries as JsonValue;
@@ -887,7 +910,11 @@ function resolveMcporterConfigPath(scope: OpenClawSetupScope, workspaceDir: stri
   return path.join(workspaceDir, 'config', 'mcporter.json');
 }
 
-function updateOpenClawConfig(config: JsonObject, configPath: string, options: OpenClawSetupOptions) {
+function updateOpenClawConfig(
+  config: JsonObject,
+  configPath: string,
+  options: OpenClawSetupOptions
+) {
   writeJsonFileWithBackup(configPath, config, options);
 }
 
@@ -923,7 +950,10 @@ async function applyPluginMode(params: {
       enableSkipBootstrap(params.config);
       startupProfile = await hydrateStartupProfile(client);
       if (startupProfile) {
-        log('Hydrated startup profile from AutoMem for the first OpenClaw turn.', params.options.quiet);
+        log(
+          'Hydrated startup profile from AutoMem for the first OpenClaw turn.',
+          params.options.quiet
+        );
       }
       log(
         `${probe.reason}${probe.memoryCount ? ` (${probe.memoryCount} memory found in probe)` : ''}`,
@@ -1162,9 +1192,15 @@ export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Prom
   log('', cliOptions.quiet);
   log('OpenClaw AutoMem setup complete.', cliOptions.quiet);
   if (cliOptions.mode === 'plugin') {
-    log('Next: restart the OpenClaw gateway so the plugin and bundled skill are reloaded.', cliOptions.quiet);
+    log(
+      'Next: restart the OpenClaw gateway so the plugin and bundled skill are reloaded.',
+      cliOptions.quiet
+    );
   } else if (cliOptions.mode === 'mcp') {
-    log('Next: start a new session so OpenClaw loads the mcporter-backed AutoMem tools.', cliOptions.quiet);
+    log(
+      'Next: start a new session so OpenClaw loads the mcporter-backed AutoMem tools.',
+      cliOptions.quiet
+    );
   } else {
     log('Next: start a new session so OpenClaw loads the legacy curl skill.', cliOptions.quiet);
   }

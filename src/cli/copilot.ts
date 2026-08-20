@@ -73,12 +73,18 @@ const SUPPORT_SCRIPTS = [
 // These are NEVER installed. They are listed only so a re-run of the installer
 // and the uninstaller can delete the orphaned files from existing installs.
 const RETIRED_SUPPORT_SCRIPTS = [
-  'capture-build-result.sh', 'capture-build-result.ps1',
-  'capture-test-pattern.sh', 'capture-test-pattern.ps1',
-  'capture-deployment.sh', 'capture-deployment.ps1',
-  'session-memory.sh', 'session-memory.ps1',
-  'queue-cleanup.sh', 'queue-cleanup.ps1',
-  'python-command.sh', 'python-command.ps1',
+  'capture-build-result.sh',
+  'capture-build-result.ps1',
+  'capture-test-pattern.sh',
+  'capture-test-pattern.ps1',
+  'capture-deployment.sh',
+  'capture-deployment.ps1',
+  'session-memory.sh',
+  'session-memory.ps1',
+  'queue-cleanup.sh',
+  'queue-cleanup.ps1',
+  'python-command.sh',
+  'python-command.ps1',
   'process-session-memory.py',
   'memory-filters.json',
 ];
@@ -91,39 +97,31 @@ const RETIRED_SUPPORT_SCRIPTS = [
 export function getCopilotSupportScriptBaseNames(): string[] {
   return [
     ...new Set(
-      [...SUPPORT_SCRIPTS, ...RETIRED_SUPPORT_SCRIPTS].map(s =>
+      [...SUPPORT_SCRIPTS, ...RETIRED_SUPPORT_SCRIPTS].map((s) =>
         s.replace(/\.(sh|ps1|py|json)$/, '')
       )
     ),
   ];
 }
 
-
-
 // --- Profile Loading (T004) ---
 
 export function loadProfile(name: string): ProfileDefinition {
   if (!VALID_PROFILES.includes(name as ProfileName)) {
-    throw new Error(
-      `Invalid profile '${name}'. Valid profiles: ${VALID_PROFILES.join(', ')}`
-    );
+    throw new Error(`Invalid profile '${name}'. Valid profiles: ${VALID_PROFILES.join(', ')}`);
   }
 
   const profilePath = path.join(TEMPLATE_ROOT, 'profiles', `${name}.json`);
 
   if (!fs.existsSync(profilePath)) {
-    throw new Error(
-      `Profile file not found at ${profilePath} - package may be corrupted`
-    );
+    throw new Error(`Profile file not found at ${profilePath} - package may be corrupted`);
   }
 
   const raw = fs.readFileSync(profilePath, 'utf8');
   const profile: ProfileDefinition = JSON.parse(raw);
 
   if (!Array.isArray(profile.hooks) || profile.hooks.length === 0) {
-    throw new Error(
-      `Profile '${name}' has no hooks defined`
-    );
+    throw new Error(`Profile '${name}' has no hooks defined`);
   }
 
   return profile;
@@ -217,13 +215,8 @@ function removeCliMemoryRules(targetPath: string, options: CopilotSetupOptions):
   return true;
 }
 
-function hookEventName(
-  key: string,
-  format: 'cli' | 'vscode'
-): string {
-  return (key in EVENT_NAMES.cli)
-    ? EVENT_NAMES[format][key as keyof typeof EVENT_NAMES.cli]
-    : key;
+function hookEventName(key: string, format: 'cli' | 'vscode'): string {
+  return key in EVENT_NAMES.cli ? EVENT_NAMES[format][key as keyof typeof EVENT_NAMES.cli] : key;
 }
 
 function hookEventFormat(surface: CopilotHookSurface): 'cli' | 'vscode' {
@@ -234,7 +227,7 @@ function cloneHookEntriesForSurface(
   entries: CopilotHookEntry[],
   surface: CopilotHookSurface
 ): CopilotHookEntry[] {
-  return entries.map(entry => ({
+  return entries.map((entry) => ({
     ...entry,
     env: {
       ...(entry.env ?? {}),
@@ -248,7 +241,10 @@ function cloneHookEntriesForSurface(
  * Templates use CLI camelCase keys; --format vscode remaps to PascalCase, while
  * --format both writes both event spellings with surface-specific output env.
  */
-function remapHookEventNames(hookData: CopilotHookFile, format: CopilotInstallFormat): CopilotHookFile {
+function remapHookEventNames(
+  hookData: CopilotHookFile,
+  format: CopilotInstallFormat
+): CopilotHookFile {
   const remapped: Record<string, CopilotHookEntry[]> = {};
 
   for (const [key, entries] of Object.entries(hookData.hooks)) {
@@ -266,7 +262,11 @@ function remapHookEventNames(hookData: CopilotHookFile, format: CopilotInstallFo
 
 // --- Core Installer Logic (T017-T022) ---
 
-function removeStaleHooks(targetDir: string, profileHooks: string[], options: CopilotSetupOptions): string[] {
+function removeStaleHooks(
+  targetDir: string,
+  profileHooks: string[],
+  options: CopilotSetupOptions
+): string[] {
   const hookTargetDir = path.join(targetDir, 'hooks');
   const removed: string[] = [];
 
@@ -275,8 +275,9 @@ function removeStaleHooks(targetDir: string, profileHooks: string[], options: Co
   }
 
   // Find all automem-*.json files currently installed
-  const existing = fs.readdirSync(hookTargetDir)
-    .filter(f => f.startsWith('automem-') && f.endsWith('.json'));
+  const existing = fs
+    .readdirSync(hookTargetDir)
+    .filter((f) => f.startsWith('automem-') && f.endsWith('.json'));
 
   for (const hookFile of existing) {
     if (!profileHooks.includes(hookFile)) {
@@ -444,7 +445,9 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
   // CLI: <targetDir>/copilot-instructions.md (append AutoMem block using markers)
   if (installCli) {
     const cliTemplatePath = path.resolve(
-      fileURLToPath(new URL('../../templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md', import.meta.url))
+      fileURLToPath(
+        new URL('../../templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md', import.meta.url)
+      )
     );
     if (fs.existsSync(cliTemplatePath)) {
       const templateContent = fs.readFileSync(cliTemplatePath, 'utf8');
@@ -452,7 +455,9 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
       const blockStart = templateContent.indexOf('<memory_rules>');
       const blockEnd = templateContent.indexOf('</memory_rules>');
       if (blockStart === -1 || blockEnd === -1) {
-        console.error('Error: Could not find <memory_rules> markers in template - package may be corrupted');
+        console.error(
+          'Error: Could not find <memory_rules> markers in template - package may be corrupted'
+        );
         return;
       }
       const rulesBlock = templateContent.slice(blockStart, blockEnd + '</memory_rules>'.length);
@@ -466,9 +471,7 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
         return;
       }
 
-      const existing = fs.existsSync(cliTargetPath)
-        ? fs.readFileSync(cliTargetPath, 'utf8')
-        : '';
+      const existing = fs.existsSync(cliTargetPath) ? fs.readFileSync(cliTargetPath, 'utf8') : '';
 
       let updated: string;
       const existingStart = existing.indexOf(startMarker);
@@ -563,7 +566,10 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
   const rulesLabel = format === 'both' ? 'CLI and VS Code' : format === 'cli' ? 'CLI' : 'VS Code';
   if (!options.dryRun) {
     log('', options.quiet);
-    log(`\u2713 Hook JSON files installed for '${profileName}' profile (${profile.hooks.length} hooks)`, options.quiet);
+    log(
+      `\u2713 Hook JSON files installed for '${profileName}' profile (${profile.hooks.length} hooks)`,
+      options.quiet
+    );
     log('\u2713 Support scripts installed for queue processing', options.quiet);
     log(`\u2713 Memory rules installed for ${rulesLabel}`, options.quiet);
     log('', options.quiet);
@@ -575,11 +581,17 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
     log('2. Restart Copilot', options.quiet);
     log('', options.quiet);
     log('Note: Copilot will prompt to approve AutoMem MCP tools on first use', options.quiet);
-    log(`per project. Approvals are saved to ${path.join(targetDir, 'permissions-config.json')}.`, options.quiet);
+    log(
+      `per project. Approvals are saved to ${path.join(targetDir, 'permissions-config.json')}.`,
+      options.quiet
+    );
     log('', options.quiet);
     log('Note: Hook scripts run with -NoProfile on Windows to prevent PowerShell', options.quiet);
     log('profile output from corrupting hook JSON payloads. If a hook script needs', options.quiet);
-    log('custom PATH entries or modules from your profile, move that setup into the', options.quiet);
+    log(
+      'custom PATH entries or modules from your profile, move that setup into the',
+      options.quiet
+    );
     log('script itself or into environment variables.', options.quiet);
   }
 }
@@ -663,14 +675,21 @@ export async function runCopilotSetup(args: string[] = []): Promise<void> {
   const options = parseCopilotArgs(args);
 
   // T027: Validate --format
-  if (options.format !== undefined && options.format !== 'cli' && options.format !== 'vscode' && options.format !== 'both') {
+  if (
+    options.format !== undefined &&
+    options.format !== 'cli' &&
+    options.format !== 'vscode' &&
+    options.format !== 'both'
+  ) {
     console.error(`Error: Invalid format '${options.format}'. Valid options: cli, vscode, both`);
     process.exit(1);
   }
 
   // Validate --profile
   if (options.profile !== undefined && !VALID_PROFILES.includes(options.profile as ProfileName)) {
-    console.error(`Error: Invalid profile '${options.profile}'. Valid profiles: ${VALID_PROFILES.join(', ')}`);
+    console.error(
+      `Error: Invalid profile '${options.profile}'. Valid profiles: ${VALID_PROFILES.join(', ')}`
+    );
     process.exit(1);
   }
 

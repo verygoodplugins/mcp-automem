@@ -10,7 +10,13 @@
 //     API); the create-page is the real, working flow.
 
 import { noteBox } from '../ui/messages.js';
-import { cancelable, promptConfirm, promptPassword, promptSelect, promptText } from '../ui/prompts.js';
+import {
+  cancelable,
+  promptConfirm,
+  promptPassword,
+  promptSelect,
+  promptText,
+} from '../ui/prompts.js';
 import { openInSystemBrowser } from './browser-auth.js';
 import { executeCloudIntent, selectCloudIntent } from './orchestrate.js';
 import {
@@ -56,7 +62,9 @@ export async function promptManualCredentials(): Promise<ProvisionResult> {
   ).trim();
   const apiKey = (
     await cancelable(
-      promptPassword({ message: 'AutoMem API key (leave blank if this endpoint does not require one)' })
+      promptPassword({
+        message: 'AutoMem API key (leave blank if this endpoint does not require one)',
+      })
     )
   ).trim();
   return { endpoint, apiKey: apiKey || undefined };
@@ -233,12 +241,16 @@ export async function ensureRailwayCli(
   try {
     result = params.installCli();
   } catch (err) {
-    params.log(`  ✗ Could not install the Railway CLI (${err instanceof Error ? err.message : String(err)}).`);
+    params.log(
+      `  ✗ Could not install the Railway CLI (${err instanceof Error ? err.message : String(err)}).`
+    );
     return { ok: false, reason: 'install-failed' };
   }
   // Re-check PATH: guard the rare exit-0-but-not-resolvable case.
   if (result.code !== 0 || !params.isCliPresent()) {
-    params.log(`  ✗ Could not install the Railway CLI (${result.stderr.trim() || `exit ${result.code}`}).`);
+    params.log(
+      `  ✗ Could not install the Railway CLI (${result.stderr.trim() || `exit ${result.code}`}).`
+    );
     return { ok: false, reason: 'install-failed' };
   }
   params.log('  ✓ Railway CLI installed.');
@@ -332,7 +344,8 @@ export async function provisionViaRailway(
       (() =>
         cancelable(
           promptConfirm({
-            message: "The Railway CLI isn't installed. Install it now with npm (npm i -g @railway/cli)?",
+            message:
+              "The Railway CLI isn't installed. Install it now with npm (npm i -g @railway/cli)?",
             initialValue: true,
           })
         )),
@@ -345,7 +358,9 @@ export async function provisionViaRailway(
       throw new Error('The Railway CLI is not available and cannot be installed without a TTY.');
     }
     const reason =
-      cli.reason === 'declined' ? 'Skipped installing the Railway CLI.' : 'Could not install the Railway CLI.';
+      cli.reason === 'declined'
+        ? 'Skipped installing the Railway CLI.'
+        : 'Could not install the Railway CLI.';
     return railwayDeployOrPaste({ reason, log, openUrl });
   }
 
@@ -387,7 +402,9 @@ export async function provisionViaRailway(
         throw new Error('Railway deploy not confirmed.');
       }
     };
-    const selectWorkspace = async (workspaces: RailwayWorkspace[]): Promise<RailwayWorkspace | undefined> => {
+    const selectWorkspace = async (
+      workspaces: RailwayWorkspace[]
+    ): Promise<RailwayWorkspace | undefined> => {
       const selectedId = await cancelable(
         promptSelect<string>({
           message: 'Choose the Railway workspace for AutoMem',

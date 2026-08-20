@@ -257,7 +257,7 @@ describe('MCP Protocol Compliance', () => {
     });
 
     it('should have unique tool names', () => {
-      const names = Object.values(TOOL_DEFINITIONS).map(t => t.name);
+      const names = Object.values(TOOL_DEFINITIONS).map((t) => t.name);
       const uniqueNames = new Set(names);
       expect(uniqueNames.size).toBe(names.length);
     });
@@ -313,4 +313,3 @@ describe('Relationship Types', () => {
     });
   });
 });
-

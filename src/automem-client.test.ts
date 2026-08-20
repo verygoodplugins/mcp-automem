@@ -659,9 +659,9 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject exhaustive without tags', async () => {
-      await expect(
-        client.recallMemory({ exhaustive: true } as any)
-      ).rejects.toThrow('non-empty `tags`');
+      await expect(client.recallMemory({ exhaustive: true } as any)).rejects.toThrow(
+        'non-empty `tags`'
+      );
     });
 
     it('should reject exhaustive + tag_match=prefix', async () => {
@@ -779,9 +779,9 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject empty memories array', async () => {
-      await expect(
-        client.storeMemory({ memories: [] } as any)
-      ).rejects.toThrow('at least one item');
+      await expect(client.storeMemory({ memories: [] } as any)).rejects.toThrow(
+        'at least one item'
+      );
     });
 
     it('should reject memories array exceeding 500 items', async () => {
@@ -804,9 +804,9 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject items with empty content', async () => {
-      await expect(
-        client.storeMemory({ memories: [{ content: '   ' }] } as any)
-      ).rejects.toThrow('content is required');
+      await expect(client.storeMemory({ memories: [{ content: '   ' }] } as any)).rejects.toThrow(
+        'content is required'
+      );
     });
 
     it('should reject XOR collision (content + memories)', async () => {
@@ -1062,15 +1062,15 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject when both memory_id and tags are passed', async () => {
-      await expect(
-        client.deleteMemory({ memory_id: 'mem-1', tags: ['x'] } as any)
-      ).rejects.toThrow('not both');
+      await expect(client.deleteMemory({ memory_id: 'mem-1', tags: ['x'] } as any)).rejects.toThrow(
+        'not both'
+      );
     });
 
     it('should reject when tags contains only whitespace entries (treated as no input)', async () => {
-      await expect(
-        client.deleteMemory({ tags: ['', '  '] } as any)
-      ).rejects.toThrow('`memory_id` or `tags` is required');
+      await expect(client.deleteMemory({ tags: ['', '  '] } as any)).rejects.toThrow(
+        '`memory_id` or `tags` is required'
+      );
     });
   });
 
@@ -1181,10 +1181,7 @@ describe('AutoMemClient', () => {
 
       await clientWithSlash.checkHealth();
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8001/health',
-        expect.any(Object)
-      );
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8001/health', expect.any(Object));
     });
   });
 

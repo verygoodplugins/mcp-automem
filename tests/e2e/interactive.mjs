@@ -146,7 +146,11 @@ const SCENARIOS = [
     ],
     // 'other' pastes up front like an existing endpoint — verify, no provision step.
     expect: [/Verify AutoMem endpoint/, /Install review/, /mode\s+cloud/, /Dry run only/],
-    notExpect: [/Set up AutoMem on InstaPods/, /Deploy AutoMem on Railway/, /AutoMem install canceled/],
+    notExpect: [
+      /Set up AutoMem on InstaPods/,
+      /Deploy AutoMem on Railway/,
+      /AutoMem install canceled/,
+    ],
   },
   {
     name: 'cloud-railway',
@@ -210,10 +214,12 @@ async function run(scenario) {
     buf += d;
   });
   let exitCode = null;
-  const exited = new Promise((res) => term.onExit(({ exitCode: c }) => {
-    exitCode = c;
-    res();
-  }));
+  const exited = new Promise((res) =>
+    term.onExit(({ exitCode: c }) => {
+      exitCode = c;
+      res();
+    })
+  );
 
   const waitFor = async (re, timeout = 8000) => {
     const start = Date.now();
@@ -271,7 +277,13 @@ for (const scenario of selected) {
   try {
     result = await run(scenario);
   } catch (err) {
-    result = { name: scenario.name, ok: false, missing: [String(err.message)], unexpected: [], tail: '' };
+    result = {
+      name: scenario.name,
+      ok: false,
+      missing: [String(err.message)],
+      unexpected: [],
+      tail: '',
+    };
   }
   if (result.ok) {
     passed += 1;
@@ -282,8 +294,15 @@ for (const scenario of selected) {
     if (result.timedOut) console.log('   timed out: installer did not exit within 10s');
     if (result.missing.length) console.log(`   missing: ${result.missing.join(' | ')}`);
     if (result.unexpected.length) console.log(`   unexpected: ${result.unexpected.join(' | ')}`);
-    if (result.exitCode != null && result.exitCode !== 0) console.log(`   exit: ${result.exitCode}`);
-    if (result.tail) console.log(`   tail:\n${result.tail.split('\n').map((l) => '     ' + l).join('\n')}`);
+    if (result.exitCode != null && result.exitCode !== 0)
+      console.log(`   exit: ${result.exitCode}`);
+    if (result.tail)
+      console.log(
+        `   tail:\n${result.tail
+          .split('\n')
+          .map((l) => '     ' + l)
+          .join('\n')}`
+      );
   }
 }
 

@@ -11,7 +11,10 @@ import { execFileSync } from 'child_process';
 
 const CLI_PATH = path.resolve(__dirname, '../dist/index.js');
 
-function runCli(args: string[], env?: NodeJS.ProcessEnv): { stdout: string; stderr: string; exitCode: number } {
+function runCli(
+  args: string[],
+  env?: NodeJS.ProcessEnv
+): { stdout: string; stderr: string; exitCode: number } {
   try {
     const stdout = execFileSync(process.execPath, [CLI_PATH, ...args], {
       encoding: 'utf8',
@@ -33,14 +36,16 @@ describe('migrate to/from copilot', () => {
   });
 
   afterEach(() => {
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   // T036: migrate --from none --to copilot delegates to copilot installer
   it('--from none --to copilot installs hooks via dry-run', () => {
-    const result = runCli([
-      'migrate', '--from', 'none', '--to', 'copilot', '--dry-run', '--yes',
-    ]);
+    const result = runCli(['migrate', '--from', 'none', '--to', 'copilot', '--dry-run', '--yes']);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('copilot');
     expect(result.stdout).toContain('dry run');
@@ -49,8 +54,15 @@ describe('migrate to/from copilot', () => {
   // T037: migrate --from manual --to copilot analyzes then installs
   it('--from manual --to copilot analyzes and installs', () => {
     const result = runCli([
-      'migrate', '--from', 'manual', '--to', 'copilot',
-      '--dir', tempDir, '--dry-run', '--yes',
+      'migrate',
+      '--from',
+      'manual',
+      '--to',
+      'copilot',
+      '--dir',
+      tempDir,
+      '--dry-run',
+      '--yes',
     ]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('manual');
@@ -61,10 +73,10 @@ describe('migrate to/from copilot', () => {
     const copilotHome = path.join(tempDir, 'copilot-home');
     fs.mkdirSync(projectDir, { recursive: true });
 
-    const result = runCli([
-      'migrate', '--from', 'manual', '--to', 'copilot',
-      '--dir', projectDir, '--yes', '--quiet',
-    ], { COPILOT_HOME: copilotHome });
+    const result = runCli(
+      ['migrate', '--from', 'manual', '--to', 'copilot', '--dir', projectDir, '--yes', '--quiet'],
+      { COPILOT_HOME: copilotHome }
+    );
 
     expect(result.exitCode).toBe(0);
     expect(fs.existsSync(path.join(copilotHome, 'hooks', 'automem-session-start.json'))).toBe(true);
@@ -74,7 +86,13 @@ describe('migrate to/from copilot', () => {
   // T038: migrate --from copilot --to claude-code analyzes copilot hooks
   it('--from copilot --to claude-code analyzes copilot hooks', () => {
     const result = runCli([
-      'migrate', '--from', 'copilot', '--to', 'claude-code', '--dry-run', '--yes',
+      'migrate',
+      '--from',
+      'copilot',
+      '--to',
+      'claude-code',
+      '--dry-run',
+      '--yes',
     ]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Copilot');
@@ -87,9 +105,10 @@ describe('migrate to/from copilot', () => {
     fs.writeFileSync(path.join(hooksDir, 'automem-session-start.json'), '{}');
     fs.writeFileSync(path.join(hooksDir, 'automem-track-store.json'), '{}');
 
-    const result = runCli([
-      'migrate', '--from', 'copilot', '--to', 'copilot', '--dry-run', '--yes',
-    ], { COPILOT_HOME: copilotHome });
+    const result = runCli(
+      ['migrate', '--from', 'copilot', '--to', 'copilot', '--dry-run', '--yes'],
+      { COPILOT_HOME: copilotHome }
+    );
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Found 2 AutoMem hook file(s)');
@@ -98,9 +117,7 @@ describe('migrate to/from copilot', () => {
 
   // T039: --to copilot --dry-run shows planned changes
   it('--to copilot --dry-run shows planned changes without modifying files', () => {
-    const result = runCli([
-      'migrate', '--from', 'none', '--to', 'copilot', '--dry-run', '--yes',
-    ]);
+    const result = runCli(['migrate', '--from', 'none', '--to', 'copilot', '--dry-run', '--yes']);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('dry run');
   });
@@ -118,7 +135,13 @@ describe('migrate to/from copilot', () => {
 
   it('accepts copilot as --from value', () => {
     const result = runCli([
-      'migrate', '--from', 'copilot', '--to', 'copilot', '--dry-run', '--yes',
+      'migrate',
+      '--from',
+      'copilot',
+      '--to',
+      'copilot',
+      '--dry-run',
+      '--yes',
     ]);
     expect(result.exitCode).toBe(0);
   });

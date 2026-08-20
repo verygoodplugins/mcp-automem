@@ -279,7 +279,9 @@ function assertClaudeAvailable(claudeBin) {
   try {
     execFileSync(claudeBin, ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (error) {
-    throw new Error(`Could not execute ${claudeBin}. Install Claude Code or pass --claude-bin. ${error}`);
+    throw new Error(
+      `Could not execute ${claudeBin}. Install Claude Code or pass --claude-bin. ${error}`
+    );
   }
 }
 
@@ -304,7 +306,9 @@ function printTextReport(results, rootDir, keepTemp) {
     }
   }
   console.log('');
-  console.log('Interpretation: hidden Stop additionalContext should not put the marker in assistant text or non-hook stream records. The plain-stdout control should appear in raw stdout or hook event records, proving hook output capture is active.');
+  console.log(
+    'Interpretation: hidden Stop additionalContext should not put the marker in assistant text or non-hook stream records. The plain-stdout control should appear in raw stdout or hook event records, proving hook output capture is active.'
+  );
 }
 
 function main() {

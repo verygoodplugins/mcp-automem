@@ -9,7 +9,12 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { applyCopilotSetup, COPILOT_USAGE, EVENT_NAMES, runCopilotSetup } from '../src/cli/copilot.js';
+import {
+  applyCopilotSetup,
+  COPILOT_USAGE,
+  EVENT_NAMES,
+  runCopilotSetup,
+} from '../src/cli/copilot.js';
 import type { CopilotHookFile } from '../src/cli/copilot.js';
 
 function createTempDir(): string {
@@ -90,16 +95,9 @@ describe('installMemoryRules (format gating)', () => {
 
     const content = fs.readFileSync(path.join(tempDir, 'copilot-instructions.md'), 'utf8');
 
-    for (const tool of [
-      'recall_memory',
-      'store_memory',
-      'associate_memories',
-      'update_memory',
-    ]) {
+    for (const tool of ['recall_memory', 'store_memory', 'associate_memories', 'update_memory']) {
       expect(content).toContain(`automem-${tool}({`);
-      expect(content).not.toMatch(
-        new RegExp(`(?<!automem-)\\b${tool}\\(`)
-      );
+      expect(content).not.toMatch(new RegExp(`(?<!automem-)\\b${tool}\\(`));
     }
   });
 
@@ -162,7 +160,11 @@ describe('installMemoryRules (format gating)', () => {
   it('removes only the managed CLI block when re-run for VS Code only', async () => {
     await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
     const cliPath = path.join(tempDir, 'copilot-instructions.md');
-    fs.writeFileSync(cliPath, `# My custom instructions\n\n${fs.readFileSync(cliPath, 'utf8')}`, 'utf8');
+    fs.writeFileSync(
+      cliPath,
+      `# My custom instructions\n\n${fs.readFileSync(cliPath, 'utf8')}`,
+      'utf8'
+    );
 
     await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
 
@@ -245,7 +247,13 @@ describe('installHookFiles (event name remapping)', () => {
   });
 
   it('--format vscode remaps the agentStop nudge to Stop', async () => {
-    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', profile: 'full', yes: true, quiet: true });
+    await applyCopilotSetup({
+      targetDir: tempDir,
+      format: 'vscode',
+      profile: 'full',
+      yes: true,
+      quiet: true,
+    });
 
     const hookPath = path.join(tempDir, 'hooks', 'automem-stop-nudge.json');
     expect(fs.existsSync(hookPath)).toBe(true);
@@ -286,13 +294,11 @@ describe('installHookFiles (event name remapping)', () => {
     });
 
     const hooksDir = path.join(tempDir, 'hooks');
-    const hookFiles = fs.readdirSync(hooksDir).filter(f => f.endsWith('.json'));
+    const hookFiles = fs.readdirSync(hooksDir).filter((f) => f.endsWith('.json'));
     expect(hookFiles.length).toBeGreaterThan(0);
 
     for (const file of hookFiles) {
-      const data: CopilotHookFile = JSON.parse(
-        fs.readFileSync(path.join(hooksDir, file), 'utf8')
-      );
+      const data: CopilotHookFile = JSON.parse(fs.readFileSync(path.join(hooksDir, file), 'utf8'));
       expect(data.version).toBe(1);
       expect(typeof data.hooks).toBe('object');
     }
@@ -368,9 +374,9 @@ describe('dry-run mode', () => {
     await applyCopilotSetup({ targetDir: tempDir, dryRun: true, yes: true, quiet: true });
 
     expect(fs.existsSync(path.join(tempDir, 'copilot-instructions.md'))).toBe(false);
-    expect(
-      fs.existsSync(path.join(tempDir, 'instructions', 'automem.instructions.md'))
-    ).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, 'instructions', 'automem.instructions.md'))).toBe(
+      false
+    );
   });
 });
 
@@ -394,18 +400,15 @@ describe('support scripts installation', () => {
     const scripts = fs.readdirSync(scriptsDir);
     // Should have at least bash + PowerShell pairs
     expect(scripts.length).toBeGreaterThan(0);
-    expect(scripts.some(s => s.endsWith('.sh'))).toBe(true);
-    expect(scripts.some(s => s.endsWith('.ps1'))).toBe(true);
+    expect(scripts.some((s) => s.endsWith('.sh'))).toBe(true);
+    expect(scripts.some((s) => s.endsWith('.ps1'))).toBe(true);
   });
 
   it('default profile installs only lean hook files', async () => {
     await applyCopilotSetup({ targetDir: tempDir, yes: true, quiet: true });
 
     const hookFiles = fs.readdirSync(path.join(tempDir, 'hooks')).sort();
-    expect(hookFiles).toEqual([
-      'automem-session-start.json',
-      'automem-track-store.json',
-    ]);
+    expect(hookFiles).toEqual(['automem-session-start.json', 'automem-track-store.json']);
   });
 });
 
@@ -487,7 +490,10 @@ describe('stop-nudge hook schema', () => {
 
 describe('session-start hook schema', () => {
   it('automem-session-start.json uses type command with bash and powershell', () => {
-    const hookPath = path.resolve(__dirname, '../templates/copilot/hooks/automem-session-start.json');
+    const hookPath = path.resolve(
+      __dirname,
+      '../templates/copilot/hooks/automem-session-start.json'
+    );
     const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
 
     expect(data.version).toBe(1);
@@ -500,7 +506,10 @@ describe('session-start hook schema', () => {
   });
 
   it('does NOT use type prompt', () => {
-    const hookPath = path.resolve(__dirname, '../templates/copilot/hooks/automem-session-start.json');
+    const hookPath = path.resolve(
+      __dirname,
+      '../templates/copilot/hooks/automem-session-start.json'
+    );
     const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
     const entries = data.hooks.sessionStart;
     for (const entry of entries) {
@@ -517,14 +526,21 @@ describe('session-start bash script', () => {
     // Try Git Bash style first (/c/...), fall back to WSL (/mnt/c/...)
     const gitBash = forward.replace(/^([A-Za-z]):/, (_m, drive) => `/${drive.toLowerCase()}`);
     try {
-      const check = spawnSync('bash', ['-c', `test -f "${gitBash}" && echo ok`], { encoding: 'utf8', timeout: 2000 });
+      const check = spawnSync('bash', ['-c', `test -f "${gitBash}" && echo ok`], {
+        encoding: 'utf8',
+        timeout: 2000,
+      });
       if (check.stdout?.trim() === 'ok') return gitBash;
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
     return forward.replace(/^([A-Za-z]):/, (_m, drive) => `/mnt/${drive.toLowerCase()}`);
   }
 
   it('outputs valid JSON with additionalContext', () => {
-    const scriptPath = toUnixPath(path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh'));
+    const scriptPath = toUnixPath(
+      path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh')
+    );
     const result = spawnSync('bash', [scriptPath], {
       encoding: 'utf8',
       timeout: 5000,
@@ -538,7 +554,9 @@ describe('session-start bash script', () => {
   });
 
   it('includes three-phase recall prompt', () => {
-    const scriptPath = toUnixPath(path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh'));
+    const scriptPath = toUnixPath(
+      path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh')
+    );
     const result = spawnSync('bash', [scriptPath], {
       encoding: 'utf8',
       timeout: 5000,
@@ -556,7 +574,9 @@ describe('session-start bash script', () => {
 
   it('substitutes project slug from cwd', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'my-test-project-'));
-    const scriptPath = toUnixPath(path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh'));
+    const scriptPath = toUnixPath(
+      path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh')
+    );
     const result = spawnSync('bash', [scriptPath], {
       encoding: 'utf8',
       timeout: 5000,
@@ -567,7 +587,11 @@ describe('session-start bash script', () => {
     const projectName = path.basename(tmpDir);
     expect(parsed.additionalContext).toContain(projectName);
 
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   });
 });
 

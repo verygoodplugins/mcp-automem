@@ -28,12 +28,7 @@ export const COPILOT_LEAN_PROFILE_HOOKS = [
 ] as const;
 
 export const COPILOT_PAYLOAD_FIELD_MAPPINGS = {
-  command: [
-    'toolArgs.command',
-    'toolInput.command',
-    'tool_args.command',
-    'tool_input.command',
-  ],
+  command: ['toolArgs.command', 'toolInput.command', 'tool_args.command', 'tool_input.command'],
   output: [
     'toolResult.textResultForLlm',
     'toolResult.output',

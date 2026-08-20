@@ -68,9 +68,9 @@ describe('resolveAutoMemApiUrl', () => {
 
 describe('readAutoMemApiKeyFromEnv', () => {
   it('prefers AUTOMEM_API_KEY, then AUTOMEM_API_TOKEN', () => {
-    expect(
-      readAutoMemApiKeyFromEnv({ AUTOMEM_API_KEY: 'key', AUTOMEM_API_TOKEN: 'token' })
-    ).toBe('key');
+    expect(readAutoMemApiKeyFromEnv({ AUTOMEM_API_KEY: 'key', AUTOMEM_API_TOKEN: 'token' })).toBe(
+      'key'
+    );
     expect(readAutoMemApiKeyFromEnv({ AUTOMEM_API_TOKEN: 'token' })).toBe('token');
   });
 

@@ -27,4 +27,3 @@ jobs:
             perf
             revert
           requireScope: false
-

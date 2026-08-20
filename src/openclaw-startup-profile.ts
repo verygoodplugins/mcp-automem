@@ -16,9 +16,10 @@ function compactText(value: string, maxLength: number): string {
 
 export function formatOpenClawRecallContext(result: OpenClawRecallLikeResult): string {
   const content = compactText(String(result.memory?.content || ''), 220);
-  const tags = Array.isArray(result.memory?.tags) && result.memory.tags.length > 0
-    ? ` [tags: ${result.memory.tags.slice(0, 4).join(', ')}]`
-    : '';
+  const tags =
+    Array.isArray(result.memory?.tags) && result.memory.tags.length > 0
+      ? ` [tags: ${result.memory.tags.slice(0, 4).join(', ')}]`
+      : '';
   const type = result.memory?.type ? `[${result.memory.type}] ` : '';
   return `- ${type}${content}${tags}`;
 }
@@ -26,7 +27,8 @@ export function formatOpenClawRecallContext(result: OpenClawRecallLikeResult): s
 export function dedupeOpenClawRecallResults<T extends OpenClawRecallLikeResult>(results: T[]): T[] {
   const seen = new Set<string>();
   return results.filter((entry) => {
-    const key = entry.id || entry.memory?.memory_id || entry.memory?.id || JSON.stringify(entry.memory || {});
+    const key =
+      entry.id || entry.memory?.memory_id || entry.memory?.id || JSON.stringify(entry.memory || {});
     if (!key || seen.has(key)) {
       return false;
     }
@@ -42,7 +44,9 @@ export function looksLikeOpenClawProfileCue(result: OpenClawRecallLikeResult): b
     : [];
   const type = String(result.memory?.type || '').toLowerCase();
   const haystack = [content, type, ...tags].join(' ');
-  return /(name|preferred|timezone|profile|identity|style|pronoun|call me|i am|user|tone|personality|voice)/.test(haystack);
+  return /(name|preferred|timezone|profile|identity|style|pronoun|call me|i am|user|tone|personality|voice)/.test(
+    haystack
+  );
 }
 
 export function buildStartupProfileFromResults(
@@ -51,14 +55,15 @@ export function buildStartupProfileFromResults(
 ): string | undefined {
   const uniqueResults = dedupeOpenClawRecallResults(results);
   const preferred = uniqueResults.filter((entry) => looksLikeOpenClawProfileCue(entry));
-  const selected = (preferred.length > 0 ? preferred : uniqueResults).slice(0, options?.maxEntries ?? 4);
+  const selected = (preferred.length > 0 ? preferred : uniqueResults).slice(
+    0,
+    options?.maxEntries ?? 4
+  );
   if (selected.length === 0) {
     return undefined;
   }
 
-  return selected
-    .map((entry) => formatOpenClawRecallContext(entry))
-    .join('\n');
+  return selected.map((entry) => formatOpenClawRecallContext(entry)).join('\n');
 }
 
 export function buildOpenClawStartupContext(params: {
@@ -68,11 +73,12 @@ export function buildOpenClawStartupContext(params: {
   const profileSection = params.startupProfile?.trim()
     ? `Cached startup profile:\n${params.startupProfile.trim()}`
     : '';
-  const resultSection = params.startupResults.length > 0
-    ? `Recovered startup context:\n${params.startupResults
-        .map((entry) => formatOpenClawRecallContext(entry))
-        .join('\n')}`
-    : '';
+  const resultSection =
+    params.startupResults.length > 0
+      ? `Recovered startup context:\n${params.startupResults
+          .map((entry) => formatOpenClawRecallContext(entry))
+          .join('\n')}`
+      : '';
   const hasProfileCue =
     Boolean(params.startupProfile?.trim()) ||
     params.startupResults.some((entry) => looksLikeOpenClawProfileCue(entry));

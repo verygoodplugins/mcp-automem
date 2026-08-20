@@ -82,7 +82,7 @@ function cleanup() {
     } catch (err) {
       console.error(
         `✗ FAILED to restore ~/.hermes/.env (${err.message}).\n` +
-          `  Recover manually:  mv "${ENV_BACKUP}" "${HERMES_ENV}"`,
+          `  Recover manually:  mv "${ENV_BACKUP}" "${HERMES_ENV}"`
       );
     }
     envSwapped = false;
@@ -137,14 +137,14 @@ async function ensureStackUp() {
   need(
     existsSync(compose),
     `Demo stack is not running and the automem repo was not found at ${AUTOMEM_REPO}.\n` +
-      '  Set AUTOMEM_REPO=/path/to/automem, or start the stack manually first.',
+      '  Set AUTOMEM_REPO=/path/to/automem, or start the stack manually first.'
   );
   console.log('Bringing up the isolated demo stack…');
   weStartedStack = true;
   execSync(
     `docker compose -p ${PROJECT} -f "${compose}" -f "${OVERRIDE}" ` +
       `--project-directory "${AUTOMEM_REPO}" up -d`,
-    { stdio: 'inherit' },
+    { stdio: 'inherit' }
   );
   for (let i = 0; i < 60; i += 1) {
     try {
@@ -175,15 +175,13 @@ async function assertCleanCount() {
   need(
     h.memory_count === EXPECTED_COUNT,
     `Cleanliness gate: health.memory_count=${h.memory_count}, expected ${EXPECTED_COUNT}. ` +
-      'The stack is not isolated/clean — refusing to capture.',
+      'The stack is not isolated/clean — refusing to capture.'
   );
-  const byTag = await fetchDemo(
-    `/memory/by-tag?tags=${encodeURIComponent(DEMO_TAG)}&limit=200`,
-  );
+  const byTag = await fetchDemo(`/memory/by-tag?tags=${encodeURIComponent(DEMO_TAG)}&limit=200`);
   const list = byTag.memories || byTag.results || [];
   need(
     list.length === EXPECTED_COUNT,
-    `Cleanliness gate: by-tag count=${list.length}, expected ${EXPECTED_COUNT}.`,
+    `Cleanliness gate: by-tag count=${list.length}, expected ${EXPECTED_COUNT}.`
   );
   console.log(`✓ clean dataset: ${EXPECTED_COUNT} memories (health == by-tag)`);
 }
@@ -193,7 +191,7 @@ function swapEnv() {
     !existsSync(ENV_BACKUP),
     `Stale env backup at ${ENV_BACKUP} — a previous run crashed mid-swap.\n` +
       `  Restore it FIRST:  mv "${ENV_BACKUP}" "${HERMES_ENV}"\n` +
-      '  then re-run this script.',
+      '  then re-run this script.'
   );
   need(existsSync(HERMES_ENV), `Hermes env not found at ${HERMES_ENV}; is Hermes installed?`);
 
@@ -214,7 +212,7 @@ function swapEnv() {
   });
   need(
     status.includes('127.0.0.1:8051'),
-    `Env swap did not take — hermes status does not show the demo endpoint:\n${status}`,
+    `Env swap did not take — hermes status does not show the demo endpoint:\n${status}`
   );
   console.log('✓ ~/.hermes/.env swapped to the demo endpoint (will be restored on exit)');
 }
@@ -242,7 +240,7 @@ function assertOnlyDemoContent(block, label) {
     const ok = known.some((k) => k.includes(content) || content.includes(k));
     need(
       ok,
-      `Privacy gate FAILED (${label}): a block bullet is not in the demo dataset:\n  "${bullet}"`,
+      `Privacy gate FAILED (${label}): a block bullet is not in the demo dataset:\n  "${bullet}"`
     );
   }
   return bullets.length;
@@ -253,7 +251,7 @@ function assertNoPersonalMarkers(text, label) {
   for (const marker of PERSONAL_MARKERS) {
     need(
       !hay.includes(marker),
-      `Privacy gate FAILED (${label}): personal-corpus marker "${marker}" present in output.`,
+      `Privacy gate FAILED (${label}): personal-corpus marker "${marker}" present in output.`
     );
   }
 }
@@ -292,21 +290,22 @@ async function main() {
 
   // ── Capture A: injected <memory-context> block (free, deterministic) ──
   console.log('\n── Capture A: injected memory-context block ──');
-  const sidecarA = execFileSync(
-    HERMES_BIN,
-    ['automem', 'debug-recall', DEBUG_RECALL_PROMPT],
-    { cwd: WORKDIR, encoding: 'utf8' },
-  );
+  const sidecarA = execFileSync(HERMES_BIN, ['automem', 'debug-recall', DEBUG_RECALL_PROMPT], {
+    cwd: WORKDIR,
+    encoding: 'utf8',
+  });
   need(sidecarA.includes('<memory-context>'), 'Capture A: no <memory-context> fence in output');
   need(sidecarA.includes('Preferences:'), 'Capture A: Preferences section missing');
   need(
     sidecarA.includes(PROVABLE_FACT.token),
-    `Capture A: seeded fact "${PROVABLE_FACT.token}" missing from the block`,
+    `Capture A: seeded fact "${PROVABLE_FACT.token}" missing from the block`
   );
   assertNoPersonalMarkers(sidecarA, 'Capture A');
   const bullets = assertOnlyDemoContent(sidecarA, 'Capture A');
   writeFileSync(join(BUILD_DIR, 'injected-context.txt'), sidecarA);
-  console.log(`✓ Capture A sidecar verified (${bullets} demo bullets, fact ${PROVABLE_FACT.token} present)`);
+  console.log(
+    `✓ Capture A sidecar verified (${bullets} demo bullets, fact ${PROVABLE_FACT.token} present)`
+  );
 
   const pngOut = join(SCREENSHOTS, 'hermes-injected-context.png');
   runVhs('hermes-injected-context.tape', {
@@ -328,7 +327,7 @@ async function main() {
     sidecarB.includes(PROVABLE_FACT.token),
     `Capture B: live answer does not cite the seeded fact "${PROVABLE_FACT.token}" — ` +
       'recall did not fire (or the model bluffed). Refusing to ship an unfalsifiable demo.\n' +
-      `  answer was: ${sidecarB.trim().slice(0, 200)}`,
+      `  answer was: ${sidecarB.trim().slice(0, 200)}`
   );
   assertNoPersonalMarkers(sidecarB, 'Capture B');
   writeFileSync(join(BUILD_DIR, 'live-session.txt'), sidecarB);

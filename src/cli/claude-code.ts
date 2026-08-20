@@ -314,9 +314,7 @@ export function canonicalizeLegacyHookCommands(
         return hook;
       }
       const managedKey = managedHookScriptKey(normalized, options);
-      const templateCommand = managedKey
-        ? templateCommandByManagedKey.get(managedKey)
-        : undefined;
+      const templateCommand = managedKey ? templateCommandByManagedKey.get(managedKey) : undefined;
       if (!templateCommand || templateCommand === hook.command) {
         return hook;
       }
@@ -590,11 +588,7 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   const targetPath = path.join(targetDir, 'settings.json');
 
   if (!fs.existsSync(targetPath)) {
-    writeFileWithBackup(
-      targetPath,
-      `${JSON.stringify(templateSettings, null, 2)}\n`,
-      options
-    );
+    writeFileWithBackup(targetPath, `${JSON.stringify(templateSettings, null, 2)}\n`, options);
     log('installed settings.json', options.quiet);
     return;
   }
@@ -620,10 +614,7 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
 
   writeFileWithBackup(targetPath, output, options);
   if (raw.includes('session-memory.sh') && !output.includes('session-memory.sh')) {
-    log(
-      'migrated: removed retired session-memory.sh Stop hook (backup created)',
-      options.quiet
-    );
+    log('migrated: removed retired session-memory.sh Stop hook (backup created)', options.quiet);
   }
   const retiredCaptureScripts = [
     'capture-build-result.sh',
@@ -702,7 +693,7 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
   };
 
   const targetDir = options.targetDir ?? path.join(os.homedir(), '.claude');
-  
+
   log(`Configuring Claude Code in ${targetDir}`, options.quiet);
 
   if (!options.dryRun) {
@@ -729,7 +720,10 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
   log('', options.quiet);
   log('Next steps:', options.quiet);
   log('1. Add MCP server to ~/.claude.json (see INSTALLATION.md)', options.quiet);
-  log('2. Add memory rules: cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md', options.quiet);
+  log(
+    '2. Add memory rules: cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md',
+    options.quiet
+  );
   log('3. Restart Claude Code', options.quiet);
   log('', options.quiet);
   log(
