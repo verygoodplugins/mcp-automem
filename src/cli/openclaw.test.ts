@@ -637,6 +637,49 @@ describe('openclaw stored-key pairing in config builders', () => {
     expect(JSON.stringify(entry)).not.toContain('sk-host-a');
   });
 
+  // An entry written before the AUTOMEM_ENDPOINT -> AUTOMEM_API_URL rename still names
+  // its endpoint. Reading only the canonical name called a matching pair unpaired and
+  // deleted the key out of a working authenticated install.
+  it('keeps a skill key paired via the deprecated AUTOMEM_ENDPOINT alias', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-legacy', env: { AUTOMEM_ENDPOINT: 'https://same.test' } },
+      endpoint: 'https://same.test',
+      defaultTags: [],
+    });
+    expect(entry.apiKey).toBe('sk-legacy');
+  });
+
+  it('still drops a legacy-aliased key when the endpoint actually changed', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-host-a', env: { AUTOMEM_ENDPOINT: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    expect(entry.apiKey).toBeUndefined();
+  });
+
+  // The spread carried a pre-rename alias forward untouched, leaving it naming the old
+  // host after an endpoint change.
+  it('keeps a pre-existing AUTOMEM_ENDPOINT in sync with the new endpoint', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { env: { AUTOMEM_ENDPOINT: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    const env = entry.env as Record<string, unknown>;
+    expect(env.AUTOMEM_API_URL).toBe('https://host-b.test');
+    expect(env.AUTOMEM_ENDPOINT).toBe('https://host-b.test');
+  });
+
+  it('does not add the deprecated alias to an entry that does not use it', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { env: { AUTOMEM_API_URL: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    expect(entry.env as Record<string, unknown>).not.toHaveProperty('AUTOMEM_ENDPOINT');
+  });
+
   it('keeps a skill key stored for the same endpoint', () => {
     const entry = buildSkillConfigEntry({
       existing: { apiKey: 'sk-same', env: { AUTOMEM_API_URL: 'https://same.test' } },

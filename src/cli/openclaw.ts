@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { AutoMemClient } from '../automem-client.js';
 import { buildDefaultProjectTags } from '../memory-policy/shared.js';
 import { buildStartupProfileFromResults } from '../openclaw-startup-profile.js';
-import { resolveInheritedApiKey, sameEndpoint } from './host-toolkit.js';
+import { readEndpointFrom, resolveInheritedApiKey, sameEndpoint } from './host-toolkit.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
 export type OpenClawSetupMode = 'plugin' | 'mcp' | 'skill';
@@ -560,11 +560,12 @@ export function buildSkillConfigEntry(params: {
   const existing = isRecord(params.existing) ? params.existing : {};
   const existingEnv = isRecord(existing.env) ? existing.env : {};
   // Same pairing rule as the plugin entry; here the previously written endpoint lives
-  // in the entry's own env block.
-  const existingApiKey = sameEndpoint(
-    typeof existingEnv.AUTOMEM_API_URL === 'string' ? existingEnv.AUTOMEM_API_URL : undefined,
-    params.endpoint
-  )
+  // in the entry's own env block. Read under both supported names — an entry written
+  // before the AUTOMEM_ENDPOINT → AUTOMEM_API_URL rename still names its endpoint, and
+  // reading only the canonical one would call a matching pair unpaired and delete the
+  // key out of a working authenticated install.
+  const existingEndpoint = readEndpointFrom(existingEnv);
+  const existingApiKey = sameEndpoint(existingEndpoint, params.endpoint)
     ? reusableKey(existing.apiKey)
     : undefined;
   const apiKey = params.apiKey?.trim() || existingApiKey;
@@ -575,6 +576,13 @@ export function buildSkillConfigEntry(params: {
     env: {
       ...existingEnv,
       AUTOMEM_API_URL: params.endpoint,
+      // The spread carries a pre-rename AUTOMEM_ENDPOINT forward untouched, which would
+      // leave it naming the *old* host after an endpoint change. Kept in sync when the
+      // entry already uses it, never added when it does not — matching how install.ts
+      // treats the same alias in .env.
+      ...(typeof existingEnv.AUTOMEM_ENDPOINT === 'string'
+        ? { AUTOMEM_ENDPOINT: params.endpoint }
+        : {}),
       ...(params.defaultTags.length > 0
         ? { AUTOMEM_DEFAULT_TAGS: params.defaultTags.join(',') }
         : {}),
