@@ -2,7 +2,14 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
-import { backupPath, log } from './host-toolkit.js';
+import {
+  AUTOMEM_API_KEY_NAMES,
+  backupPath,
+  isAutoMemServerEntry,
+  log,
+  readApiKeyFrom,
+  readEndpointFrom,
+} from './host-toolkit.js';
 
 export const GROK_MCP_SERVER_NAME = 'memory';
 
@@ -51,6 +58,15 @@ export function buildGrokAutoMemServerEntry(
   };
   if (apiKey) {
     env.AUTOMEM_API_KEY = apiKey;
+  } else {
+    // Rejection has to be written, not merely omitted. The host launches the server
+    // with the entry's env layered over its own (`{...process.env, ...entry.env}`), so
+    // omitting the key leaves a shell-exported one — issued for whatever endpoint that
+    // shell names — inherited by a child whose URL this entry just pointed somewhere
+    // else. An explicit blank shadows it; readAutoMemApiKeyFromEnv treats blank as
+    // absent, so the server runs unauthenticated instead of authenticating to the
+    // wrong host. Both names, since either one authenticates.
+    for (const name of AUTOMEM_API_KEY_NAMES) env[name] = '';
   }
   return {
     command: 'npx',
@@ -101,19 +117,14 @@ function restrictToOwner(filePath: string): void {
  */
 function entryHasApiKey(entry: unknown): boolean {
   if (!isRecord(entry)) return false;
-  const env = entry.env;
-  return isRecord(env) && typeof env.AUTOMEM_API_KEY === 'string' && env.AUTOMEM_API_KEY.length > 0;
+  // Both supported credential names count. Reading only the canonical one reported
+  // "no secret" for an entry authenticated with the deprecated AUTOMEM_API_TOKEN
+  // alias, so its config and backups were left world-readable with a live token in
+  // them.
+  return isRecord(entry.env) && readApiKeyFrom(entry.env) !== undefined;
 }
 
-function isAutoMemMcpEntry(entry: unknown): boolean {
-  if (!isRecord(entry)) return false;
-  const haystack = JSON.stringify({
-    command: entry.command,
-    args: entry.args,
-    env: entry.env,
-  });
-  return haystack.includes('@verygoodplugins/mcp-automem') || haystack.includes('mcp-automem');
-}
+const isAutoMemMcpEntry = isAutoMemServerEntry;
 
 function parseGrokDocument(raw: string, configPath: string): Record<string, unknown> {
   try {
@@ -409,12 +420,6 @@ export interface GrokCredentials {
   apiKey?: string;
 }
 
-function normalizeCred(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
 /**
  * Read AutoMem credentials already installed for Grok so a re-run with no
  * explicit flags preserves them rather than overwriting with defaults.
@@ -437,7 +442,12 @@ export function readExistingGrokCredentials(configPath: string): GrokCredentials
   const env = entry && isRecord(entry.env) ? (entry.env as Record<string, unknown>) : null;
   if (!env) return {};
   return {
-    endpoint: normalizeCred(env.AUTOMEM_API_URL) ?? normalizeCred(env.AUTOMEM_ENDPOINT),
-    apiKey: normalizeCred(env.AUTOMEM_API_KEY),
+    // Both supported names are read, and the result is canonical: the entry this
+    // install rewrites always writes AUTOMEM_API_KEY. Reading only the canonical name
+    // meant a flagless re-run over an install authenticated with the deprecated
+    // AUTOMEM_API_TOKEN alias found no key and replaced the entry without one,
+    // silently turning a working install into an unauthenticated one.
+    endpoint: readEndpointFrom(env),
+    apiKey: readApiKeyFrom(env),
   };
 }

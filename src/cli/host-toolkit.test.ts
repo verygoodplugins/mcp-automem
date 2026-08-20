@@ -6,10 +6,16 @@ import {
   backupPath,
   detectProjectName,
   formatEnvValue,
+  isAutoMemServerEntry,
   mergeEnvContent,
   parseCommonFlags,
+  readApiKeyFrom,
+  readEndpointFrom,
   readJsonFile,
+  removeEnvContentKeys,
   replaceTemplateVars,
+  parseEnvAssignment,
+  resolveInheritedApiKey,
   writeFileWithBackup,
 } from './host-toolkit.js';
 
@@ -260,5 +266,309 @@ describe('host-toolkit', () => {
         expect(fs.statSync(backup).mode & 0o777).toBe(0o600);
       }
     );
+  });
+});
+
+describe('resolveInheritedApiKey', () => {
+  const ENDPOINT = 'https://chosen.example.test';
+
+  it('takes an explicit --api-key over everything, whatever the endpoints say', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        explicitKey: 'sk-flag',
+        storedEndpoint: ENDPOINT,
+        storedKey: 'sk-stored',
+        env: { AUTOMEM_API_URL: ENDPOINT, AUTOMEM_API_KEY: 'sk-env' },
+      })
+    ).toBe('sk-flag');
+  });
+
+  it('reuses an env key whose env endpoint is the chosen one', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        env: { AUTOMEM_API_URL: ENDPOINT, AUTOMEM_API_KEY: 'sk-env' },
+      })
+    ).toBe('sk-env');
+  });
+
+  // The whole point of the sweep: a key must not follow --endpoint to a host it was
+  // never issued for. Filed separately against grok, hermes and the guided installer.
+  it('drops an env key when the env endpoint is a different host', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        env: { AUTOMEM_API_URL: 'https://elsewhere.example.test', AUTOMEM_API_KEY: 'sk-env' },
+      })
+    ).toBeUndefined();
+  });
+
+  it('treats a trailing slash as the same endpoint, not a different host', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: 'https://chosen.example.test',
+        env: { AUTOMEM_API_URL: 'https://chosen.example.test/', AUTOMEM_API_KEY: 'sk-env' },
+      })
+    ).toBe('sk-env');
+  });
+
+  // The two inherited sources are asymmetric on purpose; both halves are pinned here
+  // so a later "simplification" that collapses them fails loudly.
+  it('keeps an env key that has no env endpoint — it is bound to nothing', () => {
+    expect(resolveInheritedApiKey({ endpoint: ENDPOINT, env: { AUTOMEM_API_KEY: 'sk-env' } })).toBe(
+      'sk-env'
+    );
+  });
+
+  it('drops a stored key that has no stored endpoint — a keyed entry with no URL is malformed', () => {
+    expect(
+      resolveInheritedApiKey({ endpoint: ENDPOINT, storedKey: 'sk-stored', env: {} })
+    ).toBeUndefined();
+  });
+
+  it('reuses a stored key when the stored endpoint is the chosen one', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        storedEndpoint: ENDPOINT,
+        storedKey: 'sk-stored',
+        env: {},
+      })
+    ).toBe('sk-stored');
+  });
+
+  it('drops a stored key when the endpoint changed underneath it', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        storedEndpoint: 'https://old.example.test',
+        storedKey: 'sk-stored',
+        env: {},
+      })
+    ).toBeUndefined();
+  });
+
+  it('prefers the env key over the stored key when both are valid', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        storedEndpoint: ENDPOINT,
+        storedKey: 'sk-stored',
+        env: { AUTOMEM_API_URL: ENDPOINT, AUTOMEM_API_KEY: 'sk-env' },
+      })
+    ).toBe('sk-env');
+  });
+
+  it('falls back to the stored key when the env key is rejected', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        storedEndpoint: ENDPOINT,
+        storedKey: 'sk-stored',
+        env: { AUTOMEM_API_URL: 'https://elsewhere.example.test', AUTOMEM_API_KEY: 'sk-env' },
+      })
+    ).toBe('sk-stored');
+  });
+
+  it('reads the deprecated AUTOMEM_API_TOKEN alias and pairs it the same way', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        env: { AUTOMEM_ENDPOINT: ENDPOINT, AUTOMEM_API_TOKEN: 'sk-legacy' },
+      })
+    ).toBe('sk-legacy');
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        env: { AUTOMEM_ENDPOINT: 'https://elsewhere.example.test', AUTOMEM_API_TOKEN: 'sk-legacy' },
+      })
+    ).toBeUndefined();
+  });
+
+  // Those variables are exported by Claude Code into the plugin's own MCP subprocess
+  // for src/index.ts to resolve. An installer that inherited the key never consulted
+  // the CLAUDE_PLUGIN_OPTION_API_URL it was issued against, so it could not pair it.
+  it('ignores CLAUDE_PLUGIN_OPTION_* entirely', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        env: {
+          CLAUDE_PLUGIN_OPTION_API_URL: ENDPOINT,
+          CLAUDE_PLUGIN_OPTION_API_KEY: 'sk-plugin',
+        },
+      })
+    ).toBeUndefined();
+  });
+
+  it('ignores blank and whitespace-only values', () => {
+    expect(
+      resolveInheritedApiKey({
+        endpoint: ENDPOINT,
+        explicitKey: '   ',
+        env: { AUTOMEM_API_KEY: '  ' },
+        storedEndpoint: ENDPOINT,
+        storedKey: '',
+      })
+    ).toBeUndefined();
+  });
+});
+
+describe('readApiKeyFrom / readEndpointFrom', () => {
+  it('prefers the canonical name over the deprecated alias', () => {
+    expect(readApiKeyFrom({ AUTOMEM_API_KEY: 'canonical', AUTOMEM_API_TOKEN: 'legacy' })).toBe(
+      'canonical'
+    );
+    expect(readEndpointFrom({ AUTOMEM_API_URL: 'canonical', AUTOMEM_ENDPOINT: 'legacy' })).toBe(
+      'canonical'
+    );
+  });
+
+  it('falls back to the alias when the canonical name is absent or blank', () => {
+    expect(readApiKeyFrom({ AUTOMEM_API_TOKEN: 'legacy' })).toBe('legacy');
+    expect(readApiKeyFrom({ AUTOMEM_API_KEY: '   ', AUTOMEM_API_TOKEN: 'legacy' })).toBe('legacy');
+    expect(readEndpointFrom({ AUTOMEM_ENDPOINT: 'legacy' })).toBe('legacy');
+  });
+
+  it('returns undefined for an empty or absent source', () => {
+    expect(readApiKeyFrom(undefined)).toBeUndefined();
+    expect(readApiKeyFrom({})).toBeUndefined();
+  });
+});
+
+describe('isAutoMemServerEntry', () => {
+  it('matches the entry the installers write', () => {
+    expect(
+      isAutoMemServerEntry({ command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem'] })
+    ).toBe(true);
+  });
+
+  // `npm exec -- <pkg>[@<version>]` is the documented spec, so a pinned entry is the
+  // same package. Rejecting it made setup refuse to update it and uninstall skip it.
+  it('matches a version-pinned package spec', () => {
+    expect(
+      isAutoMemServerEntry({ command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem@0.15.0'] })
+    ).toBe(true);
+  });
+
+  it('matches a dist-tag package spec', () => {
+    expect(
+      isAutoMemServerEntry({ command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem@latest'] })
+    ).toBe(true);
+    expect(isAutoMemServerEntry({ command: 'npx', args: ['-y', 'mcp-automem@next'] })).toBe(true);
+  });
+
+  it('matches a linked dev checkout launched by absolute path', () => {
+    expect(
+      isAutoMemServerEntry({
+        command: 'node',
+        args: ['/Users/dev/Projects/mcp-automem/dist/index.js'],
+      })
+    ).toBe(true);
+  });
+
+  it('matches a hand-written entry by AutoMem env var names', () => {
+    expect(
+      isAutoMemServerEntry({
+        command: 'some-wrapper',
+        args: ['--serve'],
+        env: { AUTOMEM_API_URL: 'https://automem.example.test' },
+      })
+    ).toBe(true);
+  });
+
+  // The filed defect: the predicate used to stringify the whole entry, env values
+  // included, so an unrelated server that merely *pointed at* a host named
+  // mcp-automem was classified as ours — overwritable by setup, deletable by
+  // uninstall.
+  it('does not claim a foreign server whose env values merely mention mcp-automem', () => {
+    expect(
+      isAutoMemServerEntry({
+        command: 'other-server',
+        args: ['--start'],
+        env: { UPSTREAM_URL: 'https://mcp-automem.internal', NOTE: 'talks to mcp-automem' },
+      })
+    ).toBe(false);
+  });
+
+  it('does not claim a foreign server whose args merely mention a similar host', () => {
+    expect(
+      isAutoMemServerEntry({ command: 'other', args: ['--url', 'https://mcp-automem.internal'] })
+    ).toBe(false);
+    // The version suffix must not open a hole for lookalike hostnames.
+    expect(
+      isAutoMemServerEntry({
+        command: 'other',
+        args: ['--url', 'https://mcp-automem.internal/v1', 'https://user@mcp-automem.example'],
+      })
+    ).toBe(false);
+  });
+
+  it('rejects non-entries', () => {
+    expect(isAutoMemServerEntry(null)).toBe(false);
+    expect(isAutoMemServerEntry('mcp-automem')).toBe(false);
+    expect(isAutoMemServerEntry(['mcp-automem'])).toBe(false);
+    expect(isAutoMemServerEntry({ command: 'other', args: ['--start'] })).toBe(false);
+  });
+});
+
+describe('removeEnvContentKeys', () => {
+  it('drops only the named keys, leaving comments and neighbours byte-identical', () => {
+    const existing = ['# header', 'KEEP=1', 'AUTOMEM_API_KEY=secret', '', 'TRAILING=2'].join('\n');
+    const result = removeEnvContentKeys(existing, ['AUTOMEM_API_KEY']);
+    expect(result).not.toContain('AUTOMEM_API_KEY');
+    expect(result).toContain('# header');
+    expect(result).toContain('KEEP=1');
+    expect(result).toContain('TRAILING=2');
+  });
+
+  it('removes every supported alias when both are present', () => {
+    const existing = ['AUTOMEM_API_KEY=a', 'AUTOMEM_API_TOKEN=b', 'OTHER=c'].join('\n');
+    const result = removeEnvContentKeys(existing, ['AUTOMEM_API_KEY', 'AUTOMEM_API_TOKEN']);
+    expect(result).toBe(`OTHER=c${os.EOL}`);
+  });
+
+  it('is a no-op for an empty body or an empty key list', () => {
+    expect(removeEnvContentKeys('', ['AUTOMEM_API_KEY'])).toBe('');
+    expect(removeEnvContentKeys('KEEP=1', [])).toBe('KEEP=1');
+  });
+});
+
+describe('parseEnvAssignment', () => {
+  // The writers must recognise exactly what the dotenv-based readers accept. Missing
+  // the `export` prefix meant a reader saw a stale key, asked for its removal, and the
+  // remover silently kept the line — leaving the credential live against a new host.
+  it.each([
+    ['plain', 'AUTOMEM_API_KEY=secret', 'AUTOMEM_API_KEY', false],
+    ['export-prefixed', 'export AUTOMEM_API_KEY=secret', 'AUTOMEM_API_KEY', true],
+    ['indented export', '   export  AUTOMEM_API_KEY=secret', 'AUTOMEM_API_KEY', true],
+    ['spaced equals', 'AUTOMEM_API_KEY = secret', 'AUTOMEM_API_KEY', false],
+  ])('reads the key from a %s assignment', (_label, line, key, exported) => {
+    expect(parseEnvAssignment(line)).toEqual({ key, exported });
+  });
+
+  it('returns undefined for comments and blank lines', () => {
+    expect(parseEnvAssignment('# AUTOMEM_API_KEY=secret')).toBeUndefined();
+    expect(parseEnvAssignment('   ')).toBeUndefined();
+    expect(parseEnvAssignment('not an assignment')).toBeUndefined();
+  });
+});
+
+describe('export-prefixed assignments in the writers', () => {
+  it('removeEnvContentKeys drops an export-prefixed credential', () => {
+    const body = 'export AUTOMEM_API_URL=https://old.test\nexport AUTOMEM_API_KEY=sk-old\nKEEP=1\n';
+    const result = removeEnvContentKeys(body, ['AUTOMEM_API_KEY', 'AUTOMEM_API_TOKEN']);
+    expect(result).not.toContain('sk-old');
+    expect(result).toContain('KEEP=1');
+    expect(result).toContain('export AUTOMEM_API_URL=https://old.test');
+  });
+
+  it('mergeEnvContent rewrites an export-prefixed line in place, prefix intact', () => {
+    const body = 'export AUTOMEM_API_URL=https://old.test\n';
+    const result = mergeEnvContent(body, { AUTOMEM_API_URL: 'https://new.test' });
+    expect(result).toContain('export AUTOMEM_API_URL=https://new.test');
+    // Rewritten, not appended — a second assignment would leave the old host named.
+    expect(result).not.toContain('https://old.test');
+    expect(result.match(/AUTOMEM_API_URL=/g)).toHaveLength(1);
   });
 });

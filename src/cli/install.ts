@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { parse as parseDotenv } from 'dotenv';
 import os from 'os';
 import path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
@@ -11,7 +12,13 @@ import { applyGrokSetup } from './grok.js';
 import { applyOpenClawSetup } from './openclaw.js';
 import { resolveGrokPaths } from './grok-config.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
-import { mergeEnvContent, sameEndpoint, writeFileWithBackup } from './host-toolkit.js';
+import {
+  AUTOMEM_API_KEY_NAMES,
+  mergeEnvContent,
+  removeEnvContentKeys,
+  sameEndpoint,
+  writeFileWithBackup,
+} from './host-toolkit.js';
 import { provisionViaInstaPodsLink, provisionViaRailway } from './cloud/installer-bridge.js';
 // Re-exported so existing importers (and install.test.ts) keep a stable path.
 export { formatEnvValue } from './host-toolkit.js';
@@ -878,16 +885,76 @@ export async function waitForAutoMemEndpoint(
   };
 }
 
-function mergeEnvFile(filePath: string, updates: Record<string, string>, dryRun: boolean): void {
+function mergeEnvFile(
+  filePath: string,
+  updates: Record<string, string>,
+  dryRun: boolean,
+  removeKeys: readonly string[] = []
+): void {
   const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+  const merged = mergeEnvContent(existing, updates);
   // .env files written by the installer carry secrets — the project .env can hold
   // AUTOMEM_API_KEY and the local server .env holds AUTOMEM_API_TOKEN/ADMIN_API_TOKEN
   // — so restrict them to 0o600, matching the uninstall path's perms.
-  writeFileWithBackup(filePath, mergeEnvContent(existing, updates), {
+  writeFileWithBackup(filePath, removeEnvContentKeys(merged, removeKeys), {
     dryRun,
     quiet: true,
     secret: true,
   });
+}
+
+/**
+ * Write the project `.env` for a resolved endpoint/key pair.
+ *
+ * Split out of the install flow so the credential rule below is reachable from a
+ * test with a real file — the defect it fixes is only visible in what the file
+ * still contains afterwards, not in any in-memory value.
+ *
+ * Returns the key names it removed (and the endpoint they belonged to) so the
+ * caller can say so out loud; silently deleting a user's credential is worse than
+ * the bug.
+ */
+export function writeProjectEnv(params: {
+  envPath: string;
+  endpoint: string;
+  apiKey?: string;
+  dryRun?: boolean;
+}): { removedKeys: string[]; previousEndpoint?: string } {
+  const { envPath, endpoint, apiKey } = params;
+  const existingEnv = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+  const envUpdates: Record<string, string> = {
+    AUTOMEM_API_URL: endpoint,
+    // Canonical name is AUTOMEM_API_KEY (the service/docs are standardizing on
+    // _KEY); the server still reads the AUTOMEM_API_TOKEN alias.
+    ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}),
+  };
+  // Keep deprecated aliases in sync only if the file already uses them, so they
+  // can't diverge from the canonical names (and we don't add them on fresh files).
+  if (/^AUTOMEM_ENDPOINT=/m.test(existingEnv)) envUpdates.AUTOMEM_ENDPOINT = endpoint;
+  if (apiKey && /^AUTOMEM_API_TOKEN=/m.test(existingEnv)) envUpdates.AUTOMEM_API_TOKEN = apiKey;
+
+  // A key persisted in .env belongs to the endpoint it was written for, and the stdio
+  // server loads this file at startup. Rewriting AUTOMEM_API_URL while leaving the old
+  // credential in place would send that bearer token to the new host on every request,
+  // so it is removed under both supported names.
+  //
+  // Derived from the file rather than from a parse-time flag: this is reached whenever
+  // no key resolved for this run — an unset shell environment gets here without ever
+  // taking the --endpoint/--api-key mismatch branch. Removal needs a persisted endpoint
+  // to compare against; a .env holding a key and no URL is not evidence of a mismatch,
+  // so it is left alone.
+  const previousEndpoint =
+    readEnvFileValue(envPath, 'AUTOMEM_API_URL') ?? readEnvFileValue(envPath, 'AUTOMEM_ENDPOINT');
+  const persistedKeyNames = apiKey
+    ? []
+    : AUTOMEM_API_KEY_NAMES.filter((name) => readEnvFileValue(envPath, name));
+  const removedKeys =
+    persistedKeyNames.length > 0 && previousEndpoint && !sameEndpoint(previousEndpoint, endpoint)
+      ? [...persistedKeyNames]
+      : [];
+
+  mergeEnvFile(envPath, envUpdates, params.dryRun ?? false, removedKeys);
+  return { removedKeys, previousEndpoint };
 }
 
 function randomToken(): string {
@@ -896,21 +963,20 @@ function randomToken(): string {
     .join('');
 }
 
-// Read a single KEY's value from an existing .env (unwrapping a quoted value) so a
-// re-run can reuse previously-written secrets instead of regenerating them. `key`
-// is always a fixed literal here, so embedding it in the regex is safe.
+// Read a single KEY's effective value from an existing .env, so a re-run can reuse
+// previously-written secrets instead of regenerating them — and so the credential
+// pairing compares against the endpoint that is actually in effect.
+//
+// Delegates to dotenv, which is literally the parser that loads this file at server
+// startup. A hand-rolled reader kept disagreeing with it in ways that matter here:
+// it took the *first* assignment where dotenv takes the last, and it unwrapped only
+// double quotes, so `KEY='value'` or a trailing `# comment` compared as a different
+// endpoint and removed a still-valid key. Matching the real parser retires that whole
+// class rather than the two spellings that were reported.
 function readEnvFileValue(filePath: string, key: string): string | undefined {
   if (!fs.existsSync(filePath)) return undefined;
-  const line = fs
-    .readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .find((candidate) => new RegExp(`^\\s*${key}\\s*=`).test(candidate));
-  if (!line) return undefined;
-  let value = line.slice(line.indexOf('=') + 1).trim();
-  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
-    value = value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-  }
-  return value || undefined;
+  const value = parseDotenv(fs.readFileSync(filePath, 'utf8'))[key];
+  return value ? value : undefined;
 }
 
 function defaultRunCommand(
@@ -1642,19 +1708,13 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
 
       list.start('env');
       const envPath = path.join(environment.cwd, '.env');
-      const existingEnv = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
-      const envUpdates: Record<string, string> = {
-        AUTOMEM_API_URL: endpoint,
-        // Canonical name is AUTOMEM_API_KEY (the service/docs are standardizing on
-        // _KEY); the server still reads the AUTOMEM_API_TOKEN alias.
-        ...(apiKey ? { AUTOMEM_API_KEY: apiKey } : {}),
-      };
-      // Keep deprecated aliases in sync only if the file already uses them, so they
-      // can't diverge from the canonical names (and we don't add them on fresh files).
-      if (/^AUTOMEM_ENDPOINT=/m.test(existingEnv)) envUpdates.AUTOMEM_ENDPOINT = endpoint;
-      if (apiKey && /^AUTOMEM_API_TOKEN=/m.test(existingEnv)) envUpdates.AUTOMEM_API_TOKEN = apiKey;
-      mergeEnvFile(envPath, envUpdates, false);
-      list.done('env', `Wrote ${tildify(envPath)}`);
+      const envResult = writeProjectEnv({ envPath, endpoint, apiKey });
+      list.done(
+        'env',
+        envResult.removedKeys.length
+          ? `Wrote ${tildify(envPath)} (removed ${envResult.removedKeys.join(', ')} — issued for ${envResult.previousEndpoint})`
+          : `Wrote ${tildify(envPath)}`
+      );
 
       // Each agent installs independently: a failure (e.g. the openclaw CLI hanging
       // or absent) marks just that step ✗ and is collected for a manual-fix note —

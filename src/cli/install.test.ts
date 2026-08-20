@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
+import { parse as parseDotenvForTest } from 'dotenv';
 import os from 'os';
 import path from 'path';
 import {
@@ -21,6 +22,7 @@ import {
   validateInstallPrerequisites,
   verifyAutoMemEndpoint,
   waitForAutoMemEndpoint,
+  writeProjectEnv,
 } from './install.js';
 
 describe('guided install helpers', () => {
@@ -1123,5 +1125,202 @@ describe('claude plugin auto-install', () => {
     });
     const action = plan.actions.find((a) => a.client === 'claude-code');
     expect(action?.kind).toBe('manual-step');
+  });
+});
+
+// The stdio server loads the project .env at startup, so a credential left behind
+// there is live regardless of what the installer resolved in memory. These assert the
+// file contents for exactly that reason.
+describe('writeProjectEnv credential pairing', () => {
+  let tmpDir: string;
+  let envPath: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-project-env-'));
+    envPath = path.join(tmpDir, '.env');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('removes a persisted key when the endpoint changes and no new key was resolved', () => {
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_API_URL=https://old.example.test\nAUTOMEM_API_KEY=sk-old\nOTHER=keep\n'
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    const written = fs.readFileSync(envPath, 'utf8');
+    expect(written).not.toContain('sk-old');
+    expect(written).not.toMatch(/^AUTOMEM_API_KEY=/m);
+    expect(written).toContain('AUTOMEM_API_URL=https://new.example.test');
+    expect(written).toContain('OTHER=keep');
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    expect(result.previousEndpoint).toBe('https://old.example.test');
+  });
+
+  it('removes the deprecated AUTOMEM_API_TOKEN alias too', () => {
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_API_URL=https://old.example.test\nAUTOMEM_API_TOKEN=sk-legacy\n'
+    );
+
+    writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    const written = fs.readFileSync(envPath, 'utf8');
+    expect(written).not.toContain('sk-legacy');
+    expect(written).not.toMatch(/^AUTOMEM_API_TOKEN=/m);
+  });
+
+  it('removes both alias spellings when the file carries both', () => {
+    fs.writeFileSync(
+      envPath,
+      [
+        'AUTOMEM_API_URL=https://old.example.test',
+        'AUTOMEM_API_KEY=sk-old',
+        'AUTOMEM_API_TOKEN=sk-old',
+        '',
+      ].join('\n')
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(fs.readFileSync(envPath, 'utf8')).not.toContain('sk-old');
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY', 'AUTOMEM_API_TOKEN']);
+  });
+
+  // The common re-run. Dropping the key here would break every unflagged re-install.
+  it('keeps the persisted key when the endpoint is unchanged', () => {
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_API_URL=https://same.example.test\nAUTOMEM_API_KEY=sk-keep\n'
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://same.example.test' });
+
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('AUTOMEM_API_KEY=sk-keep');
+    expect(result.removedKeys).toEqual([]);
+  });
+
+  it('treats a trailing slash as the same endpoint', () => {
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_API_URL=https://same.example.test/\nAUTOMEM_API_KEY=sk-keep\n'
+    );
+
+    writeProjectEnv({ envPath, endpoint: 'https://same.example.test' });
+
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('AUTOMEM_API_KEY=sk-keep');
+  });
+
+  it('overwrites rather than removes when a new key was resolved for the new endpoint', () => {
+    fs.writeFileSync(envPath, 'AUTOMEM_API_URL=https://old.example.test\nAUTOMEM_API_KEY=sk-old\n');
+
+    const result = writeProjectEnv({
+      envPath,
+      endpoint: 'https://new.example.test',
+      apiKey: 'sk-new',
+    });
+
+    const written = fs.readFileSync(envPath, 'utf8');
+    expect(written).toContain('AUTOMEM_API_KEY=sk-new');
+    expect(written).not.toContain('sk-old');
+    expect(result.removedKeys).toEqual([]);
+  });
+
+  // A .env naming a key but no URL is not evidence of a mismatch, so it is left alone
+  // rather than guessed at.
+  it('leaves a key alone when the file has no endpoint to compare against', () => {
+    fs.writeFileSync(envPath, 'AUTOMEM_API_KEY=sk-unbound\n');
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('AUTOMEM_API_KEY=sk-unbound');
+    expect(result.removedKeys).toEqual([]);
+  });
+
+  // Every one of these is valid dotenv syntax naming the SAME endpoint. A hand-rolled
+  // reader that unwrapped only double quotes and ignored comments compared the raw text
+  // and removed a still-valid key, leaving the project unauthenticated.
+  it.each([
+    ['single quotes', "AUTOMEM_API_URL='https://same.example.test'"],
+    ['double quotes', 'AUTOMEM_API_URL="https://same.example.test"'],
+    ['a trailing comment', 'AUTOMEM_API_URL=https://same.example.test # production'],
+    ['an export prefix', 'export AUTOMEM_API_URL=https://same.example.test'],
+    ['surrounding whitespace', 'AUTOMEM_API_URL=   https://same.example.test   '],
+  ])('keeps the key when the endpoint is written with %s', (_label, line) => {
+    fs.writeFileSync(envPath, `${line}\nAUTOMEM_API_KEY=sk-keep\n`);
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://same.example.test' });
+
+    expect(result.previousEndpoint).toBe('https://same.example.test');
+    expect(result.removedKeys).toEqual([]);
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('sk-keep');
+  });
+
+  // The reader (dotenv) accepts `export KEY=value`; the remover did not. So the key was
+  // correctly identified as stale, removal was requested, and the line survived —
+  // leaving the old credential live against the new endpoint.
+  it('removes an export-prefixed key when the endpoint changes', () => {
+    fs.writeFileSync(
+      envPath,
+      'export AUTOMEM_API_URL=https://old.example.test\nexport AUTOMEM_API_KEY=sk-old\n'
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    // Asserted through the parser that actually loads this file, not against raw text.
+    const effective = parseDotenvForTest(fs.readFileSync(envPath, 'utf8'));
+    expect(effective.AUTOMEM_API_KEY).toBeUndefined();
+    expect(effective.AUTOMEM_API_URL).toBe('https://new.example.test');
+  });
+
+  it('still removes the key when a quoted endpoint genuinely differs', () => {
+    fs.writeFileSync(
+      envPath,
+      "AUTOMEM_API_URL='https://old.example.test'\nAUTOMEM_API_KEY=sk-old\n"
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    expect(fs.readFileSync(envPath, 'utf8')).not.toContain('sk-old');
+  });
+
+  // dotenv applies the LAST assignment, and dotenv is what loads this file at server
+  // startup. Reading the first one reported a stale endpoint, so a key issued for the
+  // effective endpoint looked paired with the earlier line and survived a real change.
+  it('uses the last endpoint assignment when .env has duplicates', () => {
+    fs.writeFileSync(
+      envPath,
+      [
+        'AUTOMEM_API_URL=https://first.example.test',
+        'AUTOMEM_API_URL=https://effective.example.test',
+        'AUTOMEM_API_KEY=sk-effective',
+        '',
+      ].join('\n')
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://first.example.test' });
+
+    const written = fs.readFileSync(envPath, 'utf8');
+    expect(result.previousEndpoint).toBe('https://effective.example.test');
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    expect(written).not.toContain('sk-effective');
+  });
+
+  it('compares against the deprecated AUTOMEM_ENDPOINT spelling as well', () => {
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_ENDPOINT=https://old.example.test\nAUTOMEM_API_KEY=sk-old\n'
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(fs.readFileSync(envPath, 'utf8')).not.toContain('sk-old');
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
   });
 });

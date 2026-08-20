@@ -7,6 +7,10 @@ import {
   log,
   parseCommonFlags,
   replaceTemplateVars,
+  AUTOMEM_API_KEY_NAMES,
+  AUTOMEM_ENDPOINT_NAMES,
+  parseEnvAssignment,
+  resolveInheritedApiKey,
   writeFileWithBackup,
 } from './host-toolkit.js';
 import {
@@ -18,7 +22,6 @@ import {
   upsertHermesMemoryProvider,
   upsertMcpServer,
 } from './hermes-config.js';
-import { readAutoMemApiKeyFromEnv } from '../env.js';
 import { renderHermesModeRules } from '../memory-policy/shared.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
@@ -91,22 +94,26 @@ function mergeHermesEnvFile(
     return;
   }
 
-  const lines: Array<{ key?: string; line: string }> = [];
+  const lines: Array<{ key?: string; exported?: boolean; line: string }> = [];
   if (fs.existsSync(envPath)) {
     for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
       if (!line.trim()) {
         lines.push({ line });
         continue;
       }
-      const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
-      lines.push(match ? { key: match[1].trim(), line } : { line });
+      const assignment = parseEnvAssignment(line);
+      lines.push(
+        assignment ? { key: assignment.key, exported: assignment.exported, line } : { line }
+      );
     }
   }
 
   const updatedKeys = new Set<string>();
   for (const entry of lines) {
     if (entry.key && Object.prototype.hasOwnProperty.call(filtered, entry.key)) {
-      entry.line = `${entry.key}=${formatEnvValue(filtered[entry.key])}`;
+      // Put the `export ` prefix back rather than silently changing what the line
+      // means to a shell sourcing this file.
+      entry.line = `${entry.exported ? 'export ' : ''}${entry.key}=${formatEnvValue(filtered[entry.key])}`;
       updatedKeys.add(entry.key);
     }
   }
@@ -142,8 +149,8 @@ function removeHermesEnvKeys(
   const keySet = new Set(keys);
   const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
   const filtered = lines.filter((line) => {
-    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
-    return !match || !keySet.has(match[1]);
+    const assignment = parseEnvAssignment(line);
+    return !assignment || !keySet.has(assignment.key);
   });
   if (filtered.join('\n') === lines.join('\n')) return false;
 
@@ -182,8 +189,17 @@ function installHermesProvider(
     writeFileWithBackup(targetPath, content, options);
   }
 
+  const envPath = path.join(paths.home, '.env');
+  // An absent update is not a deletion — mergeHermesEnvFile drops undefined values so
+  // unrelated settings survive a partial write. So when no key resolved for this run,
+  // the persisted one has to be removed explicitly: rewriting AUTOMEM_API_URL to a new
+  // endpoint while leaving the old credential in place makes the provider send that
+  // credential to the new host. Both supported names go, since either authenticates.
+  if (!apiKey) {
+    removeHermesEnvKeys(envPath, [...AUTOMEM_API_KEY_NAMES], options);
+  }
   mergeHermesEnvFile(
-    path.join(paths.home, '.env'),
+    envPath,
     {
       AUTOMEM_API_URL: endpoint,
       AUTOMEM_API_KEY: apiKey,
@@ -211,7 +227,15 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
     process.env.AUTOMEM_ENDPOINT ||
     existing.endpoint ||
     DEFAULT_AUTOMEM_API_URL;
-  const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? existing.apiKey;
+  // A key belongs to the endpoint it was issued for: an exported key must not follow
+  // `--endpoint <other>` to a host it was never issued for, and neither must the key
+  // already installed for Hermes when the endpoint changes underneath it.
+  const apiKey = resolveInheritedApiKey({
+    endpoint,
+    explicitKey: cliOptions.apiKey,
+    storedEndpoint: existing.endpoint,
+    storedKey: existing.apiKey,
+  });
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
 
   log(`\n🔧 Setting up Hermes AutoMem for: ${projectName}`, cliOptions.quiet);
@@ -245,9 +269,14 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
       dryRun: cliOptions.dryRun,
       quiet: cliOptions.quiet,
     });
+    // The provider was just uninstalled, so its dotenv credentials are dead config —
+    // and worse than dead: Hermes loads this file before MCP discovery, so a key left
+    // here for the previous endpoint is inherited by the MCP server whose entry now
+    // names a different one. Removing the endpoint names too, since they belong to the
+    // provider that is going away; a later re-run recovers both from config.yaml.
     removeHermesEnvKeys(
       path.join(paths.home, '.env'),
-      ['AUTOMEM_HERMES_PROVIDER_TOOLS'],
+      ['AUTOMEM_HERMES_PROVIDER_TOOLS', ...AUTOMEM_API_KEY_NAMES, ...AUTOMEM_ENDPOINT_NAMES],
       cliOptions
     );
   }

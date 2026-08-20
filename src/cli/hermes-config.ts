@@ -1,8 +1,17 @@
 import fs from 'fs';
+import { parse as parseDotenv } from 'dotenv';
 import os from 'os';
 import path from 'path';
 import { parse as parseYaml, parseDocument } from 'yaml';
-import { backupPath, log } from './host-toolkit.js';
+import {
+  AUTOMEM_API_KEY_NAMES,
+  backupPath,
+  isAutoMemServerEntry,
+  log,
+  readApiKeyFrom,
+  readEndpointFrom,
+  sameEndpoint,
+} from './host-toolkit.js';
 
 export interface HermesPaths {
   home: string;
@@ -78,6 +87,11 @@ export function buildAutoMemServerEntry(endpoint: string, apiKey?: string): Auto
   };
   if (apiKey) {
     env.AUTOMEM_API_KEY = apiKey;
+  } else {
+    // Explicit blanks, not omission — the host layers this env over its own when it
+    // launches the server, so an omitted key leaves a shell-exported one inherited by
+    // a child pointed at a different endpoint. See buildGrokAutoMemServerEntry.
+    for (const name of AUTOMEM_API_KEY_NAMES) env[name] = '';
   }
   return {
     command: 'npx',
@@ -105,26 +119,6 @@ export interface HermesCredentials {
   apiKey?: string;
 }
 
-/**
- * Normalize an env/config value to `undefined` when it is missing or blank.
- * Critical for the `??` fallback chain in hermes setup: `??` only falls
- * through on null/undefined, so an empty string would otherwise pin a blank
- * endpoint/key and defeat the default.
- */
-function normalizeCred(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function unquoteEnvValue(raw: string): string {
-  const trimmed = raw.trim();
-  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-  }
-  return trimmed;
-}
-
 function readCredentialsFromConfig(configPath: string): HermesCredentials {
   if (!fs.existsSync(configPath)) return {};
   let parsed: Record<string, unknown> | null;
@@ -145,28 +139,30 @@ function readCredentialsFromConfig(configPath: string): HermesCredentials {
   const env = entry && isRecord(entry.env) ? (entry.env as Record<string, unknown>) : null;
   if (!env) return {};
   return {
-    // The runtime provider still honors the deprecated AUTOMEM_ENDPOINT, so a
-    // hand-migrated config must survive a setup re-run instead of being reset
-    // to the default endpoint.
-    endpoint: normalizeCred(env.AUTOMEM_API_URL) ?? normalizeCred(env.AUTOMEM_ENDPOINT),
-    apiKey: normalizeCred(env.AUTOMEM_API_KEY),
+    // Both deprecated aliases are honored on read — the runtime still accepts
+    // AUTOMEM_ENDPOINT and AUTOMEM_API_TOKEN, so a hand-migrated or Railway-templated
+    // config must survive a setup re-run instead of being reset to the default
+    // endpoint or rewritten without its credential.
+    endpoint: readEndpointFrom(env),
+    apiKey: readApiKeyFrom(env),
   };
 }
 
+/**
+ * Read the provider `.env`'s effective credentials.
+ *
+ * Parsed by dotenv, which is what Hermes itself loads this file with. The invariant
+ * across this repo: a reader whose values drive a decision uses dotenv semantics,
+ * while the writers stay line-based so comments and formatting survive a partial
+ * update. Hand-parsing here unwrapped only double quotes and never stripped comments,
+ * so `AUTOMEM_API_URL='https://x'` or a trailing `# comment` compared as a different
+ * endpoint and a same-endpoint re-run deleted a valid key. Both deprecated aliases are
+ * still honoured on read via the shared both-name readers.
+ */
 function readCredentialsFromEnvFile(envPath: string): HermesCredentials {
   if (!fs.existsSync(envPath)) return {};
-  let endpoint: string | undefined;
-  let legacyEndpoint: string | undefined;
-  let apiKey: string | undefined;
-  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
-    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
-    if (!match) continue;
-    const value = normalizeCred(unquoteEnvValue(match[2]));
-    if (match[1] === 'AUTOMEM_API_URL') endpoint = value;
-    else if (match[1] === 'AUTOMEM_ENDPOINT') legacyEndpoint = value;
-    else if (match[1] === 'AUTOMEM_API_KEY') apiKey = value;
-  }
-  return { endpoint: endpoint ?? legacyEndpoint, apiKey };
+  const values = parseDotenv(fs.readFileSync(envPath, 'utf8'));
+  return { endpoint: readEndpointFrom(values), apiKey: readApiKeyFrom(values) };
 }
 
 /**
@@ -176,14 +172,35 @@ function readCredentialsFromEnvFile(envPath: string): HermesCredentials {
  * (config.yaml `mcp_servers.automem.env`) first, then the provider `.env`;
  * both are written with identical values in `both` mode. Empty strings
  * normalize to `undefined` so they never satisfy a `??` fallback.
+ *
+ * Endpoint and key are returned **as a pair from one source**. Merging them
+ * field-wise used to be possible — config endpoint plus `.env` key — and the two
+ * files can describe different installs: switch the MCP config to endpoint A and a
+ * provider `.env` still holding endpoint B's token makes `{A, B's key}` look like a
+ * credential issued for A. `resolveInheritedApiKey` would then treat it as a valid
+ * stored pair and write B's token into A's registration, which is precisely the
+ * disclosure the pairing exists to prevent.
  */
 export function readExistingHermesCredentials(paths: HermesPaths): HermesCredentials {
   const fromConfig = readCredentialsFromConfig(paths.configPath);
   const fromEnv = readCredentialsFromEnvFile(path.join(paths.home, '.env'));
-  return {
-    endpoint: fromConfig.endpoint ?? fromEnv.endpoint,
-    apiKey: fromConfig.apiKey ?? fromEnv.apiKey,
-  };
+
+  if (fromConfig.endpoint) {
+    return {
+      endpoint: fromConfig.endpoint,
+      // The `.env` key is only the same credential when it was written for the same
+      // endpoint — which is the normal case, since `both` mode writes both files with
+      // identical values.
+      apiKey:
+        fromConfig.apiKey ??
+        (sameEndpoint(fromEnv.endpoint, fromConfig.endpoint) ? fromEnv.apiKey : undefined),
+    };
+  }
+  if (fromEnv.endpoint) return fromEnv;
+
+  // Neither source names an endpoint, so there is no pair to keep whole. A stored key
+  // with no stored endpoint is dropped downstream regardless.
+  return { endpoint: undefined, apiKey: fromConfig.apiKey ?? fromEnv.apiKey };
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -207,15 +224,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isAutoMemMcpEntry(entry: unknown): boolean {
-  if (!isRecord(entry)) return false;
-  const haystack = JSON.stringify({
-    command: entry.command,
-    args: entry.args,
-    env: entry.env,
-  });
-  return haystack.includes('@verygoodplugins/mcp-automem') || haystack.includes('mcp-automem');
-}
+const isAutoMemMcpEntry = isAutoMemServerEntry;
 
 /**
  * Merge an MCP server entry into ~/.hermes/config.yaml under `mcp_servers.<name>`,

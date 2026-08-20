@@ -79,6 +79,75 @@ describe('runSetup — deprecated AUTOMEM_ENDPOINT alias migration', () => {
     expect(envText).toContain('KEEP_ME=1');
   });
 
+  // setup had no credential/endpoint pairing at all and read only the canonical key
+  // name, so a legacy token was invisible to the code that should have removed it.
+  it('keeps the key when the stored endpoint is quoted or commented', async () => {
+    const envPath = path.join(tmpDir, '.env');
+    fs.writeFileSync(
+      envPath,
+      "AUTOMEM_API_URL='https://same.example.test' # production\nAUTOMEM_API_KEY=sk-keep\n"
+    );
+
+    await runSetup(['--env', envPath, '--endpoint', 'https://same.example.test', '--yes']);
+
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('sk-keep');
+  });
+
+  it('removes a legacy AUTOMEM_API_TOKEN when the endpoint changes', async () => {
+    const envPath = path.join(tmpDir, '.env');
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_ENDPOINT=https://old.example.test\nAUTOMEM_API_TOKEN=sk-old\nKEEP_ME=1\n'
+    );
+
+    await runSetup(['--env', envPath, '--endpoint', 'https://new.example.test', '--yes']);
+
+    const envText = fs.readFileSync(envPath, 'utf8');
+    expect(envText).not.toContain('sk-old');
+    expect(envText).not.toMatch(/^AUTOMEM_API_TOKEN=/m);
+    expect(envText).toContain('KEEP_ME=1');
+  });
+
+  it('removes a canonical key written for a different endpoint', async () => {
+    const envPath = path.join(tmpDir, '.env');
+    fs.writeFileSync(envPath, 'AUTOMEM_API_URL=https://old.example.test\nAUTOMEM_API_KEY=sk-old\n');
+
+    await runSetup(['--env', envPath, '--endpoint', 'https://new.example.test', '--yes']);
+
+    const envText = fs.readFileSync(envPath, 'utf8');
+    expect(envText).not.toContain('sk-old');
+    expect(envText).toContain('AUTOMEM_API_URL=https://new.example.test');
+  });
+
+  it('keeps the key on a re-run at the same endpoint', async () => {
+    const envPath = path.join(tmpDir, '.env');
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_API_URL=https://same.example.test\nAUTOMEM_API_KEY=sk-keep\n'
+    );
+
+    await runSetup(['--env', envPath, '--endpoint', 'https://same.example.test', '--yes']);
+
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('AUTOMEM_API_KEY=sk-keep');
+  });
+
+  it('does not write a shell key exported for a different endpoint', async () => {
+    const envPath = path.join(tmpDir, '.env');
+    const prevUrl = process.env.AUTOMEM_API_URL;
+    const prevKey = process.env.AUTOMEM_API_KEY;
+    process.env.AUTOMEM_API_URL = 'https://shell.example.test';
+    process.env.AUTOMEM_API_KEY = 'sk-shell';
+    try {
+      await runSetup(['--env', envPath, '--endpoint', 'https://chosen.example.test', '--yes']);
+      expect(fs.readFileSync(envPath, 'utf8')).not.toContain('sk-shell');
+    } finally {
+      if (prevUrl === undefined) delete process.env.AUTOMEM_API_URL;
+      else process.env.AUTOMEM_API_URL = prevUrl;
+      if (prevKey === undefined) delete process.env.AUTOMEM_API_KEY;
+      else process.env.AUTOMEM_API_KEY = prevKey;
+    }
+  });
+
   it('does not introduce the deprecated alias into a fresh .env', async () => {
     const envPath = path.join(tmpDir, '.env');
 

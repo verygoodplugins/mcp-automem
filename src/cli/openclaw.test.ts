@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   allowAutoMemTools,
   allowPluginWhenAllowlistExists,
@@ -19,10 +19,12 @@ import {
   probeBootstrapBypass,
   redactConfigForOutput,
   replaceOpenClawMemorySystem,
+  resolveApiKey,
 } from './openclaw.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { readAutoMemApiKeyFromEnv } from '../env.js';
 
 describe('openclaw cli helpers', () => {
   it('parses the new openclaw flags with plugin defaults', () => {
@@ -523,5 +525,250 @@ describe('openclaw cli helpers', () => {
     });
 
     expect(profile).toContain('Call me Jack');
+  });
+});
+
+describe('openclaw credential/endpoint pairing', () => {
+  const ENDPOINT = 'https://chosen.example.test';
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    for (const key of [
+      'AUTOMEM_API_URL',
+      'AUTOMEM_ENDPOINT',
+      'AUTOMEM_API_KEY',
+      'AUTOMEM_API_TOKEN',
+    ]) {
+      if (originalEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = originalEnv[key];
+    }
+  });
+
+  it('takes --api-key over the environment', () => {
+    process.env.AUTOMEM_API_URL = ENDPOINT;
+    process.env.AUTOMEM_API_KEY = 'sk-env';
+    expect(resolveApiKey({ apiKey: 'sk-flag' }, ENDPOINT)).toBe('sk-flag');
+  });
+
+  it('reuses a shell key exported for the chosen endpoint', () => {
+    process.env.AUTOMEM_API_URL = ENDPOINT;
+    process.env.AUTOMEM_API_KEY = 'sk-env';
+    expect(resolveApiKey({}, ENDPOINT)).toBe('sk-env');
+  });
+
+  // OpenClaw reads no previously installed credential, so this is the only half that
+  // applies to it — but it is the half that discloses a secret.
+  it('does not carry a shell key exported for a different endpoint', () => {
+    process.env.AUTOMEM_API_URL = 'https://elsewhere.example.test';
+    process.env.AUTOMEM_API_KEY = 'sk-env';
+    expect(resolveApiKey({}, ENDPOINT)).toBeUndefined();
+  });
+
+  it('keeps an unbound shell key', () => {
+    delete process.env.AUTOMEM_API_URL;
+    delete process.env.AUTOMEM_ENDPOINT;
+    process.env.AUTOMEM_API_KEY = 'sk-env';
+    expect(resolveApiKey({}, ENDPOINT)).toBe('sk-env');
+  });
+});
+
+// The resolver correctly returned undefined for a mismatched endpoint, but these
+// builders then put the stored key straight back — and `...existingConfig` copied it
+// forward even before the explicit fallback ran.
+describe('openclaw stored-key pairing in config builders', () => {
+  it('drops a plugin key stored for a different endpoint', () => {
+    const entry = buildPluginConfigEntry({
+      existing: { config: { endpoint: 'https://host-a.test', apiKey: 'sk-host-a' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    const config = entry.config as Record<string, unknown>;
+    expect(config.endpoint).toBe('https://host-b.test');
+    expect(config.apiKey).toBeUndefined();
+    expect(JSON.stringify(entry)).not.toContain('sk-host-a');
+  });
+
+  it('keeps a plugin key stored for the same endpoint', () => {
+    const entry = buildPluginConfigEntry({
+      existing: { config: { endpoint: 'https://same.test/', apiKey: 'sk-same' } },
+      endpoint: 'https://same.test',
+      defaultTags: [],
+    });
+    expect((entry.config as Record<string, unknown>).apiKey).toBe('sk-same');
+  });
+
+  it('lets an explicit key win over a mismatched stored one', () => {
+    const entry = buildPluginConfigEntry({
+      existing: { config: { endpoint: 'https://host-a.test', apiKey: 'sk-host-a' } },
+      endpoint: 'https://host-b.test',
+      apiKey: 'sk-explicit',
+      defaultTags: [],
+    });
+    expect((entry.config as Record<string, unknown>).apiKey).toBe('sk-explicit');
+  });
+
+  it('preserves unrelated plugin config while dropping the stale key', () => {
+    const entry = buildPluginConfigEntry({
+      existing: {
+        config: {
+          endpoint: 'https://host-a.test',
+          apiKey: 'sk-host-a',
+          autoRecall: false,
+          autoRecallLimit: 7,
+          exposure: 'all',
+        },
+      },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    const config = entry.config as Record<string, unknown>;
+    expect(config.apiKey).toBeUndefined();
+    expect(config.autoRecall).toBe(false);
+    expect(config.autoRecallLimit).toBe(7);
+    expect(config.exposure).toBe('all');
+  });
+
+  it('drops a skill key stored for a different endpoint', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-host-a', env: { AUTOMEM_API_URL: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    expect(entry.apiKey).toBeUndefined();
+    expect(JSON.stringify(entry)).not.toContain('sk-host-a');
+  });
+
+  // An entry written before the AUTOMEM_ENDPOINT -> AUTOMEM_API_URL rename still names
+  // its endpoint. Reading only the canonical name called a matching pair unpaired and
+  // deleted the key out of a working authenticated install.
+  // Pre-#77 installs wrote the credential INSIDE the env block, next to the legacy
+  // endpoint name — the same object literal set both. Guarding only the top-level
+  // apiKey let `...existingEnv` carry that copy forward while the endpoint names
+  // beside it were rewritten to the new host.
+  it('drops an env-block key stored for a different endpoint', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { env: { AUTOMEM_ENDPOINT: 'https://host-a.test', AUTOMEM_API_KEY: 'sk-host-a' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    expect(JSON.stringify(entry)).not.toContain('sk-host-a');
+    // Blank, not absent: this env block is layered over the host's own, so an absent
+    // name lets a shell-exported key pass through to the repointed server.
+    expect((entry.env as Record<string, unknown>).AUTOMEM_API_KEY).toBe('');
+    expect((entry.env as Record<string, unknown>).AUTOMEM_API_TOKEN).toBe('');
+  });
+
+  // The boundary itself: OpenClaw layers this env over its own for the skill's curl
+  // commands and the mcporter subprocess, so a rejected key must be shadowed, not
+  // merely removed. Same treatment as the Grok and Hermes entries.
+  it('shadows a rejected key so an inherited one cannot reach the repointed server', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-host-a', env: { AUTOMEM_API_URL: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    const env = entry.env as Record<string, string>;
+    const childEnv = {
+      AUTOMEM_API_URL: 'https://host-a.test',
+      AUTOMEM_API_KEY: 'sk-inherited',
+      ...env,
+    };
+    expect(childEnv.AUTOMEM_API_URL).toBe('https://host-b.test');
+    expect(readAutoMemApiKeyFromEnv(childEnv)).toBeUndefined();
+  });
+
+  it('shadows an inherited legacy token too', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-host-a', env: { AUTOMEM_API_URL: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    const childEnv = {
+      AUTOMEM_API_TOKEN: 'sk-inherited-legacy',
+      ...(entry.env as Record<string, string>),
+    };
+    expect(readAutoMemApiKeyFromEnv(childEnv)).toBeUndefined();
+  });
+
+  it('drops an env-block legacy token stored for a different endpoint', () => {
+    const entry = buildSkillConfigEntry({
+      existing: {
+        env: { AUTOMEM_API_URL: 'https://host-a.test', AUTOMEM_API_TOKEN: 'sk-legacy' },
+      },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    expect(JSON.stringify(entry)).not.toContain('sk-legacy');
+  });
+
+  it('keeps and syncs an env-block key when the endpoint is unchanged', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { env: { AUTOMEM_API_URL: 'https://same.test', AUTOMEM_API_KEY: 'sk-same' } },
+      endpoint: 'https://same.test',
+      defaultTags: [],
+    });
+    expect((entry.env as Record<string, unknown>).AUTOMEM_API_KEY).toBe('sk-same');
+    expect(entry.apiKey).toBe('sk-same');
+  });
+
+  it('does not introduce an env-block key where none existed', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { env: { AUTOMEM_API_URL: 'https://same.test' } },
+      endpoint: 'https://same.test',
+      apiKey: 'sk-new',
+      defaultTags: [],
+    });
+    // A resolved key lives in the top-level field; no env copy is introduced.
+    expect((entry.env as Record<string, unknown>).AUTOMEM_API_KEY).toBeUndefined();
+    expect(entry.apiKey).toBe('sk-new');
+  });
+
+  it('keeps a skill key paired via the deprecated AUTOMEM_ENDPOINT alias', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-legacy', env: { AUTOMEM_ENDPOINT: 'https://same.test' } },
+      endpoint: 'https://same.test',
+      defaultTags: [],
+    });
+    expect(entry.apiKey).toBe('sk-legacy');
+  });
+
+  it('still drops a legacy-aliased key when the endpoint actually changed', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-host-a', env: { AUTOMEM_ENDPOINT: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    expect(entry.apiKey).toBeUndefined();
+  });
+
+  // The spread carried a pre-rename alias forward untouched, leaving it naming the old
+  // host after an endpoint change.
+  it('keeps a pre-existing AUTOMEM_ENDPOINT in sync with the new endpoint', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { env: { AUTOMEM_ENDPOINT: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    const env = entry.env as Record<string, unknown>;
+    expect(env.AUTOMEM_API_URL).toBe('https://host-b.test');
+    expect(env.AUTOMEM_ENDPOINT).toBe('https://host-b.test');
+  });
+
+  it('does not add the deprecated alias to an entry that does not use it', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { env: { AUTOMEM_API_URL: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    expect(entry.env as Record<string, unknown>).not.toHaveProperty('AUTOMEM_ENDPOINT');
+  });
+
+  it('keeps a skill key stored for the same endpoint', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-same', env: { AUTOMEM_API_URL: 'https://same.test' } },
+      endpoint: 'https://same.test',
+      defaultTags: [],
+    });
+    expect(entry.apiKey).toBe('sk-same');
   });
 });

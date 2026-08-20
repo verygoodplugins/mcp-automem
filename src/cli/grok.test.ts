@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { parse as parseToml } from 'smol-toml';
 import { applyGrokSetup, GROK_RULES_END, GROK_RULES_START } from './grok.js';
+import { readAutoMemApiKeyFromEnv } from '../env.js';
 
 describe('grok setup', () => {
   let tmpDir: string;
@@ -11,6 +12,7 @@ describe('grok setup', () => {
   let originalApiUrl: string | undefined;
   let originalApiKey: string | undefined;
   let originalEndpoint: string | undefined;
+  let originalApiToken: string | undefined;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-setup-'));
@@ -18,10 +20,12 @@ describe('grok setup', () => {
     originalApiUrl = process.env.AUTOMEM_API_URL;
     originalApiKey = process.env.AUTOMEM_API_KEY;
     originalEndpoint = process.env.AUTOMEM_ENDPOINT;
+    originalApiToken = process.env.AUTOMEM_API_TOKEN;
     process.env.GROK_HOME = tmpDir;
     delete process.env.AUTOMEM_API_URL;
     delete process.env.AUTOMEM_API_KEY;
     delete process.env.AUTOMEM_ENDPOINT;
+    delete process.env.AUTOMEM_API_TOKEN;
   });
 
   afterEach(() => {
@@ -34,6 +38,8 @@ describe('grok setup', () => {
     else process.env.AUTOMEM_API_KEY = originalApiKey;
     if (originalEndpoint === undefined) delete process.env.AUTOMEM_ENDPOINT;
     else process.env.AUTOMEM_ENDPOINT = originalEndpoint;
+    if (originalApiToken === undefined) delete process.env.AUTOMEM_API_TOKEN;
+    else process.env.AUTOMEM_API_TOKEN = originalApiToken;
   });
 
   it('writes mcp_servers.memory and AGENTS.md rules', async () => {
@@ -131,7 +137,7 @@ describe('grok setup', () => {
       mcp_servers: { memory: { env: Record<string, string> } };
     };
     expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('https://second.example.test');
-    expect(parsed.mcp_servers.memory.env).not.toHaveProperty('AUTOMEM_API_KEY');
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('');
   });
 
   it('treats a trailing slash as the same endpoint and keeps the key', async () => {
@@ -181,7 +187,7 @@ describe('grok setup', () => {
       mcp_servers: { memory: { env: Record<string, string> } };
     };
     expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('https://elsewhere.example.test');
-    expect(parsed.mcp_servers.memory.env).not.toHaveProperty('AUTOMEM_API_KEY');
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('');
   });
 
   it('uses a shell-exported key when it belongs to the chosen endpoint', async () => {
@@ -268,7 +274,7 @@ describe('grok setup', () => {
 
     await expect(
       applyGrokSetup({ endpoint: 'https://automem.example.test', quiet: true })
-    ).rejects.toThrow(/without a matching/);
+    ).rejects.toThrow(/does not contain exactly one/);
 
     // The user's file is left exactly as it was.
     expect(fs.readFileSync(rulesPath, 'utf8')).toBe(handWritten);
@@ -291,7 +297,7 @@ describe('grok setup', () => {
 
     await expect(
       applyGrokSetup({ endpoint: 'https://other.example.test', apiKey: 'sk-other', quiet: true })
-    ).rejects.toThrow(/without a matching/);
+    ).rejects.toThrow(/does not contain exactly one/);
 
     // Neither file moved: no partial install.
     expect(fs.readFileSync(configPath, 'utf8')).toBe(configBefore);
@@ -306,7 +312,7 @@ describe('grok setup', () => {
 
     await expect(
       applyGrokSetup({ endpoint: 'https://automem.example.test', quiet: true })
-    ).rejects.toThrow(/without a matching/);
+    ).rejects.toThrow(/does not contain exactly one/);
   });
 
   it('dry-run does not write files', async () => {
@@ -406,5 +412,149 @@ describe('grok setup', () => {
     }
 
     expect(lines.join('\n')).not.toContain('disabled_mcp_servers');
+  });
+
+  // Both markers are present, so a one-sided check sees a well-formed file and
+  // replaces from the first start through the end — deleting the second marker and
+  // everything the user wrote between them. Counting is what catches it.
+  it('refuses when the rules file has two start markers and one end', async () => {
+    const rulesPath = path.join(tmpDir, 'AGENTS.md');
+    const handWritten = [
+      '# My notes',
+      GROK_RULES_START,
+      'first block',
+      GROK_RULES_START,
+      'content the user wrote and must not lose',
+      GROK_RULES_END,
+      '',
+    ].join('\n');
+    fs.writeFileSync(rulesPath, handWritten);
+
+    await expect(
+      applyGrokSetup({ endpoint: 'https://automem.example.test', quiet: true })
+    ).rejects.toThrow(/does not contain exactly one/);
+
+    expect(fs.readFileSync(rulesPath, 'utf8')).toBe(handWritten);
+  });
+
+  it('refuses when the end marker precedes the start marker', async () => {
+    const rulesPath = path.join(tmpDir, 'AGENTS.md');
+    const handWritten = ['# notes', GROK_RULES_END, 'inverted', GROK_RULES_START, ''].join('\n');
+    fs.writeFileSync(rulesPath, handWritten);
+
+    await expect(
+      applyGrokSetup({ endpoint: 'https://automem.example.test', quiet: true })
+    ).rejects.toThrow(/precedes/);
+
+    expect(fs.readFileSync(rulesPath, 'utf8')).toBe(handWritten);
+  });
+
+  // A flagless re-run over an install authenticated with the deprecated alias used to
+  // find no key and rewrite the entry without one, silently unauthenticating it.
+  it('preserves a legacy AUTOMEM_API_TOKEN credential across a flagless re-run', async () => {
+    const configPath = path.join(tmpDir, 'config.toml');
+    fs.writeFileSync(
+      configPath,
+      [
+        '[mcp_servers.memory]',
+        'command = "npx"',
+        'args = ["-y", "@verygoodplugins/mcp-automem"]',
+        'enabled = true',
+        '',
+        '[mcp_servers.memory.env]',
+        'AUTOMEM_API_URL = "https://legacy.example.test"',
+        'AUTOMEM_API_TOKEN = "sk-legacy"',
+        '',
+      ].join('\n')
+    );
+
+    await applyGrokSetup({ quiet: true, projectName: 'demo' });
+
+    const parsed = parseToml(fs.readFileSync(configPath, 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('https://legacy.example.test');
+    // Carried forward, and canonicalized to the name the installer writes.
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('sk-legacy');
+  });
+
+  it('does not carry a stored key to a different endpoint', async () => {
+    const configPath = path.join(tmpDir, 'config.toml');
+    await applyGrokSetup({
+      endpoint: 'https://first.example.test',
+      apiKey: 'sk-first',
+      quiet: true,
+    });
+
+    await applyGrokSetup({ endpoint: 'https://second.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(configPath, 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_URL).toBe('https://second.example.test');
+    // Blank rather than absent, so a shell-exported key cannot be inherited by the
+    // child process the host launches with this env layered over its own.
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('');
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_TOKEN).toBe('');
+  });
+
+  it('does not carry a shell key exported for another endpoint', async () => {
+    process.env.AUTOMEM_API_URL = 'https://shell.example.test';
+    process.env.AUTOMEM_API_KEY = 'sk-shell';
+
+    await applyGrokSetup({ endpoint: 'https://chosen.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    // Blank rather than absent, so a shell-exported key cannot be inherited by the
+    // child process the host launches with this env layered over its own.
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_KEY).toBe('');
+    expect(parsed.mcp_servers.memory.env.AUTOMEM_API_TOKEN).toBe('');
+  });
+
+  // The boundary that matters: the host launches the server with the entry's env
+  // layered over its own. Omitting the key from the entry does not stop a
+  // shell-exported one — issued for a different endpoint — from reaching the child.
+  it('shadows a shell key so the launched server cannot inherit it', async () => {
+    process.env.AUTOMEM_API_URL = 'https://shell.example.test';
+    process.env.AUTOMEM_API_KEY = 'sk-shell';
+
+    await applyGrokSetup({ endpoint: 'https://chosen.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    // Exactly how the host spawns it.
+    const childEnv = { ...process.env, ...parsed.mcp_servers.memory.env };
+    expect(childEnv.AUTOMEM_API_URL).toBe('https://chosen.example.test');
+    expect(readAutoMemApiKeyFromEnv(childEnv)).toBeUndefined();
+  });
+
+  it('shadows a shell key exported under the deprecated alias too', async () => {
+    process.env.AUTOMEM_ENDPOINT = 'https://shell.example.test';
+    process.env.AUTOMEM_API_TOKEN = 'sk-shell-legacy';
+
+    await applyGrokSetup({ endpoint: 'https://chosen.example.test', quiet: true });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    const childEnv = { ...process.env, ...parsed.mcp_servers.memory.env };
+    expect(readAutoMemApiKeyFromEnv(childEnv)).toBeUndefined();
+  });
+
+  it('still hands a resolved key to the launched server', async () => {
+    await applyGrokSetup({
+      endpoint: 'https://chosen.example.test',
+      apiKey: 'sk-real',
+      quiet: true,
+    });
+
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: { memory: { env: Record<string, string> } };
+    };
+    const childEnv = { ...process.env, ...parsed.mcp_servers.memory.env };
+    expect(readAutoMemApiKeyFromEnv(childEnv)).toBe('sk-real');
   });
 });

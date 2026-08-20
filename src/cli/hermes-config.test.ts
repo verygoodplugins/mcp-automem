@@ -76,9 +76,13 @@ describe('hermes-config', () => {
       });
     });
 
-    it('omits the API key when not provided', () => {
+    it('writes blank credential overrides when no key is provided', () => {
       const entry = buildAutoMemServerEntry('https://api.example.com');
-      expect(entry.env).not.toHaveProperty('AUTOMEM_API_KEY');
+      // Blank, not absent: the host layers this env over its own, so an omitted
+      // key leaves a shell-exported one inherited by the child. A blank shadows it
+      // and reads as absent to the server.
+      expect(entry.env.AUTOMEM_API_KEY).toBe('');
+      expect(entry.env.AUTOMEM_API_TOKEN).toBe('');
     });
   });
 
@@ -304,6 +308,91 @@ describe('hermes-config', () => {
       const creds = readExistingHermesCredentials(paths(tmpDir));
       expect(creds.endpoint).toBe('https://remote.automem.test');
       expect(creds.apiKey).toBe('sk-remote');
+    });
+
+    // config.yaml and the provider .env can describe different installs. Merging them
+    // field-wise produced {config endpoint, .env key}, which resolveInheritedApiKey
+    // then treats as a valid stored pair — writing the .env host's token into the
+    // config host's registration.
+    it('does not pair a config endpoint with a key written for a different endpoint', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'config.yaml'),
+        [
+          'mcp_servers:',
+          '  automem:',
+          '    command: npx',
+          '    env:',
+          '      AUTOMEM_API_URL: https://host-a.automem.test',
+          '',
+        ].join('\n')
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, '.env'),
+        'AUTOMEM_API_URL=https://host-b.automem.test\nAUTOMEM_API_KEY=sk-host-b\n'
+      );
+
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBe('https://host-a.automem.test');
+      expect(creds.apiKey).toBeUndefined();
+    });
+
+    it('does not pair a config endpoint with a legacy token written for another endpoint', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'config.yaml'),
+        [
+          'mcp_servers:',
+          '  automem:',
+          '    command: npx',
+          '    env:',
+          '      AUTOMEM_API_URL: https://host-a.automem.test',
+          '',
+        ].join('\n')
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, '.env'),
+        'AUTOMEM_ENDPOINT=https://host-b.automem.test\nAUTOMEM_API_TOKEN=sk-host-b\n'
+      );
+
+      expect(readExistingHermesCredentials(paths(tmpDir)).apiKey).toBeUndefined();
+    });
+
+    // The normal case: `both` mode writes config.yaml and .env with identical values,
+    // so the .env key must still be recovered when the config entry omits it.
+    // Valid dotenv spellings of the SAME endpoint. Hand-parsing unwrapped only double
+    // quotes and never stripped comments, so a same-endpoint re-run compared raw text,
+    // saw a mismatch, and deleted a working credential.
+    it.each([
+      ['single quotes', "AUTOMEM_API_URL='https://same.automem.test'"],
+      ['a trailing comment', 'AUTOMEM_API_URL=https://same.automem.test # production'],
+      ['an export prefix', 'export AUTOMEM_API_URL=https://same.automem.test'],
+    ])('reads a .env endpoint written with %s', (_label, line) => {
+      fs.writeFileSync(path.join(tmpDir, '.env'), `${line}\nAUTOMEM_API_KEY=sk-env\n`);
+
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBe('https://same.automem.test');
+      expect(creds.apiKey).toBe('sk-env');
+    });
+
+    it('reuses the .env key when both sources name the same endpoint', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'config.yaml'),
+        [
+          'mcp_servers:',
+          '  automem:',
+          '    command: npx',
+          '    env:',
+          '      AUTOMEM_API_URL: https://same.automem.test',
+          '',
+        ].join('\n')
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, '.env'),
+        'AUTOMEM_API_URL=https://same.automem.test/\nAUTOMEM_API_KEY=sk-shared\n'
+      );
+
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBe('https://same.automem.test');
+      expect(creds.apiKey).toBe('sk-shared');
     });
 
     it('falls back to ~/.hermes/.env and strips quotes', () => {

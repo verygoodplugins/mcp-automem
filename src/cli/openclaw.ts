@@ -4,15 +4,21 @@ import path from 'path';
 import { execFileSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { AutoMemClient } from '../automem-client.js';
-import { readAutoMemApiKeyFromEnv } from '../env.js';
 import { buildDefaultProjectTags } from '../memory-policy/shared.js';
 import { buildStartupProfileFromResults } from '../openclaw-startup-profile.js';
+import {
+  AUTOMEM_API_KEY_NAMES,
+  readApiKeyFrom,
+  readEndpointFrom,
+  resolveInheritedApiKey,
+  sameEndpoint,
+} from './host-toolkit.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
 export type OpenClawSetupMode = 'plugin' | 'mcp' | 'skill';
 export type OpenClawSetupScope = 'workspace' | 'shared';
 
-interface OpenClawSetupOptions {
+export interface OpenClawSetupOptions {
   workspace?: string;
   projectName?: string;
   dryRun?: boolean;
@@ -486,6 +492,11 @@ function renderConfigEntryForOutput(label: string, entry: unknown, options: Open
   log(`${label}: ${JSON.stringify(redactConfigForOutput(entry), null, 2)}`, options.quiet);
 }
 
+/** A non-blank string key, or undefined. */
+function reusableKey(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 export function buildPluginConfigEntry(params: {
   existing?: Record<string, unknown>;
   endpoint: string;
@@ -495,47 +506,55 @@ export function buildPluginConfigEntry(params: {
 }): Record<string, unknown> {
   const existing = isRecord(params.existing) ? params.existing : {};
   const existingConfig = isRecord(existing.config) ? existing.config : {};
-  const existingApiKey =
-    typeof existingConfig.apiKey === 'string' && existingConfig.apiKey.trim()
-      ? existingConfig.apiKey.trim()
-      : undefined;
+  // The installed key is reused on a flagless re-run, but only when it was issued for
+  // the endpoint being written. Without the pairing check, `--endpoint B` with no
+  // --api-key kept A's key here and the plugin sent A's credential to B — the resolver
+  // correctly returned undefined and this fallback put it straight back.
+  const existingApiKey = sameEndpoint(
+    typeof existingConfig.endpoint === 'string' ? existingConfig.endpoint : undefined,
+    params.endpoint
+  )
+    ? reusableKey(existingConfig.apiKey)
+    : undefined;
+  const apiKey = params.apiKey?.trim() || existingApiKey;
 
-  return {
-    ...existing,
-    enabled: true,
-    config: {
-      ...existingConfig,
-      endpoint: params.endpoint,
-      ...(params.apiKey || existingApiKey ? { apiKey: params.apiKey || existingApiKey } : {}),
-      autoRecall: typeof existingConfig.autoRecall === 'boolean' ? existingConfig.autoRecall : true,
-      ...(typeof existingConfig.autoRecallLimit === 'number' &&
-      Number.isFinite(existingConfig.autoRecallLimit)
-        ? { autoRecallLimit: existingConfig.autoRecallLimit }
-        : {}),
-      ...(typeof existingConfig.preferenceRecallLimit === 'number' &&
-      Number.isFinite(existingConfig.preferenceRecallLimit)
-        ? { preferenceRecallLimit: existingConfig.preferenceRecallLimit }
-        : {}),
-      ...(typeof existingConfig.contextRecallLimit === 'number' &&
-      Number.isFinite(existingConfig.contextRecallLimit)
-        ? { contextRecallLimit: existingConfig.contextRecallLimit }
-        : {}),
-      ...(typeof existingConfig.debugRecallLimit === 'number' &&
-      Number.isFinite(existingConfig.debugRecallLimit)
-        ? { debugRecallLimit: existingConfig.debugRecallLimit }
-        : {}),
-      ...(typeof existingConfig.contextRecallWindowDays === 'number' &&
-      Number.isFinite(existingConfig.contextRecallWindowDays)
-        ? { contextRecallWindowDays: existingConfig.contextRecallWindowDays }
-        : {}),
-      exposure:
-        typeof existingConfig.exposure === 'string' && existingConfig.exposure.trim()
-          ? existingConfig.exposure
-          : 'dm-only',
-      ...(params.defaultTags.length > 0 ? { defaultTags: params.defaultTags } : {}),
-      ...(params.startupProfile ? { startupProfile: params.startupProfile } : {}),
-    },
+  const config: Record<string, unknown> = {
+    ...existingConfig,
+    endpoint: params.endpoint,
+    autoRecall: typeof existingConfig.autoRecall === 'boolean' ? existingConfig.autoRecall : true,
+    ...(typeof existingConfig.autoRecallLimit === 'number' &&
+    Number.isFinite(existingConfig.autoRecallLimit)
+      ? { autoRecallLimit: existingConfig.autoRecallLimit }
+      : {}),
+    ...(typeof existingConfig.preferenceRecallLimit === 'number' &&
+    Number.isFinite(existingConfig.preferenceRecallLimit)
+      ? { preferenceRecallLimit: existingConfig.preferenceRecallLimit }
+      : {}),
+    ...(typeof existingConfig.contextRecallLimit === 'number' &&
+    Number.isFinite(existingConfig.contextRecallLimit)
+      ? { contextRecallLimit: existingConfig.contextRecallLimit }
+      : {}),
+    ...(typeof existingConfig.debugRecallLimit === 'number' &&
+    Number.isFinite(existingConfig.debugRecallLimit)
+      ? { debugRecallLimit: existingConfig.debugRecallLimit }
+      : {}),
+    ...(typeof existingConfig.contextRecallWindowDays === 'number' &&
+    Number.isFinite(existingConfig.contextRecallWindowDays)
+      ? { contextRecallWindowDays: existingConfig.contextRecallWindowDays }
+      : {}),
+    exposure:
+      typeof existingConfig.exposure === 'string' && existingConfig.exposure.trim()
+        ? existingConfig.exposure
+        : 'dm-only',
+    ...(params.defaultTags.length > 0 ? { defaultTags: params.defaultTags } : {}),
+    ...(params.startupProfile ? { startupProfile: params.startupProfile } : {}),
   };
+  // Explicit delete, not an omitted spread: `...existingConfig` above already copied
+  // the old key forward, so leaving it out of the literal would not remove it.
+  if (apiKey) config.apiKey = apiKey;
+  else delete config.apiKey;
+
+  return { ...existing, enabled: true, config };
 }
 
 export function buildSkillConfigEntry(params: {
@@ -546,23 +565,57 @@ export function buildSkillConfigEntry(params: {
 }): Record<string, unknown> {
   const existing = isRecord(params.existing) ? params.existing : {};
   const existingEnv = isRecord(existing.env) ? existing.env : {};
-  const existingApiKey =
-    typeof existing.apiKey === 'string' && existing.apiKey.trim()
-      ? existing.apiKey.trim()
-      : undefined;
+  // Same pairing rule as the plugin entry; here the previously written endpoint lives
+  // in the entry's own env block. Read under both supported names — an entry written
+  // before the AUTOMEM_ENDPOINT → AUTOMEM_API_URL rename still names its endpoint, and
+  // reading only the canonical one would call a matching pair unpaired and delete the
+  // key out of a working authenticated install.
+  const existingEndpoint = readEndpointFrom(existingEnv);
+  // The credential can live in either of two places on disk, and both have to obey the
+  // pairing. Pre-#77 installs wrote it *inside* this env block (`configureEnvVars` set
+  // AUTOMEM_ENDPOINT and AUTOMEM_API_KEY into the same literal); the current shape is a
+  // top-level `apiKey`. Guarding only the top-level field let the env copy ride along:
+  // `...existingEnv` carried the old key forward while both endpoint names beside it
+  // were rewritten to the new host.
+  const existingApiKey = sameEndpoint(existingEndpoint, params.endpoint)
+    ? (reusableKey(existing.apiKey) ?? readApiKeyFrom(existingEnv))
+    : undefined;
+  const apiKey = params.apiKey?.trim() || existingApiKey;
 
-  return {
-    ...existing,
-    enabled: true,
-    ...(params.apiKey || existingApiKey ? { apiKey: params.apiKey || existingApiKey } : {}),
-    env: {
-      ...existingEnv,
-      AUTOMEM_API_URL: params.endpoint,
-      ...(params.defaultTags.length > 0
-        ? { AUTOMEM_DEFAULT_TAGS: params.defaultTags.join(',') }
-        : {}),
-    },
+  const env: Record<string, unknown> = {
+    ...existingEnv,
+    AUTOMEM_API_URL: params.endpoint,
+    // The spread carries a pre-rename AUTOMEM_ENDPOINT forward untouched, which would
+    // leave it naming the *old* host after an endpoint change. Kept in sync when the
+    // entry already uses it, never added when it does not — matching how install.ts
+    // treats the same alias in .env.
+    ...(typeof existingEnv.AUTOMEM_ENDPOINT === 'string'
+      ? { AUTOMEM_ENDPOINT: params.endpoint }
+      : {}),
+    ...(params.defaultTags.length > 0
+      ? { AUTOMEM_DEFAULT_TAGS: params.defaultTags.join(',') }
+      : {}),
   };
+  // Blank overrides, not deletes. Deleting clears the value the spread copied forward,
+  // but this env block is layered over the host's own when the skill's curl commands
+  // and the mcporter subprocess run — so an absent name lets a shell-exported key,
+  // issued for a different endpoint, pass through to a server this entry just
+  // repointed. Same boundary, and the same treatment, as the Grok and Hermes entries.
+  if (apiKey) {
+    // A resolved key lives in the top-level `apiKey` field, which is what OpenClaw maps
+    // into the skill's environment; an env copy is only synced when the entry already
+    // carried one, so the entry shape does not change.
+    for (const name of AUTOMEM_API_KEY_NAMES) {
+      if (Object.prototype.hasOwnProperty.call(env, name)) env[name] = apiKey;
+    }
+  } else {
+    for (const name of AUTOMEM_API_KEY_NAMES) env[name] = '';
+  }
+
+  const entry: Record<string, unknown> = { ...existing, enabled: true, env };
+  if (apiKey) entry.apiKey = apiKey;
+  else delete entry.apiKey;
+  return entry;
 }
 
 export function buildMcporterConfig(params: {
@@ -1105,14 +1158,18 @@ function resolveEndpoint(options: OpenClawSetupOptions): string {
   );
 }
 
-function resolveApiKey(options: OpenClawSetupOptions): string | undefined {
-  return options.apiKey?.trim() || readAutoMemApiKeyFromEnv();
+// A key belongs to the endpoint it was issued for: an exported key with an exported
+// endpoint must not follow `--endpoint <other>` to a different host. The *stored* half
+// is enforced in buildPluginConfigEntry/buildSkillConfigEntry instead, because the
+// previously written endpoint lives in the config entry those functions already read.
+export function resolveApiKey(options: OpenClawSetupOptions, endpoint: string): string | undefined {
+  return resolveInheritedApiKey({ endpoint, explicitKey: options.apiKey });
 }
 
 export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Promise<void> {
   const projectName = cliOptions.projectName ?? detectProjectName();
   const endpoint = resolveEndpoint(cliOptions);
-  const apiKey = resolveApiKey(cliOptions);
+  const apiKey = resolveApiKey(cliOptions, endpoint);
   const defaultTags = buildDefaultTags(projectName);
   const workspaceDir = resolveWorkspaceDir(cliOptions.workspace);
   const requiresWorkspace = cliOptions.mode !== 'plugin' || cliOptions.scope === 'workspace';
