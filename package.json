@@ -75,7 +75,7 @@
     "eslint": "^10.2.1",
     "husky": "^9.1.7",
     "node-pty": "^1.0.0",
-    "prettier": "3.4.2",
+    "prettier": "3.9.6",
     "tsx": "^4.6.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.0",
