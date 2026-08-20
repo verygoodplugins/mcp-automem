@@ -5,14 +5,19 @@ import {
   CommonOptions,
   detectProjectName,
   log,
+  type MarkedBlockMarkers,
   parseCommonFlags,
   replaceTemplateVars,
   AUTOMEM_API_KEY_NAMES,
   AUTOMEM_ENDPOINT_NAMES,
   parseEnvAssignment,
   resolveInheritedApiKey,
+  scanMarkedBlock,
+  stripMarkedBlock,
+  upsertMarkedBlock,
   writeFileWithBackup,
 } from './host-toolkit.js';
+import { CODEX_RULES_MARKERS } from './codex.js';
 import {
   buildAutoMemServerEntry,
   readExistingHermesCredentials,
@@ -40,37 +45,24 @@ const HERMES_TEMPLATE_ROOT = path.resolve(
 const HERMES_PROVIDER_TEMPLATE_ROOT = path.join(HERMES_TEMPLATE_ROOT, 'provider');
 const HERMES_MCP_SERVER_NAME = 'automem';
 const HERMES_PROVIDER_NAME = 'automem';
-const HERMES_RULES_START = '<!-- BEGIN AUTOMEM HERMES RULES -->';
-const HERMES_RULES_END = '<!-- END AUTOMEM HERMES RULES -->';
-const CODEX_RULES_START = '<!-- BEGIN AUTOMEM CODEX RULES -->';
-const CODEX_RULES_END = '<!-- END AUTOMEM CODEX RULES -->';
+export const HERMES_RULES_START = '<!-- BEGIN AUTOMEM HERMES RULES -->';
+export const HERMES_RULES_END = '<!-- END AUTOMEM HERMES RULES -->';
+const HERMES_RULES_MARKERS: MarkedBlockMarkers = {
+  start: HERMES_RULES_START,
+  end: HERMES_RULES_END,
+};
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function removeMarkedBlocks(existing: string, start: string, end: string): string {
-  const pattern = new RegExp(`\\n?${escapeRegExp(start)}[\\s\\S]*?${escapeRegExp(end)}\\n?`, 'g');
-  return existing.replace(pattern, '\n').replace(/\n{3,}/g, '\n\n');
-}
-
-function upsertRulesWithMarkers(existing: string | null, block: string): string {
-  // Normalize to exactly one trailing newline so re-runs are byte-stable
-  // (the previous codex.ts shape accreted a newline each merge).
-  const normalize = (s: string) => `${s.replace(/\n+$/, '')}\n`;
+function upsertRulesWithMarkers(existing: string | null, block: string, rulesPath: string): string {
   if (!existing) {
-    return normalize(block);
+    return upsertMarkedBlock(null, block, HERMES_RULES_MARKERS, rulesPath);
   }
-  const cleaned = removeMarkedBlocks(existing, CODEX_RULES_START, CODEX_RULES_END);
-  const startIdx = cleaned.indexOf(HERMES_RULES_START);
-  const endIdx = cleaned.indexOf(HERMES_RULES_END);
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const before = cleaned.slice(0, startIdx);
-    const after = cleaned.slice(endIdx + HERMES_RULES_END.length);
-    return normalize(`${before}${block}${after}`);
-  }
-  const sep = cleaned.endsWith('\n') ? '\n' : '\n\n';
-  return normalize(`${cleaned}${sep}${block}`);
+  // Hermes used to install the Codex rules into this same file. Dropping that block is
+  // a best-effort migration, so a malformed Codex pair is left alone rather than made
+  // fatal — the Hermes block is what this run is responsible for, and refusing the
+  // install over someone else's stray marker helps nobody.
+  const codexScan = scanMarkedBlock(existing, CODEX_RULES_MARKERS);
+  const cleaned = codexScan.paired ? stripMarkedBlock(existing, CODEX_RULES_MARKERS) : existing;
+  return upsertMarkedBlock(cleaned, block, HERMES_RULES_MARKERS, rulesPath);
 }
 
 function formatEnvValue(value: string): string {
@@ -244,6 +236,23 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
   log(`📄 Config: ${paths.configPath}`, cliOptions.quiet);
   log(`📄 Rules: ${rulesPath}\n`, cliOptions.quiet);
 
+  // Everything that can reject the run happens before anything is written, matching
+  // applyGrokSetup. upsertRulesWithMarkers throws on a stray marker, and rendering the
+  // template is pure — so validating here is what makes "nothing was written" true.
+  // Validating after the config write would leave a failed mode switch having already
+  // moved the MCP entry, the memory provider, the .env, and the provider files while
+  // telling the user to repair their rules file and re-run.
+  const templateContent = fs.readFileSync(
+    path.join(HERMES_TEMPLATE_ROOT, 'memory-rules.md'),
+    'utf8'
+  );
+  const processed = replaceTemplateVars(templateContent, {
+    PROJECT_NAME: projectName,
+    HERMES_MODE_RULES: renderHermesModeRules(mode),
+  });
+  const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
+  const finalContent = upsertRulesWithMarkers(existingContent, processed, rulesPath);
+
   if (mode === 'provider') {
     removeMcpServerEntry(paths.configPath, HERMES_MCP_SERVER_NAME, {
       dryRun: cliOptions.dryRun,
@@ -297,17 +306,6 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
     installHermesProvider(paths, endpoint, apiKey, mode === 'provider', cliOptions);
   }
 
-  const templateContent = fs.readFileSync(
-    path.join(HERMES_TEMPLATE_ROOT, 'memory-rules.md'),
-    'utf8'
-  );
-  const processed = replaceTemplateVars(templateContent, {
-    PROJECT_NAME: projectName,
-    HERMES_MODE_RULES: renderHermesModeRules(mode),
-  });
-
-  const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
-  const finalContent = upsertRulesWithMarkers(existingContent, processed);
   writeFileWithBackup(rulesPath, finalContent, cliOptions);
 
   log('\n📊 Configuration Status:', cliOptions.quiet);

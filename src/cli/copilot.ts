@@ -8,6 +8,20 @@ import {
   type CopilotInstallFormat,
   type CopilotHookSurface,
 } from './hook-model.js';
+import {
+  describeMarkedBlockDefect,
+  scanMarkedBlock,
+  stripMarkedBlock,
+  upsertMarkedBlock,
+  type MarkedBlockMarkers,
+} from './host-toolkit.js';
+
+export const COPILOT_RULES_START = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
+export const COPILOT_RULES_END = '<!-- END AUTOMEM MEMORY RULES -->';
+const COPILOT_RULES_MARKERS: MarkedBlockMarkers = {
+  start: COPILOT_RULES_START,
+  end: COPILOT_RULES_END,
+};
 
 // --- Type Definitions (T002, T003) ---
 
@@ -188,12 +202,18 @@ function removeCliMemoryRules(targetPath: string, options: CopilotSetupOptions):
     return false;
   }
 
-  const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
-  const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
   const existing = fs.readFileSync(targetPath, 'utf8');
-  const start = existing.indexOf(startMarker);
-  const end = existing.indexOf(endMarker);
-  if (start === -1 || end === -1) {
+  const scan = scanMarkedBlock(existing, COPILOT_RULES_MARKERS);
+  if (scan.absent) {
+    return false;
+  }
+  if (!scan.paired) {
+    // Stripping across a stray marker walks from a start to the *next* end and takes
+    // the user's content in between with it. Leave the file alone and say why.
+    console.warn(
+      `Warning: left ${targetPath} untouched — ${describeMarkedBlockDefect(scan, COPILOT_RULES_MARKERS)}. ` +
+        'Remove the stray marker by hand, then re-run.'
+    );
     return false;
   }
   if (options.dryRun) {
@@ -201,9 +221,7 @@ function removeCliMemoryRules(targetPath: string, options: CopilotSetupOptions):
     return true;
   }
 
-  const updated = (existing.slice(0, start) + existing.slice(end + endMarker.length))
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  const updated = stripMarkedBlock(existing, COPILOT_RULES_MARKERS).trim();
   if (!updated) {
     return removeFileWithBackup(targetPath, options);
   }
@@ -415,7 +433,70 @@ function installSupportScripts(targetDir: string, options: CopilotSetupOptions) 
   }
 }
 
-function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
+interface PreparedCliMemoryRules {
+  targetPath: string;
+  existing: string;
+  updated: string;
+}
+
+/**
+ * Render the CLI rules file and validate the markers already in it — pure except for
+ * reads, and the only step of a Copilot install that can refuse.
+ *
+ * Called up front by applyCopilotSetup so a stray marker rejects the run before any
+ * hook is removed or installed. Validating at write time instead would leave a failed
+ * profile switch with stale hooks deleted, new hooks written, and the VS Code rules
+ * replaced, while telling the user nothing was written.
+ *
+ * Returns null when CLI rules are not part of this install or the packaged template is
+ * unusable; both mean "no CLI rules to write", which is not a failure.
+ */
+function prepareCliMemoryRules(
+  targetDir: string,
+  options: CopilotSetupOptions
+): PreparedCliMemoryRules | null {
+  const format = options.format ?? 'both';
+  if (format !== 'cli' && format !== 'both') {
+    return null;
+  }
+
+  const cliTemplatePath = path.resolve(
+    fileURLToPath(new URL('../../templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md', import.meta.url))
+  );
+  if (!fs.existsSync(cliTemplatePath)) {
+    return null;
+  }
+
+  const templateContent = fs.readFileSync(cliTemplatePath, 'utf8');
+  // Extract just the memory rules block (between the markdown fence markers)
+  const blockStart = templateContent.indexOf('<memory_rules>');
+  const blockEnd = templateContent.indexOf('</memory_rules>');
+  if (blockStart === -1 || blockEnd === -1) {
+    console.error(
+      'Error: Could not find <memory_rules> markers in template - package may be corrupted'
+    );
+    return null;
+  }
+  const rulesBlock = templateContent.slice(blockStart, blockEnd + '</memory_rules>'.length);
+  const markedBlock = `${COPILOT_RULES_START}\n${rulesBlock}\n${COPILOT_RULES_END}`;
+
+  const targetPath = path.join(targetDir, 'copilot-instructions.md');
+  const existing = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, 'utf8') : '';
+  const updated = upsertMarkedBlock(
+    existing.length > 0 ? existing : null,
+    markedBlock,
+    COPILOT_RULES_MARKERS,
+    targetPath
+  );
+
+  return { targetPath, existing, updated };
+}
+
+function installMemoryRules(
+  targetDir: string,
+  options: CopilotSetupOptions,
+  cliRules: PreparedCliMemoryRules | null
+) {
   const format = options.format ?? 'both';
   const installVscode = format === 'vscode' || format === 'both';
   const installCli = format === 'cli' || format === 'both';
@@ -442,60 +523,18 @@ function installMemoryRules(targetDir: string, options: CopilotSetupOptions) {
     }
   }
 
-  // CLI: <targetDir>/copilot-instructions.md (append AutoMem block using markers)
-  if (installCli) {
-    const cliTemplatePath = path.resolve(
-      fileURLToPath(
-        new URL('../../templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md', import.meta.url)
-      )
-    );
-    if (fs.existsSync(cliTemplatePath)) {
-      const templateContent = fs.readFileSync(cliTemplatePath, 'utf8');
-      // Extract just the memory rules block (between the markdown fence markers)
-      const blockStart = templateContent.indexOf('<memory_rules>');
-      const blockEnd = templateContent.indexOf('</memory_rules>');
-      if (blockStart === -1 || blockEnd === -1) {
-        console.error(
-          'Error: Could not find <memory_rules> markers in template - package may be corrupted'
-        );
-        return;
-      }
-      const rulesBlock = templateContent.slice(blockStart, blockEnd + '</memory_rules>'.length);
-
-      const startMarker = '<!-- BEGIN AUTOMEM MEMORY RULES -->';
-      const endMarker = '<!-- END AUTOMEM MEMORY RULES -->';
-      const markedBlock = `${startMarker}\n${rulesBlock}\n${endMarker}`;
-
-      if (options.dryRun) {
-        log(`dry-run: would update ${cliTargetPath} (memory rules block)`, options.quiet);
-        return;
-      }
-
-      const existing = fs.existsSync(cliTargetPath) ? fs.readFileSync(cliTargetPath, 'utf8') : '';
-
-      let updated: string;
-      const existingStart = existing.indexOf(startMarker);
-      const existingEnd = existing.indexOf(endMarker);
-
-      if (existingStart !== -1 && existingEnd !== -1) {
-        // Replace existing block
-        const before = existing.slice(0, existingStart);
-        const after = existing.slice(existingEnd + endMarker.length);
-        updated = `${before}${markedBlock}${after}`;
-      } else if (existing.length > 0) {
-        // Append to existing file
-        const sep = existing.endsWith('\n') ? '\n' : '\n\n';
-        updated = `${existing}${sep}${markedBlock}\n`;
-      } else {
-        // New file
-        updated = `${markedBlock}\n`;
-      }
-
-      if (updated !== existing) {
-        writeFileWithBackup(cliTargetPath, updated, options);
-      }
-      log(`installed: ${cliTargetPath} (CLI memory rules)`, options.quiet);
+  // CLI: <targetDir>/copilot-instructions.md (append AutoMem block using markers).
+  // Rendered and validated up front by prepareCliMemoryRules; this only writes.
+  if (installCli && cliRules) {
+    if (options.dryRun) {
+      log(`dry-run: would update ${cliRules.targetPath} (memory rules block)`, options.quiet);
+      return;
     }
+
+    if (cliRules.updated !== cliRules.existing) {
+      writeFileWithBackup(cliRules.targetPath, cliRules.updated, options);
+    }
+    log(`installed: ${cliRules.targetPath} (CLI memory rules)`, options.quiet);
   }
 }
 
@@ -530,6 +569,12 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
 
   log(`Profile: ${profileName} (${profile.hooks.length} hooks)`, options.quiet);
 
+  // Everything that can reject the run happens before anything is written. A stray
+  // marker in copilot-instructions.md throws here, so a refused install has not yet
+  // removed a stale hook, written a new one, or replaced the VS Code rules — which is
+  // what makes the documented "nothing was written, so nothing needs undoing" true.
+  const cliRules = prepareCliMemoryRules(targetDir, options);
+
   // T032: Create target directories (including when --dir points to non-existent path)
   if (!options.dryRun) {
     fs.mkdirSync(path.join(targetDir, 'hooks'), { recursive: true });
@@ -559,7 +604,7 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
   installSupportScripts(targetDir, options);
 
   // Install memory rules based on --format
-  installMemoryRules(targetDir, options);
+  installMemoryRules(targetDir, options, cliRules);
 
   // T021/T030: Post-installation summary (skip for dry-run - files listed inline already)
   const format = options.format ?? 'both';

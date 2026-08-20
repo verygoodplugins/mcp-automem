@@ -157,6 +157,149 @@ describe('installMemoryRules (format gating)', () => {
     expect(fs.existsSync(vscodePath)).toBe(false);
   });
 
+  // Two starts and one end: both markers are present and correctly ordered, so an
+  // indexOf-based check calls the file well-formed and replaces from the first start
+  // through the end — silently deleting the second marker and the user's notes.
+  it('refuses to rewrite CLI rules with two start markers and one end', async () => {
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const handWritten = [
+      '# My custom instructions',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'stale half-block',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'notes the user wrote between the markers',
+      '<!-- END AUTOMEM MEMORY RULES -->',
+      '',
+    ].join('\n');
+    fs.writeFileSync(cliPath, handWritten, 'utf8');
+
+    await expect(
+      applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true })
+    ).rejects.toThrow(/found 2 start markers and 1 end marker/);
+
+    expect(fs.readFileSync(cliPath, 'utf8')).toBe(handWritten);
+  });
+
+  // A rejected run must not leave Copilot half-updated. Validation runs before stale
+  // hooks are removed, new hooks and scripts are installed, or the VS Code rules are
+  // replaced — so a failed profile switch really does leave the install as it was.
+  it('writes nothing at all when the CLI rules file is rejected', async () => {
+    await applyCopilotSetup({
+      targetDir: tempDir,
+      format: 'both',
+      profile: 'full',
+      yes: true,
+      quiet: true,
+    });
+
+    const snapshot = (): Record<string, string> => {
+      const seen: Record<string, string> = {};
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(full);
+          else seen[path.relative(tempDir, full)] = fs.readFileSync(full, 'utf8');
+        }
+      };
+      walk(tempDir);
+      return seen;
+    };
+
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const handWritten = [
+      '# My custom instructions',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'stale half-block',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'notes the user wrote between the markers',
+      '<!-- END AUTOMEM MEMORY RULES -->',
+      '',
+    ].join('\n');
+    fs.writeFileSync(cliPath, handWritten, 'utf8');
+    const before = snapshot();
+
+    // A profile switch is the case that would otherwise delete hooks before failing.
+    await expect(
+      applyCopilotSetup({
+        targetDir: tempDir,
+        format: 'both',
+        profile: 'lean',
+        yes: true,
+        quiet: true,
+      })
+    ).rejects.toThrow(/found 2 start markers and 1 end marker/);
+
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('refuses a one-sided CLI marker instead of appending', async () => {
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const handWritten = ['# Notes', '<!-- BEGIN AUTOMEM MEMORY RULES -->', 'half a block', ''].join(
+      '\n'
+    );
+    fs.writeFileSync(cliPath, handWritten, 'utf8');
+
+    await expect(
+      applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true })
+    ).rejects.toThrow(/without a matching/);
+
+    expect(fs.readFileSync(cliPath, 'utf8')).toBe(handWritten);
+  });
+
+  it('dry-run surfaces a malformed CLI rules file instead of promising an update', async () => {
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    fs.writeFileSync(
+      cliPath,
+      [
+        '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+        'a',
+        '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+        'b',
+        '<!-- END AUTOMEM MEMORY RULES -->',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+
+    await expect(
+      applyCopilotSetup({
+        targetDir: tempDir,
+        format: 'cli',
+        yes: true,
+        quiet: true,
+        dryRun: true,
+      })
+    ).rejects.toThrow(/found 2 start markers and 1 end marker/);
+  });
+
+  // Removing the block on a --format vscode re-run walks from a start to the *next*
+  // end, so a stray marker means the user's content in between goes with it.
+  it('leaves a malformed CLI rules file alone when re-run for VS Code only', async () => {
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const handWritten = [
+      '# My custom instructions',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'stale half-block',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'notes the user wrote between the markers',
+      '<!-- END AUTOMEM MEMORY RULES -->',
+      '',
+    ].join('\n');
+    fs.writeFileSync(cliPath, handWritten, 'utf8');
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => void warnings.push(args.join(' '));
+    try {
+      await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(fs.readFileSync(cliPath, 'utf8')).toBe(handWritten);
+    expect(warnings.join('\n')).toMatch(/found 2 start markers and 1 end marker/);
+  });
+
   it('removes only the managed CLI block when re-run for VS Code only', async () => {
     await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
     const cliPath = path.join(tempDir, 'copilot-instructions.md');

@@ -1634,6 +1634,25 @@ npx @verygoodplugins/mcp-automem help
 - Verify content doesn't exceed size limits
 - Ensure proper data formatting
 
+### Rules File Issues
+
+#### "does not contain exactly one … block"
+
+Every host writes its memory rules as a marked block (`<!-- BEGIN AUTOMEM … RULES -->` …
+`<!-- END AUTOMEM … RULES -->`) inside a Markdown file you also own. The installer rewrites
+only the bytes between those markers, so it requires exactly one correctly ordered pair.
+
+If a rules file ends up with a stray marker — an interrupted run, a hand edit that removed
+half the block, or a merge that duplicated it — the installer refuses to touch the file and
+names the defect instead. Rewriting anyway would delete whatever sits between the stray
+markers, which is usually content you wrote.
+
+**Fix:** open the file named in the error, remove or restore the stray marker so exactly one
+`BEGIN`/`END` pair remains (or delete the block entirely and let the installer re-add it),
+then re-run. Nothing was written, so nothing needs undoing. Hosts that only *remove* a stale
+block (OpenClaw's legacy `AGENTS.md` cleanup, Copilot's `--format vscode` re-run) print a
+warning and leave the file alone rather than failing the install.
+
 ### Platform-Specific Issues
 
 #### Claude Desktop: MCP server not appearing

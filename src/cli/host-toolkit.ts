@@ -347,6 +347,181 @@ export function replaceTemplateVars(content: string, vars: Record<string, string
   return result;
 }
 
+// --- Marked rules blocks -----------------------------------------------------
+//
+// Every host installs its memory rules as a marked block inside a Markdown file the
+// user also owns (AGENTS.md, copilot-instructions.md). The markers are the only thing
+// telling an installer which bytes are its own, so the shape of the markers in the
+// file is a correctness question, not a formatting one — see upsertMarkedBlock.
+
+export interface MarkedBlockMarkers {
+  start: string;
+  end: string;
+}
+
+export interface MarkedBlockScan {
+  /** Occurrences of the start marker. */
+  starts: number;
+  /** Occurrences of the end marker. */
+  ends: number;
+  /** Index of the first start marker, or -1 when there is none. */
+  startIndex: number;
+  /** Index of the first end marker, or -1 when there is none. */
+  endIndex: number;
+  /** Neither marker appears anywhere in the content. */
+  absent: boolean;
+  /**
+   * Markers alternate start, end, start, end … in equal numbers, with at least one
+   * pair. Every start then owns its own end, so removing the marked regions cannot
+   * swallow a stray marker or the user's content around it.
+   */
+  paired: boolean;
+  /** `paired` with exactly one pair — the only shape an upsert is allowed to rewrite. */
+  singlePair: boolean;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function indicesOf(haystack: string, needle: string): number[] {
+  const found: number[] = [];
+  let from = 0;
+  for (;;) {
+    const idx = haystack.indexOf(needle, from);
+    if (idx === -1) return found;
+    found.push(idx);
+    from = idx + needle.length;
+  }
+}
+
+function countOf(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * Count and order the markers in `content`. Counting is the point: a file holding two
+ * start markers and one end contains both markers, so an `indexOf`-based check calls it
+ * well-formed and replaces from the first start through the end — silently deleting the
+ * second marker and everything the user wrote between them.
+ */
+export function scanMarkedBlock(content: string, markers: MarkedBlockMarkers): MarkedBlockScan {
+  const startPositions = indicesOf(content, markers.start);
+  const endPositions = indicesOf(content, markers.end);
+  const starts = startPositions.length;
+  const ends = endPositions.length;
+
+  let paired = starts === ends && starts >= 1;
+  for (let i = 0; paired && i < starts; i += 1) {
+    const nextStart = i + 1 < starts ? startPositions[i + 1] : Number.POSITIVE_INFINITY;
+    paired = startPositions[i] < endPositions[i] && endPositions[i] < nextStart;
+  }
+
+  return {
+    starts,
+    ends,
+    startIndex: starts ? startPositions[0] : -1,
+    endIndex: ends ? endPositions[0] : -1,
+    absent: starts === 0 && ends === 0,
+    paired,
+    singlePair: paired && starts === 1,
+  };
+}
+
+/** Human-readable reason a scan is neither `absent` nor usable, for errors and warnings. */
+export function describeMarkedBlockDefect(
+  scan: MarkedBlockScan,
+  markers: MarkedBlockMarkers
+): string {
+  if (scan.starts > 0 && scan.ends === 0) {
+    return `it has ${markers.start} without a matching ${markers.end}`;
+  }
+  if (scan.ends > 0 && scan.starts === 0) {
+    return `it has ${markers.end} without a matching ${markers.start}`;
+  }
+  if (scan.starts === 1 && scan.ends === 1) {
+    return `its ${markers.end} precedes its ${markers.start}`;
+  }
+  if (scan.starts === scan.ends && !scan.paired) {
+    return `its ${markers.start} and ${markers.end} markers do not pair up in order`;
+  }
+  return `found ${countOf(scan.starts, 'start marker')} and ${countOf(scan.ends, 'end marker')}`;
+}
+
+/**
+ * Insert `block` into `existing`, replacing the marked block already there.
+ *
+ * Anything other than a clean file (no markers → append) or exactly one correctly
+ * ordered pair (→ replace) is refused rather than repaired, because every other shape
+ * destroys user content if rewritten anyway:
+ *
+ *  - One-sided (an interrupted run, or a hand edit that deleted half the block):
+ *    appending leaves one start and two ends, so the *next* run replaces everything
+ *    from the original start to the appended end.
+ *  - Two starts before one end: replacing from the first start through the end deletes
+ *    the second marker and whatever the user wrote between them — and the file looks
+ *    well-formed to an `indexOf` check, which is why counting is the test.
+ *
+ * Repairing these means guessing which side of a stray marker the user's content belongs
+ * on. That is their judgement to make, not ours.
+ *
+ * Output is normalized to exactly one trailing newline so re-runs are byte-stable.
+ */
+export function upsertMarkedBlock(
+  existing: string | null,
+  block: string,
+  markers: MarkedBlockMarkers,
+  filePath: string
+): string {
+  const normalize = (value: string): string => `${value.replace(/\n+$/, '')}\n`;
+  if (!existing) {
+    return normalize(block);
+  }
+
+  const scan = scanMarkedBlock(existing, markers);
+  if (scan.absent) {
+    const sep = existing.endsWith('\n') ? '\n' : '\n\n';
+    return normalize(`${existing}${sep}${block}`);
+  }
+
+  if (!scan.singlePair) {
+    throw new Error(
+      `${filePath} does not contain exactly one ${markers.start} … ${markers.end} block ` +
+        `(${describeMarkedBlockDefect(scan, markers)}). Rewriting it would delete the content ` +
+        'between the stray markers. Restore or remove them (or point the rules path ' +
+        'elsewhere), then re-run.'
+    );
+  }
+
+  const before = existing.slice(0, scan.startIndex);
+  const after = existing.slice(scan.endIndex + markers.end.length);
+  // `after` opens with whatever separated the old block from the content below it, and
+  // the block template carries its own trailing newline. Joining both blindly inserts
+  // one more blank line every single run — normalizing only the end of the file hides
+  // that when the block is last and lets it grow forever when it is not. Dropping the
+  // block's newline needs `after` to supply one, which a hand-edited file may not, so
+  // the seam puts one back rather than running the end marker into the next line.
+  const seam = after && !after.startsWith('\n') ? '\n' : '';
+  return normalize(`${before}${block.replace(/\n+$/, '')}${seam}${after}`);
+}
+
+/**
+ * Remove every marked region from `content`, collapsing the blank lines left behind.
+ *
+ * Only safe on content whose scan reports `paired` — on a stray marker this walks from
+ * a start to the *next* end and takes the user's content in between with it. Callers
+ * check `scanMarkedBlock(...).paired` first and decide what an unpaired file means for
+ * them. Trailing-newline shape is left to the caller, which is the only part that
+ * differs between the hosts.
+ */
+export function stripMarkedBlock(content: string, markers: MarkedBlockMarkers): string {
+  const pattern = new RegExp(
+    `\\n?${escapeRegExp(markers.start)}[\\s\\S]*?${escapeRegExp(markers.end)}\\n?`,
+    'g'
+  );
+  return content.replace(pattern, '\n').replace(/\n{3,}/g, '\n\n');
+}
+
 export function detectProjectName(cwd: string = process.cwd()): string {
   // 1) package.json name
   const pkgPath = path.join(cwd, 'package.json');
