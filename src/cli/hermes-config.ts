@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { parse as parseDotenv } from 'dotenv';
 import os from 'os';
 import path from 'path';
 import { parse as parseYaml, parseDocument } from 'yaml';
@@ -118,26 +119,6 @@ export interface HermesCredentials {
   apiKey?: string;
 }
 
-/**
- * Normalize an env/config value to `undefined` when it is missing or blank.
- * Critical for the `??` fallback chain in hermes setup: `??` only falls
- * through on null/undefined, so an empty string would otherwise pin a blank
- * endpoint/key and defeat the default.
- */
-function normalizeCred(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function unquoteEnvValue(raw: string): string {
-  const trimmed = raw.trim();
-  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-  }
-  return trimmed;
-}
-
 function readCredentialsFromConfig(configPath: string): HermesCredentials {
   if (!fs.existsSync(configPath)) return {};
   let parsed: Record<string, unknown> | null;
@@ -167,24 +148,21 @@ function readCredentialsFromConfig(configPath: string): HermesCredentials {
   };
 }
 
+/**
+ * Read the provider `.env`'s effective credentials.
+ *
+ * Parsed by dotenv, which is what Hermes itself loads this file with. The invariant
+ * across this repo: a reader whose values drive a decision uses dotenv semantics,
+ * while the writers stay line-based so comments and formatting survive a partial
+ * update. Hand-parsing here unwrapped only double quotes and never stripped comments,
+ * so `AUTOMEM_API_URL='https://x'` or a trailing `# comment` compared as a different
+ * endpoint and a same-endpoint re-run deleted a valid key. Both deprecated aliases are
+ * still honoured on read via the shared both-name readers.
+ */
 function readCredentialsFromEnvFile(envPath: string): HermesCredentials {
   if (!fs.existsSync(envPath)) return {};
-  let endpoint: string | undefined;
-  let legacyEndpoint: string | undefined;
-  let apiKey: string | undefined;
-  let legacyApiKey: string | undefined;
-  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
-    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
-    if (!match) continue;
-    const value = normalizeCred(unquoteEnvValue(match[2]));
-    if (match[1] === 'AUTOMEM_API_URL') endpoint = value;
-    else if (match[1] === 'AUTOMEM_ENDPOINT') legacyEndpoint = value;
-    else if (match[1] === AUTOMEM_API_KEY_NAMES[0]) apiKey = value;
-    // The deprecated alias, kept as a fallback so a provider .env written from the
-    // Railway template still yields its credential on a flagless re-run.
-    else if (match[1] === AUTOMEM_API_KEY_NAMES[1]) legacyApiKey = value;
-  }
-  return { endpoint: endpoint ?? legacyEndpoint, apiKey: apiKey ?? legacyApiKey };
+  const values = parseDotenv(fs.readFileSync(envPath, 'utf8'));
+  return { endpoint: readEndpointFrom(values), apiKey: readApiKeyFrom(values) };
 }
 
 /**

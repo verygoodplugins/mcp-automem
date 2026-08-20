@@ -358,6 +358,21 @@ describe('hermes-config', () => {
 
     // The normal case: `both` mode writes config.yaml and .env with identical values,
     // so the .env key must still be recovered when the config entry omits it.
+    // Valid dotenv spellings of the SAME endpoint. Hand-parsing unwrapped only double
+    // quotes and never stripped comments, so a same-endpoint re-run compared raw text,
+    // saw a mismatch, and deleted a working credential.
+    it.each([
+      ['single quotes', "AUTOMEM_API_URL='https://same.automem.test'"],
+      ['a trailing comment', 'AUTOMEM_API_URL=https://same.automem.test # production'],
+      ['an export prefix', 'export AUTOMEM_API_URL=https://same.automem.test'],
+    ])('reads a .env endpoint written with %s', (_label, line) => {
+      fs.writeFileSync(path.join(tmpDir, '.env'), `${line}\nAUTOMEM_API_KEY=sk-env\n`);
+
+      const creds = readExistingHermesCredentials(paths(tmpDir));
+      expect(creds.endpoint).toBe('https://same.automem.test');
+      expect(creds.apiKey).toBe('sk-env');
+    });
+
     it('reuses the .env key when both sources name the same endpoint', () => {
       fs.writeFileSync(
         path.join(tmpDir, 'config.yaml'),
