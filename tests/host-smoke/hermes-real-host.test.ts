@@ -322,10 +322,24 @@ print(json.dumps({
   return JSON.parse(lastJsonLine);
 }
 
+/**
+ * Working directory the prefetch runs in. The provider derives its project tag from
+ * `basename(os.getcwd())`, so this — not the repo — decides what the tag assertions see.
+ *
+ * It used to default to REPO_ROOT, which made the assertions pass only where the
+ * checkout directory happened to be named `mcp-automem`: a git worktree, a second clone,
+ * or a CI cache path under any other name failed on a tag the provider never promised.
+ * A fixture directory named for the slug is deterministic everywhere, and it pins the
+ * contract (tag == basename of cwd) instead of the machine's directory layout. Set per
+ * test in beforeEach; the Python imports resolve from the Hermes venv, not from cwd.
+ */
+const PROJECT_SLUG = 'mcp-automem';
+let projectCwd: string;
+
 async function runHermesProviderPrefetchSequence(
   home: string,
   prompts: string[],
-  cwd: string = REPO_ROOT
+  cwd: string = projectCwd
 ): Promise<string[]> {
   if (!HERMES_PYTHON) {
     throw new Error('Hermes Python is not available');
@@ -481,13 +495,21 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
   let tmpDir: string;
   let fakeApi: FakeAutoMemApi;
 
+  let projectRoot: string;
+
   beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-hermes-host-'));
+    // See PROJECT_SLUG: the prefetch runs here so the provider's project tag is the
+    // slug under test rather than whatever this checkout's directory is called.
+    projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-hermes-project-'));
+    projectCwd = path.join(projectRoot, PROJECT_SLUG);
+    fs.mkdirSync(projectCwd, { recursive: true });
     fakeApi = await startFakeAutoMemApi();
   });
 
   afterEach(async () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(projectRoot, { recursive: true, force: true });
     await fakeApi.close();
   });
 
@@ -637,7 +659,7 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     expect(firstContext?.searchParams.get('limit')).toBe('10');
     expect(firstContext?.searchParams.get('time_query')).toBe('last 90 days');
     expect(firstContext?.searchParams.get('format')).toBe('detailed');
-    expect(firstContext?.searchParams.getAll('tags')).toContain('mcp-automem');
+    expect(firstContext?.searchParams.getAll('tags')).toContain(PROJECT_SLUG);
 
     const topicShift = recalls.find(
       (url) => url.searchParams.get('query') === 'Railway deployment status'
@@ -699,7 +721,8 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     });
 
     await runHermesProviderPrefetchSequence(tmpDir, ['do we like Example Contact?']);
-    await runHermesProviderPrefetchSequence(tmpDir, ['what do we know about mcp-automem Hermes?']);
+    const projectPrompt = `what do we know about ${PROJECT_SLUG} Hermes?`;
+    await runHermesProviderPrefetchSequence(tmpDir, [projectPrompt]);
 
     const generalContext = recallRequests(fakeApi).find(
       (url) => url.searchParams.get('query') === 'do we like Example Contact?'
@@ -708,10 +731,10 @@ describe.skipIf(!HERMES_PYTHON)('Hermes real host integration', () => {
     expect(generalContext?.searchParams.getAll('tags')).toEqual([]);
 
     const projectContext = recallRequests(fakeApi).find(
-      (url) => url.searchParams.get('query') === 'what do we know about mcp-automem Hermes?'
+      (url) => url.searchParams.get('query') === projectPrompt
     );
     expect(projectContext?.searchParams.get('limit')).toBe('10');
-    expect(projectContext?.searchParams.getAll('tags')).toContain('mcp-automem');
+    expect(projectContext?.searchParams.getAll('tags')).toContain(PROJECT_SLUG);
   }, 45_000);
 
   it('provider explicit recall clamps large limits before calling AutoMem', async () => {
