@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
+import { AGENT_CLIENTS, DEFAULT_AGENT_CLIENTS, type AgentClient } from './clients.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
 import { applyCodexSetup } from './codex.js';
 import { applyCursorSetup } from './cursor.js';
@@ -123,22 +124,10 @@ export async function installClaudeCodePlugin(params: {
 // How the guided installer wires Claude Code. Defaults to the recommended plugin.
 export type ClaudeCodeMode = 'plugin' | 'settings';
 
-export const AGENT_CLIENTS = [
-  'codex',
-  'claude-code',
-  'cursor',
-  'openclaw',
-  'hermes',
-  'grok',
-] as const;
-
-export type AgentClient = (typeof AGENT_CLIENTS)[number];
-export const DEFAULT_AGENT_CLIENTS = [
-  'codex',
-  'claude-code',
-  'cursor',
-  'openclaw',
-] as const satisfies readonly AgentClient[];
+// Re-exported so existing importers (and the CLI surface) keep one entry point,
+// while the definitions themselves stay dependency-free in ./clients.js.
+export { AGENT_CLIENTS, DEFAULT_AGENT_CLIENTS };
+export type { AgentClient };
 export type InstallTarget = 'local' | 'cloud' | 'existing';
 // Hosted-cloud sub-target: InstaPods (open the setup page → paste the emailed
 // URL+key), Railway (guided via the railway CLI), or 'other' (paste credentials

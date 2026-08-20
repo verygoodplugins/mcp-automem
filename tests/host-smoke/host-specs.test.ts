@@ -11,6 +11,7 @@ describe('host smoke specs', () => {
       'cursor',
       'grok',
       'hermes',
+      'openclaw',
       'vscode-copilot',
     ]);
   });

@@ -10,6 +10,7 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { config } from 'dotenv';
+import { HOST_SETUP_COMMANDS } from './cli/clients.js';
 import { runConfig, runSetup } from './cli/setup.js';
 import { runInstallCommand } from './cli/install.js';
 import { runClaudeCodeSetup } from './cli/claude-code.js';
@@ -49,13 +50,9 @@ const KNOWN_COMMANDS = new Set([
   'setup',
   'install',
   'config',
-  'claude-code',
-  'copilot',
-  'cursor',
-  'codex',
-  'openclaw',
-  'hermes',
-  'grok',
+  // Per-host setup commands come from the client registry so routing a new host
+  // cannot leave it unrecognized here — the drift that left `copilot` missing.
+  ...HOST_SETUP_COMMANDS,
   'migrate',
   'uninstall',
   'queue',
