@@ -236,6 +236,23 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
   log(`📄 Config: ${paths.configPath}`, cliOptions.quiet);
   log(`📄 Rules: ${rulesPath}\n`, cliOptions.quiet);
 
+  // Everything that can reject the run happens before anything is written, matching
+  // applyGrokSetup. upsertRulesWithMarkers throws on a stray marker, and rendering the
+  // template is pure — so validating here is what makes "nothing was written" true.
+  // Validating after the config write would leave a failed mode switch having already
+  // moved the MCP entry, the memory provider, the .env, and the provider files while
+  // telling the user to repair their rules file and re-run.
+  const templateContent = fs.readFileSync(
+    path.join(HERMES_TEMPLATE_ROOT, 'memory-rules.md'),
+    'utf8'
+  );
+  const processed = replaceTemplateVars(templateContent, {
+    PROJECT_NAME: projectName,
+    HERMES_MODE_RULES: renderHermesModeRules(mode),
+  });
+  const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
+  const finalContent = upsertRulesWithMarkers(existingContent, processed, rulesPath);
+
   if (mode === 'provider') {
     removeMcpServerEntry(paths.configPath, HERMES_MCP_SERVER_NAME, {
       dryRun: cliOptions.dryRun,
@@ -289,17 +306,6 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
     installHermesProvider(paths, endpoint, apiKey, mode === 'provider', cliOptions);
   }
 
-  const templateContent = fs.readFileSync(
-    path.join(HERMES_TEMPLATE_ROOT, 'memory-rules.md'),
-    'utf8'
-  );
-  const processed = replaceTemplateVars(templateContent, {
-    PROJECT_NAME: projectName,
-    HERMES_MODE_RULES: renderHermesModeRules(mode),
-  });
-
-  const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
-  const finalContent = upsertRulesWithMarkers(existingContent, processed, rulesPath);
   writeFileWithBackup(rulesPath, finalContent, cliOptions);
 
   log('\n📊 Configuration Status:', cliOptions.quiet);

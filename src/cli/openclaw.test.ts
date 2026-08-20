@@ -773,6 +773,9 @@ describe('openclaw stored-key pairing in config builders', () => {
       defaultTags: [],
     });
     expect(entry.apiKey).toBe('sk-same');
+  });
+});
+
 describe('cleanOldAgentsBlock', () => {
   let tmpDir: string;
 

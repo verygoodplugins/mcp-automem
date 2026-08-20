@@ -180,6 +180,58 @@ describe('installMemoryRules (format gating)', () => {
     expect(fs.readFileSync(cliPath, 'utf8')).toBe(handWritten);
   });
 
+  // A rejected run must not leave Copilot half-updated. Validation runs before stale
+  // hooks are removed, new hooks and scripts are installed, or the VS Code rules are
+  // replaced — so a failed profile switch really does leave the install as it was.
+  it('writes nothing at all when the CLI rules file is rejected', async () => {
+    await applyCopilotSetup({
+      targetDir: tempDir,
+      format: 'both',
+      profile: 'full',
+      yes: true,
+      quiet: true,
+    });
+
+    const snapshot = (): Record<string, string> => {
+      const seen: Record<string, string> = {};
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(full);
+          else seen[path.relative(tempDir, full)] = fs.readFileSync(full, 'utf8');
+        }
+      };
+      walk(tempDir);
+      return seen;
+    };
+
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const handWritten = [
+      '# My custom instructions',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'stale half-block',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'notes the user wrote between the markers',
+      '<!-- END AUTOMEM MEMORY RULES -->',
+      '',
+    ].join('\n');
+    fs.writeFileSync(cliPath, handWritten, 'utf8');
+    const before = snapshot();
+
+    // A profile switch is the case that would otherwise delete hooks before failing.
+    await expect(
+      applyCopilotSetup({
+        targetDir: tempDir,
+        format: 'both',
+        profile: 'lean',
+        yes: true,
+        quiet: true,
+      })
+    ).rejects.toThrow(/found 2 start markers and 1 end marker/);
+
+    expect(snapshot()).toEqual(before);
+  });
+
   it('refuses a one-sided CLI marker instead of appending', async () => {
     const cliPath = path.join(tempDir, 'copilot-instructions.md');
     const handWritten = ['# Notes', '<!-- BEGIN AUTOMEM MEMORY RULES -->', 'half a block', ''].join(
