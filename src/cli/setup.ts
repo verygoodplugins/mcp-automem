@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { parse as parseDotenv } from 'dotenv';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
@@ -98,24 +99,15 @@ function parseConfigArgs(args: string[]): ConfigOptions {
   return options;
 }
 
+// Delegates to dotenv — the parser that actually loads this file at server startup.
+// The hand-rolled version unwrapped only double quotes and did not strip comments, so
+// `KEY='value'` or a trailing `# comment` read as a different endpoint and the
+// credential pairing below removed a still-valid key.
 function loadEnvValues(filePath: string): Record<string, string> {
   if (!fs.existsSync(filePath)) {
     return {};
   }
-  const result: Record<string, string> = {};
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
-  for (const line of lines) {
-    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (match) {
-      const key = match[1].trim();
-      let value = match[2].trim();
-      if (value.startsWith('"') && value.endsWith('"')) {
-        value = value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-      }
-      result[key] = value;
-    }
-  }
-  return result;
+  return parseDotenv(fs.readFileSync(filePath, 'utf8'));
 }
 
 function mergeEnvFile(

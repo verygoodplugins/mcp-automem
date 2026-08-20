@@ -1240,6 +1240,37 @@ describe('writeProjectEnv credential pairing', () => {
     expect(result.removedKeys).toEqual([]);
   });
 
+  // Every one of these is valid dotenv syntax naming the SAME endpoint. A hand-rolled
+  // reader that unwrapped only double quotes and ignored comments compared the raw text
+  // and removed a still-valid key, leaving the project unauthenticated.
+  it.each([
+    ['single quotes', "AUTOMEM_API_URL='https://same.example.test'"],
+    ['double quotes', 'AUTOMEM_API_URL="https://same.example.test"'],
+    ['a trailing comment', 'AUTOMEM_API_URL=https://same.example.test # production'],
+    ['an export prefix', 'export AUTOMEM_API_URL=https://same.example.test'],
+    ['surrounding whitespace', 'AUTOMEM_API_URL=   https://same.example.test   '],
+  ])('keeps the key when the endpoint is written with %s', (_label, line) => {
+    fs.writeFileSync(envPath, `${line}\nAUTOMEM_API_KEY=sk-keep\n`);
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://same.example.test' });
+
+    expect(result.previousEndpoint).toBe('https://same.example.test');
+    expect(result.removedKeys).toEqual([]);
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('sk-keep');
+  });
+
+  it('still removes the key when a quoted endpoint genuinely differs', () => {
+    fs.writeFileSync(
+      envPath,
+      "AUTOMEM_API_URL='https://old.example.test'\nAUTOMEM_API_KEY=sk-old\n"
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    expect(fs.readFileSync(envPath, 'utf8')).not.toContain('sk-old');
+  });
+
   // dotenv applies the LAST assignment, and dotenv is what loads this file at server
   // startup. Reading the first one reported a stale endpoint, so a key issued for the
   // effective endpoint looked paired with the earlier line and survived a real change.

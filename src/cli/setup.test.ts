@@ -81,6 +81,18 @@ describe('runSetup — deprecated AUTOMEM_ENDPOINT alias migration', () => {
 
   // setup had no credential/endpoint pairing at all and read only the canonical key
   // name, so a legacy token was invisible to the code that should have removed it.
+  it('keeps the key when the stored endpoint is quoted or commented', async () => {
+    const envPath = path.join(tmpDir, '.env');
+    fs.writeFileSync(
+      envPath,
+      "AUTOMEM_API_URL='https://same.example.test' # production\nAUTOMEM_API_KEY=sk-keep\n"
+    );
+
+    await runSetup(['--env', envPath, '--endpoint', 'https://same.example.test', '--yes']);
+
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('sk-keep');
+  });
+
   it('removes a legacy AUTOMEM_API_TOKEN when the endpoint changes', async () => {
     const envPath = path.join(tmpDir, '.env');
     fs.writeFileSync(

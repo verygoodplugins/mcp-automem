@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { parse as parseDotenv } from 'dotenv';
 import os from 'os';
 import path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
@@ -962,26 +963,20 @@ function randomToken(): string {
     .join('');
 }
 
-// Read a single KEY's value from an existing .env (unwrapping a quoted value) so a
-// re-run can reuse previously-written secrets instead of regenerating them. `key`
-// is always a fixed literal here, so embedding it in the regex is safe.
+// Read a single KEY's effective value from an existing .env, so a re-run can reuse
+// previously-written secrets instead of regenerating them — and so the credential
+// pairing compares against the endpoint that is actually in effect.
+//
+// Delegates to dotenv, which is literally the parser that loads this file at server
+// startup. A hand-rolled reader kept disagreeing with it in ways that matter here:
+// it took the *first* assignment where dotenv takes the last, and it unwrapped only
+// double quotes, so `KEY='value'` or a trailing `# comment` compared as a different
+// endpoint and removed a still-valid key. Matching the real parser retires that whole
+// class rather than the two spellings that were reported.
 function readEnvFileValue(filePath: string, key: string): string | undefined {
   if (!fs.existsSync(filePath)) return undefined;
-  // Last assignment wins, matching dotenv — which is what actually loads this file at
-  // server startup. Taking the first match reported a stale endpoint for a .env with
-  // duplicate assignments, so a key issued for the *effective* endpoint looked paired
-  // with the earlier one and was preserved across a real endpoint change.
-  const matches = fs
-    .readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter((candidate) => new RegExp(`^\\s*${key}\\s*=`).test(candidate));
-  const line = matches.length ? matches[matches.length - 1] : undefined;
-  if (!line) return undefined;
-  let value = line.slice(line.indexOf('=') + 1).trim();
-  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
-    value = value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-  }
-  return value || undefined;
+  const value = parseDotenv(fs.readFileSync(filePath, 'utf8'))[key];
+  return value ? value : undefined;
 }
 
 function defaultRunCommand(
