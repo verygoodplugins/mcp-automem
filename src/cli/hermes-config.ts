@@ -9,6 +9,7 @@ import {
   log,
   readApiKeyFrom,
   readEndpointFrom,
+  sameEndpoint,
 } from './host-toolkit.js';
 
 export interface HermesPaths {
@@ -188,14 +189,35 @@ function readCredentialsFromEnvFile(envPath: string): HermesCredentials {
  * (config.yaml `mcp_servers.automem.env`) first, then the provider `.env`;
  * both are written with identical values in `both` mode. Empty strings
  * normalize to `undefined` so they never satisfy a `??` fallback.
+ *
+ * Endpoint and key are returned **as a pair from one source**. Merging them
+ * field-wise used to be possible — config endpoint plus `.env` key — and the two
+ * files can describe different installs: switch the MCP config to endpoint A and a
+ * provider `.env` still holding endpoint B's token makes `{A, B's key}` look like a
+ * credential issued for A. `resolveInheritedApiKey` would then treat it as a valid
+ * stored pair and write B's token into A's registration, which is precisely the
+ * disclosure the pairing exists to prevent.
  */
 export function readExistingHermesCredentials(paths: HermesPaths): HermesCredentials {
   const fromConfig = readCredentialsFromConfig(paths.configPath);
   const fromEnv = readCredentialsFromEnvFile(path.join(paths.home, '.env'));
-  return {
-    endpoint: fromConfig.endpoint ?? fromEnv.endpoint,
-    apiKey: fromConfig.apiKey ?? fromEnv.apiKey,
-  };
+
+  if (fromConfig.endpoint) {
+    return {
+      endpoint: fromConfig.endpoint,
+      // The `.env` key is only the same credential when it was written for the same
+      // endpoint — which is the normal case, since `both` mode writes both files with
+      // identical values.
+      apiKey:
+        fromConfig.apiKey ??
+        (sameEndpoint(fromEnv.endpoint, fromConfig.endpoint) ? fromEnv.apiKey : undefined),
+    };
+  }
+  if (fromEnv.endpoint) return fromEnv;
+
+  // Neither source names an endpoint, so there is no pair to keep whole. A stored key
+  // with no stored endpoint is dropped downstream regardless.
+  return { endpoint: undefined, apiKey: fromConfig.apiKey ?? fromEnv.apiKey };
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
