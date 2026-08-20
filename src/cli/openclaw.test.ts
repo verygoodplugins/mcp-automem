@@ -570,3 +570,79 @@ describe('openclaw credential/endpoint pairing', () => {
     expect(resolveApiKey({}, ENDPOINT)).toBe('sk-env');
   });
 });
+
+// The resolver correctly returned undefined for a mismatched endpoint, but these
+// builders then put the stored key straight back — and `...existingConfig` copied it
+// forward even before the explicit fallback ran.
+describe('openclaw stored-key pairing in config builders', () => {
+  it('drops a plugin key stored for a different endpoint', () => {
+    const entry = buildPluginConfigEntry({
+      existing: { config: { endpoint: 'https://host-a.test', apiKey: 'sk-host-a' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    const config = entry.config as Record<string, unknown>;
+    expect(config.endpoint).toBe('https://host-b.test');
+    expect(config.apiKey).toBeUndefined();
+    expect(JSON.stringify(entry)).not.toContain('sk-host-a');
+  });
+
+  it('keeps a plugin key stored for the same endpoint', () => {
+    const entry = buildPluginConfigEntry({
+      existing: { config: { endpoint: 'https://same.test/', apiKey: 'sk-same' } },
+      endpoint: 'https://same.test',
+      defaultTags: [],
+    });
+    expect((entry.config as Record<string, unknown>).apiKey).toBe('sk-same');
+  });
+
+  it('lets an explicit key win over a mismatched stored one', () => {
+    const entry = buildPluginConfigEntry({
+      existing: { config: { endpoint: 'https://host-a.test', apiKey: 'sk-host-a' } },
+      endpoint: 'https://host-b.test',
+      apiKey: 'sk-explicit',
+      defaultTags: [],
+    });
+    expect((entry.config as Record<string, unknown>).apiKey).toBe('sk-explicit');
+  });
+
+  it('preserves unrelated plugin config while dropping the stale key', () => {
+    const entry = buildPluginConfigEntry({
+      existing: {
+        config: {
+          endpoint: 'https://host-a.test',
+          apiKey: 'sk-host-a',
+          autoRecall: false,
+          autoRecallLimit: 7,
+          exposure: 'all',
+        },
+      },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    const config = entry.config as Record<string, unknown>;
+    expect(config.apiKey).toBeUndefined();
+    expect(config.autoRecall).toBe(false);
+    expect(config.autoRecallLimit).toBe(7);
+    expect(config.exposure).toBe('all');
+  });
+
+  it('drops a skill key stored for a different endpoint', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-host-a', env: { AUTOMEM_API_URL: 'https://host-a.test' } },
+      endpoint: 'https://host-b.test',
+      defaultTags: [],
+    });
+    expect(entry.apiKey).toBeUndefined();
+    expect(JSON.stringify(entry)).not.toContain('sk-host-a');
+  });
+
+  it('keeps a skill key stored for the same endpoint', () => {
+    const entry = buildSkillConfigEntry({
+      existing: { apiKey: 'sk-same', env: { AUTOMEM_API_URL: 'https://same.test' } },
+      endpoint: 'https://same.test',
+      defaultTags: [],
+    });
+    expect(entry.apiKey).toBe('sk-same');
+  });
+});

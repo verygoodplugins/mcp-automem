@@ -500,6 +500,80 @@ describe('hermes setup handler', () => {
       expect(env.AUTOMEM_API_KEY).toBe('sk-keep');
     });
 
+    // mergeHermesEnvFile drops undefined updates so unrelated settings survive a
+    // partial write — which meant an unresolved key left the previous one in place
+    // while AUTOMEM_API_URL moved to the new host.
+    it('removes the provider .env key when the endpoint changes', async () => {
+      const envPath = path.join(tmpDir, '.env');
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        mode: 'provider',
+        endpoint: 'https://host-a.example.test',
+        apiKey: 'sk-host-a',
+        quiet: true,
+        projectName: 'demo',
+      });
+      expect(fs.readFileSync(envPath, 'utf8')).toContain('sk-host-a');
+
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        mode: 'provider',
+        endpoint: 'https://host-b.example.test',
+        quiet: true,
+        projectName: 'demo',
+      });
+
+      const written = fs.readFileSync(envPath, 'utf8');
+      expect(written).toContain('AUTOMEM_API_URL=https://host-b.example.test');
+      expect(written).not.toContain('sk-host-a');
+      expect(written).not.toMatch(/^AUTOMEM_API_KEY=/m);
+      expect(written).not.toMatch(/^AUTOMEM_API_TOKEN=/m);
+    });
+
+    it('keeps the provider .env key on a flagless re-run at the same endpoint', async () => {
+      const envPath = path.join(tmpDir, '.env');
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        mode: 'provider',
+        endpoint: 'https://same.example.test',
+        apiKey: 'sk-keep',
+        quiet: true,
+        projectName: 'demo',
+      });
+
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        mode: 'provider',
+        quiet: true,
+        projectName: 'demo',
+      });
+
+      const written = fs.readFileSync(envPath, 'utf8');
+      expect(written).toContain('AUTOMEM_API_KEY=sk-keep');
+      expect(written).toContain('AUTOMEM_API_URL=https://same.example.test');
+    });
+
+    it('removes a legacy provider token when the endpoint changes', async () => {
+      const envPath = path.join(tmpDir, '.env');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      fs.writeFileSync(
+        envPath,
+        'AUTOMEM_API_URL=https://host-a.example.test\nAUTOMEM_API_TOKEN=sk-legacy\nUNRELATED=keep\n'
+      );
+
+      await applyHermesSetup({
+        targetDir: tmpDir,
+        mode: 'provider',
+        endpoint: 'https://host-b.example.test',
+        quiet: true,
+        projectName: 'demo',
+      });
+
+      const written = fs.readFileSync(envPath, 'utf8');
+      expect(written).not.toContain('sk-legacy');
+      expect(written).toContain('UNRELATED=keep');
+    });
+
     it('recovers a credential stored under the deprecated AUTOMEM_API_TOKEN alias', async () => {
       const configPath = path.join(tmpDir, 'config.yaml');
       fs.mkdirSync(tmpDir, { recursive: true });

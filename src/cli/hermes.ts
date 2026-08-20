@@ -7,6 +7,7 @@ import {
   log,
   parseCommonFlags,
   replaceTemplateVars,
+  AUTOMEM_API_KEY_NAMES,
   resolveInheritedApiKey,
   writeFileWithBackup,
 } from './host-toolkit.js';
@@ -182,8 +183,17 @@ function installHermesProvider(
     writeFileWithBackup(targetPath, content, options);
   }
 
+  const envPath = path.join(paths.home, '.env');
+  // An absent update is not a deletion — mergeHermesEnvFile drops undefined values so
+  // unrelated settings survive a partial write. So when no key resolved for this run,
+  // the persisted one has to be removed explicitly: rewriting AUTOMEM_API_URL to a new
+  // endpoint while leaving the old credential in place makes the provider send that
+  // credential to the new host. Both supported names go, since either authenticates.
+  if (!apiKey) {
+    removeHermesEnvKeys(envPath, [...AUTOMEM_API_KEY_NAMES], options);
+  }
   mergeHermesEnvFile(
-    path.join(paths.home, '.env'),
+    envPath,
     {
       AUTOMEM_API_URL: endpoint,
       AUTOMEM_API_KEY: apiKey,
