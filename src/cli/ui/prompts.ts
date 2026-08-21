@@ -28,7 +28,10 @@ function goldTheme(stream: NodeJS.WriteStream = process.stdout) {
       highlight: (s: string) => t.style.gold(s),
       help: (s: string) => t.style.dim(s),
       error: (s: string) => t.style.red(s),
-      defaultAnswer: (s: string) => t.style.dim(s),
+      // Normal weight on purpose: the default answer ("y/N") is the one string
+      // that says what Enter will do — dim makes it illegible on light themes,
+      // and the apply confirm is the only prompt here with real side effects.
+      defaultAnswer: (s: string) => s,
       key: (s: string) => t.style.gold(s),
       description: (s: string) => t.style.dim(s),
     },

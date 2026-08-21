@@ -104,9 +104,22 @@ describe('installer mascot UI', () => {
   });
 
   it('can colorize the wordmark without changing visible text', () => {
-    const colored = gradientLine('AutoMem', true);
-
-    expect(colored).toContain('\u001b[38;2;');
-    expect(stripAnsi(colored)).toBe('AutoMem');
+    // Truecolor gradient only when the terminal signals support; otherwise the
+    // line collapses to one bright-yellow SGR the terminal theme can map.
+    const prev = process.env.COLORTERM;
+    process.env.COLORTERM = 'truecolor';
+    try {
+      const colored = gradientLine('AutoMem', true);
+      expect(colored).toContain('\u001b[38;2;');
+      expect(stripAnsi(colored)).toBe('AutoMem');
+    } finally {
+      if (prev === undefined) delete process.env.COLORTERM;
+      else process.env.COLORTERM = prev;
+    }
+    delete process.env.COLORTERM;
+    const fallback = gradientLine('AutoMem', true);
+    expect(fallback).toContain('\u001b[93m');
+    expect(fallback).not.toContain('38;2');
+    expect(stripAnsi(fallback)).toBe('AutoMem');
   });
 });

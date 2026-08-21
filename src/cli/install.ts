@@ -284,6 +284,27 @@ function tildify(filePath: string, homeDir: string = os.homedir()): string {
   return filePath;
 }
 
+// Discard any keystrokes sitting in the terminal buffer. Used right before the
+// apply confirm: keys pressed during the typed plan reveal (impatient Enters
+// included) would otherwise be delivered to the prompt the moment it opens.
+// Best-effort and brief — resumes stdin in raw mode for a beat, swallowing
+// whatever arrives, then restores the paused state inquirer expects.
+async function drainBufferedStdin(windowMs = 50): Promise<void> {
+  const stdin = process.stdin;
+  if (!stdin.isTTY) return;
+  const swallow = () => {};
+  try {
+    stdin.setRawMode?.(true);
+    stdin.on('data', swallow);
+    stdin.resume();
+    await new Promise((resolve) => setTimeout(resolve, windowMs));
+  } finally {
+    stdin.pause();
+    stdin.off('data', swallow);
+    stdin.setRawMode?.(false);
+  }
+}
+
 // One dim line of plain-language context above a prompt, for the questions whose
 // jargon (API URL, API key) the prompt message itself can't afford to caption.
 function promptCaption(text: string): void {
@@ -1734,6 +1755,10 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
 
     if (!resolved.yes) {
       process.stdout.write('\n');
+      // Discard keystrokes buffered while the plan was typing out — a buffered
+      // Enter would otherwise answer this confirm the instant it opens and
+      // silently discard the whole wizard (default is No).
+      await drainBufferedStdin();
       const approved = await cancelable(
         promptConfirm({ message: 'Apply this AutoMem install plan?', initialValue: false })
       );

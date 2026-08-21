@@ -22,6 +22,7 @@ export type ThemeOptions = {
 
 export type Theme = {
   color: boolean;
+  truecolor: boolean;
   unicode: boolean;
   width: number;
   style: {
@@ -47,7 +48,11 @@ export type Theme = {
   };
 };
 
-const ANSI = {
+// Two palettes, one shape. Truecolor carries the exact brand values; the ANSI-16
+// tier maps every slot to a terminal-theme-relative code so colors stay legible
+// on terminals without 24-bit support AND on light backgrounds (the terminal's
+// own theme picks a readable yellow, which absolute #ffd23f cannot promise).
+const ANSI_TRUECOLOR = {
   reset: '\x1b[0m',
   bold: '\x1b[1m',
   dim: '\x1b[2m',
@@ -61,6 +66,30 @@ const ANSI = {
   goldBg: '\x1b[48;2;255;210;63m',
   black: '\x1b[30m',
 };
+
+const ANSI_16 = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  gold: '\x1b[93m',
+  goldBright: '\x1b[93m',
+  goldBg: '\x1b[103m',
+  black: '\x1b[30m',
+};
+
+// COLORTERM is the de-facto truecolor signal (set by iTerm2, WezTerm, Windows
+// Terminal, kitty, VS Code…). Absent it, emit ANSI-16 — Apple Terminal and
+// tmux-without-RGB are the common cases that would otherwise get raw 24-bit
+// sequences they don't fully support.
+export function supportsTruecolor(env: NodeJS.ProcessEnv = process.env): boolean {
+  const colorterm = (env.COLORTERM ?? '').toLowerCase();
+  return colorterm.includes('truecolor') || colorterm.includes('24bit');
+}
 
 export function streamWidth(stream: NodeJS.WriteStream = process.stdout): number {
   return Math.max(40, Math.min(stream.columns ?? 80, 120));
@@ -84,8 +113,10 @@ function shouldUseUnicode(stream: NodeJS.WriteStream, mode: SymbolMode): boolean
   return process.platform !== 'win32' || Boolean(process.env.WT_SESSION);
 }
 
+const RESET = '\x1b[0m';
+
 function wrap(enabled: boolean, open: string): (text: string) => string {
-  return (text) => (enabled && text.length > 0 ? `${open}${text}${ANSI.reset}` : text);
+  return (text) => (enabled && text.length > 0 ? `${open}${text}${RESET}` : text);
 }
 
 export function makeTheme(
@@ -94,8 +125,11 @@ export function makeTheme(
 ): Theme {
   const color = shouldColor(stream, options.color ?? 'auto');
   const unicode = shouldUseUnicode(stream, options.symbols ?? 'auto');
+  const truecolor = supportsTruecolor();
+  const ANSI = truecolor ? ANSI_TRUECOLOR : ANSI_16;
   return {
     color,
+    truecolor,
     unicode,
     width: options.width ?? streamWidth(stream),
     style: {
