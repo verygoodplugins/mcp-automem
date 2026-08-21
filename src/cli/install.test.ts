@@ -489,6 +489,10 @@ describe('guided install helpers', () => {
       expect(hint).toContain('AUTOMEM_DRY_RUN');
       // There is no --dry-run argument to remove in this case.
       expect(hint).not.toContain('--dry-run');
+      // dotenv runs without `override`, so "unset it" alone would be wrong when
+      // the value lives in ./.env — the hint must cover that source too.
+      expect(hint).toContain('.env');
+      expect(hint).toContain('AUTOMEM_DRY_RUN=0');
     });
 
     it('names both sources when the flag and the env var are both set', () => {

@@ -300,7 +300,11 @@ function writeStatus(message: string, tone: 'info' | 'ok' | 'warn' = 'info'): vo
 // The instruction that turns a preview into a real install depends on two things
 // renderInstallPlan cannot see, so it lives here rather than in the plan body:
 //   1. WHERE dry-run came from. `--dry-run` can be dropped; AUTOMEM_DRY_RUN=1 has
-//      no flag to remove and must be unset (parseInstallArgs seeds dryRun from it).
+//      no flag to remove (parseInstallArgs seeds dryRun from it). Unsetting the
+//      shell var is NOT sufficient advice either: index.ts runs dotenv config()
+//      without `override`, so a cleared shell var just falls through to the same
+//      key in ./.env. AUTOMEM_DRY_RUN=0 beats both (parseBooleanEnv accepts only
+//      1/true/yes, and a real shell var outranks dotenv).
 //   2. Whether there is a TTY. A headless re-run also needs --yes, or
 //      shouldUseNonInteractivePreview sends it straight back into preview mode.
 export function dryRunApplyHint(params: {
@@ -313,9 +317,9 @@ export function dryRunApplyHint(params: {
   const fromEnv = parseBooleanEnv(env.AUTOMEM_DRY_RUN);
   const disable =
     fromFlag && fromEnv
-      ? 'drop --dry-run and unset AUTOMEM_DRY_RUN'
+      ? 'drop --dry-run and set AUTOMEM_DRY_RUN=0 (it is on in your shell or .env)'
       : fromEnv
-        ? 'unset AUTOMEM_DRY_RUN'
+        ? 'set AUTOMEM_DRY_RUN=0 (it is on in your shell or .env)'
         : fromFlag
           ? 'drop --dry-run'
           : 'turn off dry-run mode';
