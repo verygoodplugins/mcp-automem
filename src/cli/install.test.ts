@@ -554,6 +554,38 @@ describe('guided install helpers', () => {
       expect(cmd).toContain('--local-dir /Users/tester/.automem/server');
     });
 
+    it('shell-quotes dynamic values so the printed command survives a paste', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'local',
+        clients: [],
+        hermesMode: 'mcp',
+        localDir: '/Users/me/AutoMem Server',
+        apiKeyProvided: false,
+      });
+      expect(cmd).toContain("--local-dir '/Users/me/AutoMem Server'");
+
+      const urlCmd = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example/api?region=eu&tier=2',
+        clients: [],
+        hermesMode: 'mcp',
+        apiKeyProvided: false,
+      });
+      // & would background the command and ? globs — the URL must be quoted.
+      expect(urlCmd).toContain("--endpoint 'https://memory.example/api?region=eu&tier=2'");
+
+      // Plain values stay unquoted for readability.
+      const plain = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: [],
+        hermesMode: 'mcp',
+        apiKeyProvided: false,
+      });
+      expect(plain).toContain('--endpoint https://memory.example');
+      expect(plain).not.toContain("'");
+    });
+
     it('carries hermes mode only when hermes is selected, and cloud provider for cloud', () => {
       const cmd = equivalentInstallCommand({
         target: 'cloud',

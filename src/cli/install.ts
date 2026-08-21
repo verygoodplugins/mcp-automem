@@ -360,6 +360,14 @@ export function dryRunApplyHint(params: {
   return 'To install for real, run the same command without --dry-run.';
 }
 
+// Single-quote a value for the reconstructed command when it contains anything
+// a shell would interpret (spaces, &, ?, …) — an unquoted "/AutoMem Server"
+// splits into two arguments on paste. Plain values stay bare for readability.
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_@%+=:,.\/-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 // Reconstruct the non-interactive command equivalent to a set of resolved wizard
 // answers. Shown when a run stops without applying (declined confirm, failed
 // verify) so the user's prompt answers survive as something they can paste. The
@@ -378,13 +386,15 @@ export function equivalentInstallCommand(options: {
   const parts = ['npx @verygoodplugins/mcp-automem install', `--target ${options.target}`];
   // --endpoint is rejected with --target local (the local server always binds the
   // compose default), so never reconstruct one there.
-  if (options.endpoint && options.target !== 'local') parts.push(`--endpoint ${options.endpoint}`);
+  if (options.endpoint && options.target !== 'local')
+    parts.push(`--endpoint ${shellQuote(options.endpoint)}`);
   if (options.target === 'cloud' && options.cloudProvider)
     parts.push(`--cloud-provider ${options.cloudProvider}`);
   // YOUR_KEY_HERE (no shell metacharacters): '<your key>' would be parsed as
   // redirections when pasted, silently creating a file named 'key'.
   if (options.apiKeyProvided) parts.push('--api-key YOUR_KEY_HERE');
-  if (options.target === 'local' && options.localDir) parts.push(`--local-dir ${options.localDir}`);
+  if (options.target === 'local' && options.localDir)
+    parts.push(`--local-dir ${shellQuote(options.localDir)}`);
   if (options.noAgentInstall) parts.push('--no-agent-install');
   else if (options.clients.length > 0) parts.push(`--clients ${options.clients.join(',')}`);
   if (!options.noAgentInstall && options.clients.includes('claude-code') && options.claudeCodeMode)
