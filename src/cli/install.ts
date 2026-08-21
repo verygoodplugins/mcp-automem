@@ -2095,10 +2095,25 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     const nextSteps: string[] = [`endpoint  ${endpoint}`];
     // The finish line earns its box only if it says what to do NOW: restart the
     // tools that were just wired, and a concrete way to see memory working.
+    // Only surface the manual /plugin commands when the auto-install didn't run or
+    // didn't succeed — i.e. the `claude` binary was absent, or the install failed.
+    const pluginAutoInstallFailed = agentFailures.some(
+      (failure) => failure.client === 'claude-code' && failure.showPluginCommands !== false
+    );
+    // Plugin mode without the `claude` binary installs nothing yet — the /plugin
+    // commands below ARE the install. Restarting Claude Code before running them
+    // would do nothing, so keep it out of the restart line.
+    const claudePluginIsManual =
+      !resolved.noAgentInstall &&
+      resolved.clients.includes('claude-code') &&
+      resolved.claudeCodeMode === 'plugin' &&
+      (!environment.prerequisites.claude || pluginAutoInstallFailed);
     const installedClients = resolved.noAgentInstall
       ? []
       : resolved.clients.filter(
-          (client) => !agentFailures.some((failure) => failure.client === client)
+          (client) =>
+            !agentFailures.some((failure) => failure.client === client) &&
+            !(client === 'claude-code' && claudePluginIsManual)
         );
     if (installedClients.length > 0) {
       nextSteps.push(
@@ -2107,17 +2122,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       nextSteps.push('Try it: ask "what do you remember about me?"');
     }
     nextSteps.push('Docs: https://automem.ai');
-    // Only surface the manual /plugin commands when the auto-install didn't run or
-    // didn't succeed — i.e. the `claude` binary was absent, or the install failed.
-    const pluginAutoInstallFailed = agentFailures.some(
-      (failure) => failure.client === 'claude-code' && failure.showPluginCommands !== false
-    );
-    if (
-      !resolved.noAgentInstall &&
-      resolved.clients.includes('claude-code') &&
-      resolved.claudeCodeMode === 'plugin' &&
-      (!environment.prerequisites.claude || pluginAutoInstallFailed)
-    ) {
+    if (claudePluginIsManual) {
       nextSteps.push('Claude Code plugin — run these inside Claude Code:');
       for (const cmd of CLAUDE_CODE_PLUGIN_COMMANDS) {
         nextSteps.push(`  ${cmd}`);
