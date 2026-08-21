@@ -253,7 +253,7 @@ type WaitEndpointOptions = VerifyEndpointOptions & {
 type CommandRunner = (
   command: string,
   args: string[],
-  options?: { cwd?: string; env?: NodeJS.ProcessEnv }
+  options?: { cwd?: string; env?: NodeJS.ProcessEnv; logFile?: string }
 ) => void;
 
 const AUTOMEM_REPO = 'https://github.com/verygoodplugins/automem';
@@ -1086,8 +1086,28 @@ function readEnvFileValue(filePath: string, key: string): string | undefined {
 function defaultRunCommand(
   command: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; logFile?: string } = {}
 ): void {
+  // With logFile set, the child's output is contained there instead of flooding
+  // the wizard (docker compose builds print hundreds of lines). Failures still
+  // throw; the caller decides how much of the log to surface.
+  if (options.logFile) {
+    const fd = fs.openSync(options.logFile, 'a');
+    try {
+      const result = spawnSync(command, args, {
+        cwd: options.cwd,
+        env: options.env ?? process.env,
+        stdio: ['ignore', fd, fd],
+      });
+      if (result.error) throw result.error;
+      if (result.status !== 0) {
+        throw new Error(`${command} exited with code ${result.status ?? 'unknown'}`);
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+    return;
+  }
   execFileSync(command, args, {
     cwd: options.cwd,
     env: options.env ?? process.env,
@@ -1148,16 +1168,28 @@ export async function prepareLocalServer(params: {
     },
     false
   );
+  const composeLog = path.join(params.localDir, 'install.log');
   try {
     runCommand('docker', ['compose', '--env-file', '.env', 'up', '-d', '--build'], {
       cwd: params.localDir,
       env: { ...process.env, AUTOMEM_API_TOKEN: apiKey, ADMIN_API_TOKEN: adminToken },
+      logFile: composeLog,
     });
   } catch {
+    // Surface only the tail — the full compose transcript lives in the log.
+    let tail = '';
+    try {
+      const logLines = fs.readFileSync(composeLog, 'utf8').trimEnd().split('\n');
+      tail = logLines.slice(-15).join('\n');
+    } catch {
+      /* no log — docker may have failed to launch at all */
+    }
     throw new InstallError(
       "Local AutoMem server didn't start (docker compose).",
-      'Most often a port is already in use — FalkorDB :3000, Qdrant :6333, or the API :8001. ' +
-        'Stop the conflicting container (`docker ps`) or free the port, then re-run. Docker output is above.'
+      `Is Docker Desktop running? Open it, then re-run this installer.\n` +
+        `Also common: a port already in use — FalkorDB :3000, Qdrant :6333, or the API :8001 ` +
+        `(run \`docker ps\` to find the conflict).\n` +
+        `Full build log: ${tildify(composeLog)}${tail ? `\nLast lines:\n${tail}` : ''}`
     );
   }
 
@@ -1449,7 +1481,18 @@ async function resolveInteractiveOptions(
     );
   }
 
+  if (target === 'local' && !parsed.dryRun && !environment.prerequisites.docker) {
+    // Fail at the decision, not three prompts later. Dry runs stay open so the
+    // path can still be previewed on a machine without Docker.
+    throw new InstallError(
+      "AutoMem's local option needs Docker running on this machine.",
+      `Get Docker Desktop (free): https://www.docker.com/products/docker-desktop\n` +
+        `Install it, open it once so it's running, then re-run this installer.\n` +
+        `Or pick Hosted Cloud — no Docker needed.`
+    );
+  }
   if (target === 'local') {
+    promptCaption("Where the server's files live — the default is fine.");
     localDir = (
       await cancelable(
         promptText({
@@ -1788,7 +1831,8 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     // BEFORE the live checklist — a redraw region can't share the screen with it.
     if (resolved.target === 'local') {
       process.stdout.write(
-        `  ${theme.style.dim(theme.symbol.arrow)} Building & starting local AutoMem server (first run can take a minute)…\n`
+        `  ${theme.style.dim(theme.symbol.arrow)} Building the local server — the first time can take a few minutes ` +
+          `${theme.style.dim(`(log: ${tildify(path.join(plan.localDir, 'install.log'))})`)}…\n`
       );
       const local = await prepareLocalServer({ localDir: plan.localDir, apiKey, dryRun: false });
       endpoint = local.endpoint;
