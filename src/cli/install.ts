@@ -206,6 +206,9 @@ export type InstallPlan = {
   apiKeyProvided: boolean;
   localDir: string;
   requiresReview: boolean;
+  // A preview renders the same stages and the same file paths as a real run, so
+  // the renderer needs to know which one this is to label them honestly.
+  dryRun: boolean;
   actions: InstallAction[];
 };
 
@@ -707,6 +710,7 @@ export function buildInstallPlan(params: {
     requiresReview: actions.some(
       (action) => action.paths.length > 0 || action.kind === 'prepare-local'
     ),
+    dryRun: options.dryRun,
     actions,
   };
 }
@@ -1188,7 +1192,7 @@ export function renderInstallPlan(
   const agentCount = plan.actions.filter((action) => action.client).length;
   const chip = `${plan.actions.length} stages · ${plan.target}${
     agentCount ? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'}` : ''
-  }`;
+  }${plan.dryRun ? ' · dry run' : ''}`;
   out.push(`  ${theme.style.dim(chip)}`, '');
 
   const rows: TableRow[] = [
@@ -1230,9 +1234,16 @@ export function renderInstallPlan(
   }
 
   if (writesFiles) {
+    // The path list above is identical in both modes, so this note carries the
+    // difference. A dry run must not advertise backups of "changed" files — it
+    // changes nothing — and should say how to actually apply the plan.
     out.push(
       '',
-      `  ${theme.style.dim(`backups ${theme.symbol.arrow} each changed file keeps a .bak copy`)}`
+      plan.dryRun
+        ? `  ${theme.style.yellow(
+            `dry run ${theme.symbol.arrow} nothing is written — re-run without --dry-run to apply`
+          )}`
+        : `  ${theme.style.dim(`backups ${theme.symbol.arrow} each changed file keeps a .bak copy`)}`
     );
   }
 

@@ -419,6 +419,68 @@ describe('guided install helpers', () => {
     expect(rendered).not.toContain('sk-test-secret');
   });
 
+  // A dry run renders the same path list as a real run, which reads like the
+  // installer is about to edit those files (it even advertised .bak backups).
+  // The review must say, at the point the paths are listed, that nothing is
+  // written — and how to actually apply.
+  it('marks a dry-run review as a preview that writes nothing', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'existing',
+        clients: ['grok'],
+        endpoint: 'https://memory.example',
+        hermesMode: 'mcp',
+        dryRun: true,
+        yes: false,
+        noAgentInstall: false,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => false,
+      }),
+    });
+
+    expect(plan.dryRun).toBe(true);
+
+    const rendered = renderInstallPlan(plan);
+
+    // The paths are still listed (the point of a preview) ...
+    expect(rendered).toContain('.grok/config.toml');
+    // ... but the note under them must not promise backups of "changed" files,
+    // because a dry run changes nothing.
+    expect(rendered).toContain('dry run');
+    expect(rendered).toContain('nothing is written');
+    expect(rendered).toContain('--dry-run');
+    expect(rendered).not.toContain('each changed file keeps a .bak copy');
+  });
+
+  it('keeps the backup note on a real (non-dry-run) review', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'existing',
+        clients: ['grok'],
+        endpoint: 'https://memory.example',
+        hermesMode: 'mcp',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: false,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => false,
+      }),
+    });
+
+    expect(plan.dryRun).toBe(false);
+    const rendered = renderInstallPlan(plan);
+    expect(rendered).toContain('each changed file keeps a .bak copy');
+    expect(rendered).not.toContain('nothing is written');
+  });
+
   it('defaults to all known clients when AUTOMEM_CLIENTS is omitted', () => {
     expect(parseInstallArgs([], {}).clients).toEqual([...DEFAULT_AGENT_CLIENTS]);
     expect(parseInstallArgs([], {}).clients).not.toContain('hermes');
