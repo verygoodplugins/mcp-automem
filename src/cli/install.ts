@@ -364,7 +364,7 @@ export function dryRunApplyHint(params: {
 // a shell would interpret (spaces, &, ?, …) — an unquoted "/AutoMem Server"
 // splits into two arguments on paste. Plain values stay bare for readability.
 function shellQuote(value: string): string {
-  if (/^[A-Za-z0-9_@%+=:,.\/-]+$/.test(value)) return value;
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
