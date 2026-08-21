@@ -310,3 +310,34 @@ describe('install-ui/centering', () => {
     expect(pads[0]).toBeGreaterThan(0);
   });
 });
+
+describe('color tier fallback', () => {
+  const stream = { isTTY: true, columns: 100 } as unknown as NodeJS.WriteStream;
+
+  it('emits truecolor SGR only when COLORTERM signals support', () => {
+    const prev = process.env.COLORTERM;
+    process.env.COLORTERM = 'truecolor';
+    try {
+      expect(makeTheme(stream, { color: 'always' }).style.gold('x')).toContain('\x1b[38;2;');
+    } finally {
+      if (prev === undefined) delete process.env.COLORTERM;
+      else process.env.COLORTERM = prev;
+    }
+  });
+
+  it('falls back to ANSI-16 codes when COLORTERM is unset', () => {
+    const prev = process.env.COLORTERM;
+    delete process.env.COLORTERM;
+    try {
+      const gold = makeTheme(stream, { color: 'always' }).style.gold('x');
+      // Bright yellow, terminal-theme mapped — never a raw 24-bit sequence the
+      // terminal may not understand (and that is illegible on light themes).
+      expect(gold).toContain('\x1b[93m');
+      expect(gold).not.toContain('38;2');
+      expect(makeTheme(stream, { color: 'always' }).style.red('x')).toContain('\x1b[31m');
+    } finally {
+      if (prev === undefined) delete process.env.COLORTERM;
+      else process.env.COLORTERM = prev;
+    }
+  });
+});

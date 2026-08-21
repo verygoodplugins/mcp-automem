@@ -1,4 +1,3 @@
-import { badge } from './messages.js';
 import { makeTheme, padEndVisible, repeatVisible, visibleLength, type Theme } from './theme.js';
 import { centerBlock, centerLine, renderMascot, renderWordmark } from '../install-ui.js';
 
@@ -26,7 +25,8 @@ export function renderBrandHeader(
   // The wide header's mascot is Unicode box art — collapse to the one-line badge
   // when unicode is off (ASCII/dumb terminals) as well as the existing cases.
   if (options.compact || theme.width < 60 || !theme.color || !theme.unicode) {
-    return `${badge('automem', theme)} ${theme.style.bold('AutoMem')} ${theme.style.dim(TAGLINE)}\n`;
+    // No badge: it printed the brand name twice back-to-back ("automem AutoMem").
+    return `${theme.style.bold('AutoMem')} ${theme.style.dim(`— ${TAGLINE}.`)}\n`;
   }
   return [
     '',
@@ -71,7 +71,9 @@ export function renderSuccessCard(
 
   const content = [
     `${theme.style.gold(theme.symbol.check)} ${theme.style.bold(title)}`,
-    ...lines.map((line) => theme.style.dim(line)),
+    // Normal weight on purpose: these lines are the endpoint + next steps — the
+    // card's entire payload — and bare ANSI dim is illegible on light terminals.
+    ...lines,
   ];
   const innerWidth = Math.min(
     theme.width - 4,
