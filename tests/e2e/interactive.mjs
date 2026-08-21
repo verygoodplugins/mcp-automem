@@ -178,6 +178,46 @@ const SCENARIOS = [
     expect: [/Prepare local AutoMem server/, /mode\s+local/, /Dry run only/],
     notExpect: [/AutoMem install canceled/],
   },
+  {
+    name: 'existing-grok',
+    description:
+      'existing endpoint, full interactive: target -> URL -> key -> agents (grok, last in the list)',
+    steps: [
+      { waitFor: /Where should AutoMem run/, send: KEY.down }, // cloud → local
+      { send: KEY.down }, // local → existing
+      { send: KEY.enter },
+      { waitFor: /AutoMem API URL/, send: ENDPOINT },
+      { send: KEY.enter },
+      { waitFor: /AutoMem API key/, send: KEY.enter }, // blank
+      { waitFor: /which agents/, send: KEY.down }, // codex → claude-code
+      { send: KEY.down }, // claude-code → cursor
+      { send: KEY.down }, // cursor → openclaw
+      { send: KEY.down }, // openclaw → hermes
+      { send: KEY.down }, // hermes → grok (last entry in AGENT_CLIENTS)
+      { send: KEY.space }, // check grok — it has no follow-up sub-prompt
+      { send: KEY.enter },
+    ],
+    expect: [
+      /Install review/,
+      /Grok Build integration/,
+      /\.grok\/config\.toml/,
+      /\.grok\/AGENTS\.md/,
+      // A dry run lists those paths but must say, right under them, that it
+      // writes nothing — otherwise the review reads like an applied install.
+      /dry run/,
+      /nothing is written/,
+      /Dry run only/,
+      // On a TTY, dropping --dry-run is enough to apply; the headless variant
+      // (which also needs --yes) must not leak into the interactive closer.
+      /To apply, drop --dry-run and re-run\./,
+    ],
+    notExpect: [
+      /AutoMem install canceled/,
+      /each changed file keeps a \.bak copy/,
+      /--yes/,
+      /AUTOMEM_DRY_RUN/,
+    ],
+  },
 ];
 
 async function run(scenario) {
@@ -187,6 +227,12 @@ async function run(scenario) {
   delete env.NO_COLOR;
   delete env.CLAUDE_CODE;
   delete env.CODEX;
+  // Client detection is path-based, and the hermes/grok roots are overridable by
+  // env (HERMES_HOME / GROK_HOME in detectInstallEnvironment). Inheriting either
+  // would point detection at the operator's REAL home, pre-check that agent in the
+  // multiselect, and desync every route's keystroke choreography.
+  delete env.HERMES_HOME;
+  delete env.GROK_HOME;
   delete env.AUTOMEM_API_URL;
   delete env.AUTOMEM_ENDPOINT;
   delete env.AUTOMEM_API_KEY;

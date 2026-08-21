@@ -18,6 +18,7 @@ import {
   parseInstallArgs,
   prepareLocalServer,
   renderInstallPlan,
+  dryRunApplyHint,
   shouldUseNonInteractivePreview,
   validateInstallPrerequisites,
   verifyAutoMemEndpoint,
@@ -417,6 +418,118 @@ describe('guided install helpers', () => {
     expect(rendered).toContain('<redacted>');
     expect(rendered).not.toContain('curl -H');
     expect(rendered).not.toContain('sk-test-secret');
+  });
+
+  // A dry run renders the same path list as a real run, which reads like the
+  // installer is about to edit those files (it even advertised .bak backups).
+  // The review must say, at the point the paths are listed, that nothing is
+  // written — and how to actually apply.
+  it('marks a dry-run review as a preview that writes nothing', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'existing',
+        clients: ['grok'],
+        endpoint: 'https://memory.example',
+        hermesMode: 'mcp',
+        dryRun: true,
+        yes: false,
+        noAgentInstall: false,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => false,
+      }),
+    });
+
+    expect(plan.dryRun).toBe(true);
+
+    const rendered = renderInstallPlan(plan);
+
+    // The paths are still listed (the point of a preview) ...
+    expect(rendered).toContain('.grok/config.toml');
+    // ... but the note under them must not promise backups of "changed" files,
+    // because a dry run changes nothing.
+    expect(rendered).toContain('dry run');
+    expect(rendered).toContain('nothing is written');
+    expect(rendered).not.toContain('each changed file keeps a .bak copy');
+    // The plan render must stay flag-agnostic: which flag actually applies the
+    // plan depends on TTY state the renderer cannot see (a headless re-run also
+    // needs --yes). runGuidedInstall's closing status owns that instruction.
+    expect(rendered).not.toContain('--dry-run');
+    expect(rendered).not.toContain('--yes');
+  });
+
+  // The instruction that actually applies a previewed plan depends on TWO things
+  // the renderer cannot see: where dry-run came from (flag vs AUTOMEM_DRY_RUN —
+  // there is no flag to drop in the env case), and whether there is a TTY (a
+  // headless re-run also needs --yes, or shouldUseNonInteractivePreview bounces
+  // it straight back into preview).
+  describe('dryRunApplyHint', () => {
+    it('tells a TTY user with --dry-run to drop the flag', () => {
+      const hint = dryRunApplyHint({ interactive: true, args: ['install', '--dry-run'], env: {} });
+      expect(hint).toContain('--dry-run');
+      expect(hint).not.toContain('--yes');
+      expect(hint).not.toContain('AUTOMEM_DRY_RUN');
+    });
+
+    it('adds --yes for a headless run, which would otherwise re-enter preview', () => {
+      const hint = dryRunApplyHint({ interactive: false, args: ['install', '--dry-run'], env: {} });
+      expect(hint).toContain('--dry-run');
+      expect(hint).toContain('--yes');
+    });
+
+    it('tells an env-driven dry run to unset AUTOMEM_DRY_RUN, not to drop a flag', () => {
+      const hint = dryRunApplyHint({
+        interactive: true,
+        args: ['install'],
+        env: { AUTOMEM_DRY_RUN: '1' },
+      });
+      expect(hint).toContain('AUTOMEM_DRY_RUN');
+      // There is no --dry-run argument to remove in this case.
+      expect(hint).not.toContain('--dry-run');
+      // dotenv runs without `override`, so "unset it" alone would be wrong when
+      // the value lives in ./.env — the hint must cover that source too.
+      expect(hint).toContain('.env');
+      expect(hint).toContain('AUTOMEM_DRY_RUN=0');
+    });
+
+    it('names both sources when the flag and the env var are both set', () => {
+      const hint = dryRunApplyHint({
+        interactive: false,
+        args: ['install', '--dry-run'],
+        env: { AUTOMEM_DRY_RUN: '1' },
+      });
+      expect(hint).toContain('--dry-run');
+      expect(hint).toContain('AUTOMEM_DRY_RUN');
+      expect(hint).toContain('--yes');
+    });
+  });
+
+  it('keeps the backup note on a real (non-dry-run) review', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'existing',
+        clients: ['grok'],
+        endpoint: 'https://memory.example',
+        hermesMode: 'mcp',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: false,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => false,
+      }),
+    });
+
+    expect(plan.dryRun).toBe(false);
+    const rendered = renderInstallPlan(plan);
+    expect(rendered).toContain('each changed file keeps a .bak copy');
+    expect(rendered).not.toContain('nothing is written');
   });
 
   it('defaults to all known clients when AUTOMEM_CLIENTS is omitted', () => {

@@ -206,6 +206,9 @@ export type InstallPlan = {
   apiKeyProvided: boolean;
   localDir: string;
   requiresReview: boolean;
+  // A preview renders the same stages and the same file paths as a real run, so
+  // the renderer needs to know which one this is to label them honestly.
+  dryRun: boolean;
   actions: InstallAction[];
 };
 
@@ -292,6 +295,37 @@ function writeStatus(message: string, tone: 'info' | 'ok' | 'warn' = 'info'): vo
         ? theme.style.yellow(theme.symbol.warn)
         : theme.style.dim(theme.symbol.arrow);
   process.stdout.write(`\n${mark} ${message}\n`);
+}
+
+// The instruction that turns a preview into a real install depends on two things
+// renderInstallPlan cannot see, so it lives here rather than in the plan body:
+//   1. WHERE dry-run came from. `--dry-run` can be dropped; AUTOMEM_DRY_RUN=1 has
+//      no flag to remove (parseInstallArgs seeds dryRun from it). Unsetting the
+//      shell var is NOT sufficient advice either: index.ts runs dotenv config()
+//      without `override`, so a cleared shell var just falls through to the same
+//      key in ./.env. AUTOMEM_DRY_RUN=0 beats both (parseBooleanEnv accepts only
+//      1/true/yes, and a real shell var outranks dotenv).
+//   2. Whether there is a TTY. A headless re-run also needs --yes, or
+//      shouldUseNonInteractivePreview sends it straight back into preview mode.
+export function dryRunApplyHint(params: {
+  interactive: boolean;
+  args: string[];
+  env?: NodeJS.ProcessEnv;
+}): string {
+  const env = params.env ?? process.env;
+  const fromFlag = params.args.includes('--dry-run');
+  const fromEnv = parseBooleanEnv(env.AUTOMEM_DRY_RUN);
+  const disable =
+    fromFlag && fromEnv
+      ? 'drop --dry-run and set AUTOMEM_DRY_RUN=0 (it is on in your shell or .env)'
+      : fromEnv
+        ? 'set AUTOMEM_DRY_RUN=0 (it is on in your shell or .env)'
+        : fromFlag
+          ? 'drop --dry-run'
+          : 'turn off dry-run mode';
+  return params.interactive
+    ? `To apply, ${disable} and re-run.`
+    : `To apply, ${disable}, then re-run with --yes.`;
 }
 
 // Render a failure as a clean themed block — never a raw Error/stack. The message
@@ -707,6 +741,7 @@ export function buildInstallPlan(params: {
     requiresReview: actions.some(
       (action) => action.paths.length > 0 || action.kind === 'prepare-local'
     ),
+    dryRun: options.dryRun,
     actions,
   };
 }
@@ -1188,7 +1223,7 @@ export function renderInstallPlan(
   const agentCount = plan.actions.filter((action) => action.client).length;
   const chip = `${plan.actions.length} stages · ${plan.target}${
     agentCount ? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'}` : ''
-  }`;
+  }${plan.dryRun ? ' · dry run' : ''}`;
   out.push(`  ${theme.style.dim(chip)}`, '');
 
   const rows: TableRow[] = [
@@ -1230,9 +1265,20 @@ export function renderInstallPlan(
   }
 
   if (writesFiles) {
+    // The path list above is identical in both modes, so this note carries the
+    // difference. A dry run must not advertise backups of "changed" files — it
+    // changes nothing — and should say how to actually apply the plan.
+    // Stay flag-agnostic here: the renderer cannot see TTY state, and the flag
+    // that actually applies the plan depends on it (a non-TTY run also needs
+    // --yes, or shouldUseNonInteractivePreview sends it straight back to a
+    // preview). The caller's closing status line owns that instruction.
     out.push(
       '',
-      `  ${theme.style.dim(`backups ${theme.symbol.arrow} each changed file keeps a .bak copy`)}`
+      plan.dryRun
+        ? `  ${theme.style.yellow(
+            `dry run ${theme.symbol.arrow} nothing is written; the paths above are what a real run would change`
+          )}`
+        : `  ${theme.style.dim(`backups ${theme.symbol.arrow} each changed file keeps a .bak copy`)}`
     );
   }
 
@@ -1570,7 +1616,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     });
 
     if (resolved.dryRun) {
-      writeStatus('Dry run only. No files were changed.');
+      writeStatus(`Dry run only. No files were changed. ${dryRunApplyHint({ interactive, args })}`);
       return;
     }
 
