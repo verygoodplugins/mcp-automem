@@ -284,6 +284,13 @@ function tildify(filePath: string, homeDir: string = os.homedir()): string {
   return filePath;
 }
 
+// One dim line of plain-language context above a prompt, for the questions whose
+// jargon (API URL, API key) the prompt message itself can't afford to caption.
+function promptCaption(text: string): void {
+  const theme = makeTheme(process.stdout);
+  process.stdout.write(`${theme.style.dim(text)}\n`);
+}
+
 // A single themed status line (the rich plan is written directly, not boxed, so
 // these closers match its left-aligned look instead of a clack rail).
 function writeStatus(message: string, tone: 'info' | 'ok' | 'warn' = 'info'): void {
@@ -323,9 +330,14 @@ export function dryRunApplyHint(params: {
         : fromFlag
           ? 'drop --dry-run'
           : 'turn off dry-run mode';
-  return params.interactive
-    ? `To apply, ${disable} and re-run.`
-    : `To apply, ${disable}, then re-run with --yes.`;
+  if (!params.interactive) return `To apply, ${disable}, then re-run with --yes.`;
+  // TTY wording is for a human at a keyboard, not a script: say "preview" and
+  // "install for real" instead of flag-native verbs like "drop".
+  if (fromFlag && fromEnv)
+    return 'This was a preview. To install for real, remove --dry-run, set AUTOMEM_DRY_RUN=0, and run it again.';
+  if (fromEnv)
+    return 'This was a preview. To install for real, set AUTOMEM_DRY_RUN=0 (it is on in your shell or .env) and run it again.';
+  return 'This was a preview. To install for real, run the same command without --dry-run.';
 }
 
 // Reconstruct the non-interactive command equivalent to a set of resolved wizard
@@ -1131,6 +1143,19 @@ export async function prepareLocalServer(params: {
   return { endpoint: DEFAULT_AUTOMEM_API_URL, apiKey };
 }
 
+// The user picked a labeled option; the review should echo that label back, not
+// the internal enum value ("existing" / "cloud" / "local").
+function targetLabel(target: InstallTarget): string {
+  switch (target) {
+    case 'cloud':
+      return 'hosted cloud';
+    case 'local':
+      return 'local docker';
+    case 'existing':
+      return 'existing endpoint';
+  }
+}
+
 function clientLabel(client: AgentClient): string {
   switch (client) {
     case 'codex':
@@ -1236,6 +1261,7 @@ function renderActionDetail(
         detail(
           `AUTOMEM_API_URL=${plan.endpoint ?? '<prompted>'}${plan.apiKeyProvided ? '  + API key' : ''}`
         ),
+        detail('saved in the folder you ran this from:'),
       ];
     case 'prepare-local':
       return [detail(`docker compose in ${tildify(plan.localDir)}`)];
@@ -1257,17 +1283,20 @@ export function renderInstallPlan(
 
   // At-a-glance summary chip.
   const agentCount = plan.actions.filter((action) => action.client).length;
-  const chip = `${plan.actions.length} stages · ${plan.target} · ${
+  const chip = `${plan.actions.length} stages · ${targetLabel(plan.target)} · ${
     agentCount ? `${agentCount} agent${agentCount === 1 ? '' : 's'}` : 'no agents'
   }${plan.dryRun ? ' · dry run' : ''}`;
   out.push(`  ${theme.style.dim(chip)}`, '');
 
   const rows: TableRow[] = [
-    { label: 'mode', value: plan.target, status: 'ok' },
+    { label: 'setup', value: targetLabel(plan.target), status: 'ok' },
     {
       label: 'endpoint',
-      value: plan.endpoint ?? theme.style.dim('not set yet'),
-      status: plan.endpoint ? 'ok' : 'warn',
+      // A cloud plan's endpoint arrives during setup — expected, not a warning.
+      value:
+        plan.endpoint ??
+        theme.style.dim(plan.target === 'cloud' ? 'provisioned during setup' : 'not set yet'),
+      status: plan.endpoint || plan.target === 'cloud' ? (plan.endpoint ? 'ok' : 'muted') : 'warn',
     },
     {
       label: 'api key',
@@ -1343,16 +1372,24 @@ async function resolveInteractiveOptions(
       promptSelect<InstallTarget>({
         message: 'Where should AutoMem run?',
         options: [
-          { value: 'cloud', label: 'Hosted Cloud', hint: 'InstaPods or Railway — guided deploy' },
+          {
+            value: 'cloud',
+            label: 'Hosted Cloud (recommended)',
+            hint: 'easiest — we set it up for you, from ~$1/mo',
+          },
           {
             value: 'local',
             label: 'Local Docker',
-            hint: 'Clone AutoMem and start Docker Compose on this machine',
+            // Docker-aware: tell the user NOW whether this path can even start,
+            // instead of letting them discover a missing prerequisite mid-wizard.
+            hint: environment.prerequisites.docker
+              ? 'free, runs on this computer — Docker detected'
+              : 'free, runs on this computer — needs Docker (not found here)',
           },
           {
             value: 'existing',
             label: 'Existing Endpoint',
-            hint: 'Use an AutoMem URL you already have',
+            hint: 'paste an AutoMem URL + key you already have',
           },
         ],
         initialValue: 'cloud',
@@ -1368,17 +1405,17 @@ async function resolveInteractiveOptions(
   if (target === 'cloud' && !cloudProvider) {
     cloudProvider = await cancelable(
       promptSelect<CloudProviderId>({
-        message: 'How should we stand up your hosted AutoMem?',
+        message: 'How do you want to set up your hosted AutoMem?',
         options: [
           {
             value: 'instapods',
             label: 'InstaPods',
-            hint: 'open the setup page — it deploys AutoMem and emails your URL + key',
+            hint: 'they run it for you and email your URL + key — ~$15/mo',
           },
           {
             value: 'railway',
             label: 'Railway (guided)',
-            hint: 'sign in with the railway CLI, deploy from the terminal, then auto-capture keys',
+            hint: 'we open Railway, walk you through sign-in, and grab your keys — ~$1–5/mo',
           },
           {
             value: 'other',
@@ -1410,24 +1447,26 @@ async function resolveInteractiveOptions(
     target === 'existing' || (target === 'cloud' && cloudProvider === 'other');
 
   if (collectEndpointHere && !endpoint) {
+    promptCaption("Your AutoMem server's web address — you got this when you set it up.");
     endpoint = (
       await cancelable(
         promptText({
           message: 'AutoMem API URL',
           validate: (value) =>
             /^https?:\/\/\S+$/.test(value.trim()) ||
-            'Enter a URL like https://your-automem.example',
+            "That doesn't look like a URL — try something like https://your-automem.example",
         })
       )
     ).trim();
   }
 
   if (collectEndpointHere && !apiKey) {
+    promptCaption("Its password, if it has one. Many setups don't.");
     // Masked: the key must never echo in cleartext as the user types.
     const entered = (
       await cancelable(
         promptPassword({
-          message: 'AutoMem API key (leave blank if this endpoint does not require one)',
+          message: "AutoMem API key (leave blank if you don't have one)",
         })
       )
     ).trim();
@@ -1443,13 +1482,13 @@ async function resolveInteractiveOptions(
     for (;;) {
       const selected = await cancelable(
         promptMultiselect<AgentClient>({
-          message: 'Install AutoMem into which agents?',
+          message: 'Connect AutoMem to which AI tools?',
           options: AGENT_CLIENTS.map((client) => ({
             value: client,
             label: clientLabel(client),
             hint: detected.has(client)
               ? 'detected on this machine'
-              : 'not detected, still installable',
+              : 'not found here — pick it anyway if you use it',
           })),
           // Pre-check everything detected on this machine (Hermes included) so a
           // user who already runs an agent reaches its follow-up prompts by default.
@@ -1484,12 +1523,12 @@ async function resolveInteractiveOptions(
           {
             value: 'provider',
             label: 'Native memory provider',
-            hint: 'recommended; replaces Hermes built-in memory provider selection',
+            hint: "recommended — replaces Hermes's built-in memory",
           },
           {
             value: 'mcp',
             label: 'MCP tools only',
-            hint: 'portable tools, no provider replacement',
+            hint: 'standard protocol connection — works everywhere',
           },
           {
             value: 'both',
@@ -1652,6 +1691,15 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
   }
 
   try {
+    if (interactive && !parsed.yes) {
+      // One line of framing before the first question: how long this takes and —
+      // the cheapest trust win in the flow — that nothing happens until the
+      // reviewed plan is approved.
+      const theme = makeTheme(process.stdout);
+      process.stdout.write(
+        `  ${theme.style.dim('About 2 minutes. Nothing is written until you approve the plan at the end.')}\n`
+      );
+    }
     const resolved = interactive
       ? await resolveInteractiveOptions(
           parsed,
@@ -1685,6 +1733,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     }
 
     if (!resolved.yes) {
+      process.stdout.write('\n');
       const approved = await cancelable(
         promptConfirm({ message: 'Apply this AutoMem install plan?', initialValue: false })
       );

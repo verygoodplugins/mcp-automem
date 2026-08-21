@@ -63,7 +63,7 @@ export async function promptManualCredentials(): Promise<ProvisionResult> {
   const apiKey = (
     await cancelable(
       promptPassword({
-        message: 'AutoMem API key (leave blank if this endpoint does not require one)',
+        message: "AutoMem API key (leave blank if you don't have one)",
       })
     )
   ).trim();
