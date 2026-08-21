@@ -125,6 +125,8 @@ const SCENARIOS = [
       { waitFor: /Where should AutoMem run/, send: KEY.enter }, // cloud (default)
       { waitFor: /stand up your hosted AutoMem/, send: KEY.enter }, // InstaPods (default)
       { waitFor: /which agents/, send: KEY.enter }, // none selected
+      { waitFor: /Continue anyway/, send: 'y' }, // zero-agent guard confirm
+      { send: KEY.enter },
     ],
     // InstaPods opens the setup page + pastes during apply, so dry-run shows the
     // provision step and never prompts for a URL/token in resolve.
@@ -143,6 +145,8 @@ const SCENARIOS = [
       { send: KEY.enter },
       { waitFor: /AutoMem API key/, send: KEY.enter }, // blank
       { waitFor: /which agents/, send: KEY.enter }, // none selected
+      { waitFor: /Continue anyway/, send: 'y' }, // zero-agent guard confirm
+      { send: KEY.enter },
     ],
     // 'other' pastes up front like an existing endpoint — verify, no provision step.
     expect: [/Verify AutoMem endpoint/, /Install review/, /mode\s+cloud/, /Dry run only/],
@@ -160,6 +164,8 @@ const SCENARIOS = [
       { waitFor: /stand up your hosted AutoMem/, send: KEY.down }, // InstaPods → Railway
       { send: KEY.enter },
       { waitFor: /which agents/, send: KEY.enter }, // none selected
+      { waitFor: /Continue anyway/, send: 'y' }, // zero-agent guard confirm
+      { send: KEY.enter },
     ],
     // Railway provisions endpoint+token during apply (via the railway CLI), so
     // dry-run shows the provision step and never prompts for a URL/token.
@@ -174,6 +180,8 @@ const SCENARIOS = [
       { send: KEY.enter },
       { waitFor: /Local AutoMem server directory/, send: KEY.enter }, // accept default
       { waitFor: /which agents/, send: KEY.enter }, // none
+      { waitFor: /Continue anyway/, send: 'y' }, // zero-agent guard confirm
+      { send: KEY.enter },
     ],
     expect: [/Prepare local AutoMem server/, /mode\s+local/, /Dry run only/],
     notExpect: [/AutoMem install canceled/],
@@ -217,6 +225,29 @@ const SCENARIOS = [
       /--yes/,
       /AUTOMEM_DRY_RUN/,
     ],
+  },
+  {
+    name: 'existing-none',
+    description: 'zero-agent guard: empty multiselect -> explicit confirm -> review says no agents',
+    steps: [
+      { waitFor: /Where should AutoMem run/, send: KEY.down }, // cloud → local
+      { send: KEY.down }, // local → existing
+      { send: KEY.enter },
+      { waitFor: /AutoMem API URL/, send: ENDPOINT },
+      { send: KEY.enter },
+      { waitFor: /AutoMem API key/, send: KEY.enter }, // blank
+      { waitFor: /which agents/, send: KEY.enter }, // submit empty
+      { waitFor: /Continue anyway/, send: 'y' },
+      { send: KEY.enter },
+    ],
+    expect: [
+      /No AI tools selected/,
+      /Install review/,
+      /no agents/,
+      /none selected — nothing will be connected/,
+      /Dry run only/,
+    ],
+    notExpect: [/AutoMem install canceled/],
   },
 ];
 

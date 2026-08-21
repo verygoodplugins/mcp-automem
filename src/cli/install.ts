@@ -1257,8 +1257,8 @@ export function renderInstallPlan(
 
   // At-a-glance summary chip.
   const agentCount = plan.actions.filter((action) => action.client).length;
-  const chip = `${plan.actions.length} stages · ${plan.target}${
-    agentCount ? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'}` : ''
+  const chip = `${plan.actions.length} stages · ${plan.target} · ${
+    agentCount ? `${agentCount} agent${agentCount === 1 ? '' : 's'}` : 'no agents'
   }${plan.dryRun ? ' · dry run' : ''}`;
   out.push(`  ${theme.style.dim(chip)}`, '');
 
@@ -1277,6 +1277,15 @@ export function renderInstallPlan(
   ];
   if (plan.target === 'local') {
     rows.push({ label: 'server', value: theme.style.dim(tildify(plan.localDir)), status: 'muted' });
+  }
+  if (agentCount === 0) {
+    // A zero-agent plan is legal but almost never what a first-time user meant —
+    // say it in the review instead of quietly omitting the agent clause.
+    rows.push({
+      label: 'agents',
+      value: 'none selected — nothing will be connected',
+      status: 'warn',
+    });
   }
   out.push(keyValueRows(rows, theme), '', sectionTitle('Stages', theme));
 
@@ -1428,23 +1437,42 @@ async function resolveInteractiveOptions(
   let clients = parsed.clients;
   if (!parsed.noAgentInstall && !clientsExplicit) {
     const detected = new Set(environment.detectedClients.map((client) => client.client));
-    const selected = await cancelable(
-      promptMultiselect<AgentClient>({
-        message: 'Install AutoMem into which agents?',
-        options: AGENT_CLIENTS.map((client) => ({
-          value: client,
-          label: clientLabel(client),
-          hint: detected.has(client)
-            ? 'detected on this machine'
-            : 'not detected, still installable',
-        })),
-        // Pre-check everything detected on this machine (Hermes included) so a
-        // user who already runs an agent reaches its follow-up prompts by default.
-        initialValues: AGENT_CLIENTS.filter((client) => detected.has(client)),
-        required: false,
-      })
-    );
-    clients = selected.length > 0 ? selected : [];
+    // On a fresh machine nothing is detected, nothing is pre-checked, and Enter
+    // submits an empty selection — silently skipping the tool's entire purpose.
+    // Loop: an empty submit gets one explicit confirm; No re-opens the list.
+    for (;;) {
+      const selected = await cancelable(
+        promptMultiselect<AgentClient>({
+          message: 'Install AutoMem into which agents?',
+          options: AGENT_CLIENTS.map((client) => ({
+            value: client,
+            label: clientLabel(client),
+            hint: detected.has(client)
+              ? 'detected on this machine'
+              : 'not detected, still installable',
+          })),
+          // Pre-check everything detected on this machine (Hermes included) so a
+          // user who already runs an agent reaches its follow-up prompts by default.
+          initialValues: AGENT_CLIENTS.filter((client) => detected.has(client)),
+          required: false,
+        })
+      );
+      if (selected.length > 0) {
+        clients = selected;
+        break;
+      }
+      const skipAgents = await cancelable(
+        promptConfirm({
+          message:
+            'No AI tools selected — AutoMem will be set up but nothing will use it. Continue anyway?',
+          initialValue: false,
+        })
+      );
+      if (skipAgents) {
+        clients = [];
+        break;
+      }
+    }
   }
 
   let hermesMode = parsed.hermesMode;
@@ -1926,8 +1954,22 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');
     // The card is a box, so rows snap in whole (never half-drawn) but slowly —
     // a deliberate beat per row so the finish lands instead of flashing past.
+    // Deliberate --no-agent-install runs keep the plain title; the callout is
+    // for a wizard user who ended up with nothing connected.
+    const zeroAgents = !resolved.noAgentInstall && resolved.clients.length === 0;
+    if (zeroAgents) {
+      nextSteps.splice(
+        1,
+        0,
+        'Connect one: npx @verygoodplugins/mcp-automem install --clients claude-code (or your tool).'
+      );
+    }
     const cardTitle =
-      agentFailures.length > 0 ? 'AutoMem is installed — with follow-ups' : 'AutoMem is installed';
+      agentFailures.length > 0
+        ? 'AutoMem is installed — with follow-ups'
+        : zeroAgents
+          ? 'AutoMem is installed — but not connected to any AI tool'
+          : 'AutoMem is installed';
     await revealLines(renderSuccessCard(cardTitle, nextSteps), {
       typed: true,
       wordDelayMs: 42,
