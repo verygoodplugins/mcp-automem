@@ -1237,11 +1237,15 @@ export function renderInstallPlan(
     // The path list above is identical in both modes, so this note carries the
     // difference. A dry run must not advertise backups of "changed" files — it
     // changes nothing — and should say how to actually apply the plan.
+    // Stay flag-agnostic here: the renderer cannot see TTY state, and the flag
+    // that actually applies the plan depends on it (a non-TTY run also needs
+    // --yes, or shouldUseNonInteractivePreview sends it straight back to a
+    // preview). The caller's closing status line owns that instruction.
     out.push(
       '',
       plan.dryRun
         ? `  ${theme.style.yellow(
-            `dry run ${theme.symbol.arrow} nothing is written — re-run without --dry-run to apply`
+            `dry run ${theme.symbol.arrow} nothing is written; the paths above are what a real run would change`
           )}`
         : `  ${theme.style.dim(`backups ${theme.symbol.arrow} each changed file keeps a .bak copy`)}`
     );
@@ -1581,7 +1585,13 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     });
 
     if (resolved.dryRun) {
-      writeStatus('Dry run only. No files were changed.');
+      // Without a TTY, dropping --dry-run alone lands back in the preview path
+      // (shouldUseNonInteractivePreview), so headless users need --yes as well.
+      writeStatus(
+        interactive
+          ? 'Dry run only. No files were changed. Re-run without --dry-run to apply.'
+          : 'Dry run only. No files were changed. Re-run without --dry-run and with --yes to apply.'
+      );
       return;
     }
 

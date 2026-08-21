@@ -452,8 +452,12 @@ describe('guided install helpers', () => {
     // because a dry run changes nothing.
     expect(rendered).toContain('dry run');
     expect(rendered).toContain('nothing is written');
-    expect(rendered).toContain('--dry-run');
     expect(rendered).not.toContain('each changed file keeps a .bak copy');
+    // The plan render must stay flag-agnostic: which flag actually applies the
+    // plan depends on TTY state the renderer cannot see (a headless re-run also
+    // needs --yes). runGuidedInstall's closing status owns that instruction.
+    expect(rendered).not.toContain('--dry-run');
+    expect(rendered).not.toContain('--yes');
   });
 
   it('keeps the backup note on a real (non-dry-run) review', () => {
