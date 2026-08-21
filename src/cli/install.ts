@@ -297,6 +297,33 @@ function writeStatus(message: string, tone: 'info' | 'ok' | 'warn' = 'info'): vo
   process.stdout.write(`\n${mark} ${message}\n`);
 }
 
+// The instruction that turns a preview into a real install depends on two things
+// renderInstallPlan cannot see, so it lives here rather than in the plan body:
+//   1. WHERE dry-run came from. `--dry-run` can be dropped; AUTOMEM_DRY_RUN=1 has
+//      no flag to remove and must be unset (parseInstallArgs seeds dryRun from it).
+//   2. Whether there is a TTY. A headless re-run also needs --yes, or
+//      shouldUseNonInteractivePreview sends it straight back into preview mode.
+export function dryRunApplyHint(params: {
+  interactive: boolean;
+  args: string[];
+  env?: NodeJS.ProcessEnv;
+}): string {
+  const env = params.env ?? process.env;
+  const fromFlag = params.args.includes('--dry-run');
+  const fromEnv = parseBooleanEnv(env.AUTOMEM_DRY_RUN);
+  const disable =
+    fromFlag && fromEnv
+      ? 'drop --dry-run and unset AUTOMEM_DRY_RUN'
+      : fromEnv
+        ? 'unset AUTOMEM_DRY_RUN'
+        : fromFlag
+          ? 'drop --dry-run'
+          : 'turn off dry-run mode';
+  return params.interactive
+    ? `To apply, ${disable} and re-run.`
+    : `To apply, ${disable}, then re-run with --yes.`;
+}
+
 // Render a failure as a clean themed block — never a raw Error/stack. The message
 // is shown as-is; InstallError hints add an actionable follow-up line. "Command
 // failed: …" noise from execFileSync is stripped so users see intent, not internals.
@@ -1585,13 +1612,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     });
 
     if (resolved.dryRun) {
-      // Without a TTY, dropping --dry-run alone lands back in the preview path
-      // (shouldUseNonInteractivePreview), so headless users need --yes as well.
-      writeStatus(
-        interactive
-          ? 'Dry run only. No files were changed. Re-run without --dry-run to apply.'
-          : 'Dry run only. No files were changed. Re-run without --dry-run and with --yes to apply.'
-      );
+      writeStatus(`Dry run only. No files were changed. ${dryRunApplyHint({ interactive, args })}`);
       return;
     }
 

@@ -18,6 +18,7 @@ import {
   parseInstallArgs,
   prepareLocalServer,
   renderInstallPlan,
+  dryRunApplyHint,
   shouldUseNonInteractivePreview,
   validateInstallPrerequisites,
   verifyAutoMemEndpoint,
@@ -458,6 +459,48 @@ describe('guided install helpers', () => {
     // needs --yes). runGuidedInstall's closing status owns that instruction.
     expect(rendered).not.toContain('--dry-run');
     expect(rendered).not.toContain('--yes');
+  });
+
+  // The instruction that actually applies a previewed plan depends on TWO things
+  // the renderer cannot see: where dry-run came from (flag vs AUTOMEM_DRY_RUN —
+  // there is no flag to drop in the env case), and whether there is a TTY (a
+  // headless re-run also needs --yes, or shouldUseNonInteractivePreview bounces
+  // it straight back into preview).
+  describe('dryRunApplyHint', () => {
+    it('tells a TTY user with --dry-run to drop the flag', () => {
+      const hint = dryRunApplyHint({ interactive: true, args: ['install', '--dry-run'], env: {} });
+      expect(hint).toContain('--dry-run');
+      expect(hint).not.toContain('--yes');
+      expect(hint).not.toContain('AUTOMEM_DRY_RUN');
+    });
+
+    it('adds --yes for a headless run, which would otherwise re-enter preview', () => {
+      const hint = dryRunApplyHint({ interactive: false, args: ['install', '--dry-run'], env: {} });
+      expect(hint).toContain('--dry-run');
+      expect(hint).toContain('--yes');
+    });
+
+    it('tells an env-driven dry run to unset AUTOMEM_DRY_RUN, not to drop a flag', () => {
+      const hint = dryRunApplyHint({
+        interactive: true,
+        args: ['install'],
+        env: { AUTOMEM_DRY_RUN: '1' },
+      });
+      expect(hint).toContain('AUTOMEM_DRY_RUN');
+      // There is no --dry-run argument to remove in this case.
+      expect(hint).not.toContain('--dry-run');
+    });
+
+    it('names both sources when the flag and the env var are both set', () => {
+      const hint = dryRunApplyHint({
+        interactive: false,
+        args: ['install', '--dry-run'],
+        env: { AUTOMEM_DRY_RUN: '1' },
+      });
+      expect(hint).toContain('--dry-run');
+      expect(hint).toContain('AUTOMEM_DRY_RUN');
+      expect(hint).toContain('--yes');
+    });
   });
 
   it('keeps the backup note on a real (non-dry-run) review', () => {

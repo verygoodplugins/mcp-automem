@@ -209,12 +209,13 @@ const SCENARIOS = [
       /Dry run only/,
       // On a TTY, dropping --dry-run is enough to apply; the headless variant
       // (which also needs --yes) must not leak into the interactive closer.
-      /Re-run without --dry-run to apply\./,
+      /To apply, drop --dry-run and re-run\./,
     ],
     notExpect: [
       /AutoMem install canceled/,
       /each changed file keeps a \.bak copy/,
-      /with --yes to apply/,
+      /--yes/,
+      /AUTOMEM_DRY_RUN/,
     ],
   },
 ];
