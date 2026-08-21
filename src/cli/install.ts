@@ -381,6 +381,7 @@ export function equivalentInstallCommand(options: {
   hermesMode?: HermesInstallMode;
   localDir?: string;
   noAgentInstall?: boolean;
+  yes?: boolean;
   apiKeyProvided: boolean;
 }): string {
   const parts = ['npx @verygoodplugins/mcp-automem install', `--target ${options.target}`];
@@ -395,12 +396,19 @@ export function equivalentInstallCommand(options: {
   if (options.apiKeyProvided) parts.push('--api-key YOUR_KEY_HERE');
   if (options.target === 'local' && options.localDir)
     parts.push(`--local-dir ${shellQuote(options.localDir)}`);
-  if (options.noAgentInstall) parts.push('--no-agent-install');
-  else if (options.clients.length > 0) parts.push(`--clients ${options.clients.join(',')}`);
+  // clients [] with noAgentInstall unset is a CONFIRMED zero-tool selection
+  // (the wizard's guard asked). Emitting neither flag would reopen the wizard —
+  // or restore the headless default set — on re-run, so both map to the same
+  // explicit flag.
+  if (options.noAgentInstall || options.clients.length === 0) parts.push('--no-agent-install');
+  else parts.push(`--clients ${options.clients.join(',')}`);
   if (!options.noAgentInstall && options.clients.includes('claude-code') && options.claudeCodeMode)
     parts.push(`--claude-code-mode ${options.claudeCodeMode}`);
   if (!options.noAgentInstall && options.clients.includes('hermes') && options.hermesMode)
     parts.push(`--hermes-mode ${options.hermesMode}`);
+  // A headless run needed --yes to get past shouldUseNonInteractivePreview;
+  // a retry command without it would only print a preview in the same shell.
+  if (options.yes) parts.push('--yes');
   return parts.join(' ');
 }
 
@@ -1998,7 +2006,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         // exists (and may bill), a local run has cloned/started containers.
         const machineState =
           resolved.target === 'cloud'
-            ? 'Your cloud deployment exists — nothing on this machine was changed.'
+            ? 'Your cloud deployment exists — no AutoMem files were written on this machine yet.'
             : resolved.target === 'local'
               ? 'The local server may still be starting — no agent files were changed.'
               : "Nothing was installed — your machine wasn't changed.";

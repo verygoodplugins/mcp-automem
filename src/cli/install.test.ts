@@ -554,6 +554,42 @@ describe('guided install helpers', () => {
       expect(cmd).toContain('--local-dir /Users/tester/.automem/server');
     });
 
+    it('preserves an explicitly empty client selection as --no-agent-install', () => {
+      // clients [] with noAgentInstall unset means the user CONFIRMED zero
+      // tools; omitting both flags would reopen the wizard (or restore the
+      // headless default set) on re-run.
+      const cmd = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: [],
+        hermesMode: 'mcp',
+        apiKeyProvided: false,
+      });
+      expect(cmd).toContain('--no-agent-install');
+      expect(cmd).not.toContain('--clients');
+    });
+
+    it('carries --yes so a headless retry actually applies instead of previewing', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: ['grok'],
+        hermesMode: 'mcp',
+        yes: true,
+        apiKeyProvided: false,
+      });
+      expect(cmd).toContain('--yes');
+      const interactive = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: ['grok'],
+        hermesMode: 'mcp',
+        yes: false,
+        apiKeyProvided: false,
+      });
+      expect(interactive).not.toContain('--yes');
+    });
+
     it('shell-quotes dynamic values so the printed command survives a paste', () => {
       const cmd = equivalentInstallCommand({
         target: 'local',
