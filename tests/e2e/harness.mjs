@@ -257,6 +257,84 @@ const SCENARIOS = [
   },
 
   {
+    name: 'grok-existing-headless',
+    description:
+      'Headless existing-target install for Grok Build. Grok is deliberately absent from DEFAULT_AGENT_CLIENTS, so it is opt-in via --clients.',
+    mock: { mode: 'healthy', expectToken: TOKEN },
+    steps: (ctx) => [
+      {
+        kind: 'direct',
+        argv: [
+          'install',
+          '--yes',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'grok',
+        ],
+      },
+    ],
+    assert: async (ctx) => {
+      const r = [];
+      const last = ctx.steps.at(-1);
+      r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
+      r.push(
+        A(
+          'grok config.toml written',
+          ctx.homeNew.includes('.grok/config.toml'),
+          ctx.homeNew.join(', ')
+        )
+      );
+      r.push(A('grok AGENTS.md written', ctx.homeNew.includes('.grok/AGENTS.md')));
+      const toml = await readFile(path.join(ctx.home, '.grok', 'config.toml'), 'utf8').catch(
+        () => ''
+      );
+      r.push(A('config registers [mcp_servers.memory]', toml.includes('[mcp_servers.memory]')));
+      r.push(A('config carries the endpoint', toml.includes(ctx.mock.url)));
+      r.push(A('config carries the api key', toml.includes(TOKEN)));
+      const agents = await readFile(path.join(ctx.home, '.grok', 'AGENTS.md'), 'utf8').catch(
+        () => ''
+      );
+      r.push(
+        A(
+          'rules block written with both markers',
+          agents.includes('<!-- BEGIN AUTOMEM GROK RULES -->') &&
+            agents.includes('<!-- END AUTOMEM GROK RULES -->')
+        )
+      );
+      // ~/.grok/AGENTS.md is injected into EVERY grok session, so the global copy
+      // must keep the <project-slug> placeholder rather than bake in the cwd it
+      // happened to be installed from (grok.ts GLOBAL_PROJECT_PLACEHOLDER).
+      r.push(
+        A(
+          'global rules stay project-agnostic',
+          agents.includes('<project-slug>'),
+          agents.slice(0, 200)
+        )
+      );
+      const reqs = ctx.mock.requests;
+      r.push(
+        A(
+          'mock saw GET /health',
+          reqs.some((q) => q.path === '/health')
+        )
+      );
+      r.push(
+        A(
+          'mock saw authed GET /recall',
+          reqs.some((q) => q.path === '/recall' && q.authed)
+        )
+      );
+      return r;
+    },
+    findings: () => [],
+  },
+
+  {
     name: 'claude-existing-headless',
     description:
       'Sibling client: headless existing-target install for Claude Code in settings mode (the scriptable alternative to the recommended plugin).',
