@@ -199,16 +199,18 @@ export function renderInstallerSplash(
     color,
     sparkleFrame: options.sparkleFrame,
   });
+  // Kept tight on purpose: ~12 lines total so the first prompt still fits on a
+  // stock 80x24 terminal next to the branding. The old third subtitle line
+  // ("guided local, hosted, and existing-endpoint setup") moved into the
+  // wizard's framing line, and the wordmark/mascot share one separator.
   return [
     renderWordmark(color, options.wordmarkOffset ?? 0),
     '',
     centerBlock(mascot),
-    '',
     centerLine(rgb(COLORS.gold, 'AutoMem', color)),
     centerLine(
       `${rgb(COLORS.text, "Your agents' memory. Everywhere.", color)} ${rgb(COLORS.goldBright, '✦', color)}`
     ),
-    centerLine(rgb(COLORS.muted, 'guided local, hosted, and existing-endpoint setup', color)),
   ].join('\n');
 }
 

@@ -357,10 +357,10 @@ export function dryRunApplyHint(params: {
   // TTY wording is for a human at a keyboard, not a script: say "preview" and
   // "install for real" instead of flag-native verbs like "drop".
   if (fromFlag && fromEnv)
-    return 'This was a preview. To install for real, remove --dry-run, set AUTOMEM_DRY_RUN=0, and run it again.';
+    return 'To install for real, remove --dry-run, set AUTOMEM_DRY_RUN=0, and run it again.';
   if (fromEnv)
-    return 'This was a preview. To install for real, set AUTOMEM_DRY_RUN=0 (it is on in your shell or .env) and run it again.';
-  return 'This was a preview. To install for real, run the same command without --dry-run.';
+    return 'To install for real, set AUTOMEM_DRY_RUN=0 (it is on in your shell or .env) and run it again.';
+  return 'To install for real, run the same command without --dry-run.';
 }
 
 // Reconstruct the non-interactive command equivalent to a set of resolved wizard

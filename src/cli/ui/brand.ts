@@ -1,4 +1,3 @@
-import { badge } from './messages.js';
 import { makeTheme, padEndVisible, repeatVisible, visibleLength, type Theme } from './theme.js';
 import { centerBlock, centerLine, renderMascot, renderWordmark } from '../install-ui.js';
 
@@ -26,7 +25,8 @@ export function renderBrandHeader(
   // The wide header's mascot is Unicode box art — collapse to the one-line badge
   // when unicode is off (ASCII/dumb terminals) as well as the existing cases.
   if (options.compact || theme.width < 60 || !theme.color || !theme.unicode) {
-    return `${badge('automem', theme)} ${theme.style.bold('AutoMem')} ${theme.style.dim(TAGLINE)}\n`;
+    // No badge: it printed the brand name twice back-to-back ("automem AutoMem").
+    return `${theme.style.bold('AutoMem')} ${theme.style.dim(`— ${TAGLINE}.`)}\n`;
   }
   return [
     '',
