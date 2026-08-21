@@ -240,6 +240,8 @@ type VerifyEndpointOptions = {
 type WaitEndpointOptions = VerifyEndpointOptions & {
   attempts?: number;
   intervalMs?: number;
+  // Called before each attempt — lets the caller surface retry progress.
+  onAttempt?: (attempt: number, attempts: number) => void;
   /**
    * Require this many CONSECUTIVE successful verifies before declaring ready
    * (default 1). A freshly deployed service can flicker during early boot — health
@@ -960,6 +962,7 @@ export async function waitForAutoMemEndpoint(
   let streak = 0;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    options.onAttempt?.(attempt, attempts);
     last = await verifyAutoMemEndpoint({
       endpoint: options.endpoint,
       apiKey: options.apiKey,
@@ -1323,7 +1326,10 @@ function renderActionDetail(
     case 'manual-step':
       return [detail(action.detail)];
     case 'install-agent':
-      return []; // the title ("Install <Agent> integration") says it all
+      // Path-writing agent installs are self-explanatory (title + path lines),
+      // but a manual/plugin-style action with no paths carries its authored
+      // explanation in `detail` — the plugin path's ONLY description. Show it.
+      return action.paths.length === 0 && action.detail ? [detail(action.detail)] : [];
   }
 }
 
@@ -1934,6 +1940,12 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         apiKey,
         attempts: 8,
         intervalMs: 2000,
+        // From the second try onward, show the ladder — 16 quiet seconds of
+        // spinner otherwise reads as a hang.
+        onAttempt: (attempt, attempts) => {
+          if (attempt > 1)
+            list.update('verify', `Verify endpoint — attempt ${attempt}/${attempts}`);
+        },
       });
       if (!verify.ok) {
         list.fail('verify');

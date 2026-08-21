@@ -112,6 +112,16 @@ export async function provisionViaInstaPodsLink(
   );
 
   if (choice === 'open') {
+    // Billing parity with the Railway path: say what it costs and that a card
+    // is involved BEFORE any browser page asks for one.
+    const proceed = await cancelable(
+      promptConfirm({
+        message:
+          "InstaPods hosts AutoMem for ~$15/mo (their Grow plan). You'll create an account and add a card on their site. Open the signup page?",
+        initialValue: true,
+      })
+    );
+    if (!proceed) return promptManualCredentials();
     await openUrl(INSTAPODS_CREATE_URL);
     log(
       noteBox('InstaPods setup', [
@@ -122,6 +132,7 @@ export async function provisionViaInstaPodsLink(
         INSTAPODS_CREATE_URL,
       ])
     );
+    log('  Waiting — the email can take a minute or two. Paste here when it arrives.');
   }
 
   return promptManualCredentials();

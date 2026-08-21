@@ -266,4 +266,68 @@ describe('provisionViaInstaPodsLink routing', () => {
     expect(promptMocks.promptText).not.toHaveBeenCalled();
     expect(promptMocks.promptPassword).not.toHaveBeenCalled();
   });
+
+  // The billing gate: cost + card disclosure must come BEFORE the browser opens
+  // (parity with Railway's billingConfirmMessage), and declining it must fall
+  // back to the paste path without ever opening the signup page.
+  it('confirms billing before opening the InstaPods signup page', async () => {
+    promptMocks.promptSelect.mockResolvedValueOnce('open' as never);
+    promptMocks.promptConfirm.mockResolvedValueOnce(true as never);
+    promptMocks.promptText.mockResolvedValueOnce('https://pod.example' as never);
+    promptMocks.promptPassword.mockResolvedValueOnce('tok' as never);
+    let opened = 0;
+
+    const result = await provisionViaInstaPodsLink({
+      interactive: true,
+      log: () => {},
+      openUrl: async () => {
+        opened += 1;
+      },
+    });
+
+    expect(promptMocks.promptConfirm).toHaveBeenCalledTimes(1);
+    const confirmArg = (promptMocks.promptConfirm.mock.calls[0] as unknown[])[0] as {
+      message: string;
+    };
+    expect(confirmArg.message).toContain('$15/mo');
+    expect(opened).toBe(1);
+    expect(result.endpoint).toBe('https://pod.example');
+  });
+
+  it('declining the billing confirm skips the browser and falls back to paste', async () => {
+    promptMocks.promptSelect.mockResolvedValueOnce('open' as never);
+    promptMocks.promptConfirm.mockResolvedValueOnce(false as never);
+    promptMocks.promptText.mockResolvedValueOnce('https://pod.example' as never);
+    promptMocks.promptPassword.mockResolvedValueOnce('' as never);
+    let opened = 0;
+
+    const result = await provisionViaInstaPodsLink({
+      interactive: true,
+      log: () => {},
+      openUrl: async () => {
+        opened += 1;
+      },
+    });
+
+    expect(opened).toBe(0);
+    expect(result.endpoint).toBe('https://pod.example');
+  });
+
+  it('the paste branch never shows the billing confirm', async () => {
+    promptMocks.promptSelect.mockResolvedValueOnce('paste' as never);
+    promptMocks.promptText.mockResolvedValueOnce('https://pod.example' as never);
+    promptMocks.promptPassword.mockResolvedValueOnce('tok' as never);
+    let opened = 0;
+
+    await provisionViaInstaPodsLink({
+      interactive: true,
+      log: () => {},
+      openUrl: async () => {
+        opened += 1;
+      },
+    });
+
+    expect(promptMocks.promptConfirm).not.toHaveBeenCalled();
+    expect(opened).toBe(0);
+  });
 });
