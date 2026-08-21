@@ -19,6 +19,7 @@ import {
   prepareLocalServer,
   renderInstallPlan,
   dryRunApplyHint,
+  equivalentInstallCommand,
   shouldUseNonInteractivePreview,
   validateInstallPrerequisites,
   verifyAutoMemEndpoint,
@@ -504,6 +505,64 @@ describe('guided install helpers', () => {
       expect(hint).toContain('--dry-run');
       expect(hint).toContain('AUTOMEM_DRY_RUN');
       expect(hint).toContain('--yes');
+    });
+  });
+
+  // Both cancel-style endings (declined confirm, failed verify) hand the user
+  // their answers back as a runnable command so six prompts of work never
+  // evaporates. The command must reconstruct flags from resolved options and
+  // must never echo a real API key.
+  describe('equivalentInstallCommand', () => {
+    it('reconstructs an existing-endpoint install with clients and modes', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: ['claude-code', 'grok'],
+        claudeCodeMode: 'plugin',
+        hermesMode: 'mcp',
+        apiKeyProvided: false,
+      });
+      expect(cmd).toBe(
+        'npx @verygoodplugins/mcp-automem install --target existing --endpoint https://memory.example --clients claude-code,grok --claude-code-mode plugin'
+      );
+    });
+
+    it('names the api key as a placeholder, never a value', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: [],
+        hermesMode: 'mcp',
+        apiKeyProvided: true,
+      });
+      expect(cmd).toContain('--api-key <your key>');
+      expect(cmd).not.toMatch(/--api-key\s+(?!<your key>)\S/);
+    });
+
+    it('omits the endpoint for local targets (which reject --endpoint)', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'local',
+        endpoint: 'http://127.0.0.1:8001',
+        clients: ['codex'],
+        hermesMode: 'mcp',
+        localDir: '/Users/tester/.automem/server',
+        apiKeyProvided: false,
+      });
+      expect(cmd).not.toContain('--endpoint');
+      expect(cmd).toContain('--local-dir /Users/tester/.automem/server');
+    });
+
+    it('carries hermes mode only when hermes is selected, and cloud provider for cloud', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'cloud',
+        cloudProvider: 'railway',
+        clients: ['hermes'],
+        hermesMode: 'provider',
+        apiKeyProvided: false,
+      });
+      expect(cmd).toContain('--cloud-provider railway');
+      expect(cmd).toContain('--hermes-mode provider');
+      expect(cmd).not.toContain('--claude-code-mode');
     });
   });
 

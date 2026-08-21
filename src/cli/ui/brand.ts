@@ -71,7 +71,9 @@ export function renderSuccessCard(
 
   const content = [
     `${theme.style.gold(theme.symbol.check)} ${theme.style.bold(title)}`,
-    ...lines.map((line) => theme.style.dim(line)),
+    // Normal weight on purpose: these lines are the endpoint + next steps — the
+    // card's entire payload — and bare ANSI dim is illegible on light terminals.
+    ...lines,
   ];
   const innerWidth = Math.min(
     theme.width - 4,

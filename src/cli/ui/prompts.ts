@@ -50,7 +50,11 @@ export async function cancelable<T>(promise: Promise<T>): Promise<T> {
   } catch (err) {
     if (err instanceof Error && err.name === 'ExitPromptError') {
       const t = makeTheme(process.stdout);
-      process.stdout.write(`\n${t.style.dim('AutoMem install canceled.')}\n`);
+      // Reassure + resume: a Ctrl-C mid-wizard must say the machine is untouched
+      // (nothing is written before the apply confirm) and how to pick back up.
+      process.stdout.write(
+        `\n${t.style.dim('AutoMem install canceled — nothing was changed. Run the same command again anytime.')}\n`
+      );
       process.exit(0);
     }
     throw err;

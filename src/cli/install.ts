@@ -328,6 +328,38 @@ export function dryRunApplyHint(params: {
     : `To apply, ${disable}, then re-run with --yes.`;
 }
 
+// Reconstruct the non-interactive command equivalent to a set of resolved wizard
+// answers. Shown when a run stops without applying (declined confirm, failed
+// verify) so the user's prompt answers survive as something they can paste. The
+// API key is always the literal placeholder <your key> — never the value.
+export function equivalentInstallCommand(options: {
+  target: InstallTarget;
+  endpoint?: string;
+  cloudProvider?: CloudProviderId;
+  clients: AgentClient[];
+  claudeCodeMode?: ClaudeCodeMode;
+  hermesMode?: HermesInstallMode;
+  localDir?: string;
+  noAgentInstall?: boolean;
+  apiKeyProvided: boolean;
+}): string {
+  const parts = ['npx @verygoodplugins/mcp-automem install', `--target ${options.target}`];
+  // --endpoint is rejected with --target local (the local server always binds the
+  // compose default), so never reconstruct one there.
+  if (options.endpoint && options.target !== 'local') parts.push(`--endpoint ${options.endpoint}`);
+  if (options.target === 'cloud' && options.cloudProvider)
+    parts.push(`--cloud-provider ${options.cloudProvider}`);
+  if (options.apiKeyProvided) parts.push('--api-key <your key>');
+  if (options.target === 'local' && options.localDir) parts.push(`--local-dir ${options.localDir}`);
+  if (options.noAgentInstall) parts.push('--no-agent-install');
+  else if (options.clients.length > 0) parts.push(`--clients ${options.clients.join(',')}`);
+  if (!options.noAgentInstall && options.clients.includes('claude-code') && options.claudeCodeMode)
+    parts.push(`--claude-code-mode ${options.claudeCodeMode}`);
+  if (!options.noAgentInstall && options.clients.includes('hermes') && options.hermesMode)
+    parts.push(`--hermes-mode ${options.hermesMode}`);
+  return parts.join(' ');
+}
+
 // Render a failure as a clean themed block — never a raw Error/stack. The message
 // is shown as-is; InstallError hints add an actionable follow-up line. "Command
 // failed: …" noise from execFileSync is stripped so users see intent, not internals.
@@ -340,7 +372,11 @@ export function formatInstallError(
   message = message.replace(/^Command failed:.*$/m, '').trim() || 'AutoMem install failed.';
   const lines = [`\n${theme.style.red(theme.symbol.cross)} ${theme.style.bold(message)}`];
   if (err instanceof InstallError && err.hint) {
-    lines.push(`  ${theme.style.dim(err.hint)}`);
+    // The hint is the recovery path — indent every line and keep it normal
+    // weight (dim recovery text is illegible on light terminals).
+    for (const hintLine of err.hint.split('\n')) {
+      lines.push(`  ${hintLine}`);
+    }
   }
   return `${lines.join('\n')}\n`;
 }
@@ -1625,7 +1661,14 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         promptConfirm({ message: 'Apply this AutoMem install plan?', initialValue: false })
       );
       if (!approved) {
-        writeStatus('No files were changed.');
+        // Six prompts of answers shouldn't evaporate on a No — hand them back
+        // as the equivalent one-liner so re-running skips the wizard entirely.
+        writeStatus('Nothing was installed — no files were changed.');
+        const theme = makeTheme(process.stdout);
+        process.stdout.write(
+          `  ${theme.style.dim('Your answers, ready to re-run:')}\n` +
+            `  ${theme.style.gold('$')} ${equivalentInstallCommand({ ...resolved, apiKeyProvided: Boolean(resolved.apiKey) })}\n`
+        );
         return;
       }
     }
@@ -1748,7 +1791,13 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       });
       if (!verify.ok) {
         list.fail('verify');
-        throw new InstallError("Couldn't verify the AutoMem endpoint.", verify.message);
+        throw new InstallError(
+          "Couldn't reach your AutoMem server.",
+          `Nothing was installed — your machine wasn't changed.\n` +
+            `Check the URL is right, or wait a minute (the server may still be starting) and re-run:\n` +
+            `  ${equivalentInstallCommand({ ...resolved, apiKeyProvided: Boolean(apiKey) })}\n` +
+            `Technical detail: ${verify.message}`
+        );
       }
       list.done('verify', `Endpoint verified (${endpoint.replace(/\/$/, '')})`);
 
@@ -1833,6 +1882,20 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     }
 
     const nextSteps: string[] = [`endpoint  ${endpoint}`];
+    // The finish line earns its box only if it says what to do NOW: restart the
+    // tools that were just wired, and a concrete way to see memory working.
+    const installedClients = resolved.noAgentInstall
+      ? []
+      : resolved.clients.filter(
+          (client) => !agentFailures.some((failure) => failure.client === client)
+        );
+    if (installedClients.length > 0) {
+      nextSteps.push(
+        `Restart ${installedClients.map((client) => clientLabel(client)).join(' / ')} to pick up the connection.`
+      );
+      nextSteps.push('Try it: ask your agent "what do you remember about me?"');
+    }
+    nextSteps.push('Docs: https://automem.ai');
     // Only surface the manual /plugin commands when the auto-install didn't run or
     // didn't succeed — i.e. the `claude` binary was absent, or the install failed.
     const pluginAutoInstallFailed = agentFailures.some(
