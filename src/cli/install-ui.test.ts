@@ -117,9 +117,14 @@ describe('installer mascot UI', () => {
       else process.env.COLORTERM = prev;
     }
     delete process.env.COLORTERM;
-    const fallback = gradientLine('AutoMem', true);
-    expect(fallback).toContain('\u001b[93m');
-    expect(fallback).not.toContain('38;2');
-    expect(stripAnsi(fallback)).toBe('AutoMem');
+    try {
+      const fallback = gradientLine('AutoMem', true);
+      expect(fallback).toContain('\u001b[93m');
+      expect(fallback).not.toContain('38;2');
+      expect(stripAnsi(fallback)).toBe('AutoMem');
+    } finally {
+      if (prev === undefined) delete process.env.COLORTERM;
+      else process.env.COLORTERM = prev;
+    }
   });
 });

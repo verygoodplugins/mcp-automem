@@ -535,8 +535,10 @@ describe('guided install helpers', () => {
         hermesMode: 'mcp',
         apiKeyProvided: true,
       });
-      expect(cmd).toContain('--api-key <your key>');
-      expect(cmd).not.toMatch(/--api-key\s+(?!<your key>)\S/);
+      // Shell-safe on purpose: '<your key>' would be parsed as redirections
+      // when the printed command is pasted verbatim.
+      expect(cmd).toContain('--api-key YOUR_KEY_HERE');
+      expect(cmd).not.toMatch(/--api-key\s+(?!YOUR_KEY_HERE)\S/);
     });
 
     it('omits the endpoint for local targets (which reject --endpoint)', () => {

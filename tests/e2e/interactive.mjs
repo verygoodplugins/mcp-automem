@@ -248,7 +248,7 @@ const SCENARIOS = [
     expect: [
       /No AI tools selected/,
       /Install review/,
-      /no agents/,
+      /no AI tools/,
       /none selected — nothing will be connected/,
       /Dry run only/,
     ],

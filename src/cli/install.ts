@@ -37,6 +37,7 @@ import {
   promptSelect,
   promptPassword,
   promptText,
+  promptCaption,
 } from './ui/prompts.js';
 
 // Claude Code is plugin-first: the marketplace plugin bundles the MCP server +
@@ -209,6 +210,9 @@ export type InstallPlan = {
   // A preview renders the same stages and the same file paths as a real run, so
   // the renderer needs to know which one this is to label them honestly.
   dryRun: boolean;
+  // Deliberate --no-agent-install runs must not get the accidental-zero-agent
+  // warning in the review.
+  noAgentInstall: boolean;
   actions: InstallAction[];
 };
 
@@ -307,13 +311,6 @@ async function drainBufferedStdin(windowMs = 50): Promise<void> {
   }
 }
 
-// One dim line of plain-language context above a prompt, for the questions whose
-// jargon (API URL, API key) the prompt message itself can't afford to caption.
-function promptCaption(text: string): void {
-  const theme = makeTheme(process.stdout);
-  process.stdout.write(`${theme.style.dim(text)}\n`);
-}
-
 // A single themed status line (the rich plan is written directly, not boxed, so
 // these closers match its left-aligned look instead of a clack rail).
 function writeStatus(message: string, tone: 'info' | 'ok' | 'warn' = 'info'): void {
@@ -384,7 +381,9 @@ export function equivalentInstallCommand(options: {
   if (options.endpoint && options.target !== 'local') parts.push(`--endpoint ${options.endpoint}`);
   if (options.target === 'cloud' && options.cloudProvider)
     parts.push(`--cloud-provider ${options.cloudProvider}`);
-  if (options.apiKeyProvided) parts.push('--api-key <your key>');
+  // YOUR_KEY_HERE (no shell metacharacters): '<your key>' would be parsed as
+  // redirections when pasted, silently creating a file named 'key'.
+  if (options.apiKeyProvided) parts.push('--api-key YOUR_KEY_HERE');
   if (options.target === 'local' && options.localDir) parts.push(`--local-dir ${options.localDir}`);
   if (options.noAgentInstall) parts.push('--no-agent-install');
   else if (options.clients.length > 0) parts.push(`--clients ${options.clients.join(',')}`);
@@ -813,6 +812,7 @@ export function buildInstallPlan(params: {
       (action) => action.paths.length > 0 || action.kind === 'prepare-local'
     ),
     dryRun: options.dryRun,
+    noAgentInstall: Boolean(options.noAgentInstall),
     actions,
   };
 }
@@ -1086,6 +1086,15 @@ function readEnvFileValue(filePath: string, key: string): string | undefined {
   return value ? value : undefined;
 }
 
+// `docker --version` succeeds with the daemon stopped (Docker Desktop quit but
+// CLI on PATH), so the presence check alone can't catch the most common local
+// failure. `docker info` needs the daemon. Only called when Local Docker was
+// actually chosen, so the extra ~seconds never tax other targets.
+function dockerDaemonRunning(): boolean {
+  const result = spawnSync('docker', ['info'], { stdio: 'ignore', timeout: 15000 });
+  return result.status === 0;
+}
+
 function defaultRunCommand(
   command: string,
   args: string[],
@@ -1343,7 +1352,7 @@ export function renderInstallPlan(
   // At-a-glance summary chip.
   const agentCount = plan.actions.filter((action) => action.client).length;
   const chip = `${plan.actions.length} stages · ${targetLabel(plan.target)} · ${
-    agentCount ? `${agentCount} agent${agentCount === 1 ? '' : 's'}` : 'no agents'
+    agentCount ? `${agentCount} AI tool${agentCount === 1 ? '' : 's'}` : 'no AI tools'
   }${plan.dryRun ? ' · dry run' : ''}`;
   out.push(`  ${theme.style.dim(chip)}`, '');
 
@@ -1366,11 +1375,12 @@ export function renderInstallPlan(
   if (plan.target === 'local') {
     rows.push({ label: 'server', value: theme.style.dim(tildify(plan.localDir)), status: 'muted' });
   }
-  if (agentCount === 0) {
+  if (agentCount === 0 && !plan.noAgentInstall) {
     // A zero-agent plan is legal but almost never what a first-time user meant —
-    // say it in the review instead of quietly omitting the agent clause.
+    // say it in the review instead of quietly omitting the clause. A deliberate
+    // --no-agent-install run skips the warning (it asked for exactly this).
     rows.push({
-      label: 'agents',
+      label: 'ai tools',
       value: 'none selected — nothing will be connected',
       status: 'warn',
     });
@@ -1434,7 +1444,7 @@ async function resolveInteractiveOptions(
           {
             value: 'cloud',
             label: 'Hosted Cloud (recommended)',
-            hint: 'easiest — we set it up for you, from ~$1/mo',
+            hint: 'easiest — we set it up for you, ~$1–15/mo depending on provider',
           },
           {
             value: 'local',
@@ -1487,15 +1497,26 @@ async function resolveInteractiveOptions(
     );
   }
 
-  if (target === 'local' && !parsed.dryRun && !environment.prerequisites.docker) {
+  if (target === 'local' && !parsed.dryRun) {
     // Fail at the decision, not three prompts later. Dry runs stay open so the
     // path can still be previewed on a machine without Docker.
-    throw new InstallError(
-      "AutoMem's local option needs Docker running on this machine.",
-      `Get Docker Desktop (free): https://www.docker.com/products/docker-desktop\n` +
-        `Install it, open it once so it's running, then re-run this installer.\n` +
-        `Or pick Hosted Cloud — no Docker needed.`
-    );
+    if (!environment.prerequisites.docker) {
+      throw new InstallError(
+        "AutoMem's local option needs Docker on this machine.",
+        `Get Docker Desktop (free): https://www.docker.com/products/docker-desktop\n` +
+          `Install it, open it once so it's running, then re-run this installer.\n` +
+          `Or pick Hosted Cloud — no Docker needed.`
+      );
+    }
+    // The CLI existing doesn't mean the daemon is up — Docker Desktop quit but
+    // still on PATH is the most common local-install failure. Catch it here.
+    if (!dockerDaemonRunning()) {
+      throw new InstallError(
+        'Docker is installed but not running.',
+        `Open Docker Desktop, wait until it says it's running, then re-run this installer.\n` +
+          `Or pick Hosted Cloud — no Docker needed.`
+      );
+    }
   }
   if (target === 'local') {
     promptCaption("Where the server's files live — the default is fine.");
@@ -1898,7 +1919,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           spin.error('AutoMem is not responding yet');
           throw new InstallError(
             `AutoMem deployed, but ${endpoint} isn't responding yet.`,
-            `A multi-service deploy can take a few minutes. Check the provider's logs (e.g. \`railway logs\`), then finish with:\n  npx @verygoodplugins/mcp-automem install --target existing --endpoint ${endpoint}${apiKey ? ' --api-key <token>' : ''}`
+            `A multi-service deploy can take a few minutes. Check the provider's logs (e.g. \`railway logs\`), then finish with:\n  npx @verygoodplugins/mcp-automem install --target existing --endpoint ${endpoint}${apiKey ? ' --api-key YOUR_KEY_HERE' : ''}`
           );
         }
       }
@@ -1949,11 +1970,33 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       });
       if (!verify.ok) {
         list.fail('verify');
+        // Retry against the endpoint we actually verified — for a cloud run
+        // that's the freshly provisioned deployment. Reconstructing the
+        // resolve-time cloud options would re-provision (and re-bill) a second
+        // deployment instead of reconnecting to the one that already exists.
+        const retryCommand =
+          resolved.target === 'local'
+            ? equivalentInstallCommand({ ...resolved, apiKeyProvided: Boolean(apiKey) })
+            : equivalentInstallCommand({
+                ...resolved,
+                target: 'existing',
+                cloudProvider: undefined,
+                endpoint,
+                apiKeyProvided: Boolean(apiKey),
+              });
+        // Be precise about machine state per target: a cloud deploy already
+        // exists (and may bill), a local run has cloned/started containers.
+        const machineState =
+          resolved.target === 'cloud'
+            ? 'Your cloud deployment exists — nothing on this machine was changed.'
+            : resolved.target === 'local'
+              ? 'The local server may still be starting — no agent files were changed.'
+              : "Nothing was installed — your machine wasn't changed.";
         throw new InstallError(
           "Couldn't reach your AutoMem server.",
-          `Nothing was installed — your machine wasn't changed.\n` +
+          `${machineState}\n` +
             `Check the URL is right, or wait a minute (the server may still be starting) and re-run:\n` +
-            `  ${equivalentInstallCommand({ ...resolved, apiKeyProvided: Boolean(apiKey) })}\n` +
+            `  ${retryCommand}\n` +
             `Technical detail: ${verify.message}`
         );
       }
@@ -2051,7 +2094,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       nextSteps.push(
         `Restart ${installedClients.map((client) => clientLabel(client)).join(' / ')} to pick up the connection.`
       );
-      nextSteps.push('Try it: ask your agent "what do you remember about me?"');
+      nextSteps.push('Try it: ask "what do you remember about me?"');
     }
     nextSteps.push('Docs: https://automem.ai');
     // Only surface the manual /plugin commands when the auto-install didn't run or
@@ -2074,8 +2117,8 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     if (agentFailures.length > 0) {
       const subject =
         agentFailures.length === 1
-          ? '1 agent needs a manual step:'
-          : `${agentFailures.length} agents need a manual step:`;
+          ? '1 AI tool needs a manual step:'
+          : `${agentFailures.length} AI tools need a manual step:`;
       nextSteps.push(subject);
       for (const failure of agentFailures) {
         nextSteps.push(`  ${failure.hint ?? manualFixHint(failure.client)}`);

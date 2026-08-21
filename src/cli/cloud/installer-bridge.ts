@@ -12,6 +12,7 @@
 import { noteBox } from '../ui/messages.js';
 import {
   cancelable,
+  promptCaption,
   promptConfirm,
   promptPassword,
   promptSelect,
@@ -51,15 +52,18 @@ export interface ProvisionResult {
 // Shared paste step: collect an AutoMem endpoint + optional token. Used by the
 // InstaPods link flow and as the universal fallback.
 export async function promptManualCredentials(): Promise<ProvisionResult> {
+  promptCaption("Your AutoMem server's web address — from the email, or wherever you set it up.");
   const endpoint = (
     await cancelable(
       promptText({
         message: 'AutoMem API URL',
         validate: (value) =>
-          /^https?:\/\/\S+$/.test(value.trim()) || 'Enter a URL like https://your-automem.example',
+          /^https?:\/\/\S+$/.test(value.trim()) ||
+          "That doesn't look like a URL — try something like https://your-automem.example",
       })
     )
   ).trim();
+  promptCaption("Its password, if it has one. Many setups don't.");
   const apiKey = (
     await cancelable(
       promptPassword({
@@ -121,7 +125,12 @@ export async function provisionViaInstaPodsLink(
         initialValue: true,
       })
     );
-    if (!proceed) return promptManualCredentials();
+    if (!proceed) {
+      log(
+        'No problem — paste an AutoMem URL + key if you have one from elsewhere, or press Ctrl-C to start over and pick a different setup.'
+      );
+      return promptManualCredentials();
+    }
     await openUrl(INSTAPODS_CREATE_URL);
     log(
       noteBox('InstaPods setup', [

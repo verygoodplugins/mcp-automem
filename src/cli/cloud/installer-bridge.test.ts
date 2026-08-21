@@ -24,6 +24,8 @@ const promptMocks = vi.hoisted(() => ({
 
 vi.mock('../ui/prompts.js', () => ({
   cancelable: (promise: Promise<unknown>) => promise,
+  // Captions write to stdout only — a no-op keeps test output clean.
+  promptCaption: () => {},
   ...promptMocks,
 }));
 

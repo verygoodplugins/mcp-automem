@@ -5,6 +5,15 @@
 import { checkbox, confirm, input, password, select } from '@inquirer/prompts';
 import { makeTheme } from './theme.js';
 
+// One dim line of plain-language context above a prompt, for questions whose
+// jargon (API URL, API key) the prompt message itself can't afford to caption.
+// Dim is deliberate here: captions are auxiliary hierarchy, not load-bearing —
+// the prompt reads fine without them on a worst-case light theme.
+export function promptCaption(text: string): void {
+  const t = makeTheme(process.stdout);
+  process.stdout.write(`${t.style.dim(text)}\n`);
+}
+
 export type PromptOption<T> = {
   value: T;
   label: string;
@@ -56,7 +65,7 @@ export async function cancelable<T>(promise: Promise<T>): Promise<T> {
       // Reassure + resume: a Ctrl-C mid-wizard must say the machine is untouched
       // (nothing is written before the apply confirm) and how to pick back up.
       process.stdout.write(
-        `\n${t.style.dim('AutoMem install canceled — nothing was changed. Run the same command again anytime.')}\n`
+        `\n${t.style.dim('AutoMem install canceled — no AutoMem files were changed. Run the same command again anytime.')}\n`
       );
       process.exit(0);
     }
