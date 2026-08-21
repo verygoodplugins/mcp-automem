@@ -368,6 +368,21 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+// Whether a LOCAL retry command should offer --api-key. prepareLocalServer
+// reuses-or-generates a token and persists it to localDir/.env BEFORE verify
+// runs, so pasting a placeholder key on retry would overwrite that persisted
+// real token with the literal string, rotating auth to a known value. Only
+// an EXPLICIT user-supplied key (--api-key / typed at the prompt) is safe to
+// echo — a generated one must stay out of the command entirely so the next
+// run's prepareLocalServer call reuses what's already on disk. Scoped to
+// local on purpose: cloud/existing retry commands reflect a different
+// question (does a live key exist right now, computed at the call site) and
+// must not be answered by this function. Named + exported so the decision is
+// unit-testable, not buried inside runGuidedInstall.
+export function localRetryHasExplicitApiKey(explicitApiKey: string | undefined): boolean {
+  return Boolean(explicitApiKey);
+}
+
 // Reconstruct the non-interactive command equivalent to a set of resolved wizard
 // answers. Shown when a run stops without applying (declined confirm, failed
 // verify) so the user's prompt answers survive as something they can paste. The
@@ -1994,7 +2009,10 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         // deployment instead of reconnecting to the one that already exists.
         const retryCommand =
           resolved.target === 'local'
-            ? equivalentInstallCommand({ ...resolved, apiKeyProvided: Boolean(apiKey) })
+            ? equivalentInstallCommand({
+                ...resolved,
+                apiKeyProvided: localRetryHasExplicitApiKey(resolved.apiKey),
+              })
             : equivalentInstallCommand({
                 ...resolved,
                 target: 'existing',

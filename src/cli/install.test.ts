@@ -20,6 +20,7 @@ import {
   renderInstallPlan,
   dryRunApplyHint,
   equivalentInstallCommand,
+  localRetryHasExplicitApiKey,
   shouldUseNonInteractivePreview,
   validateInstallPrerequisites,
   verifyAutoMemEndpoint,
@@ -506,6 +507,42 @@ describe('guided install helpers', () => {
       expect(hint).toContain('AUTOMEM_DRY_RUN');
       expect(hint).toContain('--yes');
     });
+  });
+
+  // prepareLocalServer persists a reused-or-generated token to localDir/.env
+  // BEFORE verify runs. A local retry command must never echo a placeholder
+  // for that generated token — pasting it would overwrite the real persisted
+  // value. Only an explicit user-supplied key is safe to echo.
+  describe('localRetryHasExplicitApiKey', () => {
+    it('is true when the user explicitly supplied a key', () => {
+      expect(localRetryHasExplicitApiKey('sk-explicit')).toBe(true);
+    });
+
+    it('is false when no key was explicitly supplied (prepareLocalServer generates one)', () => {
+      expect(localRetryHasExplicitApiKey(undefined)).toBe(false);
+    });
+  });
+
+  it('a local retry command omits --api-key for a generated (non-explicit) key', () => {
+    const cmd = equivalentInstallCommand({
+      target: 'local',
+      clients: ['codex'],
+      hermesMode: 'mcp',
+      localDir: '/Users/tester/.automem/server',
+      apiKeyProvided: localRetryHasExplicitApiKey(undefined),
+    });
+    expect(cmd).not.toContain('--api-key');
+  });
+
+  it('a local retry command still echoes an explicit user-supplied key', () => {
+    const cmd = equivalentInstallCommand({
+      target: 'local',
+      clients: ['codex'],
+      hermesMode: 'mcp',
+      localDir: '/Users/tester/.automem/server',
+      apiKeyProvided: localRetryHasExplicitApiKey('sk-typed-by-user'),
+    });
+    expect(cmd).toContain('--api-key YOUR_KEY_HERE');
   });
 
   // Both cancel-style endings (declined confirm, failed verify) hand the user
