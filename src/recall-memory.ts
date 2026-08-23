@@ -3,10 +3,10 @@ import type { RecallMemoryArgs, RecallResult } from './types.js';
 
 // Response budgeting: recall responses must stay comfortably under MCP client
 // tool-response caps (~25k tokens in Claude Code). Budgeted formats
-// (text/items/detailed) are summary-first: the server's 1-2 sentence summary
-// replaces the content preview when present, relations collapse to compact
-// stubs, and metadata collapses to its key list. The global budget is measured
-// in estimated tokens — dense recall JSON tokenizes at ~2.5 chars/token
+// (text/items/detailed) show a content preview (default 400 chars), keep any
+// server summary as an additive field, collapse relations to compact stubs,
+// and collapse metadata to its key list. The global budget is measured in
+// estimated tokens — dense recall JSON tokenizes at ~2.5 chars/token
 // (empirical: a 64.8k-char response was rejected by Claude Code's 25k-token
 // cap), so the old 80k-char budget overflowed despite firing. `format: "json"`
 // keeps raw per-field passthrough (escape hatch) but the global budget still
@@ -55,7 +55,6 @@ type PerItemOutput = {
   textBlock: string;
   cost: number;
   contentTruncated: boolean;
-  summaryShown: boolean;
 };
 
 function capContent(
@@ -121,29 +120,23 @@ function buildStructuredRecallItem(
   structuredItem: Record<string, unknown>;
   displayText: string;
   contentTruncated: boolean;
-  summaryShown: boolean;
 } {
   const memory = item.memory;
   const summary =
     typeof memory.summary === 'string' && memory.summary.trim().length > 0
       ? memory.summary
       : undefined;
-  const useSummary = budgeted && summary !== undefined;
   const { preview, truncated, chars } = capContent(memory.content, budgeted);
-  const contentTruncated = !useSummary && truncated;
+  // Empty content still happens on some records; fall back to summary so the
+  // text channel is not a blank line. Structured `content` stays the preview
+  // (possibly empty) so callers can tell the fields apart.
+  const displayText = preview.trim().length > 0 ? preview : (summary ?? preview);
 
   const base: Record<string, unknown> = {
     memory_id: memory.memory_id,
-    ...(useSummary
-      ? {
-          summary,
-          ...(chars > 0 ? { content_chars: chars } : {}),
-        }
-      : {
-          content: preview,
-          ...(truncated ? { content_truncated: true, content_chars: chars } : {}),
-          ...(summary !== undefined ? { summary } : {}),
-        }),
+    content: preview,
+    ...(truncated ? { content_truncated: true, content_chars: chars } : {}),
+    ...(summary !== undefined ? { summary } : {}),
     tags: memory.tags,
     importance: memory.importance,
     created_at: memory.created_at,
@@ -151,10 +144,8 @@ function buildStructuredRecallItem(
     final_score: item.final_score,
     match_type: item.match_type,
   };
-
-  const displayText = useSummary ? summary : preview;
   if (!isRichFormat) {
-    return { structuredItem: base, displayText, contentTruncated, summaryShown: useSummary };
+    return { structuredItem: base, displayText, contentTruncated: truncated };
   }
 
   const metadataFields = budgeted
@@ -185,7 +176,7 @@ function buildStructuredRecallItem(
     jit_enriched: item.jit_enriched,
     state_replaces: item.state_replaces,
   };
-  return { structuredItem, displayText, contentTruncated, summaryShown: useSummary };
+  return { structuredItem, displayText, contentTruncated: truncated };
 }
 
 function buildStructuredEnvelope(recallResult: RecallResult): Record<string, unknown> {
@@ -302,8 +293,12 @@ export async function buildRecallMemoryResponse(
   }
 
   const perItem: PerItemOutput[] = results.map((item, index) => {
-    const { structuredItem, displayText, contentTruncated, summaryShown } =
-      buildStructuredRecallItem(item, isRichFormat, budgeted, keepScoreComponents);
+    const { structuredItem, displayText, contentTruncated } = buildStructuredRecallItem(
+      item,
+      isRichFormat,
+      budgeted,
+      keepScoreComponents
+    );
     let textBlock = '';
     if (format === 'items') {
       textBlock = `[${item.memory.memory_id}] ${displayText}`;
@@ -319,7 +314,7 @@ export async function buildRecallMemoryResponse(
       format === 'json'
         ? structuredLength + (JSON.stringify(structuredItem, null, 2)?.length ?? 0)
         : structuredLength + textBlock.length;
-    return { structuredItem, textBlock, cost, contentTruncated, summaryShown };
+    return { structuredItem, textBlock, cost, contentTruncated };
   });
 
   // Global budget: always keep the first result; keep the rest while in budget.
@@ -389,16 +384,15 @@ export async function buildRecallMemoryResponse(
   const notesSuffix = notes.length > 0 ? ` (${notes.join('; ')})` : '';
 
   const anyContentTruncated = kept.some((entry) => entry.contentTruncated);
-  const anySummaryShown = kept.some((entry) => entry.summaryShown);
   const trailerParts: string[] = [];
   if (omitted > 0) {
     trailerParts.push(
       `Response budget: showing ${kept.length} of ${perItem.length} results; ${omitted} omitted.`
     );
   }
-  if (anyContentTruncated || anySummaryShown) {
+  if (anyContentTruncated) {
     trailerParts.push(
-      'Content shown as summaries/previews — fetch full records with recall_memory({ memory_id: "<id>" }).'
+      'Content shown as previews — fetch full records with recall_memory({ memory_id: "<id>" }).'
     );
   }
   const trailer = trailerParts.length > 0 ? `\n\n[${trailerParts.join(' ')}]` : '';
