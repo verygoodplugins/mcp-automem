@@ -199,7 +199,6 @@ export interface StoreMemoryArgs {
   content?: string;
   type?: MemoryType;
   confidence?: number;
-  id?: string;
   tags?: string[];
   importance?: number;
   embedding?: number[];

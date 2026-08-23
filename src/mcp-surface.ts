@@ -92,7 +92,7 @@ export const tools: Tool[] = [
 
 **Mode 1b — Supersede/correct:** pass top-level \`content\` plus \`supersedes_memory_id\`. The server stores the replacement, marks the old memory invalid with \`t_invalid=now\`, merges supersede metadata, and associates old → new with \`INVALIDATED_BY\` (default) or \`EVOLVED_INTO\`.
 
-**Mode 2 — Batch:** pass \`memories: [{ content, tags?, importance?, metadata?, timestamp?, type?, confidence? }, ...]\` to store up to 500 memories in one request. Faster for bulk ingestion (imports, benchmark seeding). Batch mode does NOT accept \`id\`, \`embedding\`, \`t_valid\`, or \`t_invalid\` per-item — use single mode for those.
+**Mode 2 — Batch:** pass \`memories: [{ content, tags?, importance?, metadata?, timestamp?, type?, confidence? }, ...]\` to store up to 500 memories in one request. Faster for bulk ingestion (imports, benchmark seeding). Batch mode does NOT accept \`embedding\`, \`t_valid\`, or \`t_invalid\` per-item — use single mode for those.
 
 **Content size guidelines (per item):**
 - Target: 150-300 characters (one meaningful paragraph)
@@ -131,7 +131,7 @@ export const tools: Tool[] = [
           type: 'array',
           maxItems: 500,
           description:
-            'Batch mode (XOR with `content`). Up to 500 memory objects to store in one call. Each item supports content (required), tags, importance, timestamp, type, confidence, metadata. Batch mode does NOT support `id`, `embedding`, `t_valid`, or `t_invalid` per-item — use single-memory mode for those.',
+            'Batch mode (XOR with `content`). Up to 500 memory objects to store in one call. Each item supports content (required), tags, importance, timestamp, type, confidence, metadata. Batch mode does NOT support `embedding`, `t_valid`, or `t_invalid` per-item — use single-memory mode for those.',
           items: {
             type: 'object',
             required: ['content'],
@@ -1036,287 +1036,287 @@ export function createAutoMemMcpServer({
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
+    const { name, arguments: args } = request.params;
 
-  try {
-    switch (name) {
-      case 'store_memory': {
-        const storeArgs = args as unknown as StoreMemoryArgs;
+    try {
+      switch (name) {
+        case 'store_memory': {
+          const storeArgs = args as unknown as StoreMemoryArgs;
 
-        // Content size governance applies to single-store mode only. In batch mode the client
-        // only checks that each item's `content` is non-empty (see batchStore in automem-client.ts);
-        // the AutoMem service enforces its own hard/soft limits and auto-summarizes on the way in.
-        const SOFT_LIMIT = 500;
-        const HARD_LIMIT = 2000;
-        const isBatchMode = Array.isArray(storeArgs.memories);
-        const contentLength = isBatchMode ? 0 : storeArgs.content?.length || 0;
-        let sizeWarning = '';
+          // Content size governance applies to single-store mode only. In batch mode the client
+          // only checks that each item's `content` is non-empty (see batchStore in automem-client.ts);
+          // the AutoMem service enforces its own hard/soft limits and auto-summarizes on the way in.
+          const SOFT_LIMIT = 500;
+          const HARD_LIMIT = 2000;
+          const isBatchMode = Array.isArray(storeArgs.memories);
+          const contentLength = isBatchMode ? 0 : storeArgs.content?.length || 0;
+          let sizeWarning = '';
 
-        if (!isBatchMode) {
-          // Hard limit: reject oversized content outright (single mode only)
-          if (contentLength > HARD_LIMIT) {
+          if (!isBatchMode) {
+            // Hard limit: reject oversized content outright (single mode only)
+            if (contentLength > HARD_LIMIT) {
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `❌ Memory rejected: Content length (${contentLength} chars) exceeds hard limit (${HARD_LIMIT} chars).\n\nPlease split into smaller, focused memories or summarize the content before storing.`,
+                  },
+                ],
+                structuredContent: {
+                  error: 'content_too_large',
+                  content_length: contentLength,
+                  hard_limit: HARD_LIMIT,
+                  message: `Content exceeds maximum allowed length of ${HARD_LIMIT} characters`,
+                },
+                isError: true,
+              };
+            }
+
+            // Soft limit: warn that backend may auto-summarize
+            if (contentLength > SOFT_LIMIT) {
+              sizeWarning = `\n📝 Content length (${contentLength} chars) exceeds recommended size (${SOFT_LIMIT}). Backend may auto-summarize.`;
+            }
+          }
+
+          const result = await client.storeMemory(storeArgs);
+
+          if (isBatchMode) {
+            const stored = result.stored ?? result.memory_ids?.length ?? 0;
+            const ids = result.memory_ids ?? [];
+            const idPreview =
+              ids.length > 10
+                ? `${ids.slice(0, 10).join(', ')}, …(+${ids.length - 10})`
+                : ids.join(', ');
+            const output = {
+              stored,
+              memory_ids: ids,
+              message: result.message,
+              ...(result.qdrant ? { qdrant: result.qdrant } : {}),
+              ...(result.enrichment ? { enrichment: result.enrichment } : {}),
+              ...(typeof result.query_time_ms === 'number'
+                ? { query_time_ms: result.query_time_ms }
+                : {}),
+            };
             return {
               content: [
                 {
                   type: 'text',
-                  text: `❌ Memory rejected: Content length (${contentLength} chars) exceeds hard limit (${HARD_LIMIT} chars).\n\nPlease split into smaller, focused memories or summarize the content before storing.`,
+                  text: `Stored ${stored} memories.${idPreview ? `\nIDs: ${idPreview}` : ''}\nMessage: ${result.message}`,
                 },
               ],
-              structuredContent: {
-                error: 'content_too_large',
-                content_length: contentLength,
-                hard_limit: HARD_LIMIT,
-                message: `Content exceeds maximum allowed length of ${HARD_LIMIT} characters`,
-              },
-              isError: true,
+              structuredContent: output,
             };
           }
 
-          // Soft limit: warn that backend may auto-summarize
-          if (contentLength > SOFT_LIMIT) {
-            sizeWarning = `\n📝 Content length (${contentLength} chars) exceeds recommended size (${SOFT_LIMIT}). Backend may auto-summarize.`;
+          // Single-store mode response
+          let responseText = `Memory stored successfully!\n\nMemory ID: ${result.memory_id}`;
+          if (result.superseded_memory_id) {
+            responseText += `\nSuperseded memory ID: ${result.superseded_memory_id}`;
           }
-        }
+          if (typeof result.association_created === 'boolean') {
+            responseText += `\nAssociation created: ${result.association_created ? 'yes' : 'no'}`;
+          }
+          if (result.message) {
+            responseText += `\nMessage: ${result.message}`;
+          }
 
-        const result = await client.storeMemory(storeArgs);
+          // Include summarization info if present
+          const summarized = (result as any).summarized;
+          const originalLength = (result as any).original_length;
+          const summarizedLength = (result as any).summarized_length;
+          if (summarized) {
+            responseText += `\n📝 Auto-summarized: ${originalLength} → ${summarizedLength} chars`;
+          } else if (sizeWarning) {
+            responseText += sizeWarning;
+          }
 
-        if (isBatchMode) {
-          const stored = result.stored ?? result.memory_ids?.length ?? 0;
-          const ids = result.memory_ids ?? [];
-          const idPreview =
-            ids.length > 10
-              ? `${ids.slice(0, 10).join(', ')}, …(+${ids.length - 10})`
-              : ids.join(', ');
           const output = {
-            stored,
-            memory_ids: ids,
+            memory_id: result.memory_id,
             message: result.message,
-            ...(result.qdrant ? { qdrant: result.qdrant } : {}),
-            ...(result.enrichment ? { enrichment: result.enrichment } : {}),
-            ...(typeof result.query_time_ms === 'number'
-              ? { query_time_ms: result.query_time_ms }
-              : {}),
+            ...(result.superseded_memory_id && {
+              superseded_memory_id: result.superseded_memory_id,
+            }),
+            ...(typeof result.association_created === 'boolean' && {
+              association_created: result.association_created,
+            }),
+            ...(summarized && {
+              summarized,
+              original_length: originalLength,
+              summarized_length: summarizedLength,
+            }),
+            ...(contentLength > SOFT_LIMIT && {
+              content_length: contentLength,
+              size_warning: true,
+            }),
           };
+
           return {
             content: [
               {
                 type: 'text',
-                text: `Stored ${stored} memories.${idPreview ? `\nIDs: ${idPreview}` : ''}\nMessage: ${result.message}`,
+                text: responseText,
               },
             ],
             structuredContent: output,
           };
         }
 
-        // Single-store mode response
-        let responseText = `Memory stored successfully!\n\nMemory ID: ${result.memory_id}`;
-        if (result.superseded_memory_id) {
-          responseText += `\nSuperseded memory ID: ${result.superseded_memory_id}`;
-        }
-        if (typeof result.association_created === 'boolean') {
-          responseText += `\nAssociation created: ${result.association_created ? 'yes' : 'no'}`;
-        }
-        if (result.message) {
-          responseText += `\nMessage: ${result.message}`;
+        case 'recall_memory': {
+          return buildRecallMemoryResponse(client, args as unknown as RecallMemoryArgs);
         }
 
-        // Include summarization info if present
-        const summarized = (result as any).summarized;
-        const originalLength = (result as any).original_length;
-        const summarizedLength = (result as any).summarized_length;
-        if (summarized) {
-          responseText += `\n📝 Auto-summarized: ${originalLength} → ${summarizedLength} chars`;
-        } else if (sizeWarning) {
-          responseText += sizeWarning;
-        }
-
-        const output = {
-          memory_id: result.memory_id,
-          message: result.message,
-          ...(result.superseded_memory_id && {
-            superseded_memory_id: result.superseded_memory_id,
-          }),
-          ...(typeof result.association_created === 'boolean' && {
-            association_created: result.association_created,
-          }),
-          ...(summarized && {
-            summarized,
-            original_length: originalLength,
-            summarized_length: summarizedLength,
-          }),
-          ...(contentLength > SOFT_LIMIT && {
-            content_length: contentLength,
-            size_warning: true,
-          }),
-        };
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: responseText,
-            },
-          ],
-          structuredContent: output,
-        };
-      }
-
-      case 'recall_memory': {
-        return buildRecallMemoryResponse(client, args as unknown as RecallMemoryArgs);
-      }
-
-      case 'associate_memories': {
-        const associateArgs = args as unknown as AssociateMemoryArgs;
-        const result = await client.associateMemories(associateArgs);
-        const output = {
-          success: result.success,
-          message: result.message,
-          created_count: result.created_count,
-          failed_count: result.failed_count,
-          succeeded: result.succeeded,
-          failed: result.failed,
-          summary: result.summary,
-        };
-        const batchSuffix =
-          typeof result.created_count === 'number' || typeof result.failed_count === 'number'
-            ? `\n\nCreated: ${result.created_count ?? 0}\nFailed: ${result.failed_count ?? 0}`
-            : '';
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `${result.success ? 'Association created successfully!' : 'Association completed with failures.'}\n\nMessage: ${result.message}${batchSuffix}`,
-            },
-          ],
-          structuredContent: output,
-        };
-      }
-
-      case 'update_memory': {
-        const updateArgs = args as unknown as UpdateMemoryArgs;
-        const result = await client.updateMemory(updateArgs);
-        const output = {
-          memory_id: result.memory_id,
-          message: `Memory ${result.memory_id} updated successfully!`,
-        };
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Memory ${result.memory_id} updated successfully!`,
-            },
-          ],
-          structuredContent: output,
-        };
-      }
-
-      case 'delete_memory': {
-        const deleteArgs = args as unknown as DeleteMemoryArgs;
-        const result = await client.deleteMemory(deleteArgs);
-
-        if (typeof result.deleted_count === 'number') {
-          // Bulk-delete-by-tag mode
-          const tags = result.tags ?? deleteArgs.tags ?? [];
+        case 'associate_memories': {
+          const associateArgs = args as unknown as AssociateMemoryArgs;
+          const result = await client.associateMemories(associateArgs);
           const output = {
-            deleted_count: result.deleted_count,
-            tags,
+            success: result.success,
             message: result.message,
+            created_count: result.created_count,
+            failed_count: result.failed_count,
+            succeeded: result.succeeded,
+            failed: result.failed,
+            summary: result.summary,
           };
+          const batchSuffix =
+            typeof result.created_count === 'number' || typeof result.failed_count === 'number'
+              ? `\n\nCreated: ${result.created_count ?? 0}\nFailed: ${result.failed_count ?? 0}`
+              : '';
           return {
             content: [
               {
                 type: 'text',
-                text: `Bulk delete complete: removed ${result.deleted_count} memor${result.deleted_count === 1 ? 'y' : 'ies'} matching tag(s) ${tags.join(', ')}.`,
+                text: `${result.success ? 'Association created successfully!' : 'Association completed with failures.'}\n\nMessage: ${result.message}${batchSuffix}`,
               },
             ],
             structuredContent: output,
           };
         }
 
-        const output = {
-          memory_id: result.memory_id,
-          message: `Memory ${result.memory_id} deleted successfully!`,
-        };
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Memory ${result.memory_id} deleted successfully!`,
-            },
-          ],
-          structuredContent: output,
-        };
+        case 'update_memory': {
+          const updateArgs = args as unknown as UpdateMemoryArgs;
+          const result = await client.updateMemory(updateArgs);
+          const output = {
+            memory_id: result.memory_id,
+            message: `Memory ${result.memory_id} updated successfully!`,
+          };
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Memory ${result.memory_id} updated successfully!`,
+              },
+            ],
+            structuredContent: output,
+          };
+        }
+
+        case 'delete_memory': {
+          const deleteArgs = args as unknown as DeleteMemoryArgs;
+          const result = await client.deleteMemory(deleteArgs);
+
+          if (typeof result.deleted_count === 'number') {
+            // Bulk-delete-by-tag mode
+            const tags = result.tags ?? deleteArgs.tags ?? [];
+            const output = {
+              deleted_count: result.deleted_count,
+              tags,
+              message: result.message,
+            };
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Bulk delete complete: removed ${result.deleted_count} memor${result.deleted_count === 1 ? 'y' : 'ies'} matching tag(s) ${tags.join(', ')}.`,
+                },
+              ],
+              structuredContent: output,
+            };
+          }
+
+          const output = {
+            memory_id: result.memory_id,
+            message: `Memory ${result.memory_id} deleted successfully!`,
+          };
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Memory ${result.memory_id} deleted successfully!`,
+              },
+            ],
+            structuredContent: output,
+          };
+        }
+
+        case 'check_database_health': {
+          const health = await client.checkHealth();
+          const statusEmoji =
+            health.status === 'healthy' ? '✅' : health.status === 'degraded' ? '⚠️' : '❌';
+
+          let statsText = '';
+          if (health.statistics.falkordb) {
+            statsText += `\nFalkorDB: ${formatHealthComponent(health.statistics.falkordb)}`;
+          }
+          if (health.statistics.qdrant) {
+            statsText += `\nQdrant: ${formatHealthComponent(health.statistics.qdrant)}`;
+          }
+          if (health.statistics.graph) {
+            statsText += `\nGraph: ${health.statistics.graph}`;
+          }
+          if (typeof health.statistics.memory_count === 'number') {
+            statsText += `\nMemory count: ${health.statistics.memory_count}`;
+          }
+          if (typeof health.statistics.vector_count === 'number') {
+            statsText += `\nVector count: ${health.statistics.vector_count}`;
+          }
+          if (health.statistics.sync_status) {
+            statsText += `\nSync status: ${health.statistics.sync_status}`;
+          }
+          if (health.statistics.enrichment?.status) {
+            statsText += `\nEnrichment: ${health.statistics.enrichment.status}`;
+          }
+          if (health.statistics.timestamp) {
+            statsText += `\nTimestamp: ${health.statistics.timestamp}`;
+          }
+
+          const errorText = health.error ? `\nError: ${health.error}` : '';
+
+          const output = {
+            status: health.status,
+            backend: health.backend,
+            statistics: health.statistics,
+            error: health.error,
+          };
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `${statusEmoji} AutoMem Health Status\n\nStatus: ${health.status}\nBackend: ${health.backend}${statsText}${errorText}`,
+              },
+            ],
+            structuredContent: output,
+          };
+        }
+
+        default:
+          throw new Error(`Unknown tool: ${name}`);
       }
-
-      case 'check_database_health': {
-        const health = await client.checkHealth();
-        const statusEmoji =
-          health.status === 'healthy' ? '✅' : health.status === 'degraded' ? '⚠️' : '❌';
-
-        let statsText = '';
-        if (health.statistics.falkordb) {
-          statsText += `\nFalkorDB: ${formatHealthComponent(health.statistics.falkordb)}`;
-        }
-        if (health.statistics.qdrant) {
-          statsText += `\nQdrant: ${formatHealthComponent(health.statistics.qdrant)}`;
-        }
-        if (health.statistics.graph) {
-          statsText += `\nGraph: ${health.statistics.graph}`;
-        }
-        if (typeof health.statistics.memory_count === 'number') {
-          statsText += `\nMemory count: ${health.statistics.memory_count}`;
-        }
-        if (typeof health.statistics.vector_count === 'number') {
-          statsText += `\nVector count: ${health.statistics.vector_count}`;
-        }
-        if (health.statistics.sync_status) {
-          statsText += `\nSync status: ${health.statistics.sync_status}`;
-        }
-        if (health.statistics.enrichment?.status) {
-          statsText += `\nEnrichment: ${health.statistics.enrichment.status}`;
-        }
-        if (health.statistics.timestamp) {
-          statsText += `\nTimestamp: ${health.statistics.timestamp}`;
-        }
-
-        const errorText = health.error ? `\nError: ${health.error}` : '';
-
-        const output = {
-          status: health.status,
-          backend: health.backend,
-          statistics: health.statistics,
-          error: health.error,
-        };
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `${statusEmoji} AutoMem Health Status\n\nStatus: ${health.status}\nBackend: ${health.backend}${statsText}${errorText}`,
-            },
-          ],
-          structuredContent: output,
-        };
-      }
-
-      default:
-        throw new Error(`Unknown tool: ${name}`);
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    // Transports that can correlate a failure to a request log supply an id;
-    // stdio supplies none and the suffix is omitted. Same code path either way.
-    const requestId = requestIdProvider?.();
-    const suffix = requestId ? ` (request_id: ${requestId})` : '';
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: ${errorMessage}${suffix}`,
-        },
-      ],
-      isError: true,
-    };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      // Transports that can correlate a failure to a request log supply an id;
+      // stdio supplies none and the suffix is omitted. Same code path either way.
+      const requestId = requestIdProvider?.();
+      const suffix = requestId ? ` (request_id: ${requestId})` : '';
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: ${errorMessage}${suffix}`,
+          },
+        ],
+        isError: true,
+      };
     }
   });
 

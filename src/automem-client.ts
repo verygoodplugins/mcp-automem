@@ -21,7 +21,6 @@ const BATCH_TOP_LEVEL_SINGLE_FIELDS = [
   'content',
   'type',
   'confidence',
-  'id',
   'tags',
   'importance',
   'embedding',

@@ -65,9 +65,7 @@ describe('MCP server real stdio contract', () => {
       // generate server-side UUID to prevent collision/overwrite attacks") and
       // never reads an inbound id. Advertising the parameter promises something
       // no deployment can honor.
-      const storeTool = listed.tools.find(
-        (tool: { name: string }) => tool.name === 'store_memory'
-      );
+      const storeTool = listed.tools.find((tool: { name: string }) => tool.name === 'store_memory');
       expect(storeTool.inputSchema.properties).not.toHaveProperty('id');
 
       expect(recallTool.inputSchema.properties).toMatchObject({

@@ -124,7 +124,6 @@ function getPackageVersion(): string {
 
 const PACKAGE_VERSION = getPackageVersion();
 
-
 if (command === 'help' || command === '--help' || command === '-h') {
   console.log(`
 AutoMem MCP Server - AI Memory Storage & Recall
