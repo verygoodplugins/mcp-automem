@@ -1199,4 +1199,105 @@ describe('AutoMemClient', () => {
       expect(headers.Authorization).toBeUndefined();
     });
   });
+
+  describe('makeRequest — truncated JSON bodies', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('retries a 200 response whose body is truncated JSON, then succeeds', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new SyntaxError('Unexpected end of JSON input');
+          },
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ results: [], count: 0 }),
+        } as any);
+
+      const resultPromise = client.recallMemory({ query: 'sweep' });
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await resultPromise;
+
+      expect(result.count).toBe(0);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries invalid JSON on 503 then succeeds', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          json: async () => {
+            throw new SyntaxError('Unexpected token < in JSON');
+          },
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ results: [], count: 0 }),
+        } as any);
+
+      const resultPromise = client.recallMemory({ query: 'sweep' });
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await resultPromise;
+
+      expect(result.count).toBe(0);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry invalid JSON on 400', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (400)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not replay a truncated 201 from POST /memory', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => {
+          throw new SyntaxError('Unexpected end of JSON input');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (201)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not replay POST /memory when a 503 body is not JSON', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (503)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
 });

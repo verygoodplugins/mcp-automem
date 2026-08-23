@@ -179,62 +179,72 @@ export class AutoMemClient {
     const maxRetries = 3;
     const baseDelay = 500; // 500ms base delay
 
-    // Network errors (fetch) should be retried; HTTP errors handled below
-    let response;
+    const retryAfter = async (reason: string): Promise<any> => {
+      const delay = baseDelay * Math.pow(2, retryCount);
+      console.error(
+        `[AutoMem] ${reason}, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return this.makeRequest(method, path, body, retryCount + 1);
+    };
+
     try {
-      response = await fetch(url, options);
-    } catch (error) {
+      // Network errors (fetch) should be retried; HTTP errors handled below
+      let response;
+      try {
+        response = await fetch(url, options);
+      } catch (error) {
+        if (error instanceof Error && retryCount < maxRetries) {
+          return retryAfter('Network error');
+        }
+
+        console.error(`AutoMem API error (${method} ${url}):`, error);
+        throw error;
+      }
+
+      let data: any;
+      try {
+        // Truncated HTTP/2 bodies arrive as 2xx/5xx with invalid JSON. Retry
+        // GET (recall/health) like a dropped connection. Never replay POST,
+        // PATCH, or DELETE after a parse failure: a committed store whose 201
+        // or gateway 5xx body was cut would mint a second UUID. 5xx responses
+        // that parse as JSON still retry for every method, as before.
+        data = await response.json();
+      } catch {
+        const isRetryableParse =
+          method === 'GET' && (response.ok || (response.status >= 500 && response.status < 600));
+        if (isRetryableParse && retryCount < maxRetries) {
+          return retryAfter(`Invalid JSON response (${response.status})`);
+        }
+        throw new Error(`Invalid JSON response (${response.status})`);
+      }
+
+      if (!response.ok) {
+        // Retry on 5xx only
+        const isRetryable = response.status >= 500 && response.status < 600;
+
+        if (isRetryable && retryCount < maxRetries) {
+          return retryAfter(`HTTP ${response.status}`);
+        }
+
+        const baseMessage =
+          (data as any)?.message || (data as any)?.detail || `HTTP ${response.status}`;
+
+        const hint =
+          response.status === 401 || response.status === 403
+            ? ' (check AUTOMEM_API_KEY or AUTOMEM_API_TOKEN is set for the MCP server process)'
+            : '';
+
+        const error = new Error(`${baseMessage}${hint}`) as Error & { status?: number };
+        error.status = response.status;
+        console.error(`AutoMem API error (${method} ${url}):`, error);
+        throw error;
+      }
+
+      return data;
+    } finally {
       clearTimeout(timeoutId);
-      if (error instanceof Error && retryCount < maxRetries) {
-        const delay = baseDelay * Math.pow(2, retryCount);
-        console.error(
-          `[AutoMem] Network error, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        return this.makeRequest(method, path, body, retryCount + 1);
-      }
-
-      console.error(`AutoMem API error (${method} ${url}):`, error);
-      throw error;
     }
-    clearTimeout(timeoutId);
-
-    let data: any;
-    try {
-      // Some error responses may not be JSON; treat parse errors as non-retryable
-      data = await response.json();
-    } catch {
-      throw new Error(`Invalid JSON response (${response.status})`);
-    }
-
-    if (!response.ok) {
-      // Retry on 5xx only
-      const isRetryable = response.status >= 500 && response.status < 600;
-
-      if (isRetryable && retryCount < maxRetries) {
-        const delay = baseDelay * Math.pow(2, retryCount); // 500ms, 1s, 2s
-        console.error(
-          `[AutoMem] Retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        return this.makeRequest(method, path, body, retryCount + 1);
-      }
-
-      const baseMessage =
-        (data as any)?.message || (data as any)?.detail || `HTTP ${response.status}`;
-
-      const hint =
-        response.status === 401 || response.status === 403
-          ? ' (check AUTOMEM_API_KEY or AUTOMEM_API_TOKEN is set for the MCP server process)'
-          : '';
-
-      const error = new Error(`${baseMessage}${hint}`) as Error & { status?: number };
-      error.status = response.status;
-      console.error(`AutoMem API error (${method} ${url}):`, error);
-      throw error;
-    }
-
-    return data;
   }
 
   async storeMemory(args: StoreMemoryArgs): Promise<StoreMemoryResult> {
