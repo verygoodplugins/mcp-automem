@@ -1301,3 +1301,37 @@ describe('AutoMemClient', () => {
     });
   });
 });
+
+describe('configurable timeout and retry budget', () => {
+  it('honors a configured maxRetries of 0', async () => {
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      throw new Error('boom');
+    }) as typeof fetch;
+    try {
+      const client = new AutoMemClient({ endpoint: 'http://x', maxRetries: 0 });
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow();
+      expect(calls).toBe(1); // no retries
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('still defaults to three retries when unconfigured', async () => {
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      throw new Error('boom');
+    }) as typeof fetch;
+    try {
+      const client = new AutoMemClient({ endpoint: 'http://x' });
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow();
+      expect(calls).toBe(4); // initial + 3
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

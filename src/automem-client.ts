@@ -21,7 +21,6 @@ const BATCH_TOP_LEVEL_SINGLE_FIELDS = [
   'content',
   'type',
   'confidence',
-  'id',
   'tags',
   'importance',
   'embedding',
@@ -140,6 +139,12 @@ function sanitizeAssociationInput(
   };
 }
 
+/** Per-call overrides for a single request, e.g. a health probe that must not retry. */
+export interface RequestOverrides {
+  timeoutMs?: number;
+  maxRetries?: number;
+}
+
 export class AutoMemClient {
   private config: AutoMemConfig;
 
@@ -151,7 +156,8 @@ export class AutoMemClient {
     method: string,
     path: string,
     body?: any,
-    retryCount = 0
+    retryCount = 0,
+    overrides?: RequestOverrides
   ): Promise<any> {
     const url = `${this.config.endpoint.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
 
@@ -164,7 +170,8 @@ export class AutoMemClient {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25_000);
+    const timeoutMs = overrides?.timeoutMs ?? this.config.timeoutMs ?? 25_000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const options: RequestInit = {
       method,
@@ -176,7 +183,7 @@ export class AutoMemClient {
       options.body = JSON.stringify(body);
     }
 
-    const maxRetries = 3;
+    const maxRetries = overrides?.maxRetries ?? this.config.maxRetries ?? 3;
     const baseDelay = 500; // 500ms base delay
 
     const retryAfter = async (reason: string): Promise<any> => {
@@ -185,7 +192,7 @@ export class AutoMemClient {
         `[AutoMem] ${reason}, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
-      return this.makeRequest(method, path, body, retryCount + 1);
+      return this.makeRequest(method, path, body, retryCount + 1, overrides);
     };
 
     try {
@@ -277,7 +284,6 @@ export class AutoMemClient {
       content: args.content,
       ...(args.type && { type: args.type }),
       ...(args.confidence !== undefined && { confidence: args.confidence }),
-      ...(args.id && { id: args.id }),
       tags: args.tags || [],
       importance: args.importance,
       embedding: args.embedding,
@@ -795,9 +801,9 @@ export class AutoMemClient {
     };
   }
 
-  async checkHealth(): Promise<HealthStatus> {
+  async checkHealth(overrides?: RequestOverrides): Promise<HealthStatus> {
     try {
-      const response = await this.makeRequest('GET', 'health');
+      const response = await this.makeRequest('GET', 'health', undefined, 0, overrides);
       const serviceStatus =
         response.status === 'healthy' || response.status === 'degraded' ? response.status : 'error';
 

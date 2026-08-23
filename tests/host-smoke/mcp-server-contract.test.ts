@@ -61,6 +61,13 @@ describe('MCP server real stdio contract', () => {
       const recallTool = listed.tools.find(
         (tool: { name: string }) => tool.name === 'recall_memory'
       );
+      // The AutoMem service always mints a server-side UUID (memory.py: "Always
+      // generate server-side UUID to prevent collision/overwrite attacks") and
+      // never reads an inbound id. Advertising the parameter promises something
+      // no deployment can honor.
+      const storeTool = listed.tools.find((tool: { name: string }) => tool.name === 'store_memory');
+      expect(storeTool.inputSchema.properties).not.toHaveProperty('id');
+
       expect(recallTool.inputSchema.properties).toMatchObject({
         state_mode: { type: 'string', enum: ['current', 'history'] },
         recency_bias: { type: 'string', enum: ['auto', 'on', 'off'] },

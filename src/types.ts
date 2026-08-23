@@ -53,6 +53,13 @@ export type RecallRecencyBias = 'auto' | 'on' | 'off';
 export interface AutoMemConfig {
   endpoint: string;
   apiKey?: string;
+  /**
+   * Per-request abort timeout in ms. Default 25000. Set this when a transport
+   * has its own latency budget — the remote bridge runs a tighter one.
+   */
+  timeoutMs?: number;
+  /** Retry budget for network errors and 5xx. Default 3. */
+  maxRetries?: number;
 }
 
 export interface MemoryRecord {
@@ -192,7 +199,6 @@ export interface StoreMemoryArgs {
   content?: string;
   type?: MemoryType;
   confidence?: number;
-  id?: string;
   tags?: string[];
   importance?: number;
   embedding?: number[];
