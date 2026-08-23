@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.15.0...mcp-automem-v0.16.0) (2026-08-23)
+
+
+### Features
+
+* add Grok Build AutoMem installer client ([#192](https://github.com/verygoodplugins/mcp-automem/issues/192)) ([2d1716f](https://github.com/verygoodplugins/mcp-automem/commit/2d1716ff5267e46eb5283980ae1f22f21cfe730d))
+* **copilot:** add CLI and VS Code support ([#127](https://github.com/verygoodplugins/mcp-automem/issues/127)) ([cbeb3cb](https://github.com/verygoodplugins/mcp-automem/commit/cbeb3cba35bd169de62a7f551bc838e4e8b66d1b))
+* **install:** add clickable terminal links and live wait counters ([#203](https://github.com/verygoodplugins/mcp-automem/issues/203)) ([3b53c74](https://github.com/verygoodplugins/mcp-automem/commit/3b53c74670ee88277373d47341eff28c0effebb6))
+* **install:** onboarding polish for non-technical users ([#201](https://github.com/verygoodplugins/mcp-automem/issues/201)) ([cb899ed](https://github.com/verygoodplugins/mcp-automem/commit/cb899ededc0f81dab82199c77e8b353de918b636))
+
+
+### Bug Fixes
+
+* **client:** retry truncated GET JSON bodies from AutoMem ([#205](https://github.com/verygoodplugins/mcp-automem/issues/205)) ([fb3c629](https://github.com/verygoodplugins/mcp-automem/commit/fb3c6291c0fed877b2c42e67e7ec4f8e336cfcff))
+* **copilot:** prefix CLI memory rule tool calls ([#186](https://github.com/verygoodplugins/mcp-automem/issues/186)) ([2816beb](https://github.com/verygoodplugins/mcp-automem/commit/2816beb7bb81d87bb8d592e8712fd8b4a7cc4f95))
+* **copilot:** print usage for --help instead of installing ([#194](https://github.com/verygoodplugins/mcp-automem/issues/194)) ([92c2e33](https://github.com/verygoodplugins/mcp-automem/commit/92c2e33cb932b71d0df35fdc250778c6a51257af))
+* **install:** explain local health timeouts with recovery steps ([#204](https://github.com/verygoodplugins/mcp-automem/issues/204)) ([4236027](https://github.com/verygoodplugins/mcp-automem/commit/42360272aef52977e38bad8ed61c34cecc79ac32))
+* **install:** make the dry-run review say nothing will be written ([#200](https://github.com/verygoodplugins/mcp-automem/issues/200)) ([64161c5](https://github.com/verygoodplugins/mcp-automem/commit/64161c53b076b5cf44b1f721f757f33e860f63bb))
+* pair inherited API keys with their endpoint across all installer hosts ([#197](https://github.com/verygoodplugins/mcp-automem/issues/197)) ([5ba3cce](https://github.com/verygoodplugins/mcp-automem/commit/5ba3cce779571f2549775fc5d7cbc3f2b88d4bb7))
+* **recall:** keep content previews in budgeted formats ([#202](https://github.com/verygoodplugins/mcp-automem/issues/202)) ([768d06f](https://github.com/verygoodplugins/mcp-automem/commit/768d06fc2ec72fb2fafdd4cd185e4683721e1e0c))
+* refuse stray rules-file markers across all installer hosts ([#198](https://github.com/verygoodplugins/mcp-automem/issues/198)) ([57f3a35](https://github.com/verygoodplugins/mcp-automem/commit/57f3a352fb26aff0af8a3ecafcd76dfda16d7f97))
+
 ## [Unreleased]
 
 ### Features
