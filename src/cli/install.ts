@@ -512,11 +512,15 @@ export function inspectLocalHealth(localDir: string): LocalHealthInspect {
 
 function explainLocalHealthFailure(waitMessage: string): string {
   const lower = waitMessage.toLowerCase();
-  if (/econnrefused|fetch failed|could not reach|enotfound/.test(lower)) {
-    return 'Nothing accepted the connection. The API container is usually still booting, crashed, or something else is bound to port 8001.';
-  }
+  // Timeout first: verifyAutoMemEndpoint formats hangs as
+  // "Could not reach AutoMem endpoint …: timed out after Ns", so the
+  // reachability pattern would otherwise steal those and send people looking
+  // for a crash or a port conflict.
   if (/timed out|timeout|aborted/.test(lower)) {
     return 'The health check timed out. First boot after a rebuild can take a couple of minutes while Python and models load.';
+  }
+  if (/econnrefused|fetch failed|could not reach|enotfound/.test(lower)) {
+    return 'Nothing accepted the connection. The API container is usually still booting, crashed, or something else is bound to port 8001.';
   }
   if (/degraded|falkordb|qdrant/.test(lower)) {
     return 'The API is up, but FalkorDB or Qdrant is not connected. After a rebuild, leftover containers can sit on the wrong Docker network.';
@@ -2158,7 +2162,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
             ...resolved,
             localDir: plan.localDir,
             yes: true,
-            apiKeyProvided: localRetryHasExplicitApiKey(resolved.apiKey),
+            apiKeyProvided: resolved.apiKeyFromFlag,
           }),
         });
       }
@@ -2267,7 +2271,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           resolved.target === 'local'
             ? equivalentInstallCommand({
                 ...resolved,
-                apiKeyProvided: localRetryHasExplicitApiKey(resolved.apiKey),
+                apiKeyProvided: resolved.apiKeyFromFlag,
               })
             : equivalentInstallCommand({
                 ...resolved,

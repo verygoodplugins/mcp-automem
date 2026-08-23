@@ -550,6 +550,20 @@ describe('guided install helpers', () => {
     expect(cmd).toContain('--api-key YOUR_KEY_HERE');
   });
 
+  it('a local retry command omits --api-key when the key was inherited from the environment', () => {
+    // pinLocalInstallOptions can keep an env-provided key; the retry command
+    // must still omit --api-key so prepareLocalServer reuses localDir/.env
+    // instead of writing the placeholder literal.
+    const cmd = equivalentInstallCommand({
+      target: 'local',
+      clients: ['cursor'],
+      localDir: '/Users/tester/.automem/server',
+      yes: true,
+      apiKeyProvided: false,
+    });
+    expect(cmd).not.toContain('--api-key');
+  });
+
   // Both cancel-style endings (declined confirm, failed verify) hand the user
   // their answers back as a runnable command so six prompts of work never
   // evaporates. The command must reconstruct flags from resolved options and
@@ -1427,6 +1441,18 @@ describe('guided install helpers', () => {
     });
     expect(hint).toContain("cd '/tmp/AutoMem Server' && docker compose ps");
     expect(hint).not.toContain('cd /tmp/AutoMem Server &&');
+  });
+
+  it('localHealthRecoveryHint treats a timed-out probe as a slow boot, not a refused connection', () => {
+    const hint = localHealthRecoveryHint({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/tmp/automem-server',
+      waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: timed out after 2s',
+      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      inspect: {},
+    });
+    expect(hint).toMatch(/health check timed out/i);
+    expect(hint).not.toMatch(/Nothing accepted the connection/);
   });
 
   it('localHealthTimeoutError is a recovery-styled InstallError, not the raw wait string', () => {
