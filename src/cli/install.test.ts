@@ -8,11 +8,14 @@ import {
   DEFAULT_AGENT_CLIENTS,
   InstallError,
   buildInstallPlan,
+  pinLocalInstallOptions,
   claudePluginInstallArgs,
   claudePluginMarketplaceAddArgs,
   detectInstallEnvironment,
   formatEnvValue,
   formatInstallError,
+  localHealthTimeoutError,
+  localHealthRecoveryHint,
   installClaudeCodePlugin,
   manualFixHint,
   parseInstallArgs,
@@ -69,6 +72,8 @@ describe('guided install helpers', () => {
       dryRun: true,
       yes: true,
       noAgentInstall: true,
+      endpointFromFlag: true,
+      apiKeyFromFlag: true,
     });
   });
 
@@ -543,6 +548,20 @@ describe('guided install helpers', () => {
       apiKeyProvided: localRetryHasExplicitApiKey('sk-typed-by-user'),
     });
     expect(cmd).toContain('--api-key YOUR_KEY_HERE');
+  });
+
+  it('a local retry command omits --api-key when the key was inherited from the environment', () => {
+    // pinLocalInstallOptions can keep an env-provided key; the retry command
+    // must still omit --api-key so prepareLocalServer reuses localDir/.env
+    // instead of writing the placeholder literal.
+    const cmd = equivalentInstallCommand({
+      target: 'local',
+      clients: ['cursor'],
+      localDir: '/Users/tester/.automem/server',
+      yes: true,
+      apiKeyProvided: false,
+    });
+    expect(cmd).not.toContain('--api-key');
   });
 
   // Both cancel-style endings (declined confirm, failed verify) hand the user
@@ -1050,6 +1069,32 @@ describe('guided install helpers', () => {
     if (!result.ok) expect(result.message).toContain('HTTP 500');
   });
 
+  it('accepts degraded /health by default but rejects it when requireHealthy is set', async () => {
+    const fetchFn = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: 'degraded',
+        falkordb: 'disconnected',
+        qdrant: 'disconnected',
+      }),
+    });
+    await expect(
+      verifyAutoMemEndpoint({ endpoint: 'http://127.0.0.1:8001', fetchFn })
+    ).resolves.toEqual({ ok: true });
+    const strict = await verifyAutoMemEndpoint({
+      endpoint: 'http://127.0.0.1:8001',
+      fetchFn,
+      requireHealthy: true,
+    });
+    expect(strict.ok).toBe(false);
+    if (!strict.ok) {
+      expect(strict.message).toContain('degraded');
+      expect(strict.message).toContain('FalkorDB disconnected');
+      expect(strict.message).toContain('Qdrant disconnected');
+    }
+  });
+
   it('fails fast with a clean message when the endpoint hangs (abort timeout)', async () => {
     // A fetch that never resolves on its own, but rejects when the abort fires.
     const hangingFetch = (_url: string, init?: { signal?: AbortSignal }) =>
@@ -1068,6 +1113,120 @@ describe('guided install helpers', () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toContain('timed out');
+  });
+
+  it('times out when /health headers return but the JSON body never arrives', async () => {
+    vi.useFakeTimers();
+    try {
+      const stalledBodyFetch = async () => ({
+        ok: true,
+        status: 200,
+        json: () => new Promise<never>(() => {}),
+      });
+
+      const resultPromise = verifyAutoMemEndpoint({
+        endpoint: 'https://stalled-body.example',
+        fetchFn: stalledBodyFetch,
+        timeoutMs: 20,
+      });
+
+      await vi.advanceTimersByTimeAsync(20);
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('timed out after 0.02s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives the authenticated recall probe a fresh timeout after a slow health body', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchFn = async (url: string, init?: { signal?: AbortSignal }) => {
+        if (url.includes('/health')) {
+          return {
+            ok: true,
+            status: 200,
+            json: () =>
+              new Promise((resolve) => {
+                setTimeout(() => resolve({ status: 'healthy' }), 30);
+              }),
+          };
+        }
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve({ ok: true, status: 200, json: async () => ({}) }),
+            30
+          );
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      };
+
+      const resultPromise = verifyAutoMemEndpoint({
+        endpoint: 'https://slow-then-recall.example',
+        apiKey: 'sk-test',
+        fetchFn,
+        timeoutMs: 40,
+      });
+
+      await vi.advanceTimersByTimeAsync(30);
+      await vi.advanceTimersByTimeAsync(30);
+      await expect(resultPromise).resolves.toEqual({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let recall overrun an absolute deadline after a slow health body', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    try {
+      const fetchFn = async (url: string, init?: { signal?: AbortSignal }) => {
+        if (url.includes('/health')) {
+          return {
+            ok: true,
+            status: 200,
+            json: () =>
+              new Promise((resolve) => {
+                setTimeout(() => resolve({ status: 'healthy' }), 40);
+              }),
+          };
+        }
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve({ ok: true, status: 200, json: async () => ({}) }),
+            40
+          );
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      };
+
+      const resultPromise = verifyAutoMemEndpoint({
+        endpoint: 'https://deadline-overrun.example',
+        apiKey: 'sk-test',
+        fetchFn,
+        timeoutMs: 100,
+        deadlineAt: 50,
+      });
+
+      await vi.advanceTimersByTimeAsync(40);
+      await vi.advanceTimersByTimeAsync(40);
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('timed out');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('waits for a local endpoint to become healthy before continuing', async () => {
@@ -1147,6 +1306,39 @@ describe('guided install helpers', () => {
     }
   });
 
+  it('waitForAutoMemEndpoint deadlineMs stops a hung /health before attempts * default timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const hangingFetch = (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise<never>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+
+      const resultPromise = waitForAutoMemEndpoint({
+        endpoint: 'https://stalled.example',
+        fetchFn: hangingFetch,
+        attempts: 60,
+        timeoutMs: 10_000,
+        intervalMs: 1_000,
+        deadlineMs: 50,
+      });
+
+      await vi.advanceTimersByTimeAsync(50);
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.message).toMatch(/after 1 attempts/);
+        expect(result.message).not.toMatch(/after 60 attempts/);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('waitForAutoMemEndpoint with stableChecks requires consecutive successes (a flicker resets the streak)', async () => {
     let recallCalls = 0;
     const fetchFn = async (url: string) => {
@@ -1171,6 +1363,33 @@ describe('guided install helpers', () => {
     ).resolves.toEqual({ ok: true });
     // 1:ok(streak=1) 2:404(reset) 3:ok(streak=1) 4:ok(streak=2 → ready) = 4 recall probes.
     expect(recallCalls).toBe(4);
+  });
+
+  it('waitForAutoMemEndpoint with requireHealthy keeps waiting through degraded /health', async () => {
+    let attempts = 0;
+    const fetchFn = async () => {
+      attempts += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: attempts === 3 ? 'healthy' : 'degraded',
+          falkordb: attempts === 3 ? 'connected' : 'disconnected',
+          qdrant: attempts === 3 ? 'connected' : 'disconnected',
+        }),
+      };
+    };
+
+    await expect(
+      waitForAutoMemEndpoint({
+        endpoint: 'http://127.0.0.1:8001',
+        fetchFn,
+        attempts: 3,
+        intervalMs: 1,
+        requireHealthy: true,
+      })
+    ).resolves.toEqual({ ok: true });
+    expect(attempts).toBe(3);
   });
 
   it('turns a docker compose failure into a clean InstallError with a port hint', async () => {
@@ -1277,11 +1496,92 @@ describe('guided install helpers', () => {
     }
   });
 
+  it('localHealthRecoveryHint explains a fetch-failed wait and lists recovery commands', () => {
+    const hint = localHealthRecoveryHint({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/Users/me/.automem/server',
+      waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: fetch failed',
+      retryCommand:
+        'npx @verygoodplugins/mcp-automem install --target local --local-dir ~/.automem/server --clients cursor --yes',
+      inspect: {
+        composePs: 'flask-api   Restarting (1) 0 seconds ago',
+        apiLogs: 'Authorization: Bearer super-secret-token\nValueError: boom',
+      },
+    });
+    expect(hint).toMatch(/Nothing accepted the connection/);
+    expect(hint).toContain('What to try:');
+    expect(hint).toContain('docker compose ps');
+    expect(hint).toContain('docker compose logs flask-api');
+    expect(hint).toContain('lsof -iTCP:8001');
+    expect(hint).toContain('--target local');
+    expect(hint).toContain('Hosted Cloud');
+    expect(hint).toContain('flask-api   Restarting');
+    expect(hint).toContain('ValueError: boom');
+    expect(hint).not.toContain('super-secret-token');
+    expect(hint).toContain('Bearer ***');
+  });
+
+  it('localHealthRecoveryHint quotes localDir so a path with spaces pastes as one argument', () => {
+    const hint = localHealthRecoveryHint({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/tmp/AutoMem Server',
+      waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: fetch failed',
+      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      inspect: {},
+    });
+    expect(hint).toContain("cd '/tmp/AutoMem Server' && docker compose ps");
+    expect(hint).not.toContain('cd /tmp/AutoMem Server &&');
+  });
+
+  it('localHealthRecoveryHint treats a timed-out probe as a slow boot, not a refused connection', () => {
+    const hint = localHealthRecoveryHint({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/tmp/automem-server',
+      waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: timed out after 2s',
+      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      inspect: {},
+    });
+    expect(hint).toMatch(/health check timed out/i);
+    expect(hint).not.toMatch(/Nothing accepted the connection/);
+  });
+
+  it('localHealthTimeoutError is a recovery-styled InstallError, not the raw wait string', () => {
+    const err = localHealthTimeoutError({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/tmp/automem-server',
+      waitMessage: 'AutoMem endpoint did not become healthy after 30 attempts: fetch failed',
+      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      inspect: {},
+    });
+    expect(err).toBeInstanceOf(InstallError);
+    expect(err.message).toMatch(/never answered at http:\/\/127\.0\.0\.1:8001/);
+    expect(err.message).not.toMatch(/30 attempts/);
+    const out = formatInstallError(err, process.stderr);
+    expect(out).toContain('What to try:');
+    expect(out).toContain('docker compose ps');
+    expect(out).not.toMatch(/\n\s+at\s/);
+  });
+
+  it('localHealthRecoveryHint tells you to recreate the stack when stores are disconnected', () => {
+    const hint = localHealthRecoveryHint({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/Users/me/.automem/server',
+      waitMessage: 'AutoMem is degraded (FalkorDB disconnected, Qdrant disconnected).',
+      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      inspect: {
+        apiLogs:
+          'redis.exceptions.ConnectionError: Error -2 connecting to falkordb:6379. Name or service not known.',
+      },
+    });
+    expect(hint).toMatch(/FalkorDB or Qdrant is not connected/);
+    expect(hint).toContain('docker compose down && docker compose up -d --build');
+  });
+
   it('rejects a custom --endpoint with target local so the plan matches what is written', () => {
     const environment = detectInstallEnvironment();
     expect(() =>
       buildInstallPlan({
-        options: { ...parseInstallArgs([], {}), target: 'local', endpoint: 'http://custom:9000' },
+        options: { ...parseInstallArgs(['--endpoint', 'http://custom:9000'], {}), target: 'local' },
         environment,
       })
     ).toThrow(/not supported with --target local/);
@@ -1294,6 +1594,48 @@ describe('guided install helpers', () => {
       environment,
     });
     expect(plan.endpoint).toBe('http://127.0.0.1:8001');
+  });
+
+  it('does not treat an inherited AUTOMEM_API_URL as --endpoint for a local install', () => {
+    const environment = detectInstallEnvironment();
+    const parsed = parseInstallArgs([], { AUTOMEM_API_URL: 'https://env.example' });
+    expect(parsed.endpointFromFlag).toBe(false);
+    const plan = buildInstallPlan({
+      options: { ...parsed, target: 'local' },
+      environment,
+    });
+    expect(plan.endpoint).toBe('http://127.0.0.1:8001');
+  });
+
+  it('drops an inherited key paired to a foreign URL when pinning local Docker', () => {
+    const pinned = pinLocalInstallOptions({
+      ...parseInstallArgs([], {
+        AUTOMEM_API_URL: 'https://env.example',
+        AUTOMEM_API_KEY: 'env-secret',
+      }),
+      target: 'local',
+    });
+    expect(pinned.endpoint).toBe('http://127.0.0.1:8001');
+    expect(pinned.apiKey).toBeUndefined();
+  });
+
+  it('keeps an inherited key when AUTOMEM_API_URL is already the local bind', () => {
+    const pinned = pinLocalInstallOptions({
+      ...parseInstallArgs([], {
+        AUTOMEM_API_URL: 'http://127.0.0.1:8001',
+        AUTOMEM_API_KEY: 'local-secret',
+      }),
+      target: 'local',
+    });
+    expect(pinned.apiKey).toBe('local-secret');
+  });
+
+  it('keeps an explicit --api-key when pinning away from an inherited URL', () => {
+    const pinned = pinLocalInstallOptions({
+      ...parseInstallArgs(['--api-key', 'flag-key'], { AUTOMEM_API_URL: 'https://env.example' }),
+      target: 'local',
+    });
+    expect(pinned.apiKey).toBe('flag-key');
   });
 
   it('reuses the existing local .env token on re-run instead of rotating it', async () => {
