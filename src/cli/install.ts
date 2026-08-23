@@ -250,6 +250,13 @@ type VerifyEndpointOptions = {
    * any AutoMem status string (the original identity check).
    */
   requireHealthy?: boolean;
+  /**
+   * Absolute `Date.now()` cutoff for the whole verify (health + optional recall).
+   * Each probe aborts when this instant is reached so a slow health body cannot
+   * hand recall a fresh full `timeoutMs` and overrun `waitForAutoMemEndpoint`'s
+   * `deadlineMs`.
+   */
+  deadlineAt?: number;
 };
 
 type WaitEndpointOptions = VerifyEndpointOptions & {
@@ -1086,44 +1093,75 @@ export async function verifyAutoMemEndpoint(
     return { ok: false, message: 'fetch is not available in this Node runtime.' };
   }
 
-  // Bound the whole probe — headers AND body — with one AbortController. Clearing
-  // the timer when fetch() returns would let a 200 with a stalled JSON body hang
-  // past waitForAutoMemEndpoint's remaining-ms deadline.
+  // Bound each probe — headers AND body — with its own AbortController. Sharing
+  // one timer across /health then /recall would let a slow health body steal the
+  // recall budget (Codex: 7s health + 4s recall against a 10s per-request cap).
   const timeoutMs = options.timeoutMs ?? 10_000;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const raceAbort = async <T>(promise: Promise<T>): Promise<T> => {
-    if (controller.signal.aborted) {
+  const runTimed = async <T>(
+    work: (helpers: {
+      signal: AbortSignal;
+      raceAbort: <U>(promise: Promise<U>) => Promise<U>;
+    }) => Promise<T>
+  ): Promise<T> => {
+    const controller = new AbortController();
+    const remainingMs =
+      options.deadlineAt === undefined ? timeoutMs : options.deadlineAt - Date.now();
+    if (remainingMs <= 0) {
       const err = new Error('aborted');
       err.name = 'AbortError';
       throw err;
     }
-    return await new Promise<T>((resolve, reject) => {
-      const onAbort = () => {
+    const probeTimeoutMs = Math.min(timeoutMs, remainingMs);
+    const timer = setTimeout(() => controller.abort(), probeTimeoutMs);
+    const raceAbort = async <U>(promise: Promise<U>): Promise<U> => {
+      if (controller.signal.aborted) {
         const err = new Error('aborted');
         err.name = 'AbortError';
-        reject(err);
-      };
-      controller.signal.addEventListener('abort', onAbort, { once: true });
-      promise.then(resolve, reject).finally(() => {
-        controller.signal.removeEventListener('abort', onAbort);
+        throw err;
+      }
+      return await new Promise<U>((resolve, reject) => {
+        const onAbort = () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        };
+        controller.signal.addEventListener('abort', onAbort, { once: true });
+        promise.then(resolve, reject).finally(() => {
+          controller.signal.removeEventListener('abort', onAbort);
+        });
       });
-    });
+    };
+    try {
+      return await work({ signal: controller.signal, raceAbort });
+    } finally {
+      clearTimeout(timer);
+    }
   };
-  const withTimeout = async (
-    url: string,
-    init?: { headers?: Record<string, string> }
-  ): Promise<{
-    ok: boolean;
-    status: number;
-    json?: () => Promise<unknown>;
-    text?: () => Promise<string>;
-  }> => fetchFn(url, { ...init, signal: controller.signal });
 
   try {
-    const health = await withTimeout(`${endpoint}/health`);
-    if (!health.ok) {
-      return { ok: false, message: `Health check failed with HTTP ${health.status}.` };
+    const health = await runTimed(async ({ signal, raceAbort }) => {
+      const res = await fetchFn(`${endpoint}/health`, { signal });
+      let body: unknown;
+      try {
+        body = typeof res.json === 'function' ? await raceAbort(res.json()) : undefined;
+      } catch (error) {
+        const err = error as Error;
+        if (err.name === 'AbortError') throw err;
+        return {
+          kind: 'not-json' as const,
+          status: res.status,
+        };
+      }
+      return { kind: 'ok' as const, res, body };
+    });
+    if (health.kind === 'not-json') {
+      return {
+        ok: false,
+        message: `Health check returned HTTP ${health.status} but the body was not JSON — is ${endpoint} really an AutoMem endpoint?`,
+      };
+    }
+    if (!health.res.ok) {
+      return { ok: false, message: `Health check failed with HTTP ${health.res.status}.` };
     }
 
     // A 200 alone is not proof this is AutoMem — a reverse-proxy login wall,
@@ -1131,18 +1169,7 @@ export async function verifyAutoMemEndpoint(
     // Require a JSON body carrying a string `status` field. AutoMem returns
     // "healthy" or "degraded" (when Qdrant is down); accept any status string,
     // reject non-JSON bodies and JSON without a status.
-    let healthBody: unknown;
-    try {
-      healthBody = typeof health.json === 'function' ? await raceAbort(health.json()) : undefined;
-    } catch (error) {
-      const err = error as Error;
-      if (err.name === 'AbortError') throw err;
-      return {
-        ok: false,
-        message: `Health check returned HTTP ${health.status} but the body was not JSON — is ${endpoint} really an AutoMem endpoint?`,
-      };
-    }
-    const healthPayload = healthBody as {
+    const healthPayload = health.body as {
       status?: unknown;
       falkordb?: unknown;
       qdrant?: unknown;
@@ -1151,7 +1178,7 @@ export async function verifyAutoMemEndpoint(
     if (typeof status !== 'string') {
       return {
         ok: false,
-        message: `Health check returned HTTP ${health.status} without an AutoMem status field — is ${endpoint} really an AutoMem endpoint?`,
+        message: `Health check returned HTTP ${health.res.status} without an AutoMem status field — is ${endpoint} really an AutoMem endpoint?`,
       };
     }
     if (options.requireHealthy && status !== 'healthy') {
@@ -1168,11 +1195,12 @@ export async function verifyAutoMemEndpoint(
     }
 
     if (options.apiKey) {
-      const recall = await withTimeout(`${endpoint}/recall?limit=1`, {
-        headers: {
-          Authorization: `Bearer ${options.apiKey}`,
-        },
-      });
+      const recall = await runTimed(async ({ signal }) =>
+        fetchFn(`${endpoint}/recall?limit=1`, {
+          signal,
+          headers: { Authorization: `Bearer ${options.apiKey}` },
+        })
+      );
       if (!recall.ok) {
         return {
           ok: false,
@@ -1186,8 +1214,6 @@ export async function verifyAutoMemEndpoint(
     const err = error as Error;
     const reason = err.name === 'AbortError' ? `timed out after ${timeoutMs / 1000}s` : err.message;
     return { ok: false, message: `Could not reach AutoMem endpoint ${endpoint}: ${reason}` };
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -1227,6 +1253,7 @@ export async function waitForAutoMemEndpoint(
         remainingMs === undefined
           ? options.timeoutMs
           : Math.max(1, Math.min(defaultProbeTimeoutMs, remainingMs)),
+      deadlineAt,
       requireHealthy: options.requireHealthy,
     });
     // Require `stableChecks` CONSECUTIVE successes so a fresh deploy that flickers

@@ -1139,6 +1139,96 @@ describe('guided install helpers', () => {
     }
   });
 
+  it('gives the authenticated recall probe a fresh timeout after a slow health body', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchFn = async (url: string, init?: { signal?: AbortSignal }) => {
+        if (url.includes('/health')) {
+          return {
+            ok: true,
+            status: 200,
+            json: () =>
+              new Promise((resolve) => {
+                setTimeout(() => resolve({ status: 'healthy' }), 30);
+              }),
+          };
+        }
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve({ ok: true, status: 200, json: async () => ({}) }),
+            30
+          );
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      };
+
+      const resultPromise = verifyAutoMemEndpoint({
+        endpoint: 'https://slow-then-recall.example',
+        apiKey: 'sk-test',
+        fetchFn,
+        timeoutMs: 40,
+      });
+
+      await vi.advanceTimersByTimeAsync(30);
+      await vi.advanceTimersByTimeAsync(30);
+      await expect(resultPromise).resolves.toEqual({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let recall overrun an absolute deadline after a slow health body', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    try {
+      const fetchFn = async (url: string, init?: { signal?: AbortSignal }) => {
+        if (url.includes('/health')) {
+          return {
+            ok: true,
+            status: 200,
+            json: () =>
+              new Promise((resolve) => {
+                setTimeout(() => resolve({ status: 'healthy' }), 40);
+              }),
+          };
+        }
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve({ ok: true, status: 200, json: async () => ({}) }),
+            40
+          );
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      };
+
+      const resultPromise = verifyAutoMemEndpoint({
+        endpoint: 'https://deadline-overrun.example',
+        apiKey: 'sk-test',
+        fetchFn,
+        timeoutMs: 100,
+        deadlineAt: 50,
+      });
+
+      await vi.advanceTimersByTimeAsync(40);
+      await vi.advanceTimersByTimeAsync(40);
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('timed out');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('waits for a local endpoint to become healthy before continuing', async () => {
     let attempts = 0;
     const fetchFn = async () => {
