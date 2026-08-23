@@ -1269,5 +1269,20 @@ describe('AutoMemClient', () => {
       );
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
+
+    it('does not replay a truncated 201 from POST /memory', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => {
+          throw new SyntaxError('Unexpected end of JSON input');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (201)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
   });
 });
