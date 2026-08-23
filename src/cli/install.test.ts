@@ -1204,6 +1204,33 @@ describe('guided install helpers', () => {
     expect(recallCalls).toBe(4);
   });
 
+  it('waitForAutoMemEndpoint with requireHealthy keeps waiting through degraded /health', async () => {
+    let attempts = 0;
+    const fetchFn = async () => {
+      attempts += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: attempts === 3 ? 'healthy' : 'degraded',
+          falkordb: attempts === 3 ? 'connected' : 'disconnected',
+          qdrant: attempts === 3 ? 'connected' : 'disconnected',
+        }),
+      };
+    };
+
+    await expect(
+      waitForAutoMemEndpoint({
+        endpoint: 'http://127.0.0.1:8001',
+        fetchFn,
+        attempts: 3,
+        intervalMs: 1,
+        requireHealthy: true,
+      })
+    ).resolves.toEqual({ ok: true });
+    expect(attempts).toBe(3);
+  });
+
   it('turns a docker compose failure into a clean InstallError with a port hint', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-prep-'));
     try {
