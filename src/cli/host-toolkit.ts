@@ -551,8 +551,7 @@ export function detectProjectName(cwd: string = process.cwd()): string {
 }
 
 export type ExtraFlag =
-  | { kind: 'value'; set: (value: string) => void }
-  | { kind: 'boolean'; set: () => void };
+  { kind: 'value'; set: (value: string) => void } | { kind: 'boolean'; set: () => void };
 
 /**
  * Shared parser for the flags every host handler uses:

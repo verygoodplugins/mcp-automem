@@ -433,8 +433,7 @@ function quote(value: string): string {
  * model cannot execute — the failure mode that shipped for Copilot in #186.
  */
 export type ToolCallStyle =
-  | { kind: 'direct'; toolPrefix: string }
-  | { kind: 'wrapped'; wrapper: string; toolPrefix: string };
+  { kind: 'direct'; toolPrefix: string } | { kind: 'wrapped'; wrapper: string; toolPrefix: string };
 
 function directStyle(toolPrefix: string): ToolCallStyle {
   return { kind: 'direct', toolPrefix };
