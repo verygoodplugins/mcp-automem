@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { makeTheme, padEndVisible, repeatVisible, stripAnsi, visibleLength } from './theme.js';
+import {
+  hyperlink,
+  makeTheme,
+  padEndVisible,
+  repeatVisible,
+  stripAnsi,
+  visibleLength,
+} from './theme.js';
 import { bulletList, keyValueRows, statusMark } from './table.js';
 import { badge, makeLogger, noteBox, sectionTitle } from './messages.js';
 import { renderSuccessCard, renderSuccessOutro } from './brand.js';
@@ -17,10 +24,22 @@ describe('ui/theme', () => {
     expect(plain.color).toBe(false);
     expect(plain.style.gold('hi')).toBe('hi');
     expect(plain.style.inverseGold('hi')).toBe('[hi]');
+    expect(plain.link('https://example.com', 'label\x1b')).toBe('label%1B');
+    expect(plain.link('https://example.com', 'label\x1b')).not.toContain('\x1b]8;');
 
     const colored = makeTheme(stream, { color: 'always', symbols: 'unicode' });
     expect(colored.style.gold('hi')).toContain('\x1b[');
     expect(stripAnsi(colored.style.gold('hi'))).toBe('hi');
+    const prevTerm = process.env.TERM;
+    process.env.TERM = 'xterm-256color';
+    try {
+      const linked = makeTheme(stream, { color: 'always', symbols: 'unicode' });
+      expect(linked.link('https://example.com', 'label')).toContain('\x1b]8;');
+      expect(stripAnsi(linked.link('https://example.com', 'docs'))).toBe('docs');
+    } finally {
+      if (prevTerm === undefined) delete process.env.TERM;
+      else process.env.TERM = prevTerm;
+    }
   });
 
   it('switches symbol sets between unicode and ascii', () => {
@@ -47,6 +66,35 @@ describe('ui/theme', () => {
     expect(visibleLength(padEndVisible(colored, 6))).toBe(6);
     expect(repeatVisible('-', 4)).toBe('----');
     expect(repeatVisible('-', -2)).toBe('');
+  });
+
+  it('percent-encodes control characters in hyperlink labels', () => {
+    const rendered = hyperlink('https://example.com/path', 'label\x1b\x07\n\x7f');
+
+    expect(rendered).toContain('label%1B%07%0A%7F');
+    expect(stripAnsi(rendered)).toBe('label%1B%07%0A%7F');
+    expect(visibleLength(rendered)).toBe('label%1B%07%0A%7F'.length);
+  });
+
+  it('percent-encodes fallback text when hyperlink URLs are invalid', () => {
+    expect(hyperlink('not a url', 'label\x1b')).toBe('label%1B');
+    expect(hyperlink('file:///tmp/example', 'label\x07')).toBe('label%07');
+    expect(hyperlink('<prompted>/health')).toBe('<prompted>/health');
+  });
+
+  it('does not emit OSC 8 when TERM=dumb even if the stream is a color TTY', () => {
+    const prev = process.env.TERM;
+    process.env.TERM = 'dumb';
+    try {
+      const tty = { isTTY: true } as unknown as NodeJS.WriteStream;
+      const theme = makeTheme(tty, { color: 'always' });
+      expect(theme.color).toBe(true);
+      expect(theme.link('https://example.com', 'docs')).toBe('docs');
+      expect(theme.link('https://example.com')).not.toContain('\x1b]8;');
+    } finally {
+      if (prev === undefined) delete process.env.TERM;
+      else process.env.TERM = prev;
+    }
   });
 });
 

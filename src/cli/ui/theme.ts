@@ -46,6 +46,8 @@ export type Theme = {
     arrow: string;
     line: string;
   };
+  /** OSC 8 terminal hyperlink — clickable where supported, plain text elsewhere. */
+  link(url: string, label?: string): string;
 };
 
 // Two palettes, one shape. Truecolor carries the exact brand values; the ANSI-16
@@ -113,6 +115,15 @@ function shouldUseUnicode(stream: NodeJS.WriteStream, mode: SymbolMode): boolean
   return process.platform !== 'win32' || Boolean(process.env.WT_SESSION);
 }
 
+function shouldHyperlink(color: boolean): boolean {
+  // Color already encodes TTY / NO_COLOR. OSC 8 is a separate capability: a
+  // color TTY with TERM=dumb still cannot interpret hyperlinks, so refuse it
+  // independently (same dumb-terminal gate unicode already uses).
+  if (!color) return false;
+  if (process.env.TERM === 'dumb') return false;
+  return true;
+}
+
 const RESET = '\x1b[0m';
 
 function wrap(enabled: boolean, open: string): (text: string) => string {
@@ -156,12 +167,20 @@ export function makeTheme(
       arrow: unicode ? '→' : '->',
       line: unicode ? '─' : '-',
     },
+    // Color encodes TTY / NO_COLOR; shouldHyperlink also refuses TERM=dumb so
+    // OSC 8 never leaks into pipes, CI, --no-color, or dumb-terminal transcripts.
+    link: shouldHyperlink(color) ? hyperlink : plainLinkText,
   };
 }
 
 export function stripAnsi(value: string): string {
-  // eslint-disable-next-line no-control-regex -- intentional: matches the ANSI escape (ESC) sequence to strip it
-  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+  return (
+    value
+      // eslint-disable-next-line no-control-regex -- intentional: OSC hyperlink/escape sequences (see visibleLength + harness contract)
+      .replace(/\x1B][^\x07\x1B]*(\x07|\x1B\\)/g, '')
+      // eslint-disable-next-line no-control-regex -- intentional: classic ESC/CSI sequences
+      .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '')
+  );
 }
 
 export function visibleLength(value: string): number {
@@ -176,4 +195,48 @@ export function padEndVisible(value: string, target: number): string {
 
 export function repeatVisible(char: string, count: number): string {
   return Array.from({ length: Math.max(0, count) }, () => char).join('');
+}
+
+function encodeControlCharacters(value: string): string {
+  let encoded = '';
+  for (let i = 0; i < value.length; i += 1) {
+    const char = value[i];
+    const code = char.charCodeAt(0);
+    encoded += code <= 0x1f || code === 0x7f ? encodeURIComponent(char) : char;
+  }
+  return encoded;
+}
+
+function plainLinkText(url: string, label?: string): string {
+  return encodeControlCharacters(label && label.length > 0 ? label : url);
+}
+
+/**
+ * Terminal hyperlink (OSC 8).
+ * Renders as a clickable link in modern terminals (iTerm2, VS Code, Windows Terminal,
+ * recent macOS Terminal, etc.). Gracefully degrades everywhere else: stripAnsi /
+ * visibleLength turn it into the plain label text.
+ *
+ * Safety: only emits OSC for well-formed http/https URLs. Anything else
+ * (placeholders like "<prompted>" or non-URLs) is returned as plain text, and
+ * label/text control characters are percent-encoded to avoid terminal escape
+ * injection. Callers should prefer `theme.link(...)` for capability awareness.
+ */
+export function hyperlink(url: string, label?: string): string {
+  const rawText = label && label.length > 0 ? label : url;
+  const safeText = encodeControlCharacters(rawText);
+
+  let safeUrl: string;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return safeText;
+    }
+    safeUrl = parsed.href;
+  } catch {
+    return safeText;
+  }
+
+  // OSC 8 ; ; <url> ST <text> OSC 8 ; ; ST
+  return `\x1b]8;;${safeUrl}\x1b\\${safeText}\x1b]8;;\x1b\\`;
 }

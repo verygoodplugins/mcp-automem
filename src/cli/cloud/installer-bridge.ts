@@ -10,6 +10,7 @@
 //     API); the create-page is the real, working flow.
 
 import { noteBox } from '../ui/messages.js';
+import { makeTheme } from '../ui/theme.js';
 import {
   cancelable,
   promptCaption,
@@ -41,6 +42,10 @@ import {
 // InstaPods AutoMem one-click setup: deploys the app and emails the URL + token.
 export const INSTAPODS_CREATE_URL =
   'https://app.instapods.com/dashboard/pods/create?app=automem&utm_source=automem_installer&ref=jack';
+
+function linkedUrl(url: string): string {
+  return makeTheme(process.stdout).link(url);
+}
 
 const REUSE_PREFIX = 'reuse:';
 
@@ -138,7 +143,7 @@ export async function provisionViaInstaPodsLink(
         'it deploys AutoMem and emails you your API URL + key.',
         'Paste them below once you have them.',
         '',
-        INSTAPODS_CREATE_URL,
+        linkedUrl(INSTAPODS_CREATE_URL),
       ])
     );
     log('  Waiting — the email can take a minute or two. Paste here when it arrives.');
@@ -323,7 +328,7 @@ async function railwayDeployOrPaste(params: {
         '',
         'Then paste them below.',
         '',
-        RAILWAY_DEPLOY_URL,
+        linkedUrl(RAILWAY_DEPLOY_URL),
       ])
     );
   }
@@ -408,7 +413,7 @@ export async function provisionViaRailway(
           "Then come back here — I'll link your railway CLI to the new project and",
           'read its URL + API token automatically.',
           '',
-          RAILWAY_DEPLOY_URL,
+          linkedUrl(RAILWAY_DEPLOY_URL),
         ])
       );
       if (!params.interactive) return;

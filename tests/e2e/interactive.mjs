@@ -56,7 +56,9 @@ try {
 }
 
 const ANSI = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-const strip = (s) => s.replace(ANSI, '');
+// Also strip OSC 8 hyperlinks (and other OSC) so expectations see clean label text.
+const OSC = /\x1B][^\x07\x1B]*(\x07|\x1B\\)/g;
+const strip = (s) => s.replace(OSC, '').replace(ANSI, '');
 const KEY = { enter: '\r', down: '\x1B[B', up: '\x1B[A', space: ' ' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

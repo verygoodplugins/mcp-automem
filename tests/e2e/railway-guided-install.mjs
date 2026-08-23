@@ -64,7 +64,8 @@ try {
 }
 
 const ANSI = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-const strip = (s) => s.replace(ANSI, '');
+const OSC = /\x1B][^\x07\x1B]*(\x07|\x1B\\)/g;
+const strip = (s) => s.replace(OSC, '').replace(ANSI, '');
 const KEY = { enter: '\r' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

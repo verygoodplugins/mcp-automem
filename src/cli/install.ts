@@ -435,14 +435,20 @@ export function formatInstallError(
   stream: NodeJS.WriteStream = process.stderr
 ): string {
   const theme = makeTheme(stream);
+  const linkUrls = (text: string): string =>
+    text.replace(/https?:\/\/[^\s]+/g, (url) => {
+      const trimmed = url.replace(/[.,;:!?)]+$/, '');
+      const trailing = url.slice(trimmed.length);
+      return trimmed.length > 0 ? `${theme.link(trimmed)}${trailing}` : url;
+    });
   let message = err instanceof Error ? err.message : String(err);
   message = message.replace(/^Command failed:.*$/m, '').trim() || 'AutoMem install failed.';
-  const lines = [`\n${theme.style.red(theme.symbol.cross)} ${theme.style.bold(message)}`];
+  const lines = [`\n${theme.style.red(theme.symbol.cross)} ${theme.style.bold(linkUrls(message))}`];
   if (err instanceof InstallError && err.hint) {
     // The hint is the recovery path — indent every line and keep it normal
     // weight (dim recovery text is illegible on light terminals).
     for (const hintLine of err.hint.split('\n')) {
-      lines.push(`  ${hintLine}`);
+      lines.push(`  ${linkUrls(hintLine)}`);
     }
   }
   return `${lines.join('\n')}\n`;
@@ -1353,7 +1359,9 @@ function renderActionDetail(
   const endpoint = (plan.endpoint ?? '<prompted>').replace(/\/$/, '');
   switch (action.kind) {
     case 'verify-endpoint':
-      return [detail(`${endpoint}/health${plan.apiKeyProvided ? '  + auth probe' : ''}`)];
+      return [
+        detail(`${theme.link(`${endpoint}/health`)}${plan.apiKeyProvided ? '  + auth probe' : ''}`),
+      ];
     case 'write-env':
       return [
         detail(
@@ -1431,7 +1439,12 @@ export function renderInstallPlan(
     );
     out.push(...renderActionDetail(action, plan, theme));
     for (const cmd of action.commands ?? []) {
-      out.push(`     ${theme.style.gold('$')} ${cmd}`);
+      const displayed = cmd.replace(/(https?:\/\/\S+)/g, (url) => {
+        const trimmed = url.replace(/[.,;:!?)]+$/, '');
+        const trailing = url.slice(trimmed.length);
+        return trimmed.length > 0 ? `${theme.link(trimmed)}${trailing}` : url;
+      });
+      out.push(`     ${theme.style.gold('$')} ${displayed}`);
     }
     // One dim path line per file — no per-file backup line (mentioned once below).
     for (const filePath of action.paths) {
@@ -1901,8 +1914,12 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         `  ${theme.style.gold(theme.symbol.check)} Local AutoMem server ready\n`
       );
 
-      const spin = startSpinner('Waiting for AutoMem to come online…');
-      const ready = await waitForAutoMemEndpoint({ endpoint });
+      const waiting = 'Waiting for AutoMem to come online…';
+      const spin = startSpinner(waiting);
+      const ready = await waitForAutoMemEndpoint({
+        endpoint,
+        onAttempt: (attempt, attempts) => spin.update(`${waiting} (${attempt}/${attempts})`),
+      });
       if (!ready.ok) {
         spin.error('AutoMem did not come online');
         throw new InstallError('AutoMem did not become healthy in time.', ready.message);
@@ -1933,9 +1950,9 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       // domain needs DNS). Budget ~5 min (150 × 2s) so we don't false-fail verify on a
       // still-booting deployment (the embedding-model download is the long pole).
       if (endpoint) {
-        const spin = startSpinner(
-          'Waiting for AutoMem to come online (a fresh deploy can take a few minutes)…'
-        );
+        const waiting =
+          'Waiting for AutoMem to come online (a fresh deploy can take a few minutes)…';
+        const spin = startSpinner(waiting);
         // stableChecks: a fresh deploy flickers during early boot (health up before the
         // auth'd recall blueprint registers / the container restarts once), so require a
         // few consecutive health+recall passes before declaring it ready.
@@ -1945,6 +1962,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           attempts: 150,
           intervalMs: 2000,
           stableChecks: 3,
+          onAttempt: (attempt, attempts) => spin.update(`${waiting} (${attempt}/${attempts})`),
         });
         if (ready.ok) {
           spin.stop('AutoMem is online');
@@ -2036,7 +2054,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
             `Technical detail: ${verify.message}`
         );
       }
-      list.done('verify', `Endpoint verified (${endpoint.replace(/\/$/, '')})`);
+      list.done('verify', `Endpoint verified (${theme.link(endpoint.replace(/\/$/, ''))})`);
 
       list.start('env');
       const envPath = path.join(environment.cwd, '.env');
@@ -2118,7 +2136,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       throw applyErr;
     }
 
-    const nextSteps: string[] = [`endpoint  ${endpoint}`];
+    const nextSteps: string[] = [`endpoint  ${theme.link(endpoint)}`];
     // The finish line earns its box only if it says what to do NOW: restart the
     // tools that were just wired, and a concrete way to see memory working.
     // Only surface the manual /plugin commands when the auto-install didn't run or
@@ -2147,7 +2165,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       );
       nextSteps.push('Try it: ask "what do you remember about me?"');
     }
-    nextSteps.push('Docs: https://automem.ai');
+    nextSteps.push(`Docs: ${theme.link('https://automem.ai')}`);
     if (claudePluginIsManual) {
       nextSteps.push('Claude Code plugin — run these inside Claude Code:');
       for (const cmd of CLAUDE_CODE_PLUGIN_COMMANDS) {

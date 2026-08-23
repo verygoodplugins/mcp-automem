@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Features
+
+* **installer:** clickable terminal hyperlinks on actionable URLs, plus live attempt counters on the local and cloud wait spinners.
+
 ### Bug Fixes
 
 * **recall:** show content previews in budgeted formats instead of replacing them with AutoMem summaries; keep relation stubs, metadata_keys, and the 18k-token budget. Empty content falls back to summary in the text channel.
