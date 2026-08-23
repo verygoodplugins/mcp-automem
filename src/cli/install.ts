@@ -1190,6 +1190,7 @@ export async function waitForAutoMemEndpoint(
       apiKey: options.apiKey,
       fetchFn: options.fetchFn,
       timeoutMs: options.timeoutMs,
+      requireHealthy: options.requireHealthy,
     });
     // Require `stableChecks` CONSECUTIVE successes so a fresh deploy that flickers
     // during early boot (health up, auth'd recall flapping) isn't declared ready on a
