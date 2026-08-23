@@ -88,7 +88,7 @@ export const tools: Tool[] = [
     title: 'Store Memory',
     description: `Store memory in one of two modes — single-memory (set top-level \`content\`) or batch (set \`memories: [...]\` for up to 500).
 
-**Mode 1 — Single (default):** pass top-level \`content\` plus any optional fields (tags, importance, metadata, type, confidence, embedding, t_valid, t_invalid, id, etc.).
+**Mode 1 — Single (default):** pass top-level \`content\` plus any optional fields (tags, importance, metadata, type, confidence, embedding, t_valid, t_invalid, etc.).
 
 **Mode 1b — Supersede/correct:** pass top-level \`content\` plus \`supersedes_memory_id\`. The server stores the replacement, marks the old memory invalid with \`t_invalid=now\`, merges supersede metadata, and associates old → new with \`INVALIDATED_BY\` (default) or \`EVOLVED_INTO\`.
 
@@ -185,11 +185,6 @@ export const tools: Tool[] = [
           maximum: 1,
           description:
             'Single-memory mode. Classification confidence (0-1, default 0.9 when type provided)',
-        },
-        id: {
-          type: 'string',
-          description:
-            'Single-memory mode only. Custom memory ID (auto-generated if omitted). Not supported in batch mode.',
         },
         t_valid: {
           type: 'string',

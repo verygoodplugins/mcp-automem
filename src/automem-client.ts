@@ -285,7 +285,6 @@ export class AutoMemClient {
       content: args.content,
       ...(args.type && { type: args.type }),
       ...(args.confidence !== undefined && { confidence: args.confidence }),
-      ...(args.id && { id: args.id }),
       tags: args.tags || [],
       importance: args.importance,
       embedding: args.embedding,
