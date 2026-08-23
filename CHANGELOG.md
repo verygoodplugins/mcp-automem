@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Bug Fixes
+
+* **recall:** show content previews in budgeted formats instead of replacing them with AutoMem summaries; keep relation stubs, metadata_keys, and the 18k-token budget. Empty content falls back to summary in the text channel.
+
 ## [0.15.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.14.0...mcp-automem-v0.15.0) (2026-06-26)
 
 
