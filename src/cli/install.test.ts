@@ -1101,6 +1101,30 @@ describe('guided install helpers', () => {
     if (!result.ok) expect(result.message).toContain('timed out');
   });
 
+  it('times out when /health headers return but the JSON body never arrives', async () => {
+    vi.useFakeTimers();
+    try {
+      const stalledBodyFetch = async () => ({
+        ok: true,
+        status: 200,
+        json: () => new Promise<never>(() => {}),
+      });
+
+      const resultPromise = verifyAutoMemEndpoint({
+        endpoint: 'https://stalled-body.example',
+        fetchFn: stalledBodyFetch,
+        timeoutMs: 20,
+      });
+
+      await vi.advanceTimersByTimeAsync(20);
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('timed out after 0.02s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('waits for a local endpoint to become healthy before continuing', async () => {
     let attempts = 0;
     const fetchFn = async () => {
@@ -1173,6 +1197,39 @@ describe('guided install helpers', () => {
       const result = await resultPromise;
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.message).toContain('timed out after 0.02s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waitForAutoMemEndpoint deadlineMs stops a hung /health before attempts * default timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const hangingFetch = (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise<never>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+
+      const resultPromise = waitForAutoMemEndpoint({
+        endpoint: 'https://stalled.example',
+        fetchFn: hangingFetch,
+        attempts: 60,
+        timeoutMs: 10_000,
+        intervalMs: 1_000,
+        deadlineMs: 50,
+      });
+
+      await vi.advanceTimersByTimeAsync(50);
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.message).toMatch(/after 1 attempts/);
+        expect(result.message).not.toMatch(/after 60 attempts/);
+      }
     } finally {
       vi.useRealTimers();
     }
@@ -1358,6 +1415,18 @@ describe('guided install helpers', () => {
     expect(hint).toContain('ValueError: boom');
     expect(hint).not.toContain('super-secret-token');
     expect(hint).toContain('Bearer ***');
+  });
+
+  it('localHealthRecoveryHint quotes localDir so a path with spaces pastes as one argument', () => {
+    const hint = localHealthRecoveryHint({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/tmp/AutoMem Server',
+      waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: fetch failed',
+      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      inspect: {},
+    });
+    expect(hint).toContain("cd '/tmp/AutoMem Server' && docker compose ps");
+    expect(hint).not.toContain('cd /tmp/AutoMem Server &&');
   });
 
   it('localHealthTimeoutError is a recovery-styled InstallError, not the raw wait string', () => {

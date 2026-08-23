@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 ### Bug Fixes
 
 * **installer:** choosing Local Docker no longer treats an inherited `AUTOMEM_API_URL` (for example from a project `.env`) as `--endpoint`.
-* **installer:** when the local stack starts but `/health` never answers, print a recovery block (likely causes, docker commands, retry line) instead of the raw wait error.
+* **installer:** when the local stack starts but `/health` never answers, print a recovery block (likely causes, docker commands, retry line) instead of the raw wait error. Cap the wait at 60s even if `/health` hangs, and quote `--local-dir` in those recovery commands.
 * **recall:** show content previews in budgeted formats instead of replacing them with AutoMem summaries; keep relation stubs, metadata_keys, and the 18k-token budget. Empty content falls back to summary in the text channel.
 
 ## [0.15.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.14.0...mcp-automem-v0.15.0) (2026-06-26)

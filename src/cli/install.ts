@@ -255,6 +255,12 @@ type VerifyEndpointOptions = {
 type WaitEndpointOptions = VerifyEndpointOptions & {
   attempts?: number;
   intervalMs?: number;
+  /**
+   * Wall-clock cap for the whole wait (ms). Hung `/health` probes otherwise
+   * each burn `timeoutMs` (default 10s) plus `intervalMs`, so `attempts: 60`
+   * can stretch to ~11 minutes instead of the intended minute.
+   */
+  deadlineMs?: number;
   // Called before each attempt — lets the caller surface retry progress.
   onAttempt?: (attempt: number, attempts: number) => void;
   /**
@@ -531,7 +537,7 @@ export function localHealthRecoveryHint(params: {
   retryCommand: string;
   inspect?: LocalHealthInspect;
 }): string {
-  const dir = tildify(params.localDir);
+  const dir = shellQuote(params.localDir);
   const inspect = params.inspect ?? inspectLocalHealth(params.localDir);
   const healthUrl = `${params.endpoint.replace(/\/$/, '')}/health`;
   const lines = [
@@ -1076,10 +1082,30 @@ export async function verifyAutoMemEndpoint(
     return { ok: false, message: 'fetch is not available in this Node runtime.' };
   }
 
-  // Bound every probe with an AbortController (same pattern as automem-client.ts)
-  // so a hung endpoint (bad DNS, stalled connect, dead proxy) fails fast instead
-  // of blocking the installer at the verify step.
+  // Bound the whole probe — headers AND body — with one AbortController. Clearing
+  // the timer when fetch() returns would let a 200 with a stalled JSON body hang
+  // past waitForAutoMemEndpoint's remaining-ms deadline.
   const timeoutMs = options.timeoutMs ?? 10_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const raceAbort = async <T>(promise: Promise<T>): Promise<T> => {
+    if (controller.signal.aborted) {
+      const err = new Error('aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+    return await new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        const err = new Error('aborted');
+        err.name = 'AbortError';
+        reject(err);
+      };
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+      promise.then(resolve, reject).finally(() => {
+        controller.signal.removeEventListener('abort', onAbort);
+      });
+    });
+  };
   const withTimeout = async (
     url: string,
     init?: { headers?: Record<string, string> }
@@ -1088,15 +1114,7 @@ export async function verifyAutoMemEndpoint(
     status: number;
     json?: () => Promise<unknown>;
     text?: () => Promise<string>;
-  }> => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await fetchFn(url, { ...init, signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
-    }
-  };
+  }> => fetchFn(url, { ...init, signal: controller.signal });
 
   try {
     const health = await withTimeout(`${endpoint}/health`);
@@ -1111,8 +1129,10 @@ export async function verifyAutoMemEndpoint(
     // reject non-JSON bodies and JSON without a status.
     let healthBody: unknown;
     try {
-      healthBody = typeof health.json === 'function' ? await health.json() : undefined;
-    } catch {
+      healthBody = typeof health.json === 'function' ? await raceAbort(health.json()) : undefined;
+    } catch (error) {
+      const err = error as Error;
+      if (err.name === 'AbortError') throw err;
       return {
         ok: false,
         message: `Health check returned HTTP ${health.status} but the body was not JSON — is ${endpoint} really an AutoMem endpoint?`,
@@ -1162,6 +1182,8 @@ export async function verifyAutoMemEndpoint(
     const err = error as Error;
     const reason = err.name === 'AbortError' ? `timed out after ${timeoutMs / 1000}s` : err.message;
     return { ok: false, message: `Could not reach AutoMem endpoint ${endpoint}: ${reason}` };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -1177,19 +1199,30 @@ export async function waitForAutoMemEndpoint(
   const attempts = options.attempts ?? 30;
   const intervalMs = options.intervalMs ?? 1000;
   const stableChecks = Math.max(1, options.stableChecks ?? 1);
+  const deadlineAt = options.deadlineMs === undefined ? undefined : Date.now() + options.deadlineMs;
+  const defaultProbeTimeoutMs = options.timeoutMs ?? 10_000;
   let last: { ok: true } | { ok: false; message: string } = {
     ok: false,
     message: 'AutoMem endpoint was not checked.',
   };
   let streak = 0;
+  let attempted = 0;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const remainingMs = deadlineAt === undefined ? undefined : deadlineAt - Date.now();
+    if (remainingMs !== undefined && remainingMs <= 0) {
+      break;
+    }
+    attempted = attempt;
     options.onAttempt?.(attempt, attempts);
     last = await verifyAutoMemEndpoint({
       endpoint: options.endpoint,
       apiKey: options.apiKey,
       fetchFn: options.fetchFn,
-      timeoutMs: options.timeoutMs,
+      timeoutMs:
+        remainingMs === undefined
+          ? options.timeoutMs
+          : Math.max(1, Math.min(defaultProbeTimeoutMs, remainingMs)),
       requireHealthy: options.requireHealthy,
     });
     // Require `stableChecks` CONSECUTIVE successes so a fresh deploy that flickers
@@ -1200,7 +1233,14 @@ export async function waitForAutoMemEndpoint(
       return last;
     }
     if (attempt < attempts) {
-      await sleep(intervalMs);
+      const sleepFor =
+        deadlineAt === undefined
+          ? intervalMs
+          : Math.min(intervalMs, Math.max(0, deadlineAt - Date.now()));
+      if (sleepFor <= 0) {
+        break;
+      }
+      await sleep(sleepFor);
     }
   }
 
@@ -1211,7 +1251,7 @@ export async function waitForAutoMemEndpoint(
     : last.message;
   return {
     ok: false,
-    message: `AutoMem endpoint did not become healthy after ${attempts} attempts: ${detail}`,
+    message: `AutoMem endpoint did not become healthy after ${attempted || attempts} attempts: ${detail}`,
   };
 }
 
@@ -2103,6 +2143,8 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       const ready = await waitForAutoMemEndpoint({
         endpoint,
         attempts: 60,
+        timeoutMs: 2_000,
+        deadlineMs: 60_000,
         requireHealthy: true,
         onAttempt: (attempt, attempts) => spin.update(`${waiting} (${attempt}/${attempts})`),
       });
