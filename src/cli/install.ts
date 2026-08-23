@@ -1353,7 +1353,9 @@ function renderActionDetail(
   const endpoint = (plan.endpoint ?? '<prompted>').replace(/\/$/, '');
   switch (action.kind) {
     case 'verify-endpoint':
-      return [detail(`${endpoint}/health${plan.apiKeyProvided ? '  + auth probe' : ''}`)];
+      return [
+        detail(`${theme.link(`${endpoint}/health`)}${plan.apiKeyProvided ? '  + auth probe' : ''}`),
+      ];
     case 'write-env':
       return [
         detail(
@@ -1431,7 +1433,8 @@ export function renderInstallPlan(
     );
     out.push(...renderActionDetail(action, plan, theme));
     for (const cmd of action.commands ?? []) {
-      out.push(`     ${theme.style.gold('$')} ${cmd}`);
+      const displayed = cmd.replace(/(https?:\/\/\S+)/g, (url) => theme.link(url));
+      out.push(`     ${theme.style.gold('$')} ${displayed}`);
     }
     // One dim path line per file — no per-file backup line (mentioned once below).
     for (const filePath of action.paths) {
@@ -1536,7 +1539,7 @@ async function resolveInteractiveOptions(
     if (!environment.prerequisites.docker) {
       throw new InstallError(
         "AutoMem's local option needs Docker on this machine.",
-        `Get Docker Desktop (free): https://www.docker.com/products/docker-desktop\n` +
+        `Get Docker Desktop (free): ${makeTheme(process.stderr).link('https://www.docker.com/products/docker-desktop')}\n` +
           `Install it, open it once so it's running, then re-run this installer.\n` +
           `Or pick Hosted Cloud — no Docker needed.`
       );
@@ -1901,8 +1904,12 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         `  ${theme.style.gold(theme.symbol.check)} Local AutoMem server ready\n`
       );
 
-      const spin = startSpinner('Waiting for AutoMem to come online…');
-      const ready = await waitForAutoMemEndpoint({ endpoint });
+      const waiting = 'Waiting for AutoMem to come online…';
+      const spin = startSpinner(waiting);
+      const ready = await waitForAutoMemEndpoint({
+        endpoint,
+        onAttempt: (attempt, attempts) => spin.update(`${waiting} (${attempt}/${attempts})`),
+      });
       if (!ready.ok) {
         spin.error('AutoMem did not come online');
         throw new InstallError('AutoMem did not become healthy in time.', ready.message);
@@ -1933,9 +1940,9 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       // domain needs DNS). Budget ~5 min (150 × 2s) so we don't false-fail verify on a
       // still-booting deployment (the embedding-model download is the long pole).
       if (endpoint) {
-        const spin = startSpinner(
-          'Waiting for AutoMem to come online (a fresh deploy can take a few minutes)…'
-        );
+        const waiting =
+          'Waiting for AutoMem to come online (a fresh deploy can take a few minutes)…';
+        const spin = startSpinner(waiting);
         // stableChecks: a fresh deploy flickers during early boot (health up before the
         // auth'd recall blueprint registers / the container restarts once), so require a
         // few consecutive health+recall passes before declaring it ready.
@@ -1945,13 +1952,14 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           attempts: 150,
           intervalMs: 2000,
           stableChecks: 3,
+          onAttempt: (attempt, attempts) => spin.update(`${waiting} (${attempt}/${attempts})`),
         });
         if (ready.ok) {
           spin.stop('AutoMem is online');
         } else {
           spin.error('AutoMem is not responding yet');
           throw new InstallError(
-            `AutoMem deployed, but ${endpoint} isn't responding yet.`,
+            `AutoMem deployed, but ${theme.link(endpoint)} isn't responding yet.`,
             `A multi-service deploy can take a few minutes. Check the provider's logs (e.g. \`railway logs\`), then finish with:\n  npx @verygoodplugins/mcp-automem install --target existing --endpoint ${endpoint}${apiKey ? ' --api-key YOUR_KEY_HERE' : ''}`
           );
         }
@@ -2036,7 +2044,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
             `Technical detail: ${verify.message}`
         );
       }
-      list.done('verify', `Endpoint verified (${endpoint.replace(/\/$/, '')})`);
+      list.done('verify', `Endpoint verified (${theme.link(endpoint.replace(/\/$/, ''))})`);
 
       list.start('env');
       const envPath = path.join(environment.cwd, '.env');
@@ -2118,7 +2126,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       throw applyErr;
     }
 
-    const nextSteps: string[] = [`endpoint  ${endpoint}`];
+    const nextSteps: string[] = [`endpoint  ${theme.link(endpoint)}`];
     // The finish line earns its box only if it says what to do NOW: restart the
     // tools that were just wired, and a concrete way to see memory working.
     // Only surface the manual /plugin commands when the auto-install didn't run or
@@ -2147,7 +2155,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       );
       nextSteps.push('Try it: ask "what do you remember about me?"');
     }
-    nextSteps.push('Docs: https://automem.ai');
+    nextSteps.push(`Docs: ${theme.link('https://automem.ai')}`);
     if (claudePluginIsManual) {
       nextSteps.push('Claude Code plugin — run these inside Claude Code:');
       for (const cmd of CLAUDE_CODE_PLUGIN_COMMANDS) {

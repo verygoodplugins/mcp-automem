@@ -1092,6 +1092,29 @@ describe('guided install helpers', () => {
     expect(attempts).toBe(3);
   });
 
+  it('waitForAutoMemEndpoint reports each attempt to onAttempt', async () => {
+    const seen: Array<[number, number]> = [];
+    const fetchFn = async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ status: 'unhealthy' }),
+    });
+
+    await waitForAutoMemEndpoint({
+      endpoint: 'http://127.0.0.1:8001',
+      fetchFn,
+      attempts: 3,
+      intervalMs: 1,
+      onAttempt: (attempt, attempts) => seen.push([attempt, attempts]),
+    });
+
+    expect(seen).toEqual([
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
+  });
+
   it('passes a custom timeout through every wait probe', async () => {
     vi.useFakeTimers();
     try {
