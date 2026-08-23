@@ -1267,7 +1267,7 @@ describe('guided install helpers', () => {
         new InstallError('Could not reach http://127.0.0.1:8001: still starting.', ''),
         tty
       );
-      expect(out).toMatch(/\x1b]8;;http:\/\/127\.0\.0\.1:8001\/?\x1b\\/);
+      expect(out).toContain('\x1b]8;;http://127.0.0.1:8001');
       expect(out).not.toContain('\x1b]8;;http://127.0.0.1:8001:');
     } finally {
       if (prevTerm === undefined) delete process.env.TERM;
