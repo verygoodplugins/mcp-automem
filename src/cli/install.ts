@@ -162,6 +162,10 @@ export type ParsedInstallOptions = {
   dryRun: boolean;
   yes: boolean;
   noAgentInstall: boolean;
+  /** True only when `--endpoint` was on the argv — not when the URL came from env. */
+  endpointFromFlag: boolean;
+  /** True only when `--api-key` was on the argv — not when the key came from env. */
+  apiKeyFromFlag: boolean;
 };
 
 export type ResolvedInstallOptions = ParsedInstallOptions & {
@@ -239,6 +243,13 @@ type VerifyEndpointOptions = {
   }>;
   /** Per-request network timeout (ms). Default 10000. */
   timeoutMs?: number;
+  /**
+   * Local Docker install waits until AutoMem is actually healthy. `/health` can
+   * return 200 with `status: "degraded"` while FalkorDB/Qdrant are disconnected —
+   * that is not ready enough to wire agents. Existing/cloud verify still accepts
+   * any AutoMem status string (the original identity check).
+   */
+  requireHealthy?: boolean;
 };
 
 type WaitEndpointOptions = VerifyEndpointOptions & {
@@ -446,12 +457,143 @@ export function formatInstallError(
   const lines = [`\n${theme.style.red(theme.symbol.cross)} ${theme.style.bold(linkUrls(message))}`];
   if (err instanceof InstallError && err.hint) {
     // The hint is the recovery path — indent every line and keep it normal
-    // weight (dim recovery text is illegible on light terminals).
+    // weight (dim recovery text is illegible on light terminals). Multi-line
+    // recovery blocks get a blank line so the steps don't crowd the headline.
+    if (err.hint.includes('\n')) lines.push('');
     for (const hintLine of err.hint.split('\n')) {
       lines.push(`  ${linkUrls(hintLine)}`);
     }
   }
   return `${lines.join('\n')}\n`;
+}
+
+export type LocalHealthInspect = {
+  composePs?: string;
+  apiLogs?: string;
+};
+
+function redactLogSnippet(text: string): string {
+  return text
+    .replace(/Bearer\s+\S+/gi, 'Bearer ***')
+    .replace(/\b([A-Z][A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD))\s*=\s*\S+/gi, '$1=***');
+}
+
+function runDockerCompose(localDir: string, args: string[], timeoutMs = 8_000): string | undefined {
+  const result = spawnSync('docker', ['compose', ...args], {
+    cwd: localDir,
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const output = `${result.stdout ?? ''}${result.status === 0 ? '' : (result.stderr ?? '')}`.trim();
+  if (!output) return undefined;
+  return output;
+}
+
+// Best-effort snapshot of the local stack after a health timeout. Never throws —
+// a hung docker CLI must not replace the recovery hint with a second crash.
+export function inspectLocalHealth(localDir: string): LocalHealthInspect {
+  if (!fs.existsSync(localDir)) return {};
+  try {
+    return {
+      composePs: runDockerCompose(localDir, ['ps', '-a']),
+      apiLogs: runDockerCompose(localDir, ['logs', '--no-color', '--tail', '12', 'flask-api']),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function explainLocalHealthFailure(waitMessage: string): string {
+  const lower = waitMessage.toLowerCase();
+  if (/econnrefused|fetch failed|could not reach|enotfound/.test(lower)) {
+    return 'Nothing accepted the connection. The API container is usually still booting, crashed, or something else is bound to port 8001.';
+  }
+  if (/timed out|timeout|aborted/.test(lower)) {
+    return 'The health check timed out. First boot after a rebuild can take a couple of minutes while Python and models load.';
+  }
+  if (/degraded|falkordb|qdrant/.test(lower)) {
+    return 'The API is up, but FalkorDB or Qdrant is not connected. After a rebuild, leftover containers can sit on the wrong Docker network.';
+  }
+  if (/http \d+/.test(lower)) {
+    return `The port answered, but /health failed: ${waitMessage}`;
+  }
+  if (/not json|status field/.test(lower)) {
+    return `Something is listening on that port, but it does not look like AutoMem. ${waitMessage}`;
+  }
+  return waitMessage;
+}
+
+export function localHealthRecoveryHint(params: {
+  endpoint: string;
+  localDir: string;
+  waitMessage: string;
+  retryCommand: string;
+  inspect?: LocalHealthInspect;
+}): string {
+  const dir = tildify(params.localDir);
+  const inspect = params.inspect ?? inspectLocalHealth(params.localDir);
+  const healthUrl = `${params.endpoint.replace(/\/$/, '')}/health`;
+  const lines = [
+    `Docker Compose started the containers, then we waited for GET ${healthUrl}.`,
+    explainLocalHealthFailure(params.waitMessage),
+    '',
+    'What to try:',
+    '1. Confirm Docker Desktop is running (whale icon in the menu bar).',
+    '2. Check containers:',
+    `     cd ${dir} && docker compose ps`,
+    '3. If flask-api is Exited or Restarting, read the crash:',
+    `     cd ${dir} && docker compose logs flask-api --tail 80`,
+    '4. If port 8001 is taken by something else:',
+    '     docker ps    # or: lsof -iTCP:8001 -sTCP:LISTEN',
+    '     Stop that process, then re-run.',
+    '5. First start after a rebuild can take a couple of minutes. Watch logs, wait until /health works, then:',
+    `     ${params.retryCommand}`,
+  ];
+  const inspectBlob =
+    `${params.waitMessage}\n${inspect.composePs ?? ''}\n${inspect.apiLogs ?? ''}`.toLowerCase();
+  if (
+    /falkordb|qdrant/.test(inspectBlob) &&
+    /disconnected|name or service not known|connection refused|connectionerror|degraded/.test(
+      inspectBlob
+    )
+  ) {
+    lines.push(
+      '6. If the API is up but FalkorDB/Qdrant show disconnected, recreate the whole stack (old containers can sit on the wrong Docker network):',
+      `     cd ${dir} && docker compose down && docker compose up -d --build`
+    );
+  }
+  lines.push('', 'Or skip Docker and pick Hosted Cloud on the next run.');
+  if (inspect.composePs) {
+    lines.push('', 'Containers right now:');
+    for (const row of inspect.composePs.split('\n').slice(0, 8)) {
+      lines.push(`  ${row}`);
+    }
+  }
+  if (inspect.apiLogs) {
+    lines.push('', 'Recent flask-api logs:');
+    for (const row of redactLogSnippet(inspect.apiLogs).split('\n').slice(-8)) {
+      lines.push(`  ${row}`);
+    }
+  }
+  const logFile = path.join(params.localDir, 'install.log');
+  if (fs.existsSync(logFile)) {
+    lines.push('', `Full compose log: ${tildify(logFile)}`);
+  }
+  return lines.join('\n');
+}
+
+export function localHealthTimeoutError(params: {
+  endpoint: string;
+  localDir: string;
+  waitMessage: string;
+  retryCommand: string;
+  inspect?: LocalHealthInspect;
+}): InstallError {
+  return new InstallError(
+    `The local server started, but AutoMem never answered at ${params.endpoint.replace(/\/$/, '')}.`,
+    localHealthRecoveryHint(params)
+  );
 }
 
 function parseBooleanEnv(value: string | undefined): boolean {
@@ -516,8 +658,9 @@ export function parseInstallArgs(
   const envApiKey = env.AUTOMEM_API_KEY || env.AUTOMEM_API_TOKEN;
   let endpoint = envEndpoint;
   let apiKey = envApiKey;
-  // Whether the key came from --api-key rather than the environment. An explicit flag
-  // is the operator naming the credential for this run; an inherited one is not.
+  // Whether the URL/key came from argv rather than the environment. An explicit
+  // flag is the operator naming the value for this run; an inherited one is not.
+  let endpointFromFlag = false;
   let apiKeyFromFlag = false;
   let localDir = env.AUTOMEM_LOCAL_DIR;
   let hermesMode = parseHermesMode(env.AUTOMEM_HERMES_MODE);
@@ -547,6 +690,7 @@ export function parseInstallArgs(
         break;
       case '--endpoint':
         endpoint = assertValue(args, i, arg);
+        endpointFromFlag = true;
         i += 1;
         break;
       case '--api-key':
@@ -607,6 +751,8 @@ export function parseInstallArgs(
     dryRun,
     yes,
     noAgentInstall,
+    endpointFromFlag,
+    apiKeyFromFlag,
   };
 }
 
@@ -724,18 +870,38 @@ function displayKey(apiKey: string | undefined): string | undefined {
   return apiKey ? REDACTED : undefined;
 }
 
+// Local Docker always binds DEFAULT_AUTOMEM_API_URL. An inherited AUTOMEM_API_URL
+// from a project .env is not `--endpoint` — treating it as such aborted the
+// interactive Local Docker path. Pin unless the operator passed `--endpoint`.
+// A key inherited alongside a foreign URL is paired to that URL, so drop it
+// unless `--api-key` named a credential for this run.
+export function pinLocalInstallOptions(options: ResolvedInstallOptions): ResolvedInstallOptions {
+  if (options.target !== 'local') return options;
+  if (options.endpointFromFlag) return options;
+  const foreign =
+    Boolean(options.endpoint) && !sameEndpoint(options.endpoint, DEFAULT_AUTOMEM_API_URL);
+  return {
+    ...options,
+    endpoint: DEFAULT_AUTOMEM_API_URL,
+    apiKey: foreign && !options.apiKeyFromFlag ? undefined : options.apiKey,
+  };
+}
+
 export function buildInstallPlan(params: {
   options: ResolvedInstallOptions;
   environment: InstallEnvironment;
 }): InstallPlan {
-  const { options, environment } = params;
+  const options = pinLocalInstallOptions(params.options);
+  const { environment } = params;
   const localDir = options.localDir ?? defaultLocalDir(environment.homeDir);
   // The local server always binds DEFAULT_AUTOMEM_API_URL (docker compose). A custom
   // --endpoint with --target local would be shown in the approved plan but silently
   // discarded at write time, so reject the contradiction up front rather than
-  // persisting a different endpoint than the user approved.
+  // persisting a different endpoint than the user approved. Inherited env URLs are
+  // pinned above — only an explicit `--endpoint` flag is this contradiction.
   if (
     options.target === 'local' &&
+    options.endpointFromFlag &&
     options.endpoint &&
     options.endpoint.replace(/\/$/, '') !== DEFAULT_AUTOMEM_API_URL.replace(/\/$/, '')
   ) {
@@ -952,11 +1118,28 @@ export async function verifyAutoMemEndpoint(
         message: `Health check returned HTTP ${health.status} but the body was not JSON — is ${endpoint} really an AutoMem endpoint?`,
       };
     }
-    const status = (healthBody as { status?: unknown } | null | undefined)?.status;
+    const healthPayload = healthBody as {
+      status?: unknown;
+      falkordb?: unknown;
+      qdrant?: unknown;
+    } | null;
+    const status = healthPayload?.status;
     if (typeof status !== 'string') {
       return {
         ok: false,
         message: `Health check returned HTTP ${health.status} without an AutoMem status field — is ${endpoint} really an AutoMem endpoint?`,
+      };
+    }
+    if (options.requireHealthy && status !== 'healthy') {
+      const stores = [
+        typeof healthPayload?.falkordb === 'string' ? `FalkorDB ${healthPayload.falkordb}` : '',
+        typeof healthPayload?.qdrant === 'string' ? `Qdrant ${healthPayload.qdrant}` : '',
+      ].filter(Boolean);
+      return {
+        ok: false,
+        message: stores.length
+          ? `AutoMem is ${status} (${stores.join(', ')}).`
+          : `AutoMem is ${status}, not healthy yet.`,
       };
     }
 
@@ -1816,11 +1999,11 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
   }
 
   if (shouldUseNonInteractivePreview({ interactive, yes: parsed.yes, dryRun: parsed.dryRun })) {
-    const fallback: ResolvedInstallOptions = {
+    const fallback: ResolvedInstallOptions = pinLocalInstallOptions({
       ...parsed,
       target: parsed.target ?? 'existing',
       dryRun: true,
-    };
+    });
     const plan = buildInstallPlan({ options: fallback, environment });
     process.stdout.write(`\n${renderInstallPlan(plan)}\n`);
     writeStatus('No TTY detected. Re-run with --yes (or AUTOMEM_YES=1) to apply automatically.');
@@ -1837,15 +2020,17 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         `  ${theme.style.dim('About 2 minutes. Nothing is written until you approve the plan at the end.')}\n`
       );
     }
-    const resolved = interactive
-      ? await resolveInteractiveOptions(
-          parsed,
-          environment,
-          clientsExplicit,
-          hermesModeExplicit,
-          claudeCodeModeExplicit
-        )
-      : ({ ...parsed, target: parsed.target ?? 'existing' } as ResolvedInstallOptions);
+    const resolved = pinLocalInstallOptions(
+      interactive
+        ? await resolveInteractiveOptions(
+            parsed,
+            environment,
+            clientsExplicit,
+            hermesModeExplicit,
+            claudeCodeModeExplicit
+          )
+        : ({ ...parsed, target: parsed.target ?? 'existing' } as ResolvedInstallOptions)
+    );
     const missingPrerequisites = validateInstallPrerequisites(resolved, environment);
     if (!resolved.dryRun && missingPrerequisites.length > 0) {
       throw new InstallError(
@@ -1910,19 +2095,29 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       const local = await prepareLocalServer({ localDir: plan.localDir, apiKey, dryRun: false });
       endpoint = local.endpoint;
       apiKey = local.apiKey;
-      process.stdout.write(
-        `  ${theme.style.gold(theme.symbol.check)} Local AutoMem server ready\n`
-      );
+      process.stdout.write(`  ${theme.style.gold(theme.symbol.check)} Local containers started\n`);
 
-      const waiting = 'Waiting for AutoMem to come online…';
+      const waiting = 'Waiting for AutoMem to come online (first start can take a minute)…';
       const spin = startSpinner(waiting);
       const ready = await waitForAutoMemEndpoint({
         endpoint,
+        attempts: 60,
+        requireHealthy: true,
         onAttempt: (attempt, attempts) => spin.update(`${waiting} (${attempt}/${attempts})`),
       });
       if (!ready.ok) {
         spin.error('AutoMem did not come online');
-        throw new InstallError('AutoMem did not become healthy in time.', ready.message);
+        throw localHealthTimeoutError({
+          endpoint,
+          localDir: plan.localDir,
+          waitMessage: ready.message,
+          retryCommand: equivalentInstallCommand({
+            ...resolved,
+            localDir: plan.localDir,
+            yes: true,
+            apiKeyProvided: localRetryHasExplicitApiKey(resolved.apiKey),
+          }),
+        });
       }
       spin.stop('AutoMem is online');
     }
