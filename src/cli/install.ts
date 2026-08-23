@@ -37,6 +37,7 @@ import {
   promptSelect,
   promptPassword,
   promptText,
+  promptCaption,
 } from './ui/prompts.js';
 
 // Claude Code is plugin-first: the marketplace plugin bundles the MCP server +
@@ -209,6 +210,9 @@ export type InstallPlan = {
   // A preview renders the same stages and the same file paths as a real run, so
   // the renderer needs to know which one this is to label them honestly.
   dryRun: boolean;
+  // Deliberate --no-agent-install runs must not get the accidental-zero-agent
+  // warning in the review.
+  noAgentInstall: boolean;
   actions: InstallAction[];
 };
 
@@ -240,6 +244,8 @@ type VerifyEndpointOptions = {
 type WaitEndpointOptions = VerifyEndpointOptions & {
   attempts?: number;
   intervalMs?: number;
+  // Called before each attempt — lets the caller surface retry progress.
+  onAttempt?: (attempt: number, attempts: number) => void;
   /**
    * Require this many CONSECUTIVE successful verifies before declaring ready
    * (default 1). A freshly deployed service can flicker during early boot — health
@@ -253,7 +259,7 @@ type WaitEndpointOptions = VerifyEndpointOptions & {
 type CommandRunner = (
   command: string,
   args: string[],
-  options?: { cwd?: string; env?: NodeJS.ProcessEnv }
+  options?: { cwd?: string; env?: NodeJS.ProcessEnv; logFile?: string }
 ) => void;
 
 const AUTOMEM_REPO = 'https://github.com/verygoodplugins/automem';
@@ -282,6 +288,27 @@ function tildify(filePath: string, homeDir: string = os.homedir()): string {
     return `~${filePath.slice(homeDir.length)}`;
   }
   return filePath;
+}
+
+// Discard any keystrokes sitting in the terminal buffer. Used right before the
+// apply confirm: keys pressed during the typed plan reveal (impatient Enters
+// included) would otherwise be delivered to the prompt the moment it opens.
+// Best-effort and brief — resumes stdin in raw mode for a beat, swallowing
+// whatever arrives, then restores the paused state inquirer expects.
+async function drainBufferedStdin(windowMs = 50): Promise<void> {
+  const stdin = process.stdin;
+  if (!stdin.isTTY) return;
+  const swallow = () => {};
+  try {
+    stdin.setRawMode?.(true);
+    stdin.on('data', swallow);
+    stdin.resume();
+    await new Promise((resolve) => setTimeout(resolve, windowMs));
+  } finally {
+    stdin.pause();
+    stdin.off('data', swallow);
+    stdin.setRawMode?.(false);
+  }
 }
 
 // A single themed status line (the rich plan is written directly, not boxed, so
@@ -323,9 +350,81 @@ export function dryRunApplyHint(params: {
         : fromFlag
           ? 'drop --dry-run'
           : 'turn off dry-run mode';
-  return params.interactive
-    ? `To apply, ${disable} and re-run.`
-    : `To apply, ${disable}, then re-run with --yes.`;
+  if (!params.interactive) return `To apply, ${disable}, then re-run with --yes.`;
+  // TTY wording is for a human at a keyboard, not a script: say "preview" and
+  // "install for real" instead of flag-native verbs like "drop".
+  if (fromFlag && fromEnv)
+    return 'To install for real, remove --dry-run, set AUTOMEM_DRY_RUN=0, and run it again.';
+  if (fromEnv)
+    return 'To install for real, set AUTOMEM_DRY_RUN=0 (it is on in your shell or .env) and run it again.';
+  return 'To install for real, run the same command without --dry-run.';
+}
+
+// Single-quote a value for the reconstructed command when it contains anything
+// a shell would interpret (spaces, &, ?, …) — an unquoted "/AutoMem Server"
+// splits into two arguments on paste. Plain values stay bare for readability.
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+// Whether a LOCAL retry command should offer --api-key. prepareLocalServer
+// reuses-or-generates a token and persists it to localDir/.env BEFORE verify
+// runs, so pasting a placeholder key on retry would overwrite that persisted
+// real token with the literal string, rotating auth to a known value. Only
+// an EXPLICIT user-supplied key (--api-key / typed at the prompt) is safe to
+// echo — a generated one must stay out of the command entirely so the next
+// run's prepareLocalServer call reuses what's already on disk. Scoped to
+// local on purpose: cloud/existing retry commands reflect a different
+// question (does a live key exist right now, computed at the call site) and
+// must not be answered by this function. Named + exported so the decision is
+// unit-testable, not buried inside runGuidedInstall.
+export function localRetryHasExplicitApiKey(explicitApiKey: string | undefined): boolean {
+  return Boolean(explicitApiKey);
+}
+
+// Reconstruct the non-interactive command equivalent to a set of resolved wizard
+// answers. Shown when a run stops without applying (declined confirm, failed
+// verify) so the user's prompt answers survive as something they can paste. The
+// API key is always the literal placeholder <your key> — never the value.
+export function equivalentInstallCommand(options: {
+  target: InstallTarget;
+  endpoint?: string;
+  cloudProvider?: CloudProviderId;
+  clients: AgentClient[];
+  claudeCodeMode?: ClaudeCodeMode;
+  hermesMode?: HermesInstallMode;
+  localDir?: string;
+  noAgentInstall?: boolean;
+  yes?: boolean;
+  apiKeyProvided: boolean;
+}): string {
+  const parts = ['npx @verygoodplugins/mcp-automem install', `--target ${options.target}`];
+  // --endpoint is rejected with --target local (the local server always binds the
+  // compose default), so never reconstruct one there.
+  if (options.endpoint && options.target !== 'local')
+    parts.push(`--endpoint ${shellQuote(options.endpoint)}`);
+  if (options.target === 'cloud' && options.cloudProvider)
+    parts.push(`--cloud-provider ${options.cloudProvider}`);
+  // YOUR_KEY_HERE (no shell metacharacters): '<your key>' would be parsed as
+  // redirections when pasted, silently creating a file named 'key'.
+  if (options.apiKeyProvided) parts.push('--api-key YOUR_KEY_HERE');
+  if (options.target === 'local' && options.localDir)
+    parts.push(`--local-dir ${shellQuote(options.localDir)}`);
+  // clients [] with noAgentInstall unset is a CONFIRMED zero-tool selection
+  // (the wizard's guard asked). Emitting neither flag would reopen the wizard —
+  // or restore the headless default set — on re-run, so both map to the same
+  // explicit flag.
+  if (options.noAgentInstall || options.clients.length === 0) parts.push('--no-agent-install');
+  else parts.push(`--clients ${options.clients.join(',')}`);
+  if (!options.noAgentInstall && options.clients.includes('claude-code') && options.claudeCodeMode)
+    parts.push(`--claude-code-mode ${options.claudeCodeMode}`);
+  if (!options.noAgentInstall && options.clients.includes('hermes') && options.hermesMode)
+    parts.push(`--hermes-mode ${options.hermesMode}`);
+  // A headless run needed --yes to get past shouldUseNonInteractivePreview;
+  // a retry command without it would only print a preview in the same shell.
+  if (options.yes) parts.push('--yes');
+  return parts.join(' ');
 }
 
 // Render a failure as a clean themed block — never a raw Error/stack. The message
@@ -340,7 +439,11 @@ export function formatInstallError(
   message = message.replace(/^Command failed:.*$/m, '').trim() || 'AutoMem install failed.';
   const lines = [`\n${theme.style.red(theme.symbol.cross)} ${theme.style.bold(message)}`];
   if (err instanceof InstallError && err.hint) {
-    lines.push(`  ${theme.style.dim(err.hint)}`);
+    // The hint is the recovery path — indent every line and keep it normal
+    // weight (dim recovery text is illegible on light terminals).
+    for (const hintLine of err.hint.split('\n')) {
+      lines.push(`  ${hintLine}`);
+    }
   }
   return `${lines.join('\n')}\n`;
 }
@@ -742,6 +845,7 @@ export function buildInstallPlan(params: {
       (action) => action.paths.length > 0 || action.kind === 'prepare-local'
     ),
     dryRun: options.dryRun,
+    noAgentInstall: Boolean(options.noAgentInstall),
     actions,
   };
 }
@@ -891,6 +995,7 @@ export async function waitForAutoMemEndpoint(
   let streak = 0;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    options.onAttempt?.(attempt, attempts);
     last = await verifyAutoMemEndpoint({
       endpoint: options.endpoint,
       apiKey: options.apiKey,
@@ -1014,11 +1119,40 @@ function readEnvFileValue(filePath: string, key: string): string | undefined {
   return value ? value : undefined;
 }
 
+// `docker --version` succeeds with the daemon stopped (Docker Desktop quit but
+// CLI on PATH), so the presence check alone can't catch the most common local
+// failure. `docker info` needs the daemon. Only called when Local Docker was
+// actually chosen, so the extra ~seconds never tax other targets.
+function dockerDaemonRunning(): boolean {
+  const result = spawnSync('docker', ['info'], { stdio: 'ignore', timeout: 15000 });
+  return result.status === 0;
+}
+
 function defaultRunCommand(
   command: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; logFile?: string } = {}
 ): void {
+  // With logFile set, the child's output is contained there instead of flooding
+  // the wizard (docker compose builds print hundreds of lines). Failures still
+  // throw; the caller decides how much of the log to surface.
+  if (options.logFile) {
+    const fd = fs.openSync(options.logFile, 'a');
+    try {
+      const result = spawnSync(command, args, {
+        cwd: options.cwd,
+        env: options.env ?? process.env,
+        stdio: ['ignore', fd, fd],
+      });
+      if (result.error) throw result.error;
+      if (result.status !== 0) {
+        throw new Error(`${command} exited with code ${result.status ?? 'unknown'}`);
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+    return;
+  }
   execFileSync(command, args, {
     cwd: options.cwd,
     env: options.env ?? process.env,
@@ -1079,20 +1213,45 @@ export async function prepareLocalServer(params: {
     },
     false
   );
+  const composeLog = path.join(params.localDir, 'install.log');
   try {
     runCommand('docker', ['compose', '--env-file', '.env', 'up', '-d', '--build'], {
       cwd: params.localDir,
       env: { ...process.env, AUTOMEM_API_TOKEN: apiKey, ADMIN_API_TOKEN: adminToken },
+      logFile: composeLog,
     });
   } catch {
+    // Surface only the tail — the full compose transcript lives in the log.
+    let tail = '';
+    try {
+      const logLines = fs.readFileSync(composeLog, 'utf8').trimEnd().split('\n');
+      tail = logLines.slice(-15).join('\n');
+    } catch {
+      /* no log — docker may have failed to launch at all */
+    }
     throw new InstallError(
       "Local AutoMem server didn't start (docker compose).",
-      'Most often a port is already in use — FalkorDB :3000, Qdrant :6333, or the API :8001. ' +
-        'Stop the conflicting container (`docker ps`) or free the port, then re-run. Docker output is above.'
+      `Is Docker Desktop running? Open it, then re-run this installer.\n` +
+        `Also common: a port already in use — FalkorDB :3000, Qdrant :6333, or the API :8001 ` +
+        `(run \`docker ps\` to find the conflict).\n` +
+        `Full build log: ${tildify(composeLog)}${tail ? `\nLast lines:\n${tail}` : ''}`
     );
   }
 
   return { endpoint: DEFAULT_AUTOMEM_API_URL, apiKey };
+}
+
+// The user picked a labeled option; the review should echo that label back, not
+// the internal enum value ("existing" / "cloud" / "local").
+function targetLabel(target: InstallTarget): string {
+  switch (target) {
+    case 'cloud':
+      return 'hosted cloud';
+    case 'local':
+      return 'local docker';
+    case 'existing':
+      return 'existing endpoint';
+  }
 }
 
 function clientLabel(client: AgentClient): string {
@@ -1200,6 +1359,7 @@ function renderActionDetail(
         detail(
           `AUTOMEM_API_URL=${plan.endpoint ?? '<prompted>'}${plan.apiKeyProvided ? '  + API key' : ''}`
         ),
+        detail('saved in the folder you ran this from:'),
       ];
     case 'prepare-local':
       return [detail(`docker compose in ${tildify(plan.localDir)}`)];
@@ -1208,7 +1368,10 @@ function renderActionDetail(
     case 'manual-step':
       return [detail(action.detail)];
     case 'install-agent':
-      return []; // the title ("Install <Agent> integration") says it all
+      // Path-writing agent installs are self-explanatory (title + path lines),
+      // but a manual/plugin-style action with no paths carries its authored
+      // explanation in `detail` — the plugin path's ONLY description. Show it.
+      return action.paths.length === 0 && action.detail ? [detail(action.detail)] : [];
   }
 }
 
@@ -1221,17 +1384,20 @@ export function renderInstallPlan(
 
   // At-a-glance summary chip.
   const agentCount = plan.actions.filter((action) => action.client).length;
-  const chip = `${plan.actions.length} stages · ${plan.target}${
-    agentCount ? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'}` : ''
+  const chip = `${plan.actions.length} stages · ${targetLabel(plan.target)} · ${
+    agentCount ? `${agentCount} AI tool${agentCount === 1 ? '' : 's'}` : 'no AI tools'
   }${plan.dryRun ? ' · dry run' : ''}`;
   out.push(`  ${theme.style.dim(chip)}`, '');
 
   const rows: TableRow[] = [
-    { label: 'mode', value: plan.target, status: 'ok' },
+    { label: 'setup', value: targetLabel(plan.target), status: 'ok' },
     {
       label: 'endpoint',
-      value: plan.endpoint ?? theme.style.dim('not set yet'),
-      status: plan.endpoint ? 'ok' : 'warn',
+      // A cloud plan's endpoint arrives during setup — expected, not a warning.
+      value:
+        plan.endpoint ??
+        theme.style.dim(plan.target === 'cloud' ? 'provisioned during setup' : 'not set yet'),
+      status: plan.endpoint || plan.target === 'cloud' ? (plan.endpoint ? 'ok' : 'muted') : 'warn',
     },
     {
       label: 'api key',
@@ -1241,6 +1407,16 @@ export function renderInstallPlan(
   ];
   if (plan.target === 'local') {
     rows.push({ label: 'server', value: theme.style.dim(tildify(plan.localDir)), status: 'muted' });
+  }
+  if (agentCount === 0 && !plan.noAgentInstall) {
+    // A zero-agent plan is legal but almost never what a first-time user meant —
+    // say it in the review instead of quietly omitting the clause. A deliberate
+    // --no-agent-install run skips the warning (it asked for exactly this).
+    rows.push({
+      label: 'ai tools',
+      value: 'none selected — nothing will be connected',
+      status: 'warn',
+    });
   }
   out.push(keyValueRows(rows, theme), '', sectionTitle('Stages', theme));
 
@@ -1298,16 +1474,24 @@ async function resolveInteractiveOptions(
       promptSelect<InstallTarget>({
         message: 'Where should AutoMem run?',
         options: [
-          { value: 'cloud', label: 'Hosted Cloud', hint: 'InstaPods or Railway — guided deploy' },
+          {
+            value: 'cloud',
+            label: 'Hosted Cloud (recommended)',
+            hint: 'easiest — we set it up for you, ~$1–15/mo depending on provider',
+          },
           {
             value: 'local',
             label: 'Local Docker',
-            hint: 'Clone AutoMem and start Docker Compose on this machine',
+            // Docker-aware: tell the user NOW whether this path can even start,
+            // instead of letting them discover a missing prerequisite mid-wizard.
+            hint: environment.prerequisites.docker
+              ? 'free, runs on this computer — Docker detected'
+              : 'free, runs on this computer — needs Docker (not found here)',
           },
           {
             value: 'existing',
             label: 'Existing Endpoint',
-            hint: 'Use an AutoMem URL you already have',
+            hint: 'paste an AutoMem URL + key you already have',
           },
         ],
         initialValue: 'cloud',
@@ -1323,17 +1507,17 @@ async function resolveInteractiveOptions(
   if (target === 'cloud' && !cloudProvider) {
     cloudProvider = await cancelable(
       promptSelect<CloudProviderId>({
-        message: 'How should we stand up your hosted AutoMem?',
+        message: 'How do you want to set up your hosted AutoMem?',
         options: [
           {
             value: 'instapods',
             label: 'InstaPods',
-            hint: 'open the setup page — it deploys AutoMem and emails your URL + key',
+            hint: 'they run it for you and email your URL + key — ~$15/mo',
           },
           {
             value: 'railway',
             label: 'Railway (guided)',
-            hint: 'sign in with the railway CLI, deploy from the terminal, then auto-capture keys',
+            hint: 'we open Railway, walk you through sign-in, and grab your keys — ~$1–5/mo',
           },
           {
             value: 'other',
@@ -1346,7 +1530,29 @@ async function resolveInteractiveOptions(
     );
   }
 
+  if (target === 'local' && !parsed.dryRun) {
+    // Fail at the decision, not three prompts later. Dry runs stay open so the
+    // path can still be previewed on a machine without Docker.
+    if (!environment.prerequisites.docker) {
+      throw new InstallError(
+        "AutoMem's local option needs Docker on this machine.",
+        `Get Docker Desktop (free): https://www.docker.com/products/docker-desktop\n` +
+          `Install it, open it once so it's running, then re-run this installer.\n` +
+          `Or pick Hosted Cloud — no Docker needed.`
+      );
+    }
+    // The CLI existing doesn't mean the daemon is up — Docker Desktop quit but
+    // still on PATH is the most common local-install failure. Catch it here.
+    if (!dockerDaemonRunning()) {
+      throw new InstallError(
+        'Docker is installed but not running.',
+        `Open Docker Desktop, wait until it says it's running, then re-run this installer.\n` +
+          `Or pick Hosted Cloud — no Docker needed.`
+      );
+    }
+  }
   if (target === 'local') {
+    promptCaption("Where the server's files live — the default is fine.");
     localDir = (
       await cancelable(
         promptText({
@@ -1365,24 +1571,26 @@ async function resolveInteractiveOptions(
     target === 'existing' || (target === 'cloud' && cloudProvider === 'other');
 
   if (collectEndpointHere && !endpoint) {
+    promptCaption("Your AutoMem server's web address — you got this when you set it up.");
     endpoint = (
       await cancelable(
         promptText({
           message: 'AutoMem API URL',
           validate: (value) =>
             /^https?:\/\/\S+$/.test(value.trim()) ||
-            'Enter a URL like https://your-automem.example',
+            "That doesn't look like a URL — try something like https://your-automem.example",
         })
       )
     ).trim();
   }
 
   if (collectEndpointHere && !apiKey) {
+    promptCaption("Its password, if it has one. Many setups don't.");
     // Masked: the key must never echo in cleartext as the user types.
     const entered = (
       await cancelable(
         promptPassword({
-          message: 'AutoMem API key (leave blank if this endpoint does not require one)',
+          message: "AutoMem API key (leave blank if you don't have one)",
         })
       )
     ).trim();
@@ -1392,23 +1600,42 @@ async function resolveInteractiveOptions(
   let clients = parsed.clients;
   if (!parsed.noAgentInstall && !clientsExplicit) {
     const detected = new Set(environment.detectedClients.map((client) => client.client));
-    const selected = await cancelable(
-      promptMultiselect<AgentClient>({
-        message: 'Install AutoMem into which agents?',
-        options: AGENT_CLIENTS.map((client) => ({
-          value: client,
-          label: clientLabel(client),
-          hint: detected.has(client)
-            ? 'detected on this machine'
-            : 'not detected, still installable',
-        })),
-        // Pre-check everything detected on this machine (Hermes included) so a
-        // user who already runs an agent reaches its follow-up prompts by default.
-        initialValues: AGENT_CLIENTS.filter((client) => detected.has(client)),
-        required: false,
-      })
-    );
-    clients = selected.length > 0 ? selected : [];
+    // On a fresh machine nothing is detected, nothing is pre-checked, and Enter
+    // submits an empty selection — silently skipping the tool's entire purpose.
+    // Loop: an empty submit gets one explicit confirm; No re-opens the list.
+    for (;;) {
+      const selected = await cancelable(
+        promptMultiselect<AgentClient>({
+          message: 'Connect AutoMem to which AI tools?',
+          options: AGENT_CLIENTS.map((client) => ({
+            value: client,
+            label: clientLabel(client),
+            hint: detected.has(client)
+              ? 'detected on this machine'
+              : 'not found here — pick it anyway if you use it',
+          })),
+          // Pre-check everything detected on this machine (Hermes included) so a
+          // user who already runs an agent reaches its follow-up prompts by default.
+          initialValues: AGENT_CLIENTS.filter((client) => detected.has(client)),
+          required: false,
+        })
+      );
+      if (selected.length > 0) {
+        clients = selected;
+        break;
+      }
+      const skipAgents = await cancelable(
+        promptConfirm({
+          message:
+            'No AI tools selected — AutoMem will be set up but nothing will use it. Continue anyway?',
+          initialValue: false,
+        })
+      );
+      if (skipAgents) {
+        clients = [];
+        break;
+      }
+    }
   }
 
   let hermesMode = parsed.hermesMode;
@@ -1420,12 +1647,12 @@ async function resolveInteractiveOptions(
           {
             value: 'provider',
             label: 'Native memory provider',
-            hint: 'recommended; replaces Hermes built-in memory provider selection',
+            hint: "recommended — replaces Hermes's built-in memory",
           },
           {
             value: 'mcp',
             label: 'MCP tools only',
-            hint: 'portable tools, no provider replacement',
+            hint: 'standard protocol connection — works everywhere',
           },
           {
             value: 'both',
@@ -1588,6 +1815,15 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
   }
 
   try {
+    if (interactive && !parsed.yes) {
+      // One line of framing before the first question: how long this takes and —
+      // the cheapest trust win in the flow — that nothing happens until the
+      // reviewed plan is approved.
+      const theme = makeTheme(process.stdout);
+      process.stdout.write(
+        `  ${theme.style.dim('About 2 minutes. Nothing is written until you approve the plan at the end.')}\n`
+      );
+    }
     const resolved = interactive
       ? await resolveInteractiveOptions(
           parsed,
@@ -1621,11 +1857,23 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     }
 
     if (!resolved.yes) {
+      process.stdout.write('\n');
+      // Discard keystrokes buffered while the plan was typing out — a buffered
+      // Enter would otherwise answer this confirm the instant it opens and
+      // silently discard the whole wizard (default is No).
+      await drainBufferedStdin();
       const approved = await cancelable(
         promptConfirm({ message: 'Apply this AutoMem install plan?', initialValue: false })
       );
       if (!approved) {
-        writeStatus('No files were changed.');
+        // Six prompts of answers shouldn't evaporate on a No — hand them back
+        // as the equivalent one-liner so re-running skips the wizard entirely.
+        writeStatus('Nothing was installed — no files were changed.');
+        const theme = makeTheme(process.stdout);
+        process.stdout.write(
+          `  ${theme.style.dim('Your answers, ready to re-run:')}\n` +
+            `  ${theme.style.gold('$')} ${equivalentInstallCommand({ ...resolved, apiKeyProvided: Boolean(resolved.apiKey) })}\n`
+        );
         return;
       }
     }
@@ -1643,7 +1891,8 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     // BEFORE the live checklist — a redraw region can't share the screen with it.
     if (resolved.target === 'local') {
       process.stdout.write(
-        `  ${theme.style.dim(theme.symbol.arrow)} Building & starting local AutoMem server (first run can take a minute)…\n`
+        `  ${theme.style.dim(theme.symbol.arrow)} Building the local server — the first time can take a few minutes ` +
+          `${theme.style.dim(`(log: ${tildify(path.join(plan.localDir, 'install.log'))})`)}…\n`
       );
       const local = await prepareLocalServer({ localDir: plan.localDir, apiKey, dryRun: false });
       endpoint = local.endpoint;
@@ -1703,7 +1952,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           spin.error('AutoMem is not responding yet');
           throw new InstallError(
             `AutoMem deployed, but ${endpoint} isn't responding yet.`,
-            `A multi-service deploy can take a few minutes. Check the provider's logs (e.g. \`railway logs\`), then finish with:\n  npx @verygoodplugins/mcp-automem install --target existing --endpoint ${endpoint}${apiKey ? ' --api-key <token>' : ''}`
+            `A multi-service deploy can take a few minutes. Check the provider's logs (e.g. \`railway logs\`), then finish with:\n  npx @verygoodplugins/mcp-automem install --target existing --endpoint ${endpoint}${apiKey ? ' --api-key YOUR_KEY_HERE' : ''}`
           );
         }
       }
@@ -1745,10 +1994,47 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         apiKey,
         attempts: 8,
         intervalMs: 2000,
+        // From the second try onward, show the ladder — 16 quiet seconds of
+        // spinner otherwise reads as a hang.
+        onAttempt: (attempt, attempts) => {
+          if (attempt > 1)
+            list.update('verify', `Verify endpoint — attempt ${attempt}/${attempts}`);
+        },
       });
       if (!verify.ok) {
         list.fail('verify');
-        throw new InstallError("Couldn't verify the AutoMem endpoint.", verify.message);
+        // Retry against the endpoint we actually verified — for a cloud run
+        // that's the freshly provisioned deployment. Reconstructing the
+        // resolve-time cloud options would re-provision (and re-bill) a second
+        // deployment instead of reconnecting to the one that already exists.
+        const retryCommand =
+          resolved.target === 'local'
+            ? equivalentInstallCommand({
+                ...resolved,
+                apiKeyProvided: localRetryHasExplicitApiKey(resolved.apiKey),
+              })
+            : equivalentInstallCommand({
+                ...resolved,
+                target: 'existing',
+                cloudProvider: undefined,
+                endpoint,
+                apiKeyProvided: Boolean(apiKey),
+              });
+        // Be precise about machine state per target: a cloud deploy already
+        // exists (and may bill), a local run has cloned/started containers.
+        const machineState =
+          resolved.target === 'cloud'
+            ? 'Your cloud deployment exists — no AutoMem files were written on this machine yet.'
+            : resolved.target === 'local'
+              ? 'The local server may still be starting — no agent files were changed.'
+              : "Nothing was installed — your machine wasn't changed.";
+        throw new InstallError(
+          "Couldn't reach your AutoMem server.",
+          `${machineState}\n` +
+            `Check the URL is right, or wait a minute (the server may still be starting) and re-run:\n` +
+            `  ${retryCommand}\n` +
+            `Technical detail: ${verify.message}`
+        );
       }
       list.done('verify', `Endpoint verified (${endpoint.replace(/\/$/, '')})`);
 
@@ -1833,17 +2119,36 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     }
 
     const nextSteps: string[] = [`endpoint  ${endpoint}`];
+    // The finish line earns its box only if it says what to do NOW: restart the
+    // tools that were just wired, and a concrete way to see memory working.
     // Only surface the manual /plugin commands when the auto-install didn't run or
     // didn't succeed — i.e. the `claude` binary was absent, or the install failed.
     const pluginAutoInstallFailed = agentFailures.some(
       (failure) => failure.client === 'claude-code' && failure.showPluginCommands !== false
     );
-    if (
+    // Plugin mode without the `claude` binary installs nothing yet — the /plugin
+    // commands below ARE the install. Restarting Claude Code before running them
+    // would do nothing, so keep it out of the restart line.
+    const claudePluginIsManual =
       !resolved.noAgentInstall &&
       resolved.clients.includes('claude-code') &&
       resolved.claudeCodeMode === 'plugin' &&
-      (!environment.prerequisites.claude || pluginAutoInstallFailed)
-    ) {
+      (!environment.prerequisites.claude || pluginAutoInstallFailed);
+    const installedClients = resolved.noAgentInstall
+      ? []
+      : resolved.clients.filter(
+          (client) =>
+            !agentFailures.some((failure) => failure.client === client) &&
+            !(client === 'claude-code' && claudePluginIsManual)
+        );
+    if (installedClients.length > 0) {
+      nextSteps.push(
+        `Restart ${installedClients.map((client) => clientLabel(client)).join(' / ')} to pick up the connection.`
+      );
+      nextSteps.push('Try it: ask "what do you remember about me?"');
+    }
+    nextSteps.push('Docs: https://automem.ai');
+    if (claudePluginIsManual) {
       nextSteps.push('Claude Code plugin — run these inside Claude Code:');
       for (const cmd of CLAUDE_CODE_PLUGIN_COMMANDS) {
         nextSteps.push(`  ${cmd}`);
@@ -1853,8 +2158,8 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     if (agentFailures.length > 0) {
       const subject =
         agentFailures.length === 1
-          ? '1 agent needs a manual step:'
-          : `${agentFailures.length} agents need a manual step:`;
+          ? '1 AI tool needs a manual step:'
+          : `${agentFailures.length} AI tools need a manual step:`;
       nextSteps.push(subject);
       for (const failure of agentFailures) {
         nextSteps.push(`  ${failure.hint ?? manualFixHint(failure.client)}`);
@@ -1863,8 +2168,22 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');
     // The card is a box, so rows snap in whole (never half-drawn) but slowly —
     // a deliberate beat per row so the finish lands instead of flashing past.
+    // Deliberate --no-agent-install runs keep the plain title; the callout is
+    // for a wizard user who ended up with nothing connected.
+    const zeroAgents = !resolved.noAgentInstall && resolved.clients.length === 0;
+    if (zeroAgents) {
+      nextSteps.splice(
+        1,
+        0,
+        'Connect one: npx @verygoodplugins/mcp-automem install --clients claude-code (or your tool).'
+      );
+    }
     const cardTitle =
-      agentFailures.length > 0 ? 'AutoMem is installed — with follow-ups' : 'AutoMem is installed';
+      agentFailures.length > 0
+        ? 'AutoMem is installed — with follow-ups'
+        : zeroAgents
+          ? 'AutoMem is installed — but not connected to any AI tool'
+          : 'AutoMem is installed';
     await revealLines(renderSuccessCard(cardTitle, nextSteps), {
       typed: true,
       wordDelayMs: 42,

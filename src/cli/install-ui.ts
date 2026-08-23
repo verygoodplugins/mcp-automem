@@ -1,4 +1,4 @@
-import { visibleLength } from './ui/theme.js';
+import { supportsTruecolor, visibleLength } from './ui/theme.js';
 
 export type MascotState = 'idle' | 'blink' | 'working' | 'done' | 'sleeping' | 'error';
 
@@ -71,8 +71,27 @@ export function centerLine(line: string, width: number = WORDMARK_WIDTH): string
   return pad === 0 ? line : `${' '.repeat(pad)}${line}`;
 }
 
-function rgb(color: readonly [number, number, number], value: string, enabled: boolean): string {
+// Nearest ANSI-16 stand-in for each palette entry, used when the terminal never
+// signaled truecolor (COLORTERM) — absolute RGB would render wrong or unreadably
+// there, and 93/90/39 track the terminal's own theme on light backgrounds too.
+function fallbackSgr(color: readonly [number, number, number]): string {
+  const [r, g, b] = color;
+  if (r > 200 && g > 200 && b > 200) return ''; // near-white text — default fg
+  if (r > 200 && g > 150) return '\x1b[93m'; // golds / amber (goldBright included)
+  return '\x1b[90m'; // frame / muted grays
+}
+
+function rgb(
+  color: readonly [number, number, number],
+  value: string,
+  enabled: boolean,
+  truecolor: boolean = supportsTruecolor()
+): string {
   if (!enabled || value.length === 0) return value;
+  if (!truecolor) {
+    const open = fallbackSgr(color);
+    return open ? `${open}${value}${RESET}` : value;
+  }
   return `\x1b[38;2;${color[0]};${color[1]};${color[2]}m${value}${RESET}`;
 }
 
@@ -95,6 +114,9 @@ export function gradientLine(
   offset = 0
 ): string {
   if (!color || text.length === 0) return text;
+  // Without truecolor a per-character gradient is impossible — collapse to one
+  // bright-yellow line rather than emitting 24-bit codes the terminal may mangle.
+  if (!supportsTruecolor()) return `\x1b[93m${text}${RESET}`;
   const colors = stops.map(hexToRgb);
   const chars = [...text];
 
@@ -177,16 +199,18 @@ export function renderInstallerSplash(
     color,
     sparkleFrame: options.sparkleFrame,
   });
+  // Kept tight on purpose: ~12 lines total so the first prompt still fits on a
+  // stock 80x24 terminal next to the branding. The old third subtitle line
+  // ("guided local, hosted, and existing-endpoint setup") moved into the
+  // wizard's framing line, and the wordmark/mascot share one separator.
   return [
     renderWordmark(color, options.wordmarkOffset ?? 0),
     '',
     centerBlock(mascot),
-    '',
     centerLine(rgb(COLORS.gold, 'AutoMem', color)),
     centerLine(
       `${rgb(COLORS.text, "Your agents' memory. Everywhere.", color)} ${rgb(COLORS.goldBright, '✦', color)}`
     ),
-    centerLine(rgb(COLORS.muted, 'guided local, hosted, and existing-endpoint setup', color)),
   ].join('\n');
 }
 

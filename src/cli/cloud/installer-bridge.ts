@@ -12,6 +12,7 @@
 import { noteBox } from '../ui/messages.js';
 import {
   cancelable,
+  promptCaption,
   promptConfirm,
   promptPassword,
   promptSelect,
@@ -51,19 +52,22 @@ export interface ProvisionResult {
 // Shared paste step: collect an AutoMem endpoint + optional token. Used by the
 // InstaPods link flow and as the universal fallback.
 export async function promptManualCredentials(): Promise<ProvisionResult> {
+  promptCaption("Your AutoMem server's web address — from the email, or wherever you set it up.");
   const endpoint = (
     await cancelable(
       promptText({
         message: 'AutoMem API URL',
         validate: (value) =>
-          /^https?:\/\/\S+$/.test(value.trim()) || 'Enter a URL like https://your-automem.example',
+          /^https?:\/\/\S+$/.test(value.trim()) ||
+          "That doesn't look like a URL — try something like https://your-automem.example",
       })
     )
   ).trim();
+  promptCaption("Its password, if it has one. Many setups don't.");
   const apiKey = (
     await cancelable(
       promptPassword({
-        message: 'AutoMem API key (leave blank if this endpoint does not require one)',
+        message: "AutoMem API key (leave blank if you don't have one)",
       })
     )
   ).trim();
@@ -112,6 +116,21 @@ export async function provisionViaInstaPodsLink(
   );
 
   if (choice === 'open') {
+    // Billing parity with the Railway path: say what it costs and that a card
+    // is involved BEFORE any browser page asks for one.
+    const proceed = await cancelable(
+      promptConfirm({
+        message:
+          "InstaPods hosts AutoMem for ~$15/mo (their Grow plan). You'll create an account and add a card on their site. Open the signup page?",
+        initialValue: true,
+      })
+    );
+    if (!proceed) {
+      log(
+        'No problem — paste an AutoMem URL + key if you have one from elsewhere, or press Ctrl-C to start over and pick a different setup.'
+      );
+      return promptManualCredentials();
+    }
     await openUrl(INSTAPODS_CREATE_URL);
     log(
       noteBox('InstaPods setup', [
@@ -122,6 +141,7 @@ export async function provisionViaInstaPodsLink(
         INSTAPODS_CREATE_URL,
       ])
     );
+    log('  Waiting — the email can take a minute or two. Paste here when it arrives.');
   }
 
   return promptManualCredentials();
