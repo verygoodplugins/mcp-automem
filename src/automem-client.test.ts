@@ -1284,5 +1284,20 @@ describe('AutoMemClient', () => {
       );
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
+
+    it('does not replay POST /memory when a 503 body is not JSON', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (503)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
   });
 });

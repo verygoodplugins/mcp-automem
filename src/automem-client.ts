@@ -204,15 +204,15 @@ export class AutoMemClient {
 
       let data: any;
       try {
-        // Truncated HTTP/2 bodies arrive as 2xx with invalid JSON. Retry GET
-        // (recall/health) the same way as a dropped connection. Do not replay
-        // POST/PATCH after a committed write whose body was cut — AutoMem
-        // mints a new UUID per store. 5xx parse failures stay retryable for
-        // every method, matching the existing 5xx JSON retry.
+        // Truncated HTTP/2 bodies arrive as 2xx/5xx with invalid JSON. Retry
+        // GET (recall/health) like a dropped connection. Never replay POST,
+        // PATCH, or DELETE after a parse failure: a committed store whose 201
+        // or gateway 5xx body was cut would mint a second UUID. 5xx responses
+        // that parse as JSON still retry for every method, as before.
         data = await response.json();
       } catch {
         const isRetryableParse =
-          (response.ok && method === 'GET') || (response.status >= 500 && response.status < 600);
+          method === 'GET' && (response.ok || (response.status >= 500 && response.status < 600));
         if (isRetryableParse && retryCount < maxRetries) {
           return retryAfter(`Invalid JSON response (${response.status})`);
         }
