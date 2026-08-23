@@ -26,10 +26,7 @@ export function readAutoMemApiKeyFromEnv(env: NodeJS.ProcessEnv = process.env): 
 export const DEFAULT_AUTOMEM_API_URL = 'http://127.0.0.1:8001';
 
 export type AutoMemApiUrlSource =
-  | 'AUTOMEM_API_URL'
-  | 'CLAUDE_PLUGIN_OPTION_API_URL'
-  | 'AUTOMEM_ENDPOINT'
-  | 'default';
+  'AUTOMEM_API_URL' | 'CLAUDE_PLUGIN_OPTION_API_URL' | 'AUTOMEM_ENDPOINT' | 'default';
 
 // Precedence: the documented env var beats the plugin prompt (a user who
 // exports AUTOMEM_API_URL has configured explicitly); the plugin prompt

@@ -167,8 +167,7 @@ export function parseVariable(stdout: string, key: string): string | undefined {
     const body = JSON.parse(stdout) as unknown;
     if (Array.isArray(body)) {
       const hit = body.find((v) => (v as { name?: string }).name === key) as
-        | { value?: string }
-        | undefined;
+        { value?: string } | undefined;
       return hit?.value;
     }
     if (body && typeof body === 'object') {
