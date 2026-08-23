@@ -115,6 +115,15 @@ function shouldUseUnicode(stream: NodeJS.WriteStream, mode: SymbolMode): boolean
   return process.platform !== 'win32' || Boolean(process.env.WT_SESSION);
 }
 
+function shouldHyperlink(color: boolean): boolean {
+  // Color already encodes TTY / NO_COLOR. OSC 8 is a separate capability: a
+  // color TTY with TERM=dumb still cannot interpret hyperlinks, so refuse it
+  // independently (same dumb-terminal gate unicode already uses).
+  if (!color) return false;
+  if (process.env.TERM === 'dumb') return false;
+  return true;
+}
+
 const RESET = '\x1b[0m';
 
 function wrap(enabled: boolean, open: string): (text: string) => string {
@@ -158,9 +167,9 @@ export function makeTheme(
       arrow: unicode ? '→' : '->',
       line: unicode ? '─' : '-',
     },
-    // Color already encodes TTY / NO_COLOR / dumb-terminal detection, so OSC 8
-    // never leaks into pipes, CI, or --no-color transcripts.
-    link: color ? hyperlink : plainLinkText,
+    // Color encodes TTY / NO_COLOR; shouldHyperlink also refuses TERM=dumb so
+    // OSC 8 never leaks into pipes, CI, --no-color, or dumb-terminal transcripts.
+    link: shouldHyperlink(color) ? hyperlink : plainLinkText,
   };
 }
 

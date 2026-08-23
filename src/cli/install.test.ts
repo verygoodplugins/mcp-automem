@@ -1240,6 +1240,43 @@ describe('guided install helpers', () => {
     expect(out).toContain('AutoMem install failed');
   });
 
+  it('formatInstallError keeps URLs plain on a non-TTY stream', () => {
+    const notty = {
+      isTTY: false,
+      write: () => true,
+    } as unknown as NodeJS.WriteStream;
+    const out = formatInstallError(
+      new InstallError(
+        'AutoMem deployed, but https://fresh.example is not responding yet.',
+        'Finish with --endpoint https://fresh.example'
+      ),
+      notty
+    );
+    expect(out).toContain('https://fresh.example');
+    expect(out).not.toContain('\x1b]8;');
+  });
+
+  it('formatInstallError strips trailing prose punctuation from linked URLs', () => {
+    const prevTerm = process.env.TERM;
+    const prevNoColor = process.env.NO_COLOR;
+    process.env.TERM = 'xterm-256color';
+    delete process.env.NO_COLOR;
+    try {
+      const tty = { isTTY: true, write: () => true } as unknown as NodeJS.WriteStream;
+      const out = formatInstallError(
+        new InstallError('Could not reach http://127.0.0.1:8001: still starting.', ''),
+        tty
+      );
+      expect(out).toMatch(/\x1b]8;;http:\/\/127\.0\.0\.1:8001\/?\x1b\\/);
+      expect(out).not.toContain('\x1b]8;;http://127.0.0.1:8001:');
+    } finally {
+      if (prevTerm === undefined) delete process.env.TERM;
+      else process.env.TERM = prevTerm;
+      if (prevNoColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = prevNoColor;
+    }
+  });
+
   it('rejects a custom --endpoint with target local so the plan matches what is written', () => {
     const environment = detectInstallEnvironment();
     expect(() =>

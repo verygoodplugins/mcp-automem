@@ -30,8 +30,16 @@ describe('ui/theme', () => {
     const colored = makeTheme(stream, { color: 'always', symbols: 'unicode' });
     expect(colored.style.gold('hi')).toContain('\x1b[');
     expect(stripAnsi(colored.style.gold('hi'))).toBe('hi');
-    expect(colored.link('https://example.com', 'label')).toContain('\x1b]8;');
-    expect(stripAnsi(colored.link('https://example.com', 'docs'))).toBe('docs');
+    const prevTerm = process.env.TERM;
+    process.env.TERM = 'xterm-256color';
+    try {
+      const linked = makeTheme(stream, { color: 'always', symbols: 'unicode' });
+      expect(linked.link('https://example.com', 'label')).toContain('\x1b]8;');
+      expect(stripAnsi(linked.link('https://example.com', 'docs'))).toBe('docs');
+    } finally {
+      if (prevTerm === undefined) delete process.env.TERM;
+      else process.env.TERM = prevTerm;
+    }
   });
 
   it('switches symbol sets between unicode and ascii', () => {
@@ -72,6 +80,21 @@ describe('ui/theme', () => {
     expect(hyperlink('not a url', 'label\x1b')).toBe('label%1B');
     expect(hyperlink('file:///tmp/example', 'label\x07')).toBe('label%07');
     expect(hyperlink('<prompted>/health')).toBe('<prompted>/health');
+  });
+
+  it('does not emit OSC 8 when TERM=dumb even if the stream is a color TTY', () => {
+    const prev = process.env.TERM;
+    process.env.TERM = 'dumb';
+    try {
+      const tty = { isTTY: true } as unknown as NodeJS.WriteStream;
+      const theme = makeTheme(tty, { color: 'always' });
+      expect(theme.color).toBe(true);
+      expect(theme.link('https://example.com', 'docs')).toBe('docs');
+      expect(theme.link('https://example.com')).not.toContain('\x1b]8;');
+    } finally {
+      if (prev === undefined) delete process.env.TERM;
+      else process.env.TERM = prev;
+    }
   });
 });
 

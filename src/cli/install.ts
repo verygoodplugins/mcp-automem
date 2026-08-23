@@ -435,14 +435,20 @@ export function formatInstallError(
   stream: NodeJS.WriteStream = process.stderr
 ): string {
   const theme = makeTheme(stream);
+  const linkUrls = (text: string): string =>
+    text.replace(/https?:\/\/[^\s]+/g, (url) => {
+      const trimmed = url.replace(/[.,;:!?)]+$/, '');
+      const trailing = url.slice(trimmed.length);
+      return trimmed.length > 0 ? `${theme.link(trimmed)}${trailing}` : url;
+    });
   let message = err instanceof Error ? err.message : String(err);
   message = message.replace(/^Command failed:.*$/m, '').trim() || 'AutoMem install failed.';
-  const lines = [`\n${theme.style.red(theme.symbol.cross)} ${theme.style.bold(message)}`];
+  const lines = [`\n${theme.style.red(theme.symbol.cross)} ${theme.style.bold(linkUrls(message))}`];
   if (err instanceof InstallError && err.hint) {
     // The hint is the recovery path — indent every line and keep it normal
     // weight (dim recovery text is illegible on light terminals).
     for (const hintLine of err.hint.split('\n')) {
-      lines.push(`  ${hintLine}`);
+      lines.push(`  ${linkUrls(hintLine)}`);
     }
   }
   return `${lines.join('\n')}\n`;
@@ -1433,7 +1439,11 @@ export function renderInstallPlan(
     );
     out.push(...renderActionDetail(action, plan, theme));
     for (const cmd of action.commands ?? []) {
-      const displayed = cmd.replace(/(https?:\/\/\S+)/g, (url) => theme.link(url));
+      const displayed = cmd.replace(/(https?:\/\/\S+)/g, (url) => {
+        const trimmed = url.replace(/[.,;:!?)]+$/, '');
+        const trailing = url.slice(trimmed.length);
+        return trimmed.length > 0 ? `${theme.link(trimmed)}${trailing}` : url;
+      });
       out.push(`     ${theme.style.gold('$')} ${displayed}`);
     }
     // One dim path line per file — no per-file backup line (mentioned once below).
@@ -1539,7 +1549,7 @@ async function resolveInteractiveOptions(
     if (!environment.prerequisites.docker) {
       throw new InstallError(
         "AutoMem's local option needs Docker on this machine.",
-        `Get Docker Desktop (free): ${makeTheme(process.stderr).link('https://www.docker.com/products/docker-desktop')}\n` +
+        `Get Docker Desktop (free): https://www.docker.com/products/docker-desktop\n` +
           `Install it, open it once so it's running, then re-run this installer.\n` +
           `Or pick Hosted Cloud — no Docker needed.`
       );
@@ -1959,7 +1969,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         } else {
           spin.error('AutoMem is not responding yet');
           throw new InstallError(
-            `AutoMem deployed, but ${theme.link(endpoint)} isn't responding yet.`,
+            `AutoMem deployed, but ${endpoint} isn't responding yet.`,
             `A multi-service deploy can take a few minutes. Check the provider's logs (e.g. \`railway logs\`), then finish with:\n  npx @verygoodplugins/mcp-automem install --target existing --endpoint ${endpoint}${apiKey ? ' --api-key YOUR_KEY_HERE' : ''}`
           );
         }
