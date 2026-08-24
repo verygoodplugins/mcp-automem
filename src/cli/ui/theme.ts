@@ -22,6 +22,7 @@ export type ThemeOptions = {
 
 export type Theme = {
   color: boolean;
+  truecolor: boolean;
   unicode: boolean;
   width: number;
   style: {
@@ -45,9 +46,15 @@ export type Theme = {
     arrow: string;
     line: string;
   };
+  /** OSC 8 terminal hyperlink — clickable where supported, plain text elsewhere. */
+  link(url: string, label?: string): string;
 };
 
-const ANSI = {
+// Two palettes, one shape. Truecolor carries the exact brand values; the ANSI-16
+// tier maps every slot to a terminal-theme-relative code so colors stay legible
+// on terminals without 24-bit support AND on light backgrounds (the terminal's
+// own theme picks a readable yellow, which absolute #ffd23f cannot promise).
+const ANSI_TRUECOLOR = {
   reset: '\x1b[0m',
   bold: '\x1b[1m',
   dim: '\x1b[2m',
@@ -61,6 +68,30 @@ const ANSI = {
   goldBg: '\x1b[48;2;255;210;63m',
   black: '\x1b[30m',
 };
+
+const ANSI_16 = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  gold: '\x1b[93m',
+  goldBright: '\x1b[93m',
+  goldBg: '\x1b[103m',
+  black: '\x1b[30m',
+};
+
+// COLORTERM is the de-facto truecolor signal (set by iTerm2, WezTerm, Windows
+// Terminal, kitty, VS Code…). Absent it, emit ANSI-16 — Apple Terminal and
+// tmux-without-RGB are the common cases that would otherwise get raw 24-bit
+// sequences they don't fully support.
+export function supportsTruecolor(env: NodeJS.ProcessEnv = process.env): boolean {
+  const colorterm = (env.COLORTERM ?? '').toLowerCase();
+  return colorterm.includes('truecolor') || colorterm.includes('24bit');
+}
 
 export function streamWidth(stream: NodeJS.WriteStream = process.stdout): number {
   return Math.max(40, Math.min(stream.columns ?? 80, 120));
@@ -84,8 +115,19 @@ function shouldUseUnicode(stream: NodeJS.WriteStream, mode: SymbolMode): boolean
   return process.platform !== 'win32' || Boolean(process.env.WT_SESSION);
 }
 
+function shouldHyperlink(color: boolean): boolean {
+  // Color already encodes TTY / NO_COLOR. OSC 8 is a separate capability: a
+  // color TTY with TERM=dumb still cannot interpret hyperlinks, so refuse it
+  // independently (same dumb-terminal gate unicode already uses).
+  if (!color) return false;
+  if (process.env.TERM === 'dumb') return false;
+  return true;
+}
+
+const RESET = '\x1b[0m';
+
 function wrap(enabled: boolean, open: string): (text: string) => string {
-  return (text) => (enabled && text.length > 0 ? `${open}${text}${ANSI.reset}` : text);
+  return (text) => (enabled && text.length > 0 ? `${open}${text}${RESET}` : text);
 }
 
 export function makeTheme(
@@ -94,8 +136,11 @@ export function makeTheme(
 ): Theme {
   const color = shouldColor(stream, options.color ?? 'auto');
   const unicode = shouldUseUnicode(stream, options.symbols ?? 'auto');
+  const truecolor = supportsTruecolor();
+  const ANSI = truecolor ? ANSI_TRUECOLOR : ANSI_16;
   return {
     color,
+    truecolor,
     unicode,
     width: options.width ?? streamWidth(stream),
     style: {
@@ -122,12 +167,20 @@ export function makeTheme(
       arrow: unicode ? '→' : '->',
       line: unicode ? '─' : '-',
     },
+    // Color encodes TTY / NO_COLOR; shouldHyperlink also refuses TERM=dumb so
+    // OSC 8 never leaks into pipes, CI, --no-color, or dumb-terminal transcripts.
+    link: shouldHyperlink(color) ? hyperlink : plainLinkText,
   };
 }
 
 export function stripAnsi(value: string): string {
-  // eslint-disable-next-line no-control-regex -- intentional: matches the ANSI escape (ESC) sequence to strip it
-  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+  return (
+    value
+      // eslint-disable-next-line no-control-regex -- intentional: OSC hyperlink/escape sequences (see visibleLength + harness contract)
+      .replace(/\x1B][^\x07\x1B]*(\x07|\x1B\\)/g, '')
+      // eslint-disable-next-line no-control-regex -- intentional: classic ESC/CSI sequences
+      .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '')
+  );
 }
 
 export function visibleLength(value: string): number {
@@ -142,4 +195,48 @@ export function padEndVisible(value: string, target: number): string {
 
 export function repeatVisible(char: string, count: number): string {
   return Array.from({ length: Math.max(0, count) }, () => char).join('');
+}
+
+function encodeControlCharacters(value: string): string {
+  let encoded = '';
+  for (let i = 0; i < value.length; i += 1) {
+    const char = value[i];
+    const code = char.charCodeAt(0);
+    encoded += code <= 0x1f || code === 0x7f ? encodeURIComponent(char) : char;
+  }
+  return encoded;
+}
+
+function plainLinkText(url: string, label?: string): string {
+  return encodeControlCharacters(label && label.length > 0 ? label : url);
+}
+
+/**
+ * Terminal hyperlink (OSC 8).
+ * Renders as a clickable link in modern terminals (iTerm2, VS Code, Windows Terminal,
+ * recent macOS Terminal, etc.). Gracefully degrades everywhere else: stripAnsi /
+ * visibleLength turn it into the plain label text.
+ *
+ * Safety: only emits OSC for well-formed http/https URLs. Anything else
+ * (placeholders like "<prompted>" or non-URLs) is returned as plain text, and
+ * label/text control characters are percent-encoded to avoid terminal escape
+ * injection. Callers should prefer `theme.link(...)` for capability awareness.
+ */
+export function hyperlink(url: string, label?: string): string {
+  const rawText = label && label.length > 0 ? label : url;
+  const safeText = encodeControlCharacters(rawText);
+
+  let safeUrl: string;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return safeText;
+    }
+    safeUrl = parsed.href;
+  } catch {
+    return safeText;
+  }
+
+  // OSC 8 ; ; <url> ST <text> OSC 8 ; ; ST
+  return `\x1b]8;;${safeUrl}\x1b\\${safeText}\x1b]8;;\x1b\\`;
 }

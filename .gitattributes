@@ -1,6 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
+# Shell scripts must keep LF endings -- bash chokes on CRLF
+*.sh text eol=lf
+
+
 # Generated policy artifacts are compared byte-for-byte by drift/idempotency tests.
 templates/claude-code/hooks/automem-session-start.sh text eol=lf
 plugins/automem/scripts/session-start.sh text eol=lf
@@ -10,3 +14,8 @@ templates/CLAUDE_DESKTOP_INSTRUCTIONS.md text eol=lf
 templates/CLAUDE_MD_MEMORY_RULES.md text eol=lf
 templates/hermes/memory-rules.md text eol=lf
 templates/hermes/provider/automem_policy.py text eol=lf
+templates/copilot/scripts/automem-session-start.sh text eol=lf
+templates/copilot/scripts/automem-session-start.ps1 text eol=lf
+templates/copilot/scripts/automem-track-store.ps1 text eol=lf
+templates/copilot/scripts/automem-stop-nudge.ps1 text eol=lf
+

@@ -5,8 +5,10 @@ import {
   CommonOptions,
   detectProjectName,
   log,
+  type MarkedBlockMarkers,
   parseCommonFlags,
   replaceTemplateVars,
+  upsertMarkedBlock,
   writeFileWithBackup,
 } from './host-toolkit.js';
 
@@ -18,22 +20,12 @@ const TEMPLATE_ROOT = path.resolve(
   fileURLToPath(new URL('../../templates/codex', import.meta.url))
 );
 
-function upsertRulesWithMarkers(existing: string | null, block: string): string {
-  const start = '<!-- BEGIN AUTOMEM CODEX RULES -->';
-  const end = '<!-- END AUTOMEM CODEX RULES -->';
-  if (!existing) {
-    return `${block}\n`;
-  }
-  const startIdx = existing.indexOf(start);
-  const endIdx = existing.indexOf(end);
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const before = existing.slice(0, startIdx);
-    const after = existing.slice(endIdx + end.length);
-    return `${before}${block}${after}`;
-  }
-  const sep = existing.endsWith('\n') ? '\n' : '\n\n';
-  return `${existing}${sep}${block}\n`;
-}
+export const CODEX_RULES_START = '<!-- BEGIN AUTOMEM CODEX RULES -->';
+export const CODEX_RULES_END = '<!-- END AUTOMEM CODEX RULES -->';
+export const CODEX_RULES_MARKERS: MarkedBlockMarkers = {
+  start: CODEX_RULES_START,
+  end: CODEX_RULES_END,
+};
 
 export async function applyCodexSetup(cliOptions: CodexSetupOptions): Promise<void> {
   const projectName = cliOptions.projectName ?? detectProjectName();
@@ -50,7 +42,12 @@ export async function applyCodexSetup(cliOptions: CodexSetupOptions): Promise<vo
   const processed = replaceTemplateVars(templateContent, vars);
 
   const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
-  const finalContent = upsertRulesWithMarkers(existingContent, processed);
+  const finalContent = upsertMarkedBlock(
+    existingContent,
+    processed,
+    CODEX_RULES_MARKERS,
+    rulesPath
+  );
   writeFileWithBackup(rulesPath, finalContent, cliOptions);
 
   log('\n📊 Configuration Status:', cliOptions.quiet);

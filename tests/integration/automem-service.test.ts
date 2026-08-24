@@ -12,9 +12,7 @@ import { AutoMemClient } from '../../src/automem-client.js';
 import { AUTHORABLE_RELATION_TYPES } from '../../src/types.js';
 
 const AUTOMEM_TEST_API_URL =
-  process.env.AUTOMEM_TEST_API_URL ||
-  process.env.AUTOMEM_TEST_ENDPOINT ||
-  'http://localhost:8001';
+  process.env.AUTOMEM_TEST_API_URL || process.env.AUTOMEM_TEST_ENDPOINT || 'http://localhost:8001';
 const TEST_TAG = `test-${Date.now()}`;
 
 let client: AutoMemClient;

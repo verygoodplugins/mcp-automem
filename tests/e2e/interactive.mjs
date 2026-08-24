@@ -56,7 +56,9 @@ try {
 }
 
 const ANSI = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-const strip = (s) => s.replace(ANSI, '');
+// Also strip OSC 8 hyperlinks (and other OSC) so expectations see clean label text.
+const OSC = /\x1B][^\x07\x1B]*(\x07|\x1B\\)/g;
+const strip = (s) => s.replace(OSC, '').replace(ANSI, '');
 const KEY = { enter: '\r', down: '\x1B[B', up: '\x1B[A', space: ' ' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -73,7 +75,7 @@ const SCENARIOS = [
       { waitFor: /AutoMem API URL/, send: ENDPOINT },
       { send: KEY.enter },
       { waitFor: /AutoMem API key/, send: KEY.enter }, // blank
-      { waitFor: /which agents/, send: KEY.down }, // codex → claude-code
+      { waitFor: /which AI tools/, send: KEY.down }, // codex → claude-code
       { send: KEY.down }, // claude-code → cursor
       { send: KEY.space }, // check cursor
       { send: KEY.enter },
@@ -91,7 +93,7 @@ const SCENARIOS = [
       { waitFor: /AutoMem API URL/, send: ENDPOINT },
       { send: KEY.enter },
       { waitFor: /AutoMem API key/, send: KEY.enter },
-      { waitFor: /which agents/, send: KEY.down }, // codex → claude-code
+      { waitFor: /which AI tools/, send: KEY.down }, // codex → claude-code
       { send: KEY.space }, // check claude-code
       { send: KEY.enter },
       { waitFor: /integrate with Claude Code/, send: KEY.enter }, // plugin (default)
@@ -109,7 +111,7 @@ const SCENARIOS = [
       { waitFor: /AutoMem API URL/, send: ENDPOINT },
       { send: KEY.enter },
       { waitFor: /AutoMem API key/, send: KEY.enter },
-      { waitFor: /which agents/, send: KEY.down },
+      { waitFor: /which AI tools/, send: KEY.down },
       { send: KEY.space },
       { send: KEY.enter },
       { waitFor: /integrate with Claude Code/, send: KEY.down }, // plugin → settings
@@ -123,12 +125,19 @@ const SCENARIOS = [
     description: 'hosted cloud → InstaPods: provider select → no resolve paste → setup-page plan',
     steps: [
       { waitFor: /Where should AutoMem run/, send: KEY.enter }, // cloud (default)
-      { waitFor: /stand up your hosted AutoMem/, send: KEY.enter }, // InstaPods (default)
-      { waitFor: /which agents/, send: KEY.enter }, // none selected
+      { waitFor: /set up your hosted AutoMem/, send: KEY.enter }, // InstaPods (default)
+      { waitFor: /which AI tools/, send: KEY.enter }, // none selected
+      { waitFor: /Continue anyway/, send: 'y' }, // zero-agent guard confirm
+      { send: KEY.enter },
     ],
     // InstaPods opens the setup page + pastes during apply, so dry-run shows the
     // provision step and never prompts for a URL/token in resolve.
-    expect: [/Set up AutoMem on InstaPods/, /Install review/, /mode\s+cloud/, /Dry run only/],
+    expect: [
+      /Set up AutoMem on InstaPods/,
+      /Install review/,
+      /setup\s+hosted cloud/,
+      /Dry run only/,
+    ],
     notExpect: [/AutoMem API URL/, /AutoMem install canceled/],
   },
   {
@@ -136,30 +145,38 @@ const SCENARIOS = [
     description: 'hosted cloud → Other: provider select → paste URL + key up front',
     steps: [
       { waitFor: /Where should AutoMem run/, send: KEY.enter }, // cloud (default)
-      { waitFor: /stand up your hosted AutoMem/, send: KEY.down }, // InstaPods → Railway
+      { waitFor: /set up your hosted AutoMem/, send: KEY.down }, // InstaPods → Railway
       { send: KEY.down }, // Railway → Other
       { send: KEY.enter },
       { waitFor: /AutoMem API URL/, send: ENDPOINT },
       { send: KEY.enter },
       { waitFor: /AutoMem API key/, send: KEY.enter }, // blank
-      { waitFor: /which agents/, send: KEY.enter }, // none selected
+      { waitFor: /which AI tools/, send: KEY.enter }, // none selected
+      { waitFor: /Continue anyway/, send: 'y' }, // zero-agent guard confirm
+      { send: KEY.enter },
     ],
     // 'other' pastes up front like an existing endpoint — verify, no provision step.
-    expect: [/Verify AutoMem endpoint/, /Install review/, /mode\s+cloud/, /Dry run only/],
-    notExpect: [/Set up AutoMem on InstaPods/, /Deploy AutoMem on Railway/, /AutoMem install canceled/],
+    expect: [/Verify AutoMem endpoint/, /Install review/, /setup\s+hosted cloud/, /Dry run only/],
+    notExpect: [
+      /Set up AutoMem on InstaPods/,
+      /Deploy AutoMem on Railway/,
+      /AutoMem install canceled/,
+    ],
   },
   {
     name: 'cloud-railway',
     description: 'hosted cloud → Railway (guided): provider select → no paste → provision plan',
     steps: [
       { waitFor: /Where should AutoMem run/, send: KEY.enter }, // cloud (default)
-      { waitFor: /stand up your hosted AutoMem/, send: KEY.down }, // InstaPods → Railway
+      { waitFor: /set up your hosted AutoMem/, send: KEY.down }, // InstaPods → Railway
       { send: KEY.enter },
-      { waitFor: /which agents/, send: KEY.enter }, // none selected
+      { waitFor: /which AI tools/, send: KEY.enter }, // none selected
+      { waitFor: /Continue anyway/, send: 'y' }, // zero-agent guard confirm
+      { send: KEY.enter },
     ],
     // Railway provisions endpoint+token during apply (via the railway CLI), so
     // dry-run shows the provision step and never prompts for a URL/token.
-    expect: [/Deploy AutoMem on Railway/, /Install review/, /mode\s+cloud/, /Dry run only/],
+    expect: [/Deploy AutoMem on Railway/, /Install review/, /setup\s+hosted cloud/, /Dry run only/],
     notExpect: [/AutoMem API URL/, /Deploy AutoMem on InstaPods/, /AutoMem install canceled/],
   },
   {
@@ -169,9 +186,74 @@ const SCENARIOS = [
       { waitFor: /Where should AutoMem run/, send: KEY.down }, // cloud → local
       { send: KEY.enter },
       { waitFor: /Local AutoMem server directory/, send: KEY.enter }, // accept default
-      { waitFor: /which agents/, send: KEY.enter }, // none
+      { waitFor: /which AI tools/, send: KEY.enter }, // none
+      { waitFor: /Continue anyway/, send: 'y' }, // zero-agent guard confirm
+      { send: KEY.enter },
     ],
-    expect: [/Prepare local AutoMem server/, /mode\s+local/, /Dry run only/],
+    expect: [/Prepare local AutoMem server/, /setup\s+local docker/, /Dry run only/],
+    notExpect: [/AutoMem install canceled/],
+  },
+  {
+    name: 'existing-grok',
+    description:
+      'existing endpoint, full interactive: target -> URL -> key -> agents (grok, last in the list)',
+    steps: [
+      { waitFor: /Where should AutoMem run/, send: KEY.down }, // cloud → local
+      { send: KEY.down }, // local → existing
+      { send: KEY.enter },
+      { waitFor: /AutoMem API URL/, send: ENDPOINT },
+      { send: KEY.enter },
+      { waitFor: /AutoMem API key/, send: KEY.enter }, // blank
+      { waitFor: /which AI tools/, send: KEY.down }, // codex → claude-code
+      { send: KEY.down }, // claude-code → cursor
+      { send: KEY.down }, // cursor → openclaw
+      { send: KEY.down }, // openclaw → hermes
+      { send: KEY.down }, // hermes → grok (last entry in AGENT_CLIENTS)
+      { send: KEY.space }, // check grok — it has no follow-up sub-prompt
+      { send: KEY.enter },
+    ],
+    expect: [
+      /Install review/,
+      /Grok Build integration/,
+      /\.grok\/config\.toml/,
+      /\.grok\/AGENTS\.md/,
+      // A dry run lists those paths but must say, right under them, that it
+      // writes nothing — otherwise the review reads like an applied install.
+      /dry run/,
+      /nothing is written/,
+      /Dry run only/,
+      // On a TTY, dropping --dry-run is enough to apply; the headless variant
+      // (which also needs --yes) must not leak into the interactive closer.
+      /run the same command without --dry-run/,
+    ],
+    notExpect: [
+      /AutoMem install canceled/,
+      /each changed file keeps a \.bak copy/,
+      /--yes/,
+      /AUTOMEM_DRY_RUN/,
+    ],
+  },
+  {
+    name: 'existing-none',
+    description: 'zero-agent guard: empty multiselect -> explicit confirm -> review says no agents',
+    steps: [
+      { waitFor: /Where should AutoMem run/, send: KEY.down }, // cloud → local
+      { send: KEY.down }, // local → existing
+      { send: KEY.enter },
+      { waitFor: /AutoMem API URL/, send: ENDPOINT },
+      { send: KEY.enter },
+      { waitFor: /AutoMem API key/, send: KEY.enter }, // blank
+      { waitFor: /which AI tools/, send: KEY.enter }, // submit empty
+      { waitFor: /Continue anyway/, send: 'y' },
+      { send: KEY.enter },
+    ],
+    expect: [
+      /No AI tools selected/,
+      /Install review/,
+      /no AI tools/,
+      /none selected — nothing will be connected/,
+      /Dry run only/,
+    ],
     notExpect: [/AutoMem install canceled/],
   },
 ];
@@ -183,6 +265,12 @@ async function run(scenario) {
   delete env.NO_COLOR;
   delete env.CLAUDE_CODE;
   delete env.CODEX;
+  // Client detection is path-based, and the hermes/grok roots are overridable by
+  // env (HERMES_HOME / GROK_HOME in detectInstallEnvironment). Inheriting either
+  // would point detection at the operator's REAL home, pre-check that agent in the
+  // multiselect, and desync every route's keystroke choreography.
+  delete env.HERMES_HOME;
+  delete env.GROK_HOME;
   delete env.AUTOMEM_API_URL;
   delete env.AUTOMEM_ENDPOINT;
   delete env.AUTOMEM_API_KEY;
@@ -210,10 +298,12 @@ async function run(scenario) {
     buf += d;
   });
   let exitCode = null;
-  const exited = new Promise((res) => term.onExit(({ exitCode: c }) => {
-    exitCode = c;
-    res();
-  }));
+  const exited = new Promise((res) =>
+    term.onExit(({ exitCode: c }) => {
+      exitCode = c;
+      res();
+    })
+  );
 
   const waitFor = async (re, timeout = 8000) => {
     const start = Date.now();
@@ -271,7 +361,13 @@ for (const scenario of selected) {
   try {
     result = await run(scenario);
   } catch (err) {
-    result = { name: scenario.name, ok: false, missing: [String(err.message)], unexpected: [], tail: '' };
+    result = {
+      name: scenario.name,
+      ok: false,
+      missing: [String(err.message)],
+      unexpected: [],
+      tail: '',
+    };
   }
   if (result.ok) {
     passed += 1;
@@ -282,8 +378,15 @@ for (const scenario of selected) {
     if (result.timedOut) console.log('   timed out: installer did not exit within 10s');
     if (result.missing.length) console.log(`   missing: ${result.missing.join(' | ')}`);
     if (result.unexpected.length) console.log(`   unexpected: ${result.unexpected.join(' | ')}`);
-    if (result.exitCode != null && result.exitCode !== 0) console.log(`   exit: ${result.exitCode}`);
-    if (result.tail) console.log(`   tail:\n${result.tail.split('\n').map((l) => '     ' + l).join('\n')}`);
+    if (result.exitCode != null && result.exitCode !== 0)
+      console.log(`   exit: ${result.exitCode}`);
+    if (result.tail)
+      console.log(
+        `   tail:\n${result.tail
+          .split('\n')
+          .map((l) => '     ' + l)
+          .join('\n')}`
+      );
   }
 }
 

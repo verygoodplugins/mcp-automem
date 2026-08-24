@@ -3,15 +3,27 @@ import os from 'os';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { getCopilotSupportScriptBaseNames } from './copilot.js';
+import { resolveCopilotHome } from './hook-model.js';
 import { automemOwnedFiles, removeManagedHookEntries, RETIRED_PERMISSIONS } from './claude-code.js';
 import {
   removeHermesMemoryProvider,
   removeMcpServerEntry,
   resolveHermesPaths,
 } from './hermes-config.js';
+import { removeGrokMemoryServer, resolveGrokPaths } from './grok-config.js';
+import { GROK_RULES_END, GROK_RULES_START, stripGrokRulesMarkers } from './grok.js';
+// Marker literals come from the host modules that write them. Re-typing the strings
+// here is the hand-written duplication that caused #186; the strip logic below is
+// deliberately left as-is (its output shape differs from the install-time helper and
+// is pinned by uninstall.test.ts).
+import { CODEX_RULES_END, CODEX_RULES_START } from './codex.js';
+import { COPILOT_RULES_END, COPILOT_RULES_START } from './copilot.js';
+import { HERMES_RULES_END, HERMES_RULES_START } from './hermes.js';
+import { UNINSTALL_PLATFORMS, type UninstallPlatform } from './clients.js';
 
 interface UninstallOptions {
-  platform: 'cursor' | 'claude-code' | 'codex' | 'hermes';
+  platform: UninstallPlatform;
   projectDir?: string;
   rulesPath?: string;
   cleanAll?: boolean;
@@ -30,17 +42,17 @@ async function confirm(message: string, defaultYes = false): Promise<boolean> {
   if (!input.isTTY || !output.isTTY) {
     return defaultYes;
   }
-  
+
   const rl = createInterface({ input, output });
   try {
     const prompt = defaultYes ? `${message} [Y/n]: ` : `${message} [y/N]: `;
     const answer = await rl.question(prompt);
     const normalized = answer.trim().toLowerCase();
-    
+
     if (!normalized) {
       return defaultYes;
     }
-    
+
     return normalized === 'y' || normalized === 'yes';
   } finally {
     rl.close();
@@ -51,12 +63,12 @@ function removeFileWithBackup(filePath: string, dryRun: boolean, quiet?: boolean
   if (!fs.existsSync(filePath)) {
     return false;
   }
-  
+
   if (dryRun) {
     log(`[DRY RUN] Would remove: ${filePath}`, quiet);
     return true;
   }
-  
+
   // Create backup before deletion
   const backupPath = `${filePath}.removed.${Date.now()}`;
   try {
@@ -75,12 +87,12 @@ function removeDirectory(dirPath: string, dryRun: boolean, quiet?: boolean): boo
   if (!fs.existsSync(dirPath)) {
     return false;
   }
-  
+
   if (dryRun) {
     log(`[DRY RUN] Would remove directory: ${dirPath}`, quiet);
     return true;
   }
-  
+
   try {
     fs.rmSync(dirPath, { recursive: true, force: true });
     log(`🗑️  Removed directory: ${dirPath}`, quiet);
@@ -95,7 +107,7 @@ function removeEnvKeysWithBackup(
   envPath: string,
   keys: string[],
   dryRun: boolean,
-  quiet?: boolean,
+  quiet?: boolean
 ): boolean {
   if (!fs.existsSync(envPath)) return false;
   const keySet = new Set(keys);
@@ -114,7 +126,10 @@ function removeEnvKeysWithBackup(
   const backupPath = `${envPath}.backup.${Date.now()}`;
   fs.copyFileSync(envPath, backupPath);
   const content = filtered.join('\n').replace(/\s+$/, '');
-  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   try {
     fs.chmodSync(envPath, 0o600);
   } catch {
@@ -128,9 +143,15 @@ function removeEnvKeysWithBackup(
 function getClaudeDesktopConfigPath(): string {
   const homeDir = os.homedir();
   const platform = os.platform();
-  
+
   if (platform === 'darwin') {
-    return path.join(homeDir, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+    return path.join(
+      homeDir,
+      'Library',
+      'Application Support',
+      'Claude',
+      'claude_desktop_config.json'
+    );
   } else if (platform === 'win32') {
     return path.join(homeDir, 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json');
   } else {
@@ -146,42 +167,42 @@ function getCursorConfigPath(): string {
 
 function removeClaudeDesktopMemoryServer(dryRun: boolean, quiet?: boolean): boolean {
   const configPath = getClaudeDesktopConfigPath();
-  
+
   if (!fs.existsSync(configPath)) {
     log('ℹ️  Claude Desktop config not found', quiet);
     return false;
   }
-  
+
   if (dryRun) {
     log(`[DRY RUN] Would remove memory server from: ${configPath}`, quiet);
     return true;
   }
-  
+
   try {
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    
+
     const hadMemory = config?.mcpServers?.memory;
     const hadAutomem = config?.mcpServers?.automem;
-    
+
     if (!hadMemory && !hadAutomem) {
       log('ℹ️  No memory server configured in Claude Desktop', quiet);
       return false;
     }
-    
+
     // Remove memory servers
     if (config?.mcpServers) {
       // Default server id is now "memory" but remove legacy "automem" if present
       delete config.mcpServers.memory;
       delete config.mcpServers.automem;
     }
-    
+
     // Backup original
     const backupPath = `${configPath}.backup.${Date.now()}`;
     fs.copyFileSync(configPath, backupPath);
-    
+
     // Write updated config
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-    
+
     log(`🗑️  Removed memory server from Claude Desktop config`, quiet);
     log(`   Backup: ${backupPath}`, quiet);
     return true;
@@ -217,8 +238,8 @@ function removeCursorMcpServer(dryRun: boolean, quiet?: boolean): boolean {
     }
 
     if (config?.mcpServers) {
-      delete config.mcpServers.memory;   // default
-      delete config.mcpServers.automem;  // legacy
+      delete config.mcpServers.memory; // default
+      delete config.mcpServers.automem; // legacy
     }
 
     const backupPath = `${configPath}.backup.${Date.now()}`;
@@ -238,16 +259,16 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
   const projectDir = options.projectDir ?? process.cwd();
   const cursorRulesDir = path.join(projectDir, '.cursor', 'rules');
   const automemRuleFile = path.join(cursorRulesDir, 'automem.mdc');
-  
+
   log('\n🗑️  Uninstalling Cursor AutoMem...', options.quiet);
-  
+
   let removedCount = 0;
-  
+
   // Remove automem.mdc rule file
   if (removeFileWithBackup(automemRuleFile, options.dryRun ?? false, options.quiet)) {
     removedCount++;
   }
-  
+
   // Remove empty .cursor/rules directory
   if (fs.existsSync(cursorRulesDir)) {
     const remaining = fs.readdirSync(cursorRulesDir);
@@ -255,7 +276,7 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
       removeDirectory(cursorRulesDir, options.dryRun ?? false, options.quiet);
     }
   }
-  
+
   if (removedCount > 0) {
     log(`\n✅ Removed Cursor AutoMem rule file`, options.quiet);
   } else {
@@ -273,26 +294,29 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
 
   let didChange = false;
   if (fs.existsSync(paths.configPath)) {
-    didChange = removeMcpServerEntry(paths.configPath, 'automem', {
-      dryRun: options.dryRun,
-      quiet: options.quiet,
-    }) || didChange;
-    didChange = removeMcpServerEntry(paths.configPath, 'memory', {
-      dryRun: options.dryRun,
-      quiet: options.quiet,
-      onlyIfAutoMem: true,
-    }) || didChange;
-    didChange = removeHermesMemoryProvider(paths.configPath, 'automem', {
-      dryRun: options.dryRun,
-      quiet: options.quiet,
-    }) || didChange;
+    didChange =
+      removeMcpServerEntry(paths.configPath, 'automem', {
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+      }) || didChange;
+    didChange =
+      removeMcpServerEntry(paths.configPath, 'memory', {
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+        onlyIfAutoMem: true,
+      }) || didChange;
+    didChange =
+      removeHermesMemoryProvider(paths.configPath, 'automem', {
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+      }) || didChange;
   } else {
     log(`ℹ️  No Hermes config at ${paths.configPath}`, options.quiet);
   }
 
   if (fs.existsSync(rulesFile)) {
-    const start = '<!-- BEGIN AUTOMEM HERMES RULES -->';
-    const end = '<!-- END AUTOMEM HERMES RULES -->';
+    const start = HERMES_RULES_START;
+    const end = HERMES_RULES_END;
     const raw = fs.readFileSync(rulesFile, 'utf8');
     const startIdx = raw.indexOf(start);
     const endIdx = raw.indexOf(end);
@@ -321,23 +345,69 @@ async function uninstallHermes(options: UninstallOptions): Promise<void> {
     didChange = removeDirectory(providerDir, options.dryRun ?? false, options.quiet) || didChange;
   }
 
-  didChange = removeEnvKeysWithBackup(
-    path.join(paths.home, '.env'),
-    [
-      'AUTOMEM_API_URL',
-      'AUTOMEM_ENDPOINT',
-      'AUTOMEM_API_KEY',
-      'AUTOMEM_API_TOKEN',
-      'AUTOMEM_HERMES_PROVIDER_TOOLS',
-    ],
-    options.dryRun ?? false,
-    options.quiet,
-  ) || didChange;
+  didChange =
+    removeEnvKeysWithBackup(
+      path.join(paths.home, '.env'),
+      [
+        'AUTOMEM_API_URL',
+        'AUTOMEM_ENDPOINT',
+        'AUTOMEM_API_KEY',
+        'AUTOMEM_API_TOKEN',
+        'AUTOMEM_HERMES_PROVIDER_TOOLS',
+      ],
+      options.dryRun ?? false,
+      options.quiet
+    ) || didChange;
 
   if (didChange) {
     log('\n✅ Hermes AutoMem configuration removed', options.quiet);
   } else if (!options.dryRun) {
     log('\nℹ️  Nothing to remove for Hermes AutoMem', options.quiet);
+  }
+}
+
+async function uninstallGrok(options: UninstallOptions): Promise<void> {
+  const paths = resolveGrokPaths({ dir: options.projectDir });
+  const rulesFile = options.rulesPath ?? paths.agentsPath;
+
+  log('\n🗑️  Uninstalling Grok AutoMem...', options.quiet);
+
+  let didChange = false;
+  if (fs.existsSync(paths.configPath)) {
+    didChange =
+      removeGrokMemoryServer(paths.configPath, {
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+        onlyIfAutoMem: true,
+      }) || didChange;
+  } else {
+    log(`ℹ️  No Grok config at ${paths.configPath}`, options.quiet);
+  }
+
+  if (fs.existsSync(rulesFile)) {
+    const raw = fs.readFileSync(rulesFile, 'utf8');
+    const startIdx = raw.indexOf(GROK_RULES_START);
+    const endIdx = raw.indexOf(GROK_RULES_END);
+
+    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+      log(`ℹ️  No AutoMem rule block in ${rulesFile}`, options.quiet);
+    } else if (options.dryRun) {
+      log(`[DRY RUN] Would strip AutoMem block from: ${rulesFile}`, options.quiet);
+    } else {
+      const next = `${stripGrokRulesMarkers(raw).replace(/\n+$/, '')}\n`;
+      const backupPath = `${rulesFile}.backup.${Date.now()}`;
+      fs.copyFileSync(rulesFile, backupPath);
+      fs.writeFileSync(rulesFile, next, 'utf8');
+      log(`🗑️  Stripped AutoMem block from ${rulesFile}`, options.quiet);
+      log(`   Backup: ${backupPath}`, options.quiet);
+      didChange = true;
+    }
+  }
+
+  if (didChange) {
+    log('\n✅ Grok AutoMem configuration removed', options.quiet);
+  } else if (!options.dryRun) {
+    log('\nℹ️  Nothing to remove for Grok AutoMem', options.quiet);
   }
 }
 
@@ -355,8 +425,8 @@ async function uninstallCodex(options: UninstallOptions): Promise<void> {
     return;
   }
 
-  const start = '<!-- BEGIN AUTOMEM CODEX RULES -->';
-  const end = '<!-- END AUTOMEM CODEX RULES -->';
+  const start = CODEX_RULES_START;
+  const end = CODEX_RULES_END;
   const raw = fs.readFileSync(rulesFile, 'utf8');
   const startIdx = raw.indexOf(start);
   const endIdx = raw.indexOf(end);
@@ -388,7 +458,7 @@ async function uninstallCodex(options: UninstallOptions): Promise<void> {
 async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
   const claudeDir = path.join(os.homedir(), '.claude');
   const settingsPath = path.join(claudeDir, 'settings.json');
-  
+
   log('\n🗑️  Uninstalling Claude Code AutoMem...', options.quiet);
 
   let settingsCleared = true;
@@ -500,61 +570,249 @@ function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOpt
   }
 }
 
+async function uninstallCopilot(options: UninstallOptions): Promise<void> {
+  const copilotDir = options.projectDir ?? resolveCopilotHome();
+  const hooksDir = path.join(copilotDir, 'hooks');
+  const scriptsDir = path.join(copilotDir, 'scripts');
+
+  log('\n🗑️  Uninstalling Copilot AutoMem...', options.quiet);
+
+  let removedCount = 0;
+
+  // Remove automem-*.json hook files
+  if (fs.existsSync(hooksDir)) {
+    const hookFiles = fs
+      .readdirSync(hooksDir)
+      .filter((f) => f.startsWith('automem-') && f.endsWith('.json'));
+
+    for (const hookFile of hookFiles) {
+      if (
+        removeFileWithBackup(path.join(hooksDir, hookFile), options.dryRun ?? false, options.quiet)
+      ) {
+        removedCount++;
+      }
+    }
+  }
+
+  // Remove AutoMem support scripts (.sh and .ps1)
+  if (fs.existsSync(scriptsDir)) {
+    const automemScriptPatterns = getCopilotSupportScriptBaseNames();
+
+    const scriptFiles = fs.readdirSync(scriptsDir).filter((f) => {
+      const base = f.replace(/\.(sh|ps1|py)$/, '');
+      return automemScriptPatterns.includes(base);
+    });
+
+    for (const script of scriptFiles) {
+      if (
+        removeFileWithBackup(path.join(scriptsDir, script), options.dryRun ?? false, options.quiet)
+      ) {
+        removedCount++;
+      }
+    }
+
+    // Also remove memory-filters.json and memory-queue.jsonl
+    for (const extra of ['memory-filters.json', 'memory-queue.jsonl']) {
+      const extraPath = path.join(scriptsDir, extra);
+      if (fs.existsSync(extraPath)) {
+        if (removeFileWithBackup(extraPath, options.dryRun ?? false, options.quiet)) {
+          removedCount++;
+        }
+      }
+    }
+  }
+
+  // Remove memory rules files
+  const vscodeRulesPath = path.join(copilotDir, 'instructions', 'automem.instructions.md');
+  if (removeFileWithBackup(vscodeRulesPath, options.dryRun ?? false, options.quiet)) {
+    removedCount++;
+  }
+
+  // Strip AutoMem marker block from copilot-instructions.md
+  const cliRulesPath = path.join(copilotDir, 'copilot-instructions.md');
+  if (fs.existsSync(cliRulesPath)) {
+    const startMarker = COPILOT_RULES_START;
+    const endMarker = COPILOT_RULES_END;
+    const content = fs.readFileSync(cliRulesPath, 'utf8');
+    const startIdx = content.indexOf(startMarker);
+    const endIdx = content.indexOf(endMarker);
+    if (startIdx !== -1 && endIdx !== -1) {
+      if (options.dryRun) {
+        log(`[DRY RUN] Would strip AutoMem block from: ${cliRulesPath}`, options.quiet);
+        removedCount++;
+      } else {
+        const before = content.slice(0, startIdx);
+        const after = content.slice(endIdx + endMarker.length);
+        const updated = (before + after).replace(/\n{3,}/g, '\n\n').trim();
+        if (updated.length === 0) {
+          // File is empty after removal - delete it
+          if (removeFileWithBackup(cliRulesPath, false, options.quiet)) {
+            removedCount++;
+          }
+        } else {
+          const backup = `${cliRulesPath}.removed.${Date.now()}`;
+          fs.copyFileSync(cliRulesPath, backup);
+          fs.writeFileSync(cliRulesPath, updated + '\n', 'utf8');
+          log(`🗑️  Stripped AutoMem block from: ${cliRulesPath}`, options.quiet);
+          removedCount++;
+        }
+      }
+    }
+  }
+
+  if (removedCount > 0) {
+    log(`\n\u2705 Removed ${removedCount} AutoMem files from Copilot directory`, options.quiet);
+  } else {
+    log('\nℹ️  No AutoMem files found to remove', options.quiet);
+  }
+}
+
+function removeCopilotMcpServer(copilotDir: string, dryRun: boolean, quiet?: boolean): boolean {
+  const configPath = path.join(copilotDir, 'mcp-config.json');
+
+  if (!fs.existsSync(configPath)) {
+    log('ℹ️  Copilot MCP config not found', quiet);
+    return false;
+  }
+
+  if (dryRun) {
+    log(`[DRY RUN] Would remove memory server from: ${configPath}`, quiet);
+    return true;
+  }
+
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(raw);
+
+    const hadMemory = config?.mcpServers?.memory;
+    const hadAutomem = config?.mcpServers?.automem;
+    const memoryIsAutoMem = isAutoMemMcpServer(hadMemory);
+
+    if (!memoryIsAutoMem && !hadAutomem) {
+      log('ℹ️  No memory server configured in Copilot MCP config', quiet);
+      return false;
+    }
+
+    if (config?.mcpServers) {
+      if (memoryIsAutoMem) {
+        delete config.mcpServers.memory;
+      }
+      delete config.mcpServers.automem;
+    }
+
+    const backupFile = `${configPath}.backup.${Date.now()}`;
+    fs.copyFileSync(configPath, backupFile);
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    log('🗑️  Removed memory server from Copilot MCP config', quiet);
+    log(`   Backup: ${backupFile}`, quiet);
+    return true;
+  } catch (error) {
+    log(`❌ Failed to update Copilot MCP config: ${(error as Error).message}`, quiet);
+    return false;
+  }
+}
+
+function isAutoMemMcpServer(server: unknown): boolean {
+  if (!server || typeof server !== 'object') {
+    return false;
+  }
+  const entry = server as { command?: unknown; args?: unknown };
+  const values = [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])].filter(
+    (value): value is string => typeof value === 'string'
+  );
+  return values.some((value) => value.includes('mcp-automem'));
+}
+
+/**
+ * Platform → handler. A total `Record` rather than an if-chain so TypeScript rejects a
+ * new `UninstallPlatform` that has no handler, and so the parity suite can assert the
+ * mapping directly. Grepping the source for `options.platform === 'x'` could not: the
+ * same predicate appears in the `--clean-all` and next-steps blocks below, so deleting
+ * a real dispatch branch still left a match.
+ */
+const UNINSTALL_HANDLERS: Record<UninstallPlatform, (options: UninstallOptions) => Promise<void>> =
+  {
+    cursor: uninstallCursor,
+    'claude-code': uninstallClaudeCode,
+    copilot: uninstallCopilot,
+    codex: uninstallCodex,
+    hermes: uninstallHermes,
+    grok: uninstallGrok,
+  };
+
+/** Platforms with a registered uninstall handler, for the parity suite. */
+export function uninstallHandlerPlatforms(): string[] {
+  return Object.keys(UNINSTALL_HANDLERS);
+}
+
 export async function runUninstall(options: UninstallOptions): Promise<void> {
   log(`\n🚮 AutoMem Uninstaller`, options.quiet);
   log(`   Platform: ${options.platform}`, options.quiet);
-  
+
   if (!options.yes && !options.dryRun) {
-    const confirmed = await confirm('\n⚠️  This will remove AutoMem configuration. Continue?', false);
+    const confirmed = await confirm(
+      '\n⚠️  This will remove AutoMem configuration. Continue?',
+      false
+    );
     if (!confirmed) {
       log('\nUninstall cancelled.', options.quiet);
       return;
     }
   }
-  
+
   // Platform-specific uninstall
-  if (options.platform === 'cursor') {
-    await uninstallCursor(options);
-  } else if (options.platform === 'claude-code') {
-    await uninstallClaudeCode(options);
-  } else if (options.platform === 'codex') {
-    await uninstallCodex(options);
-  } else if (options.platform === 'hermes') {
-    await uninstallHermes(options);
-  }
-  
+  await UNINSTALL_HANDLERS[options.platform](options);
+
   // Clean up external changes (Claude Desktop config) if requested
   if (options.cleanAll) {
     log('\n🧹 Cleaning external configurations...', options.quiet);
-    // Remove from Claude Desktop config (if present)
-    removeClaudeDesktopMemoryServer(options.dryRun ?? false, options.quiet);
-    // Remove from Cursor MCP config (if present)
-    removeCursorMcpServer(options.dryRun ?? false, options.quiet);
+    if (options.platform === 'copilot') {
+      const copilotDir = options.projectDir ?? resolveCopilotHome();
+      removeCopilotMcpServer(copilotDir, options.dryRun ?? false, options.quiet);
+    } else {
+      // Remove from Claude Desktop config (if present)
+      removeClaudeDesktopMemoryServer(options.dryRun ?? false, options.quiet);
+      // Remove from Cursor MCP config (if present)
+      removeCursorMcpServer(options.dryRun ?? false, options.quiet);
+    }
   }
-  
+
   log('\n✨ Uninstall complete!', options.quiet);
-  
+
   if (options.platform === 'cursor' && !options.cleanAll && !options.dryRun) {
     log('\n💡 Note: This removed the project rule file.', options.quiet);
-    log('   To also remove the MCP server config from Cursor, re-run with --clean-all', options.quiet);
+    log(
+      '   To also remove the MCP server config from Cursor, re-run with --clean-all',
+      options.quiet
+    );
   } else if (options.platform === 'claude-code' && !options.cleanAll && !options.dryRun) {
     log('\nNote: To also remove the memory server from Claude Desktop config, run:', options.quiet);
-    log(`  npx @verygoodplugins/mcp-automem uninstall ${options.platform} --clean-all`, options.quiet);
+    log(
+      `  npx @verygoodplugins/mcp-automem uninstall ${options.platform} --clean-all`,
+      options.quiet
+    );
+  } else if (options.platform === 'copilot' && !options.cleanAll && !options.dryRun) {
+    log('\nNote: To also remove the MCP server config from Copilot, run:', options.quiet);
+    log(`  npx @verygoodplugins/mcp-automem uninstall copilot --clean-all`, options.quiet);
   }
 }
 
 export function parseUninstallArgs(args: string[]): UninstallOptions | null {
-  const allowed = ['cursor', 'claude-code', 'codex', 'hermes'] as const;
-  if (args.length === 0 || !allowed.includes(args[0] as typeof allowed[number])) {
-    console.error('❌ Error: Platform required (cursor, claude-code, codex, or hermes)');
-    console.error('Usage: mcp-automem uninstall <cursor|claude-code|codex|hermes> [options]');
+  // Derived from AGENT_CLIENTS so a new installer client cannot quietly ship without
+  // an uninstall path — it either lands here or is listed in UNINSTALL_UNSUPPORTED_CLIENTS.
+  const allowed = UNINSTALL_PLATFORMS;
+  if (args.length === 0 || !allowed.includes(args[0] as UninstallPlatform)) {
+    const list = allowed.join(', ');
+    console.error(`❌ Error: Platform required (${list})`);
+    console.error(`Usage: mcp-automem uninstall <${allowed.join('|')}> [options]`);
     return null;
   }
 
   const options: UninstallOptions = {
     platform: args[0] as UninstallOptions['platform'],
   };
-  
+
   for (let i = 1; i < args.length; i += 1) {
     const arg = args[i];
     switch (arg) {
@@ -591,7 +849,7 @@ export function parseUninstallArgs(args: string[]): UninstallOptions | null {
         break;
     }
   }
-  
+
   return options;
 }
 

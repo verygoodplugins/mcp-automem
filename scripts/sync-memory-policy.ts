@@ -10,6 +10,7 @@ import {
   renderClaudeMdMemoryRules,
   renderCodexMemoryRules,
   renderCursorProjectRule,
+  renderGrokMemoryRules,
   renderHermesMemoryRules,
   renderHermesProviderPolicyPython,
 } from '../src/memory-policy/shared.js';
@@ -62,10 +63,7 @@ const files: Array<[string, string]> = [
     'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',
     renderClaudeDesktopInstructions({ templateVersion }),
   ],
-  [
-    'templates/CLAUDE_MD_MEMORY_RULES.md',
-    renderClaudeMdMemoryRules({ templateVersion }),
-  ],
+  ['templates/CLAUDE_MD_MEMORY_RULES.md', renderClaudeMdMemoryRules({ templateVersion })],
   [
     'templates/hermes/memory-rules.md',
     renderHermesMemoryRules({
@@ -75,6 +73,10 @@ const files: Array<[string, string]> = [
     }),
   ],
   ['templates/hermes/provider/automem_policy.py', renderHermesProviderPolicyPython()],
+  [
+    'templates/grok/memory-rules.md',
+    renderGrokMemoryRules({ projectName: '{{PROJECT_NAME}}', templateVersion }),
+  ],
 ];
 
 const changed = files.reduce((count, [relativePath, content]) => {

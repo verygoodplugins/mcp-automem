@@ -78,8 +78,19 @@ the plan.
 > Without a TTY and without `--yes`/`--dry-run`, `install` prints the review
 > plan and stops without writing — re-run with `--yes` to apply.
 
+**API keys are paired with their endpoint.** A key belongs to the AutoMem
+instance it was issued for, so the installers never carry one to a different
+host. If you re-run against a new `--endpoint` without passing `--api-key`, any
+key inherited from your shell (`AUTOMEM_API_KEY` / `AUTOMEM_API_TOKEN`) or from
+the agent's existing config is dropped rather than reused, and a key already
+persisted in the project `.env` is removed — the MCP server loads that file at
+startup, so leaving it would send the old credential to the new host. Pass
+`--api-key` to set the credential for the new endpoint. A key exported with no
+endpoint alongside it is not bound to anything and is still used; a re-run at
+the *same* endpoint keeps the key it already has.
+
 **Removing AutoMem:** uninstall is per-agent —
-`npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes>`
+`npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes|grok>`
 (add `--clean-all` to also drop the MCP server config). OpenClaw owns its own
 plugin lifecycle, so remove the AutoMem plugin from OpenClaw directly with
 `openclaw plugins uninstall automem` rather than the `uninstall` command above.
@@ -140,8 +151,11 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [Claude Desktop](#claude-desktop) - Desktop AI assistant
 - [Cursor IDE](#cursor-ide) - AI-powered code editor
 - [Claude Code](#claude-code) - Terminal coding assistant with automation hooks
+- [GitHub Copilot coding agent](#github-copilot-coding-agent-githubcom) - Cloud-based coding agent on GitHub.com
+- [GitHub Copilot CLI and VS Code](#github-copilot-cli-and-vs-code) - Terminal and editor with hooks and memory rules
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
 - [Hermes Agent](#hermes-agent) - Nous Research terminal agent with MCP and native memory provider support
+- [Grok Build](#grok-build) - xAI Grok CLI with native `~/.grok/config.toml` MCP registration
 - [Google Antigravity](#google-antigravity) - Desktop editor with MCP Store and raw config
 - [OpenClaw](#openclaw) - Personal AI assistant with multi-platform messaging (WhatsApp, Telegram, Slack, Discord, etc.)
 
@@ -640,6 +654,104 @@ Example (Streamable HTTP):
 
 Create a `COPILOT_MCP_AUTOMEM_AUTH_HEADER` environment secret with the full header value (for example: `Bearer <AUTOMEM_API_TOKEN>`).
 
+## GitHub Copilot CLI and VS Code
+
+GitHub Copilot CLI and VS Code Copilot both use the Copilot config directory (`$COPILOT_HOME` when set, otherwise `~/.copilot/`) and the same hooks system. The `copilot` setup command installs hooks, support scripts, and memory rules that work in both surfaces.
+
+For details on how hooks work across both surfaces, see the [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference).
+
+### 1. Configure MCP Server
+
+The MCP server config lives in different places for CLI vs VS Code:
+
+**Copilot CLI** -- add to `$COPILOT_HOME/mcp-config.json` or `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "automem": {
+      "type": "local",
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001",
+        "AUTOMEM_API_KEY": "your-api-key-if-required"
+      },
+      "tools": ["*"]
+    }
+  }
+}
+```
+
+> **Note:** Copilot CLI does not support `${env:...}` variable interpolation in
+> `mcp-config.json` -- that syntax is VS Code-only. Environment variables set in
+> your shell (e.g. `AUTOMEM_API_KEY`) are inherited by the MCP server process
+> automatically, so you can omit them from the `env` block. Only include values
+> that are not already in your shell environment.
+
+**VS Code** -- add to `.vscode/mcp.json` (workspace) or VS Code user settings:
+
+```json
+{
+  "servers": {
+    "automem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "env": {
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001",
+        "AUTOMEM_API_KEY": "your-api-key-if-required"
+      }
+    }
+  }
+}
+```
+
+### 2. Install Hooks and Memory Rules
+
+```bash
+npx @verygoodplugins/mcp-automem copilot --yes
+```
+
+This installs:
+- **Hook JSON files** into `$COPILOT_HOME/hooks/` or `~/.copilot/hooks/` (session-start recall, a `postToolUse` store tracker, and -- with `--profile full` -- an opt-in `agentStop` storage nudge)
+- **Support scripts** (bash + PowerShell) into `$COPILOT_HOME/scripts/` or `~/.copilot/scripts/`
+- **Memory rules** into both `copilot-instructions.md` (CLI) and `instructions/automem.instructions.md` (VS Code) inside the target Copilot directory
+
+Re-running the command also deletes the orphaned files from the retired session-summary + build/test/deploy capture + queue machinery left behind by older installs (parity with the Claude Code side).
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--format cli\|vscode\|both` | `both` | Which memory rules and hook event names to install. `cli` = camelCase hooks + CLI rules only. `vscode` = PascalCase hooks + VS Code rules only. `both` = both hook event spellings + both rule sets. |
+| `--profile lean\|full` | `lean` | `lean` (default, silent) = session-start recall + `postToolUse` store tracker. `full` = adds the opt-in `agentStop` storage nudge that re-wakes the agent for one closing turn (once per session) when nothing durable was stored. |
+| `--dir <path>` | `$COPILOT_HOME` or `~/.copilot` | Target installation directory |
+| `--dry-run` | | Preview changes without writing files |
+| `--yes` | | Skip confirmation prompts |
+| `--quiet` | | Suppress output |
+| `--help`, `-h` | | Print the usage block and exit without installing |
+
+> **Nudge note:** Copilot's `agentStop` output contract is `{decision, reason}` -- a `block` decision re-prompts the agent using `reason`. Unlike Claude Code's `Stop` hook it cannot inject hidden, non-prompting context, so the storage nudge is opt-in (`--profile full`) only; the default `lean` install keeps session end silent. The nudge fires at most once per session and only after a substantive session (>= 5 `user.message` turns in the transcript).
+
+> **Windows note:** All hook templates invoke PowerShell with `-NoProfile` to prevent profile output from corrupting hook JSON payloads. This matches how bash hooks work (non-interactive `bash script.sh` skips `~/.bashrc`). If your hook scripts need something from your profile (custom PATH entries, modules), move that setup into the hook script itself or into environment variables.
+
+### 3. Verify Installation
+
+In a Copilot CLI or VS Code Copilot session, ask:
+
+```
+Check the health of the AutoMem service
+```
+
+### 4. Uninstall
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall copilot --yes
+```
+
+Add `--clean-all` to also remove the MCP server entry from the target Copilot `mcp-config.json`.
+
+---
+
 ## OpenAI Codex
 
 OpenAI Codex is an AI coding assistant with CLI, IDE, and cloud agent support. AutoMem enables Codex to remember project context, coding patterns, and past decisions.
@@ -921,6 +1033,68 @@ AUTOMEM_HERMES_DEBUG=true hermes
 ```
 
 Then check the Hermes logs for AutoMem prefetch diagnostics. The debug path reports counts and endpoint status only; it does not dump memory content or secrets.
+
+---
+
+## Grok Build
+
+Grok Build (xAI CLI) loads MCP from `~/.grok/config.toml`, then Claude/Cursor compat sources. **Native config is required for AutoMem.** If AutoMem is only present via Claude/Cursor imports, Grok can start `npx @verygoodplugins/mcp-automem` without `AUTOMEM_*` env — the server then defaults to `http://127.0.0.1:8001` and every session fails with `Mcp error: -32603: fetch failed`. Edits in the `/mcps` UI are session-scoped unless written to `config.toml`.
+
+### Install
+
+```bash
+# Guided installer (detects ~/.grok and offers Grok in the agent list)
+npx @verygoodplugins/mcp-automem install --clients grok \
+  --endpoint https://your-automem.example --api-key "$AUTOMEM_API_KEY"
+
+# Or standalone
+npx @verygoodplugins/mcp-automem grok \
+  --endpoint https://your-automem.example --api-key "$AUTOMEM_API_KEY"
+```
+
+This writes:
+
+- `~/.grok/config.toml` → `[mcp_servers.memory]` with `npx -y @verygoodplugins/mcp-automem` and `AUTOMEM_API_URL` / `AUTOMEM_API_KEY` / `AUTOMEM_PROCESS_TAG=grok:memory`
+- `~/.grok/AGENTS.md` → marked AutoMem rules block (Grok injects this every session)
+
+Override the Grok home with `$GROK_HOME` or `--dir`.
+
+Only the `[mcp_servers.memory]` table is touched — the rest of `config.toml` keeps its
+comments, multi-line strings, and formatting. Every write backs the file up first, and
+`--dry-run` reports whether the entry would be added, updated, or left unchanged without
+writing anything. To wire it up by hand instead, copy
+[`templates/grok/config.toml`](templates/grok/config.toml).
+
+> If `disabled_mcp_servers` in `config.toml` contains `"memory"`, Grok ignores the server
+> entry entirely. The installer warns when it sees this; remove the name from that list.
+
+### Verify
+
+```bash
+grok mcp list
+# → memory: npx -y @verygoodplugins/mcp-automem
+
+# Start a *new* Grok session (existing sessions keep the old MCP child), then recall
+```
+
+Tools appear as `memory__recall_memory`, `memory__store_memory`, etc. Discover with `search_tool`, then call with `use_tool`.
+
+### Uninstall
+
+```bash
+npx @verygoodplugins/mcp-automem uninstall grok
+npx @verygoodplugins/mcp-automem uninstall grok --dry-run
+```
+
+Removes AutoMem-owned `mcp_servers.memory` and strips the `<!-- BEGIN AUTOMEM GROK RULES -->` block from `~/.grok/AGENTS.md` (or `--rules <path>`). Non-AutoMem `memory` servers are left alone.
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `fetch failed` / `ECONNREFUSED 127.0.0.1:8001` | No native MCP env; compat import dropped `AUTOMEM_*` | Run `mcp-automem grok` so `config.toml` wins over Claude/Cursor |
+| Works after `/mcps` SSE tweak, fails next session | UI change was session-only | Persist with `grok mcp add` / `mcp-automem grok`, not the modal alone |
+| `grok mcp list` empty but tools still appear | Compat-only load | Add native `[mcp_servers.memory]` so env is explicit |
 
 ---
 
@@ -1411,6 +1585,9 @@ npx @verygoodplugins/mcp-automem uninstall claude-code
 # Uninstall Hermes setup
 npx @verygoodplugins/mcp-automem uninstall hermes
 
+# Uninstall Grok Build setup
+npx @verygoodplugins/mcp-automem uninstall grok
+
 # Also clean Claude Desktop config
 npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
 
@@ -1456,6 +1633,25 @@ npx @verygoodplugins/mcp-automem help
 - Check FalkorDB and Qdrant connections via health endpoint
 - Verify content doesn't exceed size limits
 - Ensure proper data formatting
+
+### Rules File Issues
+
+#### "does not contain exactly one … block"
+
+Every host writes its memory rules as a marked block (`<!-- BEGIN AUTOMEM … RULES -->` …
+`<!-- END AUTOMEM … RULES -->`) inside a Markdown file you also own. The installer rewrites
+only the bytes between those markers, so it requires exactly one correctly ordered pair.
+
+If a rules file ends up with a stray marker — an interrupted run, a hand edit that removed
+half the block, or a merge that duplicated it — the installer refuses to touch the file and
+names the defect instead. Rewriting anyway would delete whatever sits between the stray
+markers, which is usually content you wrote.
+
+**Fix:** open the file named in the error, remove or restore the stray marker so exactly one
+`BEGIN`/`END` pair remains (or delete the block entirely and let the installer re-add it),
+then re-run. Nothing was written, so nothing needs undoing. Hosts that only *remove* a stale
+block (OpenClaw's legacy `AGENTS.md` cleanup, Copilot's `--format vscode` re-run) print a
+warning and leave the file alone rather than failing the install.
 
 ### Platform-Specific Issues
 
@@ -1506,6 +1702,29 @@ npx @verygoodplugins/mcp-automem help
 - If using `--mode both`, verify `$HERMES_HOME/.env` has `AUTOMEM_HERMES_PROVIDER_TOOLS=false`.
 - Check `config.yaml` for stale AutoMem-owned `mcp_servers.memory`; non-AutoMem memory servers are preserved by the uninstaller.
 
+#### Copilot CLI / VS Code: SessionStart hook not injecting context
+
+AutoMem's `sessionStart` hook outputs JSON via stdout (`{"additionalContext":"..."}`). If your PowerShell profile prints anything to the console during load -- `Write-Output`, `Write-Host`, `Import-Module` warnings, `Invoke-Expression` output, etc. -- that text appears before the JSON and corrupts the payload. The CLI silently fails to parse it, so the memory recall context never gets injected.
+
+**Symptoms:**
+- AutoMem recall doesn't run automatically at session start
+- Hook script works when tested manually but not in practice
+- No visible error (the hook "succeeds" but its output is ignored)
+
+**Fix:** Copilot CLI runs `"powershell"` values inside `pwsh` automatically - you should not invoke `powershell` or `pwsh` yourself. The `"powershell"` value should be raw PowerShell code (e.g. `& "$HOME\.copilot\scripts\script.ps1"`).
+
+If you've installed hooks from an older version that invoked the shell directly, update your `~/.copilot/hooks/*.json` files:
+
+```diff
+- "powershell": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.copilot/scripts/automem-session-start.ps1\""
++ "powershell": "& \"$HOME\\.copilot\\scripts\\automem-session-start.ps1\""
+```
+
+Or re-run the installer to get the updated hook configs:
+
+```bash
+npx @verygoodplugins/mcp-automem copilot --yes
+```
 ---
 
 ## Development

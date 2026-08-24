@@ -71,7 +71,12 @@ describe('startParentWatchdog', () => {
 
   it('returns an unref-able interval handle (never pins the event loop)', () => {
     vi.useFakeTimers();
-    const handle = startParentWatchdog(1234, 100, () => {}, () => false);
+    const handle = startParentWatchdog(
+      1234,
+      100,
+      () => {},
+      () => false
+    );
     expect(typeof (handle as unknown as { unref?: unknown }).unref).toBe('function');
     clearInterval(handle);
   });

@@ -1,10 +1,26 @@
 import fs from 'fs';
+import { parse as parseDotenv } from 'dotenv';
 import path from 'path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { buildClaudeCodeExport, buildClaudeDesktopSnippet, buildHermesSnippet, buildMcpConfigJson, buildSummaryInstructions, DEFAULT_AUTOMEM_API_URL } from './templates.js';
+import {
+  buildClaudeCodeExport,
+  buildClaudeDesktopSnippet,
+  buildHermesSnippet,
+  buildMcpConfigJson,
+  buildSummaryInstructions,
+  DEFAULT_AUTOMEM_API_URL,
+} from './templates.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
-import { mergeEnvContent } from './host-toolkit.js';
+import {
+  AUTOMEM_API_KEY_NAMES,
+  mergeEnvContent,
+  readApiKeyFrom,
+  readEndpointFrom,
+  removeEnvContentKeys,
+  resolveInheritedApiKey,
+  sameEndpoint,
+} from './host-toolkit.js';
 
 interface SetupOptions {
   envPath?: string;
@@ -83,29 +99,25 @@ function parseConfigArgs(args: string[]): ConfigOptions {
   return options;
 }
 
+// Delegates to dotenv — the parser that actually loads this file at server startup.
+// The hand-rolled version unwrapped only double quotes and did not strip comments, so
+// `KEY='value'` or a trailing `# comment` read as a different endpoint and the
+// credential pairing below removed a still-valid key.
 function loadEnvValues(filePath: string): Record<string, string> {
   if (!fs.existsSync(filePath)) {
     return {};
   }
-  const result: Record<string, string> = {};
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
-  for (const line of lines) {
-    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (match) {
-      const key = match[1].trim();
-      let value = match[2].trim();
-      if (value.startsWith('"') && value.endsWith('"')) {
-        value = value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-      }
-      result[key] = value;
-    }
-  }
-  return result;
+  return parseDotenv(fs.readFileSync(filePath, 'utf8'));
 }
 
-function mergeEnvFile(filePath: string, updates: Record<string, string>) {
+function mergeEnvFile(
+  filePath: string,
+  updates: Record<string, string>,
+  removeKeys: readonly string[] = []
+) {
   const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
-  fs.writeFileSync(filePath, mergeEnvContent(existing, updates), 'utf8');
+  const merged = mergeEnvContent(existing, updates);
+  fs.writeFileSync(filePath, removeEnvContentKeys(merged, removeKeys), 'utf8');
 }
 
 async function promptValue(prompt: string, fallback: string, prefilled?: string): Promise<string> {
@@ -129,20 +141,32 @@ export async function runSetup(args: string[] = []): Promise<void> {
   const existingValues = loadEnvValues(envPath);
   // `||` not `??`: an empty value (e.g. a blank AUTOMEM_API_URL= line) must
   // fall through to the next source, matching the server's own resolution.
-  const defaultEndpoint = options.endpoint
-    || existingValues[ENV_API_URL_KEY]
-    || existingValues[LEGACY_ENV_ENDPOINT_KEY]
-    || process.env[ENV_API_URL_KEY]
-    || process.env[LEGACY_ENV_ENDPOINT_KEY]
-    || DEFAULT_AUTOMEM_API_URL;
+  const defaultEndpoint =
+    options.endpoint ||
+    existingValues[ENV_API_URL_KEY] ||
+    existingValues[LEGACY_ENV_ENDPOINT_KEY] ||
+    process.env[ENV_API_URL_KEY] ||
+    process.env[LEGACY_ENV_ENDPOINT_KEY] ||
+    DEFAULT_AUTOMEM_API_URL;
 
-  const defaultApiKey = options.apiKey
-    ?? existingValues[ENV_API_KEY]
-    ?? process.env[ENV_API_KEY]
-    ?? '';
+  const endpoint =
+    options.endpoint ??
+    (await promptValue('AutoMem API URL', DEFAULT_AUTOMEM_API_URL, defaultEndpoint));
 
-  const endpoint = options.endpoint
-    ?? await promptValue('AutoMem API URL', DEFAULT_AUTOMEM_API_URL, defaultEndpoint);
+  // A key belongs to the endpoint it was issued for. This resolved the key from the
+  // file and the environment with no endpoint check at all, and read only the
+  // canonical name — so `setup --endpoint <new>` rewrote the URL and left the old
+  // host's credential sitting beside it, and a legacy AUTOMEM_API_TOKEN was invisible
+  // to the code that should have removed it. Computed after `endpoint` because the
+  // pairing needs the endpoint actually being written.
+  const storedEndpoint = readEndpointFrom(existingValues);
+  const defaultApiKey =
+    resolveInheritedApiKey({
+      endpoint,
+      explicitKey: options.apiKey,
+      storedEndpoint,
+      storedKey: readApiKeyFrom(existingValues),
+    }) ?? '';
 
   let apiKey = options.apiKey ?? defaultApiKey;
   if (!options.apiKey && input.isTTY && output.isTTY) {
@@ -182,11 +206,25 @@ export async function runSetup(args: string[] = []): Promise<void> {
   if (hasLegacyLine) {
     updates[LEGACY_ENV_ENDPOINT_KEY] = endpoint;
   }
-  if (apiKey && apiKey !== '<required>' && apiKey !== '<unchanged>') {
+  const writesKey = Boolean(apiKey) && apiKey !== '<required>' && apiKey !== '<unchanged>';
+  if (writesKey) {
     updates[ENV_API_KEY] = apiKey;
   }
 
-  mergeEnvFile(envPath, updates);
+  // Nothing resolved and the file still holds a credential issued for a different
+  // endpoint: remove it under both names rather than leave it to authenticate against
+  // the new host. A file naming a key but no endpoint is not evidence of a mismatch,
+  // so it is left alone — same rule as the guided installer's project .env.
+  const persistedKeyNames = AUTOMEM_API_KEY_NAMES.filter((name) => existingValues[name]);
+  const staleKeyNames =
+    !writesKey &&
+    persistedKeyNames.length > 0 &&
+    storedEndpoint &&
+    !sameEndpoint(storedEndpoint, endpoint)
+      ? persistedKeyNames
+      : [];
+
+  mergeEnvFile(envPath, updates, staleKeyNames);
   console.log(`\n✅ Saved AutoMem settings to ${envPath}`);
   if (hasLegacyLine) {
     console.log(
@@ -204,7 +242,9 @@ export async function runSetup(args: string[] = []): Promise<void> {
   // copy-pasted and shared; the real key lives in ~/.hermes/.env / config.yaml.
   console.log(buildHermesSnippet(endpoint, '${AUTOMEM_API_KEY}'));
   console.log('\nOr run: npx @verygoodplugins/mcp-automem hermes');
-  console.log('\nUse `npx @verygoodplugins/mcp-automem config --format=json` to print this snippet again later.');
+  console.log(
+    '\nUse `npx @verygoodplugins/mcp-automem config --format=json` to print this snippet again later.'
+  );
 
   if (options.claudeCode) {
     await applyClaudeCodeSetup({
@@ -217,9 +257,8 @@ export async function runSetup(args: string[] = []): Promise<void> {
 
 export async function runConfig(args: string[] = []): Promise<void> {
   const options = parseConfigArgs(args);
-  const endpoint = process.env[ENV_API_URL_KEY]
-    || process.env[LEGACY_ENV_ENDPOINT_KEY]
-    || DEFAULT_AUTOMEM_API_URL;
+  const endpoint =
+    process.env[ENV_API_URL_KEY] || process.env[LEGACY_ENV_ENDPOINT_KEY] || DEFAULT_AUTOMEM_API_URL;
   const apiKey = process.env[ENV_API_KEY] ?? '${AUTOMEM_API_KEY}';
 
   if (options.format === 'json') {

@@ -56,6 +56,33 @@ function makeRecallResult(overrides: Partial<RecallResult> = {}): RecallResult {
   };
 }
 
+function makeTypicalPreferenceResult(i: number, relCount = 2) {
+  return {
+    id: `pref-${i}`,
+    match_type: 'tag' as const,
+    final_score: 0.7,
+    score_components: { importance: 0.7 },
+    relations: Array.from({ length: relCount }, (_, r) => makeRelationRecord(r, 80)),
+    memory: {
+      memory_id: `pref-${i}`,
+      content:
+        `Preference ${i}. Keep worktrees under .worktrees/ when hub files would change while WIP sits in the main checkout.`.padEnd(
+          220,
+          ' '
+        ),
+      summary: `Preference ${i} title.`,
+      tags: ['preference', 'mcp-automem'],
+      importance: 0.85,
+      created_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-01T00:00:00Z',
+      last_accessed: '2026-08-01T00:00:00Z',
+      metadata: { source: 'test', revision: 'none' },
+      type: 'Preference',
+      confidence: 0.95,
+    },
+  };
+}
+
 describe('buildRecallMemoryResponse', () => {
   it('calls recallMemory once for tag-filtered recall and preserves backend metadata', async () => {
     const recallArgs: RecallMemoryArgs = {
@@ -170,9 +197,7 @@ describe('buildRecallMemoryResponse', () => {
     expect(response.structuredContent).toMatchObject({
       state_filter: stateFilter,
     });
-    expect(response.content[0].text).toContain(
-      'state filter suppressed 2, replacements 1'
-    );
+    expect(response.content[0].text).toContain('state filter suppressed 2, replacements 1');
   });
 
   it('surfaces recall scope, recency, score, and per-result diagnostics', async () => {
@@ -374,7 +399,7 @@ describe('buildRecallMemoryResponse', () => {
     }
   });
 
-  it('shows the stored summary instead of content in budgeted formats', async () => {
+  it('keeps a content preview and attaches summary as additive in budgeted formats', async () => {
     const longContent = 'c'.repeat(2000);
     const summary = 'Concise standalone summary of the memory.';
     const recallResult = makeRecallResult();
@@ -384,14 +409,55 @@ describe('buildRecallMemoryResponse', () => {
       recallMemory: vi.fn().mockResolvedValue(recallResult),
     };
 
-    const response = await buildRecallMemoryResponse(client, { query: 'summary first' });
+    const response = await buildRecallMemoryResponse(client, { query: 'content preview' });
 
     const item = (response.structuredContent.results as any[])[0];
-    expect(item.summary).toBe(summary);
-    expect(item).not.toHaveProperty('content');
+    expect(item.content.length).toBe(RECALL_CONTENT_PREVIEW_CHARS + 1); // preview + ellipsis
+    expect(item.content.endsWith('…')).toBe(true);
+    expect(item.content_truncated).toBe(true);
     expect(item.content_chars).toBe(longContent.length);
+    expect(item.summary).toBe(summary);
+    expect(response.content[0].text).toContain(item.content.slice(0, 40));
+    expect(response.content[0].text).toContain('Content shown as previews');
+    expect(response.content[0].text).not.toContain(longContent);
+  });
+
+  it('shows full short content with summary additive and no preview trailer', async () => {
+    const content = 'Short preference: always use they pronouns in lyrics.';
+    const summary = 'Pronoun preference.';
+    const recallResult = makeRecallResult();
+    recallResult.results![0].memory.content = content;
+    (recallResult.results![0].memory as any).summary = summary;
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue(recallResult),
+    };
+
+    const response = await buildRecallMemoryResponse(client, { query: 'short' });
+
+    const item = (response.structuredContent.results as any[])[0];
+    expect(item.content).toBe(content);
+    expect(item.summary).toBe(summary);
+    expect(item).not.toHaveProperty('content_truncated');
+    expect(response.content[0].text).toContain(content);
+    expect(response.content[0].text).not.toContain('Content shown as previews');
+  });
+
+  it('falls back to summary in the text channel when content is empty', async () => {
+    const summary = 'Voice calibration correction.';
+    const recallResult = makeRecallResult();
+    recallResult.results![0].memory.content = '';
+    (recallResult.results![0].memory as any).summary = summary;
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue(recallResult),
+    };
+
+    const response = await buildRecallMemoryResponse(client, { query: 'empty content' });
+
+    const item = (response.structuredContent.results as any[])[0];
+    expect(item.content).toBe('');
+    expect(item.summary).toBe(summary);
     expect(response.content[0].text).toContain(summary);
-    expect(response.content[0].text).not.toContain('cccccccccc');
+    expect(response.content[0].text).not.toContain('Content shown as previews');
   });
 
   it('keeps full content, summary, metadata, and raw relation records in json format', async () => {
@@ -574,11 +640,49 @@ describe('buildRecallMemoryResponse', () => {
     expect(structured).not.toHaveProperty('truncation');
   });
 
-  it('fits a real-world session-start recall (fat relations + enrichment metadata) without truncation', async () => {
+  it('fits a typical text session-start recall of 30 memories without truncation', async () => {
+    const manyResults = Array.from({ length: 30 }, (_, i) => makeTypicalPreferenceResult(i, 0));
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue({ results: manyResults, count: 30 }),
+    };
+
+    const response = await buildRecallMemoryResponse(client, { query: 'session start', limit: 30 });
+
+    const structured = response.structuredContent as any;
+    expect(structured.results).toHaveLength(30);
+    expect(structured).not.toHaveProperty('truncation');
+    expect(response.content[0].text).toContain('Preference 0.');
+    expect(response.content[0].text).not.toContain('Response budget:');
+  });
+
+  it('fits a typical detailed preference recall of 20 memories without truncation', async () => {
+    const manyResults = Array.from({ length: 20 }, (_, i) => makeTypicalPreferenceResult(i, 3));
+    const client = {
+      recallMemory: vi.fn().mockResolvedValue({ results: manyResults, count: 20 }),
+    };
+
+    const response = await buildRecallMemoryResponse(client, {
+      tags: ['preference'],
+      format: 'detailed',
+      limit: 20,
+    });
+
+    const structured = response.structuredContent as any;
+    expect(structured.results).toHaveLength(20);
+    expect(structured).not.toHaveProperty('truncation');
+    expect(structured.results[0].content).toContain('Preference 0.');
+    expect(structured.results[0].summary).toBe('Preference 0 title.');
+    expect(structured.results[0].relations).toHaveLength(3);
+  });
+
+  it('keeps content previews under budget for a fat session-start detailed recall', async () => {
     // Modeled on the live 2026-06-10 failure: 26 ranked results, mixed relation
-    // counts, enrichment metadata, ~400-char contents, 200-char summaries. The
-    // old formatter produced ~65k chars from 16 of these and blew the MCP cap.
-    const relationCounts = [5, 2, 5, 5, 5, 5, 0, 3, 5, 5, 5, 1, 5, 5, 5, 2, 5, 4, 5, 0, 5, 3, 5, 5, 2, 5];
+    // counts, enrichment metadata, ~400-char contents. Summary-first used to
+    // fit all 26; content previews are larger, so the global token budget may
+    // omit a few tail results — that is preferred over title-only dumps.
+    const relationCounts = [
+      5, 2, 5, 5, 5, 5, 0, 3, 5, 5, 5, 1, 5, 5, 5, 2, 5, 4, 5, 0, 5, 3, 5, 5, 2, 5,
+    ];
     const manyResults = relationCounts.map((relCount, i) => ({
       id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
       match_type: 'semantic',
@@ -621,12 +725,22 @@ describe('buildRecallMemoryResponse', () => {
     });
 
     const structured = response.structuredContent as any;
-    expect(structured.results).toHaveLength(26);
-    expect(structured).not.toHaveProperty('truncation');
+    expect(structured.results).toHaveLength(19);
+    expect(structured.truncation).toMatchObject({
+      applied: true,
+      omitted_results: 7,
+      reason: 'response_token_budget',
+    });
+    for (const item of structured.results) {
+      expect(item.content).toMatch(/^memory \d+ /);
+      expect(item.summary).toMatch(/^summary \d+ /);
+      expect(item).not.toHaveProperty('metadata');
+      expect(item.metadata_keys).toEqual(expect.arrayContaining(['enrichment', 'entities']));
+    }
     const totalChars =
       JSON.stringify(response.structuredContent).length +
       response.content.reduce((sum, block) => sum + block.text.length, 0);
-    expect(totalChars).toBeLessThanOrEqual(45_000);
+    expect(totalChars).toBeLessThanOrEqual(DEFAULT_RECALL_TOKEN_BUDGET * RECALL_CHARS_PER_TOKEN);
   });
 
   it('surfaces updated_at in text output and the structured base item', async () => {

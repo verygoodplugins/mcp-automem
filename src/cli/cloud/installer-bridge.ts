@@ -10,7 +10,15 @@
 //     API); the create-page is the real, working flow.
 
 import { noteBox } from '../ui/messages.js';
-import { cancelable, promptConfirm, promptPassword, promptSelect, promptText } from '../ui/prompts.js';
+import { makeTheme } from '../ui/theme.js';
+import {
+  cancelable,
+  promptCaption,
+  promptConfirm,
+  promptPassword,
+  promptSelect,
+  promptText,
+} from '../ui/prompts.js';
 import { openInSystemBrowser } from './browser-auth.js';
 import { executeCloudIntent, selectCloudIntent } from './orchestrate.js';
 import {
@@ -35,6 +43,10 @@ import {
 export const INSTAPODS_CREATE_URL =
   'https://app.instapods.com/dashboard/pods/create?app=automem&utm_source=automem_installer&ref=jack';
 
+function linkedUrl(url: string): string {
+  return makeTheme(process.stdout).link(url);
+}
+
 const REUSE_PREFIX = 'reuse:';
 
 export interface ProvisionResult {
@@ -45,18 +57,23 @@ export interface ProvisionResult {
 // Shared paste step: collect an AutoMem endpoint + optional token. Used by the
 // InstaPods link flow and as the universal fallback.
 export async function promptManualCredentials(): Promise<ProvisionResult> {
+  promptCaption("Your AutoMem server's web address — from the email, or wherever you set it up.");
   const endpoint = (
     await cancelable(
       promptText({
         message: 'AutoMem API URL',
         validate: (value) =>
-          /^https?:\/\/\S+$/.test(value.trim()) || 'Enter a URL like https://your-automem.example',
+          /^https?:\/\/\S+$/.test(value.trim()) ||
+          "That doesn't look like a URL — try something like https://your-automem.example",
       })
     )
   ).trim();
+  promptCaption("Its password, if it has one. Many setups don't.");
   const apiKey = (
     await cancelable(
-      promptPassword({ message: 'AutoMem API key (leave blank if this endpoint does not require one)' })
+      promptPassword({
+        message: "AutoMem API key (leave blank if you don't have one)",
+      })
     )
   ).trim();
   return { endpoint, apiKey: apiKey || undefined };
@@ -104,6 +121,21 @@ export async function provisionViaInstaPodsLink(
   );
 
   if (choice === 'open') {
+    // Billing parity with the Railway path: say what it costs and that a card
+    // is involved BEFORE any browser page asks for one.
+    const proceed = await cancelable(
+      promptConfirm({
+        message:
+          "InstaPods hosts AutoMem for ~$15/mo (their Grow plan). You'll create an account and add a card on their site. Open the signup page?",
+        initialValue: true,
+      })
+    );
+    if (!proceed) {
+      log(
+        'No problem — paste an AutoMem URL + key if you have one from elsewhere, or press Ctrl-C to start over and pick a different setup.'
+      );
+      return promptManualCredentials();
+    }
     await openUrl(INSTAPODS_CREATE_URL);
     log(
       noteBox('InstaPods setup', [
@@ -111,9 +143,10 @@ export async function provisionViaInstaPodsLink(
         'it deploys AutoMem and emails you your API URL + key.',
         'Paste them below once you have them.',
         '',
-        INSTAPODS_CREATE_URL,
+        linkedUrl(INSTAPODS_CREATE_URL),
       ])
     );
+    log('  Waiting — the email can take a minute or two. Paste here when it arrives.');
   }
 
   return promptManualCredentials();
@@ -233,12 +266,16 @@ export async function ensureRailwayCli(
   try {
     result = params.installCli();
   } catch (err) {
-    params.log(`  ✗ Could not install the Railway CLI (${err instanceof Error ? err.message : String(err)}).`);
+    params.log(
+      `  ✗ Could not install the Railway CLI (${err instanceof Error ? err.message : String(err)}).`
+    );
     return { ok: false, reason: 'install-failed' };
   }
   // Re-check PATH: guard the rare exit-0-but-not-resolvable case.
   if (result.code !== 0 || !params.isCliPresent()) {
-    params.log(`  ✗ Could not install the Railway CLI (${result.stderr.trim() || `exit ${result.code}`}).`);
+    params.log(
+      `  ✗ Could not install the Railway CLI (${result.stderr.trim() || `exit ${result.code}`}).`
+    );
     return { ok: false, reason: 'install-failed' };
   }
   params.log('  ✓ Railway CLI installed.');
@@ -291,7 +328,7 @@ async function railwayDeployOrPaste(params: {
         '',
         'Then paste them below.',
         '',
-        RAILWAY_DEPLOY_URL,
+        linkedUrl(RAILWAY_DEPLOY_URL),
       ])
     );
   }
@@ -332,7 +369,8 @@ export async function provisionViaRailway(
       (() =>
         cancelable(
           promptConfirm({
-            message: "The Railway CLI isn't installed. Install it now with npm (npm i -g @railway/cli)?",
+            message:
+              "The Railway CLI isn't installed. Install it now with npm (npm i -g @railway/cli)?",
             initialValue: true,
           })
         )),
@@ -345,7 +383,9 @@ export async function provisionViaRailway(
       throw new Error('The Railway CLI is not available and cannot be installed without a TTY.');
     }
     const reason =
-      cli.reason === 'declined' ? 'Skipped installing the Railway CLI.' : 'Could not install the Railway CLI.';
+      cli.reason === 'declined'
+        ? 'Skipped installing the Railway CLI.'
+        : 'Could not install the Railway CLI.';
     return railwayDeployOrPaste({ reason, log, openUrl });
   }
 
@@ -373,7 +413,7 @@ export async function provisionViaRailway(
           "Then come back here — I'll link your railway CLI to the new project and",
           'read its URL + API token automatically.',
           '',
-          RAILWAY_DEPLOY_URL,
+          linkedUrl(RAILWAY_DEPLOY_URL),
         ])
       );
       if (!params.interactive) return;
@@ -387,7 +427,9 @@ export async function provisionViaRailway(
         throw new Error('Railway deploy not confirmed.');
       }
     };
-    const selectWorkspace = async (workspaces: RailwayWorkspace[]): Promise<RailwayWorkspace | undefined> => {
+    const selectWorkspace = async (
+      workspaces: RailwayWorkspace[]
+    ): Promise<RailwayWorkspace | undefined> => {
       const selectedId = await cancelable(
         promptSelect<string>({
           message: 'Choose the Railway workspace for AutoMem',

@@ -1,0 +1,8 @@
+{
+  "name": "lean",
+  "description": "Default (silent) - session-start recall + store tracker",
+  "hooks": [
+    "automem-session-start.json",
+    "automem-track-store.json"
+  ]
+}

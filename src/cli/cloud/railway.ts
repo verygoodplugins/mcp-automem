@@ -67,11 +67,19 @@ export function buildRailwaySpawnOptions(
 
 // Default runner: invoke the real `railway` CLI. A missing binary surfaces as a
 // thrown spawn error, which the provider turns into a clean "fall back" signal.
-function defaultRailwayRunner(args: string[], opts: RailwayCommandOptions = {}): RailwayCommandResult {
+function defaultRailwayRunner(
+  args: string[],
+  opts: RailwayCommandOptions = {}
+): RailwayCommandResult {
   const result = spawnSync('railway', args, buildRailwaySpawnOptions(opts));
   if (result.error) throw result.error;
-  const asString = (v: string | Buffer | null | undefined): string => (typeof v === 'string' ? v : '');
-  return { code: result.status ?? 1, stdout: asString(result.stdout), stderr: asString(result.stderr) };
+  const asString = (v: string | Buffer | null | undefined): string =>
+    typeof v === 'string' ? v : '';
+  return {
+    code: result.status ?? 1,
+    stdout: asString(result.stdout),
+    stderr: asString(result.stderr),
+  };
 }
 
 // Injectable CLI-presence check + installer, mirroring RailwayCommandRunner: thin
@@ -84,7 +92,10 @@ export type RailwayCliInstaller = () => RailwayCommandResult;
 // binary makes execFileSync throw (ENOENT), which we report as "not present".
 export function defaultIsRailwayCliPresent(): boolean {
   try {
-    execFileSync('railway', ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' });
+    execFileSync('railway', ['--version'], {
+      stdio: 'ignore',
+      shell: process.platform === 'win32',
+    });
     return true;
   } catch {
     return false;
@@ -100,8 +111,13 @@ export function defaultInstallRailwayCli(): RailwayCommandResult {
     shell: process.platform === 'win32',
   });
   if (result.error) throw result.error;
-  const asString = (v: string | Buffer | null | undefined): string => (typeof v === 'string' ? v : '');
-  return { code: result.status ?? 1, stdout: asString(result.stdout), stderr: asString(result.stderr) };
+  const asString = (v: string | Buffer | null | undefined): string =>
+    typeof v === 'string' ? v : '';
+  return {
+    code: result.status ?? 1,
+    stdout: asString(result.stdout),
+    stderr: asString(result.stderr),
+  };
 }
 
 // Default: use Railway's CI/headless token when provided; otherwise read the CLI
@@ -111,7 +127,9 @@ function defaultReadAccessToken(): string | undefined {
   const envToken = process.env.RAILWAY_API_TOKEN?.trim();
   if (envToken) return envToken;
   try {
-    const cfg = JSON.parse(readFileSync(path.join(homedir(), '.railway', 'config.json'), 'utf8')) as {
+    const cfg = JSON.parse(
+      readFileSync(path.join(homedir(), '.railway', 'config.json'), 'utf8')
+    ) as {
       user?: { accessToken?: string };
     };
     return cfg.user?.accessToken || undefined;
@@ -135,7 +153,8 @@ export function parseDomain(stdout: string): string | undefined {
       if (typeof obj.domain === 'string') return obj.domain;
       const first = obj.domains?.[0];
       if (typeof first === 'string') return first;
-      if (first && typeof first === 'object' && typeof first.domain === 'string') return first.domain;
+      if (first && typeof first === 'object' && typeof first.domain === 'string')
+        return first.domain;
     }
   } catch {
     /* non-JSON — fall through */
@@ -147,7 +166,8 @@ export function parseVariable(stdout: string, key: string): string | undefined {
   try {
     const body = JSON.parse(stdout) as unknown;
     if (Array.isArray(body)) {
-      const hit = body.find((v) => (v as { name?: string }).name === key) as { value?: string } | undefined;
+      const hit = body.find((v) => (v as { name?: string }).name === key) as
+        { value?: string } | undefined;
       return hit?.value;
     }
     if (body && typeof body === 'object') {
@@ -246,7 +266,8 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
   const makeWorkdir = options.makeWorkdir ?? defaultMakeWorkdir;
   const selectWorkspace = options.selectWorkspace;
   const awaitBrowserDeploy = options.awaitBrowserDeploy ?? (async () => {});
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const sleep =
+    options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const domainPollAttempts = options.domainPollAttempts ?? 40;
   const domainPollIntervalMs = options.domainPollIntervalMs ?? 3000;
 
@@ -256,9 +277,12 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
     try {
       return run(args, opts);
     } catch (err) {
-      throw new Error(`The railway CLI isn't available (${err instanceof Error ? err.message : String(err)}).`, {
-        cause: err,
-      });
+      throw new Error(
+        `The railway CLI isn't available (${err instanceof Error ? err.message : String(err)}).`,
+        {
+          cause: err,
+        }
+      );
     }
   };
 
@@ -298,7 +322,9 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
           );
         }
         if (!selectWorkspace) {
-          throw new Error('Multiple Railway workspaces are available, but no workspace selector was configured.');
+          throw new Error(
+            'Multiple Railway workspaces are available, but no workspace selector was configured.'
+          );
         }
         const selected = await selectWorkspace(workspaces);
         workspaceId = selected?.id;
@@ -324,8 +350,15 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
       const workdir = makeWorkdir();
       session.workdir = workdir;
       try {
-        const workspaceId = typeof session.workspaceId === 'string' ? session.workspaceId : undefined;
-        const initArgs = ['init', '--name', projectName, '--json', ...(workspaceId ? ['--workspace', workspaceId] : [])];
+        const workspaceId =
+          typeof session.workspaceId === 'string' ? session.workspaceId : undefined;
+        const initArgs = [
+          'init',
+          '--name',
+          projectName,
+          '--json',
+          ...(workspaceId ? ['--workspace', workspaceId] : []),
+        ];
         const init = railway(initArgs, { cwd: workdir });
         if (init.code !== 0) {
           throw new Error(`railway init failed (${init.stderr.trim() || `exit ${init.code}`}).`);
@@ -362,7 +395,10 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
     // it appears (so fetchCredentials can read it). We never poll Railway's own deploy
     // workflow — that's the call that false-negatives with "Unauthorized". Actual
     // service boot is then gated by install.ts's /health warmup (waitForAutoMemEndpoint).
-    async waitUntilReady(session: CloudSession, deployment: CloudDeployment): Promise<CloudDeployment> {
+    async waitUntilReady(
+      session: CloudSession,
+      deployment: CloudDeployment
+    ): Promise<CloudDeployment> {
       const cwd = typeof session.workdir === 'string' ? session.workdir : undefined;
       const opts = cwd ? { cwd } : undefined;
       for (let attempt = 0; attempt < domainPollAttempts; attempt += 1) {
@@ -379,7 +415,10 @@ export function createRailwayProvider(options: RailwayProviderOptions = {}): Clo
       return deployment;
     },
 
-    async fetchCredentials(session: CloudSession, _deployment: CloudDeployment): Promise<CloudCredentials> {
+    async fetchCredentials(
+      session: CloudSession,
+      _deployment: CloudDeployment
+    ): Promise<CloudCredentials> {
       // Run reads in the same workdir the deploy linked (so `--service` resolves).
       const cwd = typeof session.workdir === 'string' ? session.workdir : undefined;
       const opts = cwd ? { cwd } : undefined;

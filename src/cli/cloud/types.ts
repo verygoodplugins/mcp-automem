@@ -97,8 +97,7 @@ export interface CloudProvider {
 
 // What the apply phase should do, decided interactively during the resolve phase.
 export type CloudIntent =
-  | { kind: 'reuse'; deployment: CloudDeployment }
-  | { kind: 'deploy'; planSlug?: string };
+  { kind: 'reuse'; deployment: CloudDeployment } | { kind: 'deploy'; planSlug?: string };
 
 export interface CloudProvisionResult {
   endpoint: string;

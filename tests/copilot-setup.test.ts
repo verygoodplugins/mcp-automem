@@ -1,0 +1,797 @@
+/**
+ * Copilot Setup Tests
+ * Tests for applyCopilotSetup(), --format flag behavior (memory rules gating,
+ * event name remapping), installMemoryRules, and --format validation.
+ */
+
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { spawnSync } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import {
+  applyCopilotSetup,
+  COPILOT_USAGE,
+  EVENT_NAMES,
+  runCopilotSetup,
+} from '../src/cli/copilot.js';
+import type { CopilotHookFile } from '../src/cli/copilot.js';
+
+function createTempDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'copilot-setup-test-'));
+}
+
+function cleanupDir(dir: string) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // best effort
+  }
+}
+
+describe('installMemoryRules (format gating)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = createTempDir();
+  });
+
+  afterEach(() => {
+    cleanupDir(tempDir);
+  });
+
+  it('--format both installs CLI and VS Code memory rules', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
+
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const vscodePath = path.join(tempDir, 'instructions', 'automem.instructions.md');
+
+    expect(fs.existsSync(cliPath)).toBe(true);
+    expect(fs.existsSync(vscodePath)).toBe(true);
+  });
+
+  it('default (no --format) installs both memory rules', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, yes: true, quiet: true });
+
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const vscodePath = path.join(tempDir, 'instructions', 'automem.instructions.md');
+
+    expect(fs.existsSync(cliPath)).toBe(true);
+    expect(fs.existsSync(vscodePath)).toBe(true);
+  });
+
+  it('--format cli installs only CLI memory rules', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const vscodePath = path.join(tempDir, 'instructions', 'automem.instructions.md');
+
+    expect(fs.existsSync(cliPath)).toBe(true);
+    expect(fs.existsSync(vscodePath)).toBe(false);
+  });
+
+  it('--format vscode installs only VS Code memory rules', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const vscodePath = path.join(tempDir, 'instructions', 'automem.instructions.md');
+
+    expect(fs.existsSync(cliPath)).toBe(false);
+    expect(fs.existsSync(vscodePath)).toBe(true);
+  });
+
+  it('CLI memory rules contain memory_rules markers', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+
+    const content = fs.readFileSync(path.join(tempDir, 'copilot-instructions.md'), 'utf8');
+    expect(content).toContain('<!-- BEGIN AUTOMEM MEMORY RULES -->');
+    expect(content).toContain('<!-- END AUTOMEM MEMORY RULES -->');
+    expect(content).toContain('<memory_rules>');
+    expect(content).toContain('</memory_rules>');
+  });
+
+  it('CLI memory rules prefix every executable AutoMem tool call', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+
+    const content = fs.readFileSync(path.join(tempDir, 'copilot-instructions.md'), 'utf8');
+
+    for (const tool of ['recall_memory', 'store_memory', 'associate_memories', 'update_memory']) {
+      expect(content).toContain(`automem-${tool}({`);
+      expect(content).not.toMatch(new RegExp(`(?<!automem-)\\b${tool}\\(`));
+    }
+  });
+
+  it('VS Code memory rules contain frontmatter', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+
+    const content = fs.readFileSync(
+      path.join(tempDir, 'instructions', 'automem.instructions.md'),
+      'utf8'
+    );
+    expect(content).toContain('---');
+    expect(content).toContain('<memory_rules>');
+  });
+
+  it('VS Code rules use a symptom-only debug recall and stored memory ID', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+
+    const content = fs.readFileSync(
+      path.join(tempDir, 'instructions', 'automem.instructions.md'),
+      'utf8'
+    );
+    expect(content).not.toContain('tags: ["bugfix", "solution"]');
+    expect(content).toContain('const stored = mcp_automem_store_memory({');
+    expect(content).toContain('memory2_id: stored.memory_id');
+    expect(content).toContain('mcp_automem_recall_memory({');
+    expect(content).not.toContain('\nautomem-recall_memory({');
+  });
+
+  it('CLI memory rules are idempotent (re-running replaces block)', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+    const first = fs.readFileSync(path.join(tempDir, 'copilot-instructions.md'), 'utf8');
+
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+    const second = fs.readFileSync(path.join(tempDir, 'copilot-instructions.md'), 'utf8');
+
+    expect(second).toBe(first);
+  });
+
+  it('CLI memory rules append to existing content', async () => {
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    fs.writeFileSync(cliPath, '# My custom instructions\n\nSome content here.\n', 'utf8');
+
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+    const content = fs.readFileSync(cliPath, 'utf8');
+
+    expect(content).toContain('# My custom instructions');
+    expect(content).toContain('<!-- BEGIN AUTOMEM MEMORY RULES -->');
+  });
+
+  it('removes VS Code rules when re-run for CLI only', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
+    const vscodePath = path.join(tempDir, 'instructions', 'automem.instructions.md');
+    expect(fs.existsSync(vscodePath)).toBe(true);
+
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+
+    expect(fs.existsSync(vscodePath)).toBe(false);
+  });
+
+  // Two starts and one end: both markers are present and correctly ordered, so an
+  // indexOf-based check calls the file well-formed and replaces from the first start
+  // through the end — silently deleting the second marker and the user's notes.
+  it('refuses to rewrite CLI rules with two start markers and one end', async () => {
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const handWritten = [
+      '# My custom instructions',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'stale half-block',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'notes the user wrote between the markers',
+      '<!-- END AUTOMEM MEMORY RULES -->',
+      '',
+    ].join('\n');
+    fs.writeFileSync(cliPath, handWritten, 'utf8');
+
+    await expect(
+      applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true })
+    ).rejects.toThrow(/found 2 start markers and 1 end marker/);
+
+    expect(fs.readFileSync(cliPath, 'utf8')).toBe(handWritten);
+  });
+
+  // A rejected run must not leave Copilot half-updated. Validation runs before stale
+  // hooks are removed, new hooks and scripts are installed, or the VS Code rules are
+  // replaced — so a failed profile switch really does leave the install as it was.
+  it('writes nothing at all when the CLI rules file is rejected', async () => {
+    await applyCopilotSetup({
+      targetDir: tempDir,
+      format: 'both',
+      profile: 'full',
+      yes: true,
+      quiet: true,
+    });
+
+    const snapshot = (): Record<string, string> => {
+      const seen: Record<string, string> = {};
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(full);
+          else seen[path.relative(tempDir, full)] = fs.readFileSync(full, 'utf8');
+        }
+      };
+      walk(tempDir);
+      return seen;
+    };
+
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const handWritten = [
+      '# My custom instructions',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'stale half-block',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'notes the user wrote between the markers',
+      '<!-- END AUTOMEM MEMORY RULES -->',
+      '',
+    ].join('\n');
+    fs.writeFileSync(cliPath, handWritten, 'utf8');
+    const before = snapshot();
+
+    // A profile switch is the case that would otherwise delete hooks before failing.
+    await expect(
+      applyCopilotSetup({
+        targetDir: tempDir,
+        format: 'both',
+        profile: 'lean',
+        yes: true,
+        quiet: true,
+      })
+    ).rejects.toThrow(/found 2 start markers and 1 end marker/);
+
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('refuses a one-sided CLI marker instead of appending', async () => {
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const handWritten = ['# Notes', '<!-- BEGIN AUTOMEM MEMORY RULES -->', 'half a block', ''].join(
+      '\n'
+    );
+    fs.writeFileSync(cliPath, handWritten, 'utf8');
+
+    await expect(
+      applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true })
+    ).rejects.toThrow(/without a matching/);
+
+    expect(fs.readFileSync(cliPath, 'utf8')).toBe(handWritten);
+  });
+
+  it('dry-run surfaces a malformed CLI rules file instead of promising an update', async () => {
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    fs.writeFileSync(
+      cliPath,
+      [
+        '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+        'a',
+        '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+        'b',
+        '<!-- END AUTOMEM MEMORY RULES -->',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+
+    await expect(
+      applyCopilotSetup({
+        targetDir: tempDir,
+        format: 'cli',
+        yes: true,
+        quiet: true,
+        dryRun: true,
+      })
+    ).rejects.toThrow(/found 2 start markers and 1 end marker/);
+  });
+
+  // Removing the block on a --format vscode re-run walks from a start to the *next*
+  // end, so a stray marker means the user's content in between goes with it.
+  it('leaves a malformed CLI rules file alone when re-run for VS Code only', async () => {
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    const handWritten = [
+      '# My custom instructions',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'stale half-block',
+      '<!-- BEGIN AUTOMEM MEMORY RULES -->',
+      'notes the user wrote between the markers',
+      '<!-- END AUTOMEM MEMORY RULES -->',
+      '',
+    ].join('\n');
+    fs.writeFileSync(cliPath, handWritten, 'utf8');
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => void warnings.push(args.join(' '));
+    try {
+      await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(fs.readFileSync(cliPath, 'utf8')).toBe(handWritten);
+    expect(warnings.join('\n')).toMatch(/found 2 start markers and 1 end marker/);
+  });
+
+  it('removes only the managed CLI block when re-run for VS Code only', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
+    const cliPath = path.join(tempDir, 'copilot-instructions.md');
+    fs.writeFileSync(
+      cliPath,
+      `# My custom instructions\n\n${fs.readFileSync(cliPath, 'utf8')}`,
+      'utf8'
+    );
+
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+
+    const content = fs.readFileSync(cliPath, 'utf8');
+    expect(content).toContain('# My custom instructions');
+    expect(content).not.toContain('<!-- BEGIN AUTOMEM MEMORY RULES -->');
+    expect(content).not.toContain('<!-- END AUTOMEM MEMORY RULES -->');
+  });
+});
+
+describe('installHookFiles (event name remapping)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = createTempDir();
+  });
+
+  afterEach(() => {
+    cleanupDir(tempDir);
+  });
+
+  it('--format cli uses camelCase event names', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    expect(fs.existsSync(hookPath)).toBe(true);
+
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const keys = Object.keys(hookData.hooks);
+    expect(keys).toContain('sessionStart');
+    expect(keys).not.toContain('SessionStart');
+  });
+
+  it('--format vscode uses PascalCase event names', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    expect(fs.existsSync(hookPath)).toBe(true);
+
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const keys = Object.keys(hookData.hooks);
+    expect(keys).toContain('SessionStart');
+    expect(keys).not.toContain('sessionStart');
+  });
+
+  it('--format both installs CLI and VS Code event names', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const keys = Object.keys(hookData.hooks);
+    expect(keys).toContain('sessionStart');
+    expect(keys).toContain('SessionStart');
+  });
+
+  it('--format both marks each session-start surface correctly', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+
+    expect(hookData.hooks.sessionStart[0].env).toMatchObject({
+      AUTOMEM_HOOK_SURFACE: 'copilot-cli',
+    });
+    expect(hookData.hooks.SessionStart[0].env).toMatchObject({
+      AUTOMEM_HOOK_SURFACE: 'vscode-copilot',
+    });
+  });
+
+  it('--format vscode remaps the track-store hook to PostToolUse', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-track-store.json');
+    expect(fs.existsSync(hookPath)).toBe(true);
+
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const keys = Object.keys(hookData.hooks);
+    expect(keys).toContain('PostToolUse');
+    expect(keys).not.toContain('postToolUse');
+  });
+
+  it('--format vscode remaps the agentStop nudge to Stop', async () => {
+    await applyCopilotSetup({
+      targetDir: tempDir,
+      format: 'vscode',
+      profile: 'full',
+      yes: true,
+      quiet: true,
+    });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-stop-nudge.json');
+    expect(fs.existsSync(hookPath)).toBe(true);
+
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const keys = Object.keys(hookData.hooks);
+    expect(keys).toContain('Stop');
+    expect(keys).not.toContain('agentStop');
+  });
+
+  it('--format vscode marks command hooks for VS Code output envelopes', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const entry = hookData.hooks.SessionStart[0];
+
+    expect(entry.env).toMatchObject({ AUTOMEM_HOOK_SURFACE: 'vscode-copilot' });
+  });
+
+  it('--format cli marks command hooks for Copilot CLI output envelopes', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const entry = hookData.hooks.sessionStart[0];
+
+    expect(entry.env).toMatchObject({ AUTOMEM_HOOK_SURFACE: 'copilot-cli' });
+  });
+
+  it('all hooks are valid JSON with version 1', async () => {
+    await applyCopilotSetup({
+      targetDir: tempDir,
+      format: 'both',
+      profile: 'full',
+      yes: true,
+      quiet: true,
+    });
+
+    const hooksDir = path.join(tempDir, 'hooks');
+    const hookFiles = fs.readdirSync(hooksDir).filter((f) => f.endsWith('.json'));
+    expect(hookFiles.length).toBeGreaterThan(0);
+
+    for (const file of hookFiles) {
+      const data: CopilotHookFile = JSON.parse(fs.readFileSync(path.join(hooksDir, file), 'utf8'));
+      expect(data.version).toBe(1);
+      expect(typeof data.hooks).toBe('object');
+    }
+  });
+});
+
+describe('EVENT_NAMES constants', () => {
+  it('cli uses camelCase', () => {
+    expect(EVENT_NAMES.cli.sessionStart).toBe('sessionStart');
+    expect(EVENT_NAMES.cli.postToolUse).toBe('postToolUse');
+    expect(EVENT_NAMES.cli.sessionEnd).toBe('sessionEnd');
+  });
+
+  it('vscode uses PascalCase', () => {
+    expect(EVENT_NAMES.vscode.sessionStart).toBe('SessionStart');
+    expect(EVENT_NAMES.vscode.postToolUse).toBe('PostToolUse');
+    expect(EVENT_NAMES.vscode.sessionEnd).toBe('SessionEnd');
+  });
+});
+
+describe('--format validation', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = createTempDir();
+  });
+
+  afterEach(() => {
+    cleanupDir(tempDir);
+  });
+
+  it('--format both is accepted', async () => {
+    // Should not throw
+    await applyCopilotSetup({ targetDir: tempDir, format: 'both', yes: true, quiet: true });
+    // Verify hooks were installed (confirms no early exit)
+    expect(fs.existsSync(path.join(tempDir, 'hooks'))).toBe(true);
+  });
+
+  it('--format cli is accepted', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'cli', yes: true, quiet: true });
+    expect(fs.existsSync(path.join(tempDir, 'hooks'))).toBe(true);
+  });
+
+  it('--format vscode is accepted', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, format: 'vscode', yes: true, quiet: true });
+    expect(fs.existsSync(path.join(tempDir, 'hooks'))).toBe(true);
+  });
+});
+
+describe('dry-run mode', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = createTempDir();
+  });
+
+  afterEach(() => {
+    cleanupDir(tempDir);
+  });
+
+  it('--dry-run does not create hook files', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, dryRun: true, yes: true, quiet: true });
+
+    const hooksDir = path.join(tempDir, 'hooks');
+    // Dry-run skips mkdirSync, so hooks dir may not exist
+    if (fs.existsSync(hooksDir)) {
+      const files = fs.readdirSync(hooksDir);
+      expect(files).toHaveLength(0);
+    }
+  });
+
+  it('--dry-run does not create memory rules files', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, dryRun: true, yes: true, quiet: true });
+
+    expect(fs.existsSync(path.join(tempDir, 'copilot-instructions.md'))).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, 'instructions', 'automem.instructions.md'))).toBe(
+      false
+    );
+  });
+});
+
+describe('support scripts installation', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = createTempDir();
+  });
+
+  afterEach(() => {
+    cleanupDir(tempDir);
+  });
+
+  it('installs support scripts to scripts directory', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, yes: true, quiet: true });
+
+    const scriptsDir = path.join(tempDir, 'scripts');
+    expect(fs.existsSync(scriptsDir)).toBe(true);
+
+    const scripts = fs.readdirSync(scriptsDir);
+    // Should have at least bash + PowerShell pairs
+    expect(scripts.length).toBeGreaterThan(0);
+    expect(scripts.some((s) => s.endsWith('.sh'))).toBe(true);
+    expect(scripts.some((s) => s.endsWith('.ps1'))).toBe(true);
+  });
+
+  it('default profile installs only lean hook files', async () => {
+    await applyCopilotSetup({ targetDir: tempDir, yes: true, quiet: true });
+
+    const hookFiles = fs.readdirSync(path.join(tempDir, 'hooks')).sort();
+    expect(hookFiles).toEqual(['automem-session-start.json', 'automem-track-store.json']);
+  });
+});
+
+describe('target directory resolution', () => {
+  let tempDir: string;
+  let previousCopilotHome: string | undefined;
+
+  beforeEach(() => {
+    tempDir = createTempDir();
+    previousCopilotHome = process.env.COPILOT_HOME;
+    process.env.COPILOT_HOME = tempDir;
+  });
+
+  afterEach(() => {
+    if (previousCopilotHome === undefined) {
+      delete process.env.COPILOT_HOME;
+    } else {
+      process.env.COPILOT_HOME = previousCopilotHome;
+    }
+    cleanupDir(tempDir);
+  });
+
+  it('uses COPILOT_HOME when targetDir is omitted', async () => {
+    await applyCopilotSetup({ yes: true, quiet: true });
+
+    expect(fs.existsSync(path.join(tempDir, 'hooks', 'automem-session-start.json'))).toBe(true);
+    expect(fs.existsSync(path.join(tempDir, 'scripts', 'automem-session-start.sh'))).toBe(true);
+  });
+
+  it('rewrites hook command paths to COPILOT_HOME when targetDir is omitted', async () => {
+    await applyCopilotSetup({ yes: true, quiet: true });
+
+    const hookPath = path.join(tempDir, 'hooks', 'automem-session-start.json');
+    const hookData: CopilotHookFile = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+
+    expect(hookData.hooks.sessionStart[0].bash).toContain(tempDir);
+    expect(hookData.hooks.sessionStart[0].bash).not.toContain('$HOME/.copilot');
+  });
+
+  it('embeds absolute hook paths when targetDir is relative', async () => {
+    const relativeTarget = path.relative(process.cwd(), tempDir);
+    await applyCopilotSetup({ targetDir: relativeTarget, yes: true, quiet: true });
+
+    const hookData: CopilotHookFile = JSON.parse(
+      fs.readFileSync(path.join(tempDir, 'hooks', 'automem-session-start.json'), 'utf8')
+    );
+    expect(hookData.hooks.sessionStart[0].bash).toContain(tempDir);
+    expect(hookData.hooks.sessionStart[0].bash).not.toContain(relativeTarget);
+  });
+});
+
+describe('track-store hook schema', () => {
+  it('matches the store tool via a postToolUse toolName matcher', () => {
+    const hookPath = path.resolve(__dirname, '../templates/copilot/hooks/automem-track-store.json');
+    const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const entry = data.hooks.postToolUse[0];
+
+    expect(entry.type).toBe('command');
+    // Matcher is anchored ^(?:PATTERN)$ against toolName; the AutoMem store
+    // tool is exposed to Copilot as `automem-store_memory`.
+    expect(entry.matcher).toBe('.*store_memory');
+    expect(new RegExp(`^(?:${entry.matcher})$`).test('automem-store_memory')).toBe(true);
+    expect(entry.bash).toContain('automem-track-store.sh');
+    expect(entry.powershell).toContain('automem-track-store.ps1');
+  });
+});
+
+describe('stop-nudge hook schema', () => {
+  it('registers an agentStop command hook', () => {
+    const hookPath = path.resolve(__dirname, '../templates/copilot/hooks/automem-stop-nudge.json');
+    const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const entry = data.hooks.agentStop[0];
+
+    expect(entry.type).toBe('command');
+    expect(entry.bash).toContain('automem-stop-nudge.sh');
+    expect(entry.powershell).toContain('automem-stop-nudge.ps1');
+  });
+});
+
+describe('session-start hook schema', () => {
+  it('automem-session-start.json uses type command with bash and powershell', () => {
+    const hookPath = path.resolve(
+      __dirname,
+      '../templates/copilot/hooks/automem-session-start.json'
+    );
+    const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+
+    expect(data.version).toBe(1);
+    const entries = data.hooks.sessionStart;
+    expect(entries).toHaveLength(1);
+    expect(entries[0].type).toBe('command');
+    expect(entries[0].bash).toBeTruthy();
+    expect(entries[0].powershell).toBeTruthy();
+    expect(entries[0].timeoutSec).toBeGreaterThan(0);
+  });
+
+  it('does NOT use type prompt', () => {
+    const hookPath = path.resolve(
+      __dirname,
+      '../templates/copilot/hooks/automem-session-start.json'
+    );
+    const data = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    const entries = data.hooks.sessionStart;
+    for (const entry of entries) {
+      expect(entry.type).not.toBe('prompt');
+    }
+  });
+});
+
+describe('session-start bash script', () => {
+  // Convert Windows path for bash: try Git Bash (/c/...) first, fall back to WSL (/mnt/c/...)
+  function toUnixPath(p: string): string {
+    if (process.platform !== 'win32') return p;
+    const forward = p.replace(/\\/g, '/');
+    // Try Git Bash style first (/c/...), fall back to WSL (/mnt/c/...)
+    const gitBash = forward.replace(/^([A-Za-z]):/, (_m, drive) => `/${drive.toLowerCase()}`);
+    try {
+      const check = spawnSync('bash', ['-c', `test -f "${gitBash}" && echo ok`], {
+        encoding: 'utf8',
+        timeout: 2000,
+      });
+      if (check.stdout?.trim() === 'ok') return gitBash;
+    } catch {
+      /* fall through */
+    }
+    return forward.replace(/^([A-Za-z]):/, (_m, drive) => `/mnt/${drive.toLowerCase()}`);
+  }
+
+  it('outputs valid JSON with additionalContext', () => {
+    const scriptPath = toUnixPath(
+      path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh')
+    );
+    const result = spawnSync('bash', [scriptPath], {
+      encoding: 'utf8',
+      timeout: 5000,
+      cwd: process.cwd(),
+    });
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toHaveProperty('additionalContext');
+    expect(parsed.additionalContext).toContain('automem_session_context');
+  });
+
+  it('includes three-phase recall prompt', () => {
+    const scriptPath = toUnixPath(
+      path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh')
+    );
+    const result = spawnSync('bash', [scriptPath], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+
+    const parsed = JSON.parse(result.stdout);
+    const ctx = parsed.additionalContext;
+    expect(ctx).toContain('Phase 1');
+    expect(ctx).toContain('Phase 2');
+    expect(ctx).toContain('Phase 3');
+    expect(ctx).toMatch(/tags.*preference/);
+    expect(ctx).not.toMatch(/tags.*bugfix/);
+    expect(ctx).toContain('HARD GATE');
+  });
+
+  it('substitutes project slug from cwd', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'my-test-project-'));
+    const scriptPath = toUnixPath(
+      path.resolve(__dirname, '../templates/copilot/scripts/automem-session-start.sh')
+    );
+    const result = spawnSync('bash', [scriptPath], {
+      encoding: 'utf8',
+      timeout: 5000,
+      cwd: tmpDir,
+    });
+
+    const parsed = JSON.parse(result.stdout);
+    const projectName = path.basename(tmpDir);
+    expect(parsed.additionalContext).toContain(projectName);
+
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  });
+});
+
+describe('copilot --help', () => {
+  let tempDir: string;
+  let previousCopilotHome: string | undefined;
+  let stdout: string[];
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    tempDir = createTempDir();
+    // runCopilotSetup resolves its target from COPILOT_HOME when --dir is absent,
+    // so point it at an empty temp dir: a --help run that still installs will
+    // leave evidence here instead of writing to the developer's ~/.copilot.
+    previousCopilotHome = process.env.COPILOT_HOME;
+    process.env.COPILOT_HOME = tempDir;
+
+    stdout = [];
+    logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      stdout.push(args.map(String).join(' '));
+    });
+    // --help returns rather than exiting (src/index.ts owns the exit code), and
+    // the arg parser exits(1) on a value flag with no value. Throwing here turns
+    // either exit into a clean failure instead of tearing down the vitest worker.
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit');
+    });
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    exitSpy.mockRestore();
+    if (previousCopilotHome === undefined) {
+      delete process.env.COPILOT_HOME;
+    } else {
+      process.env.COPILOT_HOME = previousCopilotHome;
+    }
+    cleanupDir(tempDir);
+  });
+
+  for (const flag of ['--help', '-h']) {
+    it(`${flag} prints the usage block and writes nothing`, async () => {
+      await runCopilotSetup([flag]);
+
+      expect(fs.readdirSync(tempDir)).toEqual([]);
+      expect(stdout.join('\n')).toBe(COPILOT_USAGE);
+      expect(stdout.join('\n')).toContain('COPILOT SETUP:');
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+  }
+
+  it('short-circuits before the parser can reject a valueless flag', async () => {
+    await runCopilotSetup(['--help', '--format']);
+
+    expect(fs.readdirSync(tempDir)).toEqual([]);
+    expect(stdout.join('\n')).toBe(COPILOT_USAGE);
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+});

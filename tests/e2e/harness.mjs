@@ -53,7 +53,8 @@ const SANDBOX_ROOT = path.join(HARNESS, 'sandboxes');
 // sits under <workspace>/mcp-servers/), i.e. <workspace>/automem-website/. Override
 // with AUTOMEM_INSTALL_SH. When absent, the website-bootstrap scenario is skipped
 // (the rest of the matrix still runs).
-const INSTALL_SH = process.env.AUTOMEM_INSTALL_SH ||
+const INSTALL_SH =
+  process.env.AUTOMEM_INSTALL_SH ||
   path.resolve(REPO_ROOT, '..', '..', 'automem-website', 'public', 'install.sh');
 // The website-bootstrap scenario runs `npx -y file:<tarball>` TWICE (install.sh
 // does a `help` probe then the real install), so it needs ~2x a direct scenario.
@@ -192,8 +193,18 @@ const SCENARIOS = [
     steps: (ctx) => [
       {
         kind: 'direct',
-        argv: ['install', '--yes', '--target', 'existing', '--endpoint', ctx.mock.url,
-          '--api-key', TOKEN, '--clients', 'codex'],
+        argv: [
+          'install',
+          '--yes',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'codex',
+        ],
       },
     ],
     assert: async (ctx) => {
@@ -201,19 +212,38 @@ const SCENARIOS = [
       const last = ctx.steps.at(-1);
       r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
       const env = await readEnvFile(ctx.cwd);
-      r.push(A('.env written with endpoint', env && env.AUTOMEM_API_URL === ctx.mock.url, JSON.stringify(env)));
+      r.push(
+        A(
+          '.env written with endpoint',
+          env && env.AUTOMEM_API_URL === ctx.mock.url,
+          JSON.stringify(env)
+        )
+      );
       r.push(A('.env written with api key', env && env.AUTOMEM_API_KEY === TOKEN));
       r.push(A('AGENTS.md written', ctx.cwdNew.includes('AGENTS.md')));
       // Plugin-first codex is rules-only: it writes AGENTS.md and advises on the
       // MCP registration. The retired hooks.json / capture / drain-queue files are
       // no longer written (LLM-judged storage replaced mechanical capture).
       r.push(A('codex writes no hooks.json', !ctx.homeNew.includes('.codex/hooks.json')));
-      r.push(A('codex writes no capture/queue scripts',
-        !ctx.homeNew.some((f) => f.startsWith('.codex/scripts/') || f.startsWith('.codex/hooks/'))));
+      r.push(
+        A(
+          'codex writes no capture/queue scripts',
+          !ctx.homeNew.some((f) => f.startsWith('.codex/scripts/') || f.startsWith('.codex/hooks/'))
+        )
+      );
       const reqs = ctx.mock.requests;
-      r.push(A('mock saw GET /health', reqs.some((q) => q.path === '/health')));
-      r.push(A('mock saw authed GET /recall',
-        reqs.some((q) => q.path === '/recall' && q.authed)));
+      r.push(
+        A(
+          'mock saw GET /health',
+          reqs.some((q) => q.path === '/health')
+        )
+      );
+      r.push(
+        A(
+          'mock saw authed GET /recall',
+          reqs.some((q) => q.path === '/recall' && q.authed)
+        )
+      );
       return r;
     },
     // F2 (config.toml plan/executor mismatch) is NOT keyed here: in a real
@@ -227,16 +257,107 @@ const SCENARIOS = [
   },
 
   {
+    name: 'grok-existing-headless',
+    description:
+      'Headless existing-target install for Grok Build. Grok is deliberately absent from DEFAULT_AGENT_CLIENTS, so it is opt-in via --clients.',
+    mock: { mode: 'healthy', expectToken: TOKEN },
+    steps: (ctx) => [
+      {
+        kind: 'direct',
+        argv: [
+          'install',
+          '--yes',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'grok',
+        ],
+      },
+    ],
+    assert: async (ctx) => {
+      const r = [];
+      const last = ctx.steps.at(-1);
+      r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
+      r.push(
+        A(
+          'grok config.toml written',
+          ctx.homeNew.includes('.grok/config.toml'),
+          ctx.homeNew.join(', ')
+        )
+      );
+      r.push(A('grok AGENTS.md written', ctx.homeNew.includes('.grok/AGENTS.md')));
+      const toml = await readFile(path.join(ctx.home, '.grok', 'config.toml'), 'utf8').catch(
+        () => ''
+      );
+      r.push(A('config registers [mcp_servers.memory]', toml.includes('[mcp_servers.memory]')));
+      r.push(A('config carries the endpoint', toml.includes(ctx.mock.url)));
+      r.push(A('config carries the api key', toml.includes(TOKEN)));
+      const agents = await readFile(path.join(ctx.home, '.grok', 'AGENTS.md'), 'utf8').catch(
+        () => ''
+      );
+      r.push(
+        A(
+          'rules block written with both markers',
+          agents.includes('<!-- BEGIN AUTOMEM GROK RULES -->') &&
+            agents.includes('<!-- END AUTOMEM GROK RULES -->')
+        )
+      );
+      // ~/.grok/AGENTS.md is injected into EVERY grok session, so the global copy
+      // must keep the <project-slug> placeholder rather than bake in the cwd it
+      // happened to be installed from (grok.ts GLOBAL_PROJECT_PLACEHOLDER).
+      r.push(
+        A(
+          'global rules stay project-agnostic',
+          agents.includes('<project-slug>'),
+          agents.slice(0, 200)
+        )
+      );
+      const reqs = ctx.mock.requests;
+      r.push(
+        A(
+          'mock saw GET /health',
+          reqs.some((q) => q.path === '/health')
+        )
+      );
+      r.push(
+        A(
+          'mock saw authed GET /recall',
+          reqs.some((q) => q.path === '/recall' && q.authed)
+        )
+      );
+      return r;
+    },
+    findings: () => [],
+  },
+
+  {
     name: 'claude-existing-headless',
-    description: 'Sibling client: headless existing-target install for Claude Code in settings mode (the scriptable alternative to the recommended plugin).',
+    description:
+      'Sibling client: headless existing-target install for Claude Code in settings mode (the scriptable alternative to the recommended plugin).',
     mock: { mode: 'healthy', expectToken: TOKEN },
     steps: (ctx) => [
       {
         // Claude Code defaults to the plugin (a guided manual step the CLI can't
         // perform headlessly); --claude-code-mode settings exercises the writer.
         kind: 'direct',
-        argv: ['install', '--yes', '--target', 'existing', '--endpoint', ctx.mock.url,
-          '--api-key', TOKEN, '--clients', 'claude-code', '--claude-code-mode', 'settings'],
+        argv: [
+          'install',
+          '--yes',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'claude-code',
+          '--claude-code-mode',
+          'settings',
+        ],
       },
     ],
     assert: async (ctx) => {
@@ -245,8 +366,13 @@ const SCENARIOS = [
       r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
       const env = await readEnvFile(ctx.cwd);
       r.push(A('.env written with endpoint', env && env.AUTOMEM_API_URL === ctx.mock.url));
-      r.push(A('claude settings.json written (hooks + permissions, NOT a server registration)',
-        ctx.homeNew.includes('.claude/settings.json'), ctx.homeNew.join(', ')));
+      r.push(
+        A(
+          'claude settings.json written (hooks + permissions, NOT a server registration)',
+          ctx.homeNew.includes('.claude/settings.json'),
+          ctx.homeNew.join(', ')
+        )
+      );
       return r;
     },
     findings: (ctx) => {
@@ -272,14 +398,25 @@ const SCENARIOS = [
 
   {
     name: 'claude-plugin-fallback',
-    description: 'Plugin mode with no `claude` on PATH falls back to the guided /plugin commands, not a ~/.claude write.',
+    description:
+      'Plugin mode with no `claude` on PATH falls back to the guided /plugin commands, not a ~/.claude write.',
     mock: { mode: 'healthy', expectToken: TOKEN },
     // Default stub bin shadows any real claude with an exit-127 stub -> claude absent.
     steps: (ctx) => [
       {
         kind: 'direct',
-        argv: ['install', '--yes', '--target', 'existing', '--endpoint', ctx.mock.url,
-          '--api-key', TOKEN, '--clients', 'claude-code'],
+        argv: [
+          'install',
+          '--yes',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'claude-code',
+        ],
       },
     ],
     assert: async (ctx) => {
@@ -288,10 +425,19 @@ const SCENARIOS = [
       r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
       const env = await readEnvFile(ctx.cwd);
       r.push(A('.env still written with endpoint', env && env.AUTOMEM_API_URL === ctx.mock.url));
-      r.push(A('no ~/.claude writes in plugin fallback',
-        !ctx.homeNew.some((f) => f.startsWith('.claude/')), ctx.homeNew.join(', ') || '(none)'));
-      r.push(A('stdout surfaces the /plugin install command',
-        /\/plugin install automem@verygoodplugins-mcp-automem/.test(last.stdout)));
+      r.push(
+        A(
+          'no ~/.claude writes in plugin fallback',
+          !ctx.homeNew.some((f) => f.startsWith('.claude/')),
+          ctx.homeNew.join(', ') || '(none)'
+        )
+      );
+      r.push(
+        A(
+          'stdout surfaces the /plugin install command',
+          /\/plugin install automem@verygoodplugins-mcp-automem/.test(last.stdout)
+        )
+      );
       return r;
     },
     findings: () => [],
@@ -299,7 +445,8 @@ const SCENARIOS = [
 
   {
     name: 'claude-plugin-autoinstall',
-    description: 'Plugin mode with `claude` on PATH installs the plugin and passes only non-secret config via argv.',
+    description:
+      'Plugin mode with `claude` on PATH installs the plugin and passes only non-secret config via argv.',
     mock: { mode: 'healthy', expectToken: TOKEN },
     // Recording stub: claude is "present", logs every invocation, prints nothing for
     // `marketplace list` (so the installer adds it), and exits 0 for every call.
@@ -307,23 +454,58 @@ const SCENARIOS = [
     steps: (ctx) => [
       {
         kind: 'direct',
-        argv: ['install', '--yes', '--target', 'existing', '--endpoint', ctx.mock.url,
-          '--api-key', TOKEN, '--clients', 'claude-code'],
+        argv: [
+          'install',
+          '--yes',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'claude-code',
+        ],
       },
     ],
     assert: async (ctx) => {
       const r = [];
       const last = ctx.steps.at(-1);
-      r.push(A('non-zero exit (api key needs plugin UI/env config)', last.exitCode !== 0, `exit=${last.exitCode}`));
-      const log = await readFile(path.join(ctx.home, '.e2e-claude-calls.log'), 'utf8').catch(() => '');
-      r.push(A('ran `claude plugin marketplace add verygoodplugins/mcp-automem`',
-        /plugin marketplace add verygoodplugins\/mcp-automem/.test(log), log.trim() || '(no calls)'));
-      r.push(A('ran `claude plugin install` threading --config api_url',
-        new RegExp(`plugin install automem@verygoodplugins-mcp-automem .*--config api_url=${ctx.mock.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(log)));
+      r.push(
+        A(
+          'non-zero exit (api key needs plugin UI/env config)',
+          last.exitCode !== 0,
+          `exit=${last.exitCode}`
+        )
+      );
+      const log = await readFile(path.join(ctx.home, '.e2e-claude-calls.log'), 'utf8').catch(
+        () => ''
+      );
+      r.push(
+        A(
+          'ran `claude plugin marketplace add verygoodplugins/mcp-automem`',
+          /plugin marketplace add verygoodplugins\/mcp-automem/.test(log),
+          log.trim() || '(no calls)'
+        )
+      );
+      r.push(
+        A(
+          'ran `claude plugin install` threading --config api_url',
+          new RegExp(
+            `plugin install automem@verygoodplugins-mcp-automem .*--config api_url=${ctx.mock.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
+          ).test(log)
+        )
+      );
       r.push(A('did NOT thread api key via argv', !/api_key=mocktoken-e2e/.test(log)));
       r.push(A('did NOT print the manual /plugin command', !/\/plugin install/.test(last.stdout)));
-      r.push(A('stdout surfaces plugin key follow-up',
-        /plugin configure automem@verygoodplugins-mcp-automem[\s\S]*api_key|AUTOMEM_API_KEY/.test(last.stdout)));
+      r.push(
+        A(
+          'stdout surfaces plugin key follow-up',
+          /plugin configure automem@verygoodplugins-mcp-automem[\s\S]*api_key|AUTOMEM_API_KEY/.test(
+            last.stdout
+          )
+        )
+      );
       return r;
     },
     findings: () => [],
@@ -336,8 +518,19 @@ const SCENARIOS = [
     steps: () => [
       {
         kind: 'direct',
-        argv: ['install', '--yes', '--dry-run', '--target', 'existing', '--endpoint',
-          DUMMY_ENDPOINT, '--api-key', TOKEN, '--clients', 'codex'],
+        argv: [
+          'install',
+          '--yes',
+          '--dry-run',
+          '--target',
+          'existing',
+          '--endpoint',
+          DUMMY_ENDPOINT,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'codex',
+        ],
       },
     ],
     assert: async (ctx) => {
@@ -354,9 +547,15 @@ const SCENARIOS = [
       // `path:` and `config.toml` land on separate lines — verified against the unfixed
       // tarball, where the bare substring matched but the anchored regex did not.)
       const planMentionsConfigToml = /config\.toml/.test(last.stdout);
-      r.push(A('plan does NOT promise ~/.codex/config.toml (over-promise removed)',
-        !planMentionsConfigToml,
-        planMentionsConfigToml ? 'config.toml still listed in dry-run plan' : 'no config.toml in plan'));
+      r.push(
+        A(
+          'plan does NOT promise ~/.codex/config.toml (over-promise removed)',
+          !planMentionsConfigToml,
+          planMentionsConfigToml
+            ? 'config.toml still listed in dry-run plan'
+            : 'no config.toml in plan'
+        )
+      );
       return r;
     },
     findings: (ctx) => {
@@ -389,8 +588,19 @@ const SCENARIOS = [
     steps: (ctx) => [
       {
         kind: 'direct',
-        argv: ['install', '--yes', '--no-agent-install', '--target', 'existing', '--endpoint',
-          ctx.mock.url, '--api-key', TOKEN, '--clients', 'codex'],
+        argv: [
+          'install',
+          '--yes',
+          '--no-agent-install',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'codex',
+        ],
       },
     ],
     assert: async (ctx) => {
@@ -400,8 +610,13 @@ const SCENARIOS = [
       const env = await readEnvFile(ctx.cwd);
       r.push(A('.env written', env && env.AUTOMEM_API_URL === ctx.mock.url));
       r.push(A('no AGENTS.md', !ctx.cwdNew.includes('AGENTS.md')));
-      r.push(A('no .codex files', !ctx.homeNew.some((f) => f.startsWith('.codex/')),
-        ctx.homeNew.join(', ')));
+      r.push(
+        A(
+          'no .codex files',
+          !ctx.homeNew.some((f) => f.startsWith('.codex/')),
+          ctx.homeNew.join(', ')
+        )
+      );
       return r;
     },
     findings: () => [],
@@ -414,8 +629,17 @@ const SCENARIOS = [
     steps: (ctx) => [
       {
         kind: 'direct',
-        argv: ['install', '--target', 'existing', '--endpoint', ctx.mock.url,
-          '--api-key', TOKEN, '--clients', 'codex'],
+        argv: [
+          'install',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'codex',
+        ],
       },
     ],
     assert: async (ctx) => {
@@ -425,8 +649,13 @@ const SCENARIOS = [
       r.push(A('preview text shown', /Non-interactive preview|AUTOMEM_YES=1/.test(last.stdout)));
       r.push(A('no new files in HOME', ctx.homeNew.length === 0, ctx.homeNew.join(', ')));
       r.push(A('no new files in cwd', ctx.cwdNew.length === 0, ctx.cwdNew.join(', ')));
-      r.push(A('mock never contacted', ctx.mock.requests.length === 0,
-        `requests=${ctx.mock.requests.length}`));
+      r.push(
+        A(
+          'mock never contacted',
+          ctx.mock.requests.length === 0,
+          `requests=${ctx.mock.requests.length}`
+        )
+      );
       return r;
     },
     findings: () => [],
@@ -437,8 +666,18 @@ const SCENARIOS = [
     description: 'Running the codex install twice must stay valid (no corruption on second pass).',
     mock: { mode: 'healthy', expectToken: TOKEN },
     steps: (ctx) => {
-      const argv = ['install', '--yes', '--target', 'existing', '--endpoint', ctx.mock.url,
-        '--api-key', TOKEN, '--clients', 'codex'];
+      const argv = [
+        'install',
+        '--yes',
+        '--target',
+        'existing',
+        '--endpoint',
+        ctx.mock.url,
+        '--api-key',
+        TOKEN,
+        '--clients',
+        'codex',
+      ];
       return [
         { kind: 'direct', argv },
         { kind: 'direct', argv },
@@ -457,13 +696,23 @@ const SCENARIOS = [
       } catch {
         blockCount = -1;
       }
-      r.push(A('AGENTS.md keeps exactly one AutoMem block after reinstall', blockCount === 1,
-        `blocks=${blockCount}`));
+      r.push(
+        A(
+          'AGENTS.md keeps exactly one AutoMem block after reinstall',
+          blockCount === 1,
+          `blocks=${blockCount}`
+        )
+      );
       const env = await readEnvFile(ctx.cwd);
       r.push(A('.env still has single endpoint key', env && env.AUTOMEM_API_URL === ctx.mock.url));
       const baks = ctx.homeNew.filter((f) => f.includes('.bak'));
-      r.push(A('backup files created on reinstall (informational)', true,
-        `bak files: ${baks.join(', ') || 'none'}`));
+      r.push(
+        A(
+          'backup files created on reinstall (informational)',
+          true,
+          `bak files: ${baks.join(', ') || 'none'}`
+        )
+      );
       return r;
     },
     findings: () => [],
@@ -476,20 +725,39 @@ const SCENARIOS = [
     steps: (ctx) => [
       {
         kind: 'direct',
-        argv: ['install', '--yes', '--target', 'existing', '--endpoint', ctx.mock.url,
-          '--api-key', TOKEN, '--clients', 'codex'],
+        argv: [
+          'install',
+          '--yes',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'codex',
+        ],
       },
     ],
     assert: async (ctx) => {
       const r = [];
       const last = ctx.steps.at(-1);
       r.push(A('non-zero exit (verify gate fires)', last.exitCode !== 0, `exit=${last.exitCode}`));
-      r.push(A('clean error — no raw Node stack trace',
-        !/\n\s+at\s|node:internal/.test(`${last.stdout}\n${last.stderr}`),
-        'raw stack leaked on failure'));
+      r.push(
+        A(
+          'clean error — no raw Node stack trace',
+          !/\n\s+at\s|node:internal/.test(`${last.stdout}\n${last.stderr}`),
+          'raw stack leaked on failure'
+        )
+      );
       r.push(A('no .env written', (await readEnvFile(ctx.cwd)) === null));
-      r.push(A('no agent files written', ctx.homeNew.length === 0 && ctx.cwdNew.length === 0,
-        `home:${ctx.homeNew.join(',')} cwd:${ctx.cwdNew.join(',')}`));
+      r.push(
+        A(
+          'no agent files written',
+          ctx.homeNew.length === 0 && ctx.cwdNew.length === 0,
+          `home:${ctx.homeNew.join(',')} cwd:${ctx.cwdNew.join(',')}`
+        )
+      );
       return r;
     },
     findings: (ctx) => {
@@ -513,19 +781,38 @@ const SCENARIOS = [
     steps: (ctx) => [
       {
         kind: 'direct',
-        argv: ['install', '--yes', '--target', 'existing', '--endpoint', ctx.mock.url,
-          '--api-key', TOKEN, '--clients', 'codex'],
+        argv: [
+          'install',
+          '--yes',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'codex',
+        ],
       },
     ],
     assert: async (ctx) => {
       const r = [];
       const last = ctx.steps.at(-1);
       r.push(A('non-zero exit (auth probe fails)', last.exitCode !== 0, `exit=${last.exitCode}`));
-      r.push(A('clean error — no raw Node stack trace',
-        !/\n\s+at\s|node:internal/.test(`${last.stdout}\n${last.stderr}`),
-        'raw stack leaked on failure'));
+      r.push(
+        A(
+          'clean error — no raw Node stack trace',
+          !/\n\s+at\s|node:internal/.test(`${last.stdout}\n${last.stderr}`),
+          'raw stack leaked on failure'
+        )
+      );
       r.push(A('no .env written', (await readEnvFile(ctx.cwd)) === null));
-      r.push(A('mock saw authed /recall', ctx.mock.requests.some((q) => q.path === '/recall' && q.authed)));
+      r.push(
+        A(
+          'mock saw authed /recall',
+          ctx.mock.requests.some((q) => q.path === '/recall' && q.authed)
+        )
+      );
       return r;
     },
     findings: (ctx) => {
@@ -551,27 +838,58 @@ const SCENARIOS = [
     steps: (ctx) => [
       {
         kind: 'direct',
-        argv: ['install', '--yes', '--target', 'existing', '--endpoint', ctx.mock.url,
-          '--clients', 'codex'],
+        argv: [
+          'install',
+          '--yes',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--clients',
+          'codex',
+        ],
       },
     ],
     assert: async (ctx) => {
       const r = [];
       const last = ctx.steps.at(-1);
-      r.push(A('mock saw GET /health', ctx.mock.requests.some((q) => q.path === '/health')));
-      r.push(A('only /health probed (no api-key, so no /recall)',
-        !ctx.mock.requests.some((q) => q.path === '/recall'),
-        ctx.mock.requests.map((q) => q.path).join(',')));
+      r.push(
+        A(
+          'mock saw GET /health',
+          ctx.mock.requests.some((q) => q.path === '/health')
+        )
+      );
+      r.push(
+        A(
+          'only /health probed (no api-key, so no /recall)',
+          !ctx.mock.requests.some((q) => q.path === '/recall'),
+          ctx.mock.requests.map((q) => q.path).join(',')
+        )
+      );
       // F5 fixed: a 200 /health carrying a non-JSON body must NOT satisfy the gate.
       // The install must abort with a non-zero exit and write nothing.
-      r.push(A('aborts on non-JSON /health (non-zero exit)', last.exitCode !== 0, `exit=${last.exitCode}`));
-      r.push(A('clean error — no raw Node stack trace',
-        !/\n\s+at\s|node:internal/.test(`${last.stdout}\n${last.stderr}`),
-        'raw stack leaked on failure'));
+      r.push(
+        A(
+          'aborts on non-JSON /health (non-zero exit)',
+          last.exitCode !== 0,
+          `exit=${last.exitCode}`
+        )
+      );
+      r.push(
+        A(
+          'clean error — no raw Node stack trace',
+          !/\n\s+at\s|node:internal/.test(`${last.stdout}\n${last.stderr}`),
+          'raw stack leaked on failure'
+        )
+      );
       r.push(A('no .env written', (await readEnvFile(ctx.cwd)) === null));
-      r.push(A('no agent files written',
-        ctx.homeNew.length === 0 && ctx.cwdNew.length === 0,
-        `home:[${ctx.homeNew.join(',')}] cwd:[${ctx.cwdNew.join(',')}]`));
+      r.push(
+        A(
+          'no agent files written',
+          ctx.homeNew.length === 0 && ctx.cwdNew.length === 0,
+          `home:[${ctx.homeNew.join(',')}] cwd:[${ctx.cwdNew.join(',')}]`
+        )
+      );
       return r;
     },
     findings: (ctx) => {
@@ -597,7 +915,8 @@ const SCENARIOS = [
 
   {
     name: 'website-bootstrap-install-sh',
-    description: 'The real production entrypoint: website install.sh -> npx file:<tarball> install, headless.',
+    description:
+      'The real production entrypoint: website install.sh -> npx file:<tarball> install, headless.',
     mock: { mode: 'healthy' }, // install.sh has no api-key passthrough, so no token expected
     steps: (ctx) => [
       {
@@ -619,7 +938,12 @@ const SCENARIOS = [
       r.push(A('AGENTS.md written', ctx.cwdNew.includes('AGENTS.md')));
       // Plugin-first codex is rules-only — no hooks.json/queue on the bootstrap path either.
       r.push(A('codex writes no hooks.json', !ctx.homeNew.includes('.codex/hooks.json')));
-      r.push(A('mock saw GET /health', ctx.mock.requests.some((q) => q.path === '/health')));
+      r.push(
+        A(
+          'mock saw GET /health',
+          ctx.mock.requests.some((q) => q.path === '/health')
+        )
+      );
       return r;
     },
     findings: () => {
@@ -652,8 +976,18 @@ const SCENARIOS = [
     steps: (ctx) => [
       {
         kind: 'direct',
-        argv: ['install', '--yes', '--target', 'existing', '--endpoint', ctx.mock.url,
-          '--api-key', TOKEN, '--clients', 'codex'],
+        argv: [
+          'install',
+          '--yes',
+          '--target',
+          'existing',
+          '--endpoint',
+          ctx.mock.url,
+          '--api-key',
+          TOKEN,
+          '--clients',
+          'codex',
+        ],
       },
       { kind: 'node-bin', argv: ['uninstall', 'codex', '--yes'] },
     ],
@@ -665,26 +999,41 @@ const SCENARIOS = [
       r.push(A('uninstall codex exit 0', u.exitCode === 0, `exit=${u.exitCode}`));
       const finalHome = await listFiles(ctx.home);
       // Ignore the .bak/.backup/.removed safety copies the uninstaller leaves behind.
-      const codexLeft = finalHome.filter((f) =>
-        f.startsWith('.codex/') &&
-        !/\.(bak|backup|removed)(\.|$)/.test(f));
-      r.push(A('codex hooks.json removed',
-        !codexLeft.includes('.codex/hooks.json'), codexLeft.join(', ') || '(none)'));
-      r.push(A('codex hook scripts removed',
-        !codexLeft.some((f) => f.startsWith('.codex/hooks/')), codexLeft.join(', ') || '(none)'));
-      r.push(A('codex support scripts removed',
-        !codexLeft.some((f) => f.startsWith('.codex/scripts/')), codexLeft.join(', ') || '(none)'));
+      const codexLeft = finalHome.filter(
+        (f) => f.startsWith('.codex/') && !/\.(bak|backup|removed)(\.|$)/.test(f)
+      );
+      r.push(
+        A(
+          'codex hooks.json removed',
+          !codexLeft.includes('.codex/hooks.json'),
+          codexLeft.join(', ') || '(none)'
+        )
+      );
+      r.push(
+        A(
+          'codex hook scripts removed',
+          !codexLeft.some((f) => f.startsWith('.codex/hooks/')),
+          codexLeft.join(', ') || '(none)'
+        )
+      );
+      r.push(
+        A(
+          'codex support scripts removed',
+          !codexLeft.some((f) => f.startsWith('.codex/scripts/')),
+          codexLeft.join(', ') || '(none)'
+        )
+      );
       const agentsPath = path.join(ctx.cwd, 'AGENTS.md');
       const agents = existsSync(agentsPath) ? await readFile(agentsPath, 'utf8') : '';
-      r.push(A('AGENTS.md AutoMem block stripped',
-        !/BEGIN AUTOMEM CODEX RULES/.test(agents)));
+      r.push(A('AGENTS.md AutoMem block stripped', !/BEGIN AUTOMEM CODEX RULES/.test(agents)));
       return r;
     },
     findings: (ctx) => {
       const out = [];
       const u = ctx.steps[1];
       const text = `${u.stdout}\n${u.stderr}`;
-      const rejectsCodex = u.exitCode !== 0 &&
+      const rejectsCodex =
+        u.exitCode !== 0 &&
         /Platform required|cursor\|claude-code\|hermes|cursor.*claude-code.*hermes/i.test(text);
       // Regression guard: fire only if `uninstall codex` is still rejected.
       if (rejectsCodex) {
@@ -819,15 +1168,21 @@ function renderReport(results) {
   const lines = [];
   lines.push('# AutoMem installer — e2e scenario matrix');
   lines.push('');
-  lines.push(`Command under test: \`npx -y ${SPEC} install …\` (the form website install.sh execs).`);
-  lines.push('Each scenario ran in a fresh $HOME + fresh project cwd. No operator config was touched.');
+  lines.push(
+    `Command under test: \`npx -y ${SPEC} install …\` (the form website install.sh execs).`
+  );
+  lines.push(
+    'Each scenario ran in a fresh $HOME + fresh project cwd. No operator config was touched.'
+  );
   lines.push('');
   lines.push('| Scenario | Result | Assertions | Findings |');
   lines.push('|---|---|---|---|');
   for (const r of results) {
     const passN = r.assertions.filter((a) => a.ok).length;
     const result = r.skipped ? '⏭️ SKIP' : r.passed ? '✅ pass' : '❌ FAIL';
-    lines.push(`| ${r.name} | ${result} | ${passN}/${r.assertions.length} | ${r.findings.length} |`);
+    lines.push(
+      `| ${r.name} | ${result} | ${passN}/${r.assertions.length} | ${r.findings.length} |`
+    );
   }
   lines.push('');
 
@@ -893,15 +1248,17 @@ async function main() {
       console.error(
         `FATAL: AUTOMEM_REQUIRE_INSTALL_SH is set but install.sh was not found at ${INSTALL_SH}. ` +
           `The website-bootstrap (curl | sh) scenario would be silently skipped. Check out ` +
-          `automem-website and point AUTOMEM_INSTALL_SH at its public/install.sh.`,
+          `automem-website and point AUTOMEM_INSTALL_SH at its public/install.sh.`
       );
       process.exit(2);
     }
     const before = selected.length;
     selected = selected.filter((s) => s.name !== 'website-bootstrap-install-sh');
     if (selected.length !== before) {
-      console.error(`NOTE: install.sh not found at ${INSTALL_SH} — skipping website-bootstrap ` +
-        `scenario. Set AUTOMEM_INSTALL_SH to include it.`);
+      console.error(
+        `NOTE: install.sh not found at ${INSTALL_SH} — skipping website-bootstrap ` +
+          `scenario. Set AUTOMEM_INSTALL_SH to include it.`
+      );
     }
   }
 
@@ -910,8 +1267,10 @@ async function main() {
     process.exit(2);
   }
   if (!existsSync(DIST_BIN)) {
-    console.error(`FATAL: built bin not found at ${DIST_BIN} (needed for node-bin steps). ` +
-      `Build the installer (npm run build) or set AUTOMEM_REPO_ROOT.`);
+    console.error(
+      `FATAL: built bin not found at ${DIST_BIN} (needed for node-bin steps). ` +
+        `Build the installer (npm run build) or set AUTOMEM_REPO_ROOT.`
+    );
     process.exit(2);
   }
 

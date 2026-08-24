@@ -12,14 +12,16 @@ export const RELATION_TYPE_METADATA = {
   PREFERS_OVER: 'Chosen alternative',
   EXEMPLIFIES: 'Concrete example of a pattern',
   CONTRADICTS: 'Conflicts with another memory',
-  REINFORCES: 'Strengthens another memory\'s validity',
+  REINFORCES: "Strengthens another memory's validity",
   INVALIDATED_BY: 'Superseded by another memory',
   EVOLVED_INTO: 'Updated version of a concept',
   DERIVED_FROM: 'Implementation of a decision/pattern',
   PART_OF: 'Component of a larger effort',
 } as const;
 
-export const AUTHORABLE_RELATION_TYPES = Object.keys(RELATION_TYPE_METADATA) as ReadonlyArray<keyof typeof RELATION_TYPE_METADATA>;
+export const AUTHORABLE_RELATION_TYPES = Object.keys(RELATION_TYPE_METADATA) as ReadonlyArray<
+  keyof typeof RELATION_TYPE_METADATA
+>;
 
 /**
  * @deprecated Use AUTHORABLE_RELATION_TYPES.
@@ -28,13 +30,22 @@ export const AUTHORABLE_RELATION_TYPES = Object.keys(RELATION_TYPE_METADATA) as 
 export const RELATION_TYPES = AUTHORABLE_RELATION_TYPES;
 
 export const MEMORY_TYPES = [
-  'Decision', 'Pattern', 'Preference', 'Style', 'Habit', 'Insight', 'Context',
+  'Decision',
+  'Pattern',
+  'Preference',
+  'Style',
+  'Habit',
+  'Insight',
+  'Context',
 ] as const;
 
 export type AuthorableRelationType = (typeof AUTHORABLE_RELATION_TYPES)[number];
 /** @deprecated Use AuthorableRelationType. */
 export type RelationType = AuthorableRelationType;
-export type SupersedeRelationType = Extract<AuthorableRelationType, 'INVALIDATED_BY' | 'EVOLVED_INTO'>;
+export type SupersedeRelationType = Extract<
+  AuthorableRelationType,
+  'INVALIDATED_BY' | 'EVOLVED_INTO'
+>;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
 export type RecallStateMode = 'current' | 'history';
 export type RecallRecencyBias = 'auto' | 'on' | 'off';
@@ -42,6 +53,13 @@ export type RecallRecencyBias = 'auto' | 'on' | 'off';
 export interface AutoMemConfig {
   endpoint: string;
   apiKey?: string;
+  /**
+   * Per-request abort timeout in ms. Default 25000. Set this when a transport
+   * has its own latency budget — the remote bridge runs a tighter one.
+   */
+  timeoutMs?: number;
+  /** Retry budget for network errors and 5xx. Default 3. */
+  maxRetries?: number;
 }
 
 export interface MemoryRecord {
@@ -181,7 +199,6 @@ export interface StoreMemoryArgs {
   content?: string;
   type?: MemoryType;
   confidence?: number;
-  id?: string;
   tags?: string[];
   importance?: number;
   embedding?: number[];

@@ -659,9 +659,9 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject exhaustive without tags', async () => {
-      await expect(
-        client.recallMemory({ exhaustive: true } as any)
-      ).rejects.toThrow('non-empty `tags`');
+      await expect(client.recallMemory({ exhaustive: true } as any)).rejects.toThrow(
+        'non-empty `tags`'
+      );
     });
 
     it('should reject exhaustive + tag_match=prefix', async () => {
@@ -779,9 +779,9 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject empty memories array', async () => {
-      await expect(
-        client.storeMemory({ memories: [] } as any)
-      ).rejects.toThrow('at least one item');
+      await expect(client.storeMemory({ memories: [] } as any)).rejects.toThrow(
+        'at least one item'
+      );
     });
 
     it('should reject memories array exceeding 500 items', async () => {
@@ -804,9 +804,9 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject items with empty content', async () => {
-      await expect(
-        client.storeMemory({ memories: [{ content: '   ' }] } as any)
-      ).rejects.toThrow('content is required');
+      await expect(client.storeMemory({ memories: [{ content: '   ' }] } as any)).rejects.toThrow(
+        'content is required'
+      );
     });
 
     it('should reject XOR collision (content + memories)', async () => {
@@ -1062,15 +1062,15 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject when both memory_id and tags are passed', async () => {
-      await expect(
-        client.deleteMemory({ memory_id: 'mem-1', tags: ['x'] } as any)
-      ).rejects.toThrow('not both');
+      await expect(client.deleteMemory({ memory_id: 'mem-1', tags: ['x'] } as any)).rejects.toThrow(
+        'not both'
+      );
     });
 
     it('should reject when tags contains only whitespace entries (treated as no input)', async () => {
-      await expect(
-        client.deleteMemory({ tags: ['', '  '] } as any)
-      ).rejects.toThrow('`memory_id` or `tags` is required');
+      await expect(client.deleteMemory({ tags: ['', '  '] } as any)).rejects.toThrow(
+        '`memory_id` or `tags` is required'
+      );
     });
   });
 
@@ -1181,10 +1181,7 @@ describe('AutoMemClient', () => {
 
       await clientWithSlash.checkHealth();
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8001/health',
-        expect.any(Object)
-      );
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8001/health', expect.any(Object));
     });
   });
 
@@ -1201,5 +1198,140 @@ describe('AutoMemClient', () => {
       const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
       expect(headers.Authorization).toBeUndefined();
     });
+  });
+
+  describe('makeRequest — truncated JSON bodies', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('retries a 200 response whose body is truncated JSON, then succeeds', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new SyntaxError('Unexpected end of JSON input');
+          },
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ results: [], count: 0 }),
+        } as any);
+
+      const resultPromise = client.recallMemory({ query: 'sweep' });
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await resultPromise;
+
+      expect(result.count).toBe(0);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries invalid JSON on 503 then succeeds', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          json: async () => {
+            throw new SyntaxError('Unexpected token < in JSON');
+          },
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ results: [], count: 0 }),
+        } as any);
+
+      const resultPromise = client.recallMemory({ query: 'sweep' });
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await resultPromise;
+
+      expect(result.count).toBe(0);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry invalid JSON on 400', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (400)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not replay a truncated 201 from POST /memory', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => {
+          throw new SyntaxError('Unexpected end of JSON input');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (201)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not replay POST /memory when a 503 body is not JSON', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (503)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+describe('configurable timeout and retry budget', () => {
+  it('honors a configured maxRetries of 0', async () => {
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      throw new Error('boom');
+    }) as typeof fetch;
+    try {
+      const client = new AutoMemClient({ endpoint: 'http://x', maxRetries: 0 });
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow();
+      expect(calls).toBe(1); // no retries
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('still defaults to three retries when unconfigured', async () => {
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      throw new Error('boom');
+    }) as typeof fetch;
+    try {
+      const client = new AutoMemClient({ endpoint: 'http://x' });
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow();
+      expect(calls).toBe(4); // initial + 3
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

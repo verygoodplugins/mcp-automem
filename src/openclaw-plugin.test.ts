@@ -22,7 +22,10 @@ function registerBeforePromptHandler(params?: {
   pluginConfig?: Record<string, unknown>;
 }) {
   const handlers: Array<
-    (event: { prompt: string; messages: unknown[] }, ctx: { sessionKey?: string }) => Promise<{ prependSystemContext?: string } | void>
+    (
+      event: { prompt: string; messages: unknown[] },
+      ctx: { sessionKey?: string }
+    ) => Promise<{ prependSystemContext?: string } | void>
   > = [];
 
   openClawPlugin.register({
@@ -138,10 +141,7 @@ describe('openclaw AutoMem plugin', () => {
       const store = tools.find((t) => t.name === 'automem_store_memory')!;
 
       await store.execute('call-1', {
-        memories: [
-          { content: 'one', tags: ['extra'] },
-          { content: 'two' },
-        ],
+        memories: [{ content: 'one', tags: ['extra'] }, { content: 'two' }],
       });
 
       const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
@@ -322,7 +322,9 @@ describe('openclaw AutoMem plugin', () => {
     expect(preferenceUrl.searchParams.get('format')).toBe('detailed');
 
     const contextUrl = getRequestUrl(1);
-    expect(contextUrl.searchParams.get('query')).toBe('Finish the Railway deploy flow for mcp-automem');
+    expect(contextUrl.searchParams.get('query')).toBe(
+      'Finish the Railway deploy flow for mcp-automem'
+    );
     expect(contextUrl.searchParams.getAll('tags')).toEqual(['mcp-automem']);
     expect(contextUrl.searchParams.get('time_query')).toBe('last 90 days');
     expect(contextUrl.searchParams.get('limit')).toBe('30');
@@ -523,7 +525,9 @@ describe('openclaw AutoMem plugin', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const recallUrl = getRequestUrl(0);
-    expect(recallUrl.searchParams.get('query')).toBe('What do you think about doing this with Hermes next?');
+    expect(recallUrl.searchParams.get('query')).toBe(
+      'What do you think about doing this with Hermes next?'
+    );
     expect(recallUrl.searchParams.getAll('tags')).toEqual([]);
     expect(nextResult?.prependSystemContext).toContain('<relevant-memories>');
   });

@@ -1,47 +1,47 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     groups:
       production-dependencies:
-        dependency-type: "production"
+        dependency-type: 'production'
         patterns:
-          - "*"
+          - '*'
       dev-dependencies:
-        dependency-type: "development"
+        dependency-type: 'development'
         update-types:
-          - "minor"
-          - "patch"
+          - 'minor'
+          - 'patch'
         patterns:
-          - "*"
+          - '*'
       dev-toolchain-majors:
-        dependency-type: "development"
+        dependency-type: 'development'
         update-types:
-          - "major"
+          - 'major'
         patterns:
-          - "@eslint/*"
-          - "@types/*"
-          - "@vitest/*"
-          - "eslint"
-          - "typescript"
-          - "typescript-eslint"
-          - "vitest"
+          - '@eslint/*'
+          - '@types/*'
+          - '@vitest/*'
+          - 'eslint'
+          - 'typescript'
+          - 'typescript-eslint'
+          - 'vitest'
       dev-other-majors:
-        dependency-type: "development"
+        dependency-type: 'development'
         update-types:
-          - "major"
+          - 'major'
         patterns:
-          - "*"
+          - '*'
         exclude-patterns:
-          - "@eslint/*"
-          - "@types/*"
-          - "@vitest/*"
-          - "eslint"
-          - "typescript"
-          - "typescript-eslint"
-          - "vitest"
+          - '@eslint/*'
+          - '@types/*'
+          - '@vitest/*'
+          - 'eslint'
+          - 'typescript'
+          - 'typescript-eslint'
+          - 'vitest'
     commit-message:
-      prefix: "chore(deps)"
+      prefix: 'chore(deps)'
     open-pull-requests-limit: 10

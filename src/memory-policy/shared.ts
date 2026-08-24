@@ -25,7 +25,7 @@ export const AUTOMEM_PROVIDER_EXPLICIT_RECALL_LIMIT = 10;
 
 export type AutoMemPolicyProfile = keyof typeof AUTOMEM_POLICY_PROFILES;
 
-export type AutoMemPolicyDefaults = typeof AUTOMEM_POLICY_PROFILES[AutoMemPolicyProfile];
+export type AutoMemPolicyDefaults = (typeof AUTOMEM_POLICY_PROFILES)[AutoMemPolicyProfile];
 
 export const AUTOMEM_POLICY_TRIGGER_HEADINGS = [
   '1. User correction or override.',
@@ -76,6 +76,14 @@ type ToolNames = {
   associate: string;
 };
 
+type SessionStartPromptOptions = {
+  projectExpression: string;
+  recallToolName: string;
+  includeProjectTagComment?: boolean;
+  includeProjectSlugExamples?: boolean;
+  includeFirstToolCallGuard?: boolean;
+};
+
 function normalizeProjectTag(tag: string): string {
   return tag
     .trim()
@@ -107,7 +115,9 @@ export function resolveProjectGateTags(defaultTags: string[]): string[] | undefi
 }
 
 export function isSubstantivePrompt(prompt: string): boolean {
-  const normalized = String(prompt || '').replace(/\s+/g, ' ').trim();
+  const normalized = String(prompt || '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!normalized) {
     return false;
   }
@@ -126,6 +136,63 @@ export function looksLikeDebugPrompt(prompt: string): boolean {
 
 export function looksLikeExplicitRecallPrompt(prompt: string): boolean {
   return EXPLICIT_RECALL_PROMPT_PATTERN.test(String(prompt || ''));
+}
+
+function renderSessionStartPrompt(options: SessionStartPromptOptions): string {
+  const projectTagLine = options.includeProjectTagComment
+    ? `    tags: ["${options.projectExpression}"],    // drop if slug collides with a common word`
+    : `    tags: ["${options.projectExpression}"],`;
+  const projectSlugCollisionLine = options.includeProjectSlugExamples
+    ? '- If the project slug collides with a common topic word (for example `video` or `test`), drop the Phase 2 tag gate and rely on semantic `query` alone.'
+    : '- If the project slug collides with a common topic word, drop the Phase 2 tag gate and rely on semantic `query` alone.';
+  const notes = [
+    '- Tags are a HARD GATE - they filter before scoring. For discovery/debugging across the full corpus, drop `tags` and rely on semantic `query` alone.',
+    '- Do NOT use namespace-prefixed tags (`project/*`, `lang/*`, etc.) - the corpus uses bare tags.',
+    "- Phase 2 uses ONE targeted query, not `queries[]` + `auto_decompose`. Sub-queries converge and dedup drops results; a single query built from the real nouns in the user's message wins empirically. Only switch to `queries[]` for genuinely multi-topic questions.",
+    projectSlugCollisionLine,
+    '- Do not re-recall every turn. After turn 1, recall again only for topic shifts, new proper nouns, or active debugging.',
+    '- If recall fails or returns nothing, continue without memory - do not mention the failure to the user.',
+  ];
+
+  if (options.includeFirstToolCallGuard) {
+    notes.push(
+      "- Do not make your first tool call for the user's task until both recall phases are processed."
+    );
+  }
+
+  return [
+    '<automem_session_context>',
+    'MEMORY RECALL - run these phases in order before your first substantive response.',
+    '',
+    'Phase 1 - Preferences (tag-only, no time filter, no query):',
+    `  ${options.recallToolName}({`,
+    '    tags: ["preference"],',
+    `    limit: ${AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit},`,
+    '    sort: "updated_desc",',
+    '    format: "detailed"',
+    '  })',
+    '',
+    "Phase 2 - Task context (ONE semantic query from the user's actual nouns; project-slug gate when unambiguous; 90-day window):",
+    `  ${options.recallToolName}({`,
+    '    query: "<proper nouns, product names, tools, specific topics from the user\'s message>",',
+    projectTagLine,
+    `    time_query: "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days",`,
+    `    limit: ${AUTOMEM_POLICY_DEFAULTS.contextRecallLimit},`,
+    '    format: "detailed"',
+    '  })',
+    '',
+    "Phase 3 - ON-DEMAND debugging (only if the user's message is a debugging/error-symptom question; skip otherwise):",
+    `  ${options.recallToolName}({`,
+    '    query: "<error symptom>",',
+    `    limit: ${AUTOMEM_POLICY_DEFAULTS.debugRecallLimit}`,
+    '  })',
+    '',
+    `Project slug: ${options.projectExpression}`,
+    '',
+    'Notes:',
+    ...notes,
+    '</automem_session_context>',
+  ].join('\n');
 }
 
 export function renderClaudeCodeSessionStartPrompt(projectExpression: string): string {
@@ -165,6 +232,14 @@ export function renderClaudeCodeSessionStartPrompt(projectExpression: string): s
     '- If recall fails or returns nothing, continue without memory - do not mention the failure to the user.',
     '</automem_session_context>',
   ].join('\n');
+}
+
+export function renderCopilotSessionStartPrompt(projectExpression: string): string {
+  return renderSessionStartPrompt({
+    projectExpression,
+    recallToolName: 'automem-recall_memory',
+    includeFirstToolCallGuard: true,
+  });
 }
 
 export function renderClaudeCodeSessionStartHook(): string {
@@ -346,18 +421,79 @@ function quote(value: string): string {
   return JSON.stringify(value);
 }
 
+/**
+ * How a host spells an AutoMem tool call in its rules.
+ *
+ * `direct` hosts (Codex, Cursor, Claude Code/Desktop, Hermes) expose the tools as
+ * callable names and take arguments directly: `mcp__memory__recall_memory({ … })`.
+ *
+ * `wrapped` hosts route every MCP call through one generic dispatcher, so the tool
+ * name becomes an argument: Grok's `use_tool({ tool_name: "memory__recall_memory",
+ * tool_input: { … } })`. Emitting the direct form for those hosts produces rules the
+ * model cannot execute — the failure mode that shipped for Copilot in #186.
+ */
+export type ToolCallStyle =
+  { kind: 'direct'; toolPrefix: string } | { kind: 'wrapped'; wrapper: string; toolPrefix: string };
+
+function directStyle(toolPrefix: string): ToolCallStyle {
+  return { kind: 'direct', toolPrefix };
+}
+
 function renderToolCallName(toolPrefix: string, toolName: string): string {
   return `${toolPrefix}${toolName}`;
 }
 
-function renderToolBehaviorSection(): string {
+/** Prose reference to a tool. Wrapped hosts backtick it — it is a string, not a callable. */
+function toolRef(style: ToolCallStyle, toolName: string): string {
+  const full = renderToolCallName(style.toolPrefix, toolName);
+  return style.kind === 'wrapped' ? `\`${full}\`` : full;
+}
+
+/**
+ * Multi-line call. `argLines` carry their own two-space indent and trailing commas so
+ * the direct path stays byte-identical to what it emitted before this abstraction existed.
+ */
+function toolCallBlock(style: ToolCallStyle, toolName: string, argLines: string[]): string[] {
+  const full = renderToolCallName(style.toolPrefix, toolName);
+  if (style.kind === 'direct') {
+    return [`${full}({`, ...argLines, '})'];
+  }
+  return [
+    `${style.wrapper}({`,
+    `  tool_name: ${quote(full)},`,
+    '  tool_input: {',
+    ...argLines.map((line) => `  ${line}`),
+    '  }',
+    '})',
+  ];
+}
+
+/** Single-line call, for the compact steps of the atomic ritual. */
+function toolCallInline(style: ToolCallStyle, toolName: string, args: string): string {
+  const full = renderToolCallName(style.toolPrefix, toolName);
+  if (style.kind === 'direct') {
+    return `${full}({ ${args} })`;
+  }
+  return `${style.wrapper}({ tool_name: ${quote(full)}, tool_input: { ${args} } })`;
+}
+
+function renderToolBehaviorSection(style: ToolCallStyle): string {
+  // The recovery path for a budget-truncated response has to be callable on the host
+  // reading it. Direct hosts can invoke the tool by name, so the generic short form is
+  // correct there (and keeps every existing generated artifact byte-identical). A
+  // wrapped host has no callable `recall_memory` at all, so the bare form is an
+  // instruction it cannot follow — the exact failure this style abstraction exists for.
+  const idFetch =
+    style.kind === 'wrapped'
+      ? toolCallInline(style, 'recall_memory', 'memory_id: "<id>"')
+      : 'recall_memory({ memory_id })';
   return [
     "## Tool's real behavior (validated against production corpus)",
     '',
     '- **Tags are a hard gate** - memories without matching tags are excluded before scoring. Use tags for stable categories like `preference` and `bugfix`; do not guess topic tags.',
     '- **One good query beats `queries[]` + `auto_decompose`** for focused tasks. Use `queries[]` only for genuinely multi-topic questions.',
     '- **`limit` caps at 50.** Routine recall should use enough budget to be useful.',
-    '- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id })`.',
+    `- **Default \`text\` format shows content previews with created/updated timestamps and importance.** \`detailed\` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with \`${idFetch}\`.`,
     '- **`store_memory` can silently fail.** Verify important stores by recalling a distinctive phrase; retry once if missing.',
     '- **Bare tag convention** - use `automem`, not `project/automem`; no `lang/` prefixes, platform tags, or date-stamped tags. `entity:*:*` tags are server-injected.',
     '',
@@ -369,17 +505,35 @@ function renderToolBehaviorSection(): string {
 
 function renderRecallRulesSection(params: {
   projectName: string;
-  toolPrefix: string;
+  style: ToolCallStyle;
   desktop?: boolean;
   cursor?: boolean;
 }): string {
-  const recall = renderToolCallName(params.toolPrefix, 'recall_memory');
-  const projectTagLine = params.desktop
-    ? ''
-    : `  tags: [${quote(params.projectName)}],        // drop if slug collides with a common word\n`;
-  const cursorRankers = params.cursor
-    ? '  language: "<typescript|python|...>", // optional ranker - boosts, does not gate\n  active_path: "<current file path>"   // optional Cursor ranker\n'
-    : '  language: "<typescript|python|go|rust|...>" // optional ranker\n';
+  const preferenceArgs = [
+    '  tags: ["preference"],',
+    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.preferenceRecallLimit},`,
+    '  sort: "updated_desc"',
+  ];
+  const taskContextArgs = [
+    '  query: "<proper nouns, product names, people, tools, specific topics from the user\'s message>",',
+    ...(params.desktop
+      ? []
+      : [
+          `  tags: [${quote(params.projectName)}],        // drop if slug collides with a common word`,
+        ]),
+    `  time_query: "last ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallWindowDays} days",`,
+    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallLimit},`,
+    ...(params.cursor
+      ? [
+          '  language: "<typescript|python|...>", // optional ranker - boosts, does not gate',
+          '  active_path: "<current file path>"   // optional Cursor ranker',
+        ]
+      : ['  language: "<typescript|python|go|rust|...>" // optional ranker']),
+  ];
+  const debugArgs = [
+    '  query: "<error symptom or exact message>",',
+    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.debugRecallLimit}`,
+  ];
   const heading = params.desktop
     ? '## Conversation start - semantic-first recall'
     : '## Session start — two-phase recall';
@@ -407,22 +561,13 @@ function renderRecallRulesSection(params: {
     'Preferences first:',
     '',
     '```javascript',
-    `${recall}({`,
-    '  tags: ["preference"],',
-    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.preferenceRecallLimit},`,
-    '  sort: "updated_desc"',
-    '})',
+    ...toolCallBlock(params.style, 'recall_memory', preferenceArgs),
     '```',
     '',
     'Task context: one semantic query built from proper nouns, products, files, error strings, tools, and specific topics in the user message.',
     '',
     '```javascript',
-    `${recall}({`,
-    '  query: "<proper nouns, product names, people, tools, specific topics from the user\'s message>",',
-    `${projectTagLine}  time_query: "last ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallWindowDays} days",`,
-    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallLimit},`,
-    cursorRankers.trimEnd(),
-    '})',
+    ...toolCallBlock(params.style, 'recall_memory', taskContextArgs),
     '```',
     '',
     'Skip task-context recall for pure syntax questions, trivial edits, one-off calculations, direct factual queries about current files, or casual openings.',
@@ -430,10 +575,7 @@ function renderRecallRulesSection(params: {
     'Debug context, only when actively investigating a concrete symptom:',
     '',
     '```javascript',
-    `${recall}({`,
-    '  query: "<error symptom or exact message>",',
-    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.debugRecallLimit}`,
-    '})',
+    ...toolCallBlock(params.style, 'recall_memory', debugArgs),
     '```',
     '',
     'No tag gate on debug recall - bugfix/solution tagging is incomplete and a hard gate hides cross-corpus fixes.',
@@ -444,11 +586,61 @@ function renderRecallRulesSection(params: {
   ].join('\n');
 }
 
-function renderStorageRulesSection(toolPrefix: string, projectName: string): string {
-  const recall = renderToolCallName(toolPrefix, 'recall_memory');
-  const store = renderToolCallName(toolPrefix, 'store_memory');
-  const update = renderToolCallName(toolPrefix, 'update_memory');
-  const associate = renderToolCallName(toolPrefix, 'associate_memories');
+/**
+ * The four-step ritual, told two ways. Direct hosts bind results to variables and
+ * await them; wrapped hosts have no promise API to bind, so the steps are numbered
+ * comments with placeholder ids. Forcing one template to serve both would produce
+ * `const related = await use_tool(…)` — syntactically fine, semantically wrong.
+ */
+function renderAtomicRitual(style: ToolCallStyle, projectName: string): string[] {
+  const storeArgs = [
+    '  content: "Brief title. Context + reasoning. Outcome.",',
+    '  type: "Preference",',
+    `  tags: ["correction", ${quote(projectName)}],`,
+    '  importance: 0.9,',
+    '  confidence: 0.95',
+  ];
+
+  if (style.kind === 'direct') {
+    const recall = renderToolCallName(style.toolPrefix, 'recall_memory');
+    const store = renderToolCallName(style.toolPrefix, 'store_memory');
+    const associate = renderToolCallName(style.toolPrefix, 'associate_memories');
+    return [
+      `const related = await ${recall}({ query: "<what is being corrected / decided / named>", limit: 5 })`,
+      `const stored = await ${store}({`,
+      ...storeArgs,
+      '})',
+      `await ${recall}({ query: "<distinctive phrase from content>", limit: 3 })`,
+      'if (related?.results?.length) {',
+      `  await ${associate}({ memory1_id: related.results[0].id, memory2_id: stored.memory_id, type: "INVALIDATED_BY", strength: 0.9 })`,
+      '}',
+    ];
+  }
+
+  return [
+    '// 1) recall related',
+    toolCallInline(
+      style,
+      'recall_memory',
+      'query: "<what is being corrected / decided / named>", limit: 5'
+    ),
+    '// 2) store',
+    ...toolCallBlock(style, 'store_memory', storeArgs),
+    '// 3) verify with a distinctive phrase',
+    toolCallInline(style, 'recall_memory', 'query: "<distinctive phrase from content>", limit: 3'),
+    '// 4) associate when a prior memory exists',
+    ...toolCallBlock(style, 'associate_memories', [
+      '  memory1_id: "<related-id>",',
+      '  memory2_id: "<stored-id>",',
+      '  type: "INVALIDATED_BY",',
+      '  strength: 0.9',
+    ]),
+  ];
+}
+
+function renderStorageRulesSection(style: ToolCallStyle, projectName: string): string {
+  const update = toolRef(style, 'update_memory');
+  const associate = toolRef(style, 'associate_memories');
 
   return [
     '## Storage Discipline',
@@ -456,13 +648,13 @@ function renderStorageRulesSection(toolPrefix: string, projectName: string): str
     'Store only durable decisions, corrections, explicit preferences, bug-fix root causes, and articulated reusable patterns. Never store secrets, credentials, tokens, PII, session summaries, progress reports, confirmations, speculative context, or attentiveness notes.',
     '',
     '```javascript',
-    `${store}({`,
-    '  content: "Brief title. Context + reasoning. Outcome.",',
-    '  type: "Decision",',
-    `  tags: ["<category>", ${quote(projectName)}, "<language>"], // bare strings; NO platform tag, NO [YYYY-MM]`,
-    '  importance: 0.85,',
-    '  confidence: 0.9',
-    '})',
+    ...toolCallBlock(style, 'store_memory', [
+      '  content: "Brief title. Context + reasoning. Outcome.",',
+      '  type: "Decision",',
+      `  tags: ["<category>", ${quote(projectName)}, "<language>"], // bare strings; NO platform tag, NO [YYYY-MM]`,
+      '  importance: 0.85,',
+      '  confidence: 0.9',
+    ]),
     '```',
     '',
     'Use content of 150-300 chars when possible; put file paths, metrics, exit codes, and other structured details in `metadata`. For facts with a shelf life, use `t_valid` and `t_invalid` instead of date tags.',
@@ -476,18 +668,7 @@ function renderStorageRulesSection(toolPrefix: string, projectName: string): str
     '### The atomic ritual - every store runs all four steps',
     '',
     '```javascript',
-    `const related = await ${recall}({ query: "<what is being corrected / decided / named>", limit: 5 })`,
-    `const stored = await ${store}({`,
-    '  content: "Brief title. Context + reasoning. Outcome.",',
-    '  type: "Preference",',
-    `  tags: ["correction", ${quote(projectName)}],`,
-    '  importance: 0.9,',
-    '  confidence: 0.95',
-    '})',
-    `await ${recall}({ query: "<distinctive phrase from content>", limit: 3 })`,
-    'if (related?.results?.length) {',
-    `  await ${associate}({ memory1_id: related.results[0].id, memory2_id: stored.memory_id, type: "INVALIDATED_BY", strength: 0.9 })`,
-    '}',
+    ...renderAtomicRitual(style, projectName),
     '```',
     '',
     'Step 4 is where the graph gets built. Skipping it is the main reason AutoMem degrades into a flat bag of notes.',
@@ -519,7 +700,7 @@ function renderMemoryVsCurrentState(): string {
 }
 
 export function renderCodexMemoryRules(params: ToolRuleRenderOptions): string {
-  const toolPrefix = params.toolPrefix ?? 'mcp__memory__';
+  const style = directStyle(params.toolPrefix ?? 'mcp__memory__');
   return [
     '<!-- BEGIN AUTOMEM CODEX RULES -->',
     `<!-- automem-template-version: ${params.templateVersion} -->`,
@@ -528,11 +709,11 @@ export function renderCodexMemoryRules(params: ToolRuleRenderOptions): string {
     '',
     'AutoMem is wired as the `memory` MCP server (see `~/.codex/config.toml`). Tools are `mcp__memory__*`. Use this layer proactively for continuity across turns.',
     '',
-    renderToolBehaviorSection(),
+    renderToolBehaviorSection(style),
     '',
-    renderRecallRulesSection({ projectName: params.projectName, toolPrefix }),
+    renderRecallRulesSection({ projectName: params.projectName, style }),
     '',
-    renderStorageRulesSection(toolPrefix, params.projectName),
+    renderStorageRulesSection(style, params.projectName),
     '',
     '## Guidelines',
     '',
@@ -547,12 +728,59 @@ export function renderCodexMemoryRules(params: ToolRuleRenderOptions): string {
   ].join('\n');
 }
 
+/**
+ * Grok Build reaches MCP tools through `search_tool` discovery + a generic `use_tool`
+ * dispatcher, so its rules need the wrapped call style. The native-config warning is
+ * load-bearing: when AutoMem is only present via Grok's Claude/Cursor compat import,
+ * the stdio server starts without AUTOMEM_* env and every recall fails with
+ * "fetch failed" against the default localhost endpoint.
+ */
+export function renderGrokMemoryRules(params: ToolRuleRenderOptions): string {
+  const style: ToolCallStyle = {
+    kind: 'wrapped',
+    wrapper: 'use_tool',
+    toolPrefix: params.toolPrefix ?? 'memory__',
+  };
+  return [
+    '<!-- BEGIN AUTOMEM GROK RULES -->',
+    `<!-- automem-template-version: ${params.templateVersion} -->`,
+    '',
+    `## Memory - AutoMem (persistent context for ${params.projectName})`,
+    '',
+    'AutoMem is wired as the `memory` MCP server in `~/.grok/config.toml` (native config — do not rely on Claude/Cursor compat imports alone). Tools are discovered via `search_tool` and called via `use_tool` as `memory__recall_memory`, `memory__store_memory`, etc.',
+    '',
+    renderToolBehaviorSection(style),
+    '',
+    'Always run `search_tool` before the first `use_tool` on MCP servers.',
+    '',
+    // These rules normally live in the global ~/.grok/AGENTS.md and load in every
+    // session, so the project tag below cannot be fixed at install time.
+    'Project tag: use the slug of the repository you are working in. When the examples below show `<project-slug>`, substitute it — these rules load in every Grok session, so no single project is baked in. Drop the tag gate entirely when there is no project or the slug collides with a common word.',
+    '',
+    renderRecallRulesSection({ projectName: params.projectName, style }),
+    '',
+    renderStorageRulesSection(style, params.projectName),
+    '',
+    '## Guidelines',
+    '',
+    '- Weave recalled context naturally; do not announce memory operations.',
+    '- Prefer high-signal memories: decisions, root causes, reusable patterns, and explicit preferences.',
+    '- Avoid wall-of-text memories; keep them atomic and focused.',
+    '',
+    renderMemoryVsCurrentState(),
+    '',
+    '<!-- END AUTOMEM GROK RULES -->',
+    '',
+  ].join('\n');
+}
+
 export type CursorProjectRuleOptions = ToolRuleRenderOptions & {
   mcpServerName: string;
   mcpToolPrefix: string;
 };
 
 export function renderCursorProjectRule(params: CursorProjectRuleOptions): string {
+  const style = directStyle(params.mcpToolPrefix);
   return [
     '---',
     'description: AutoMem persistent memory - validated two-phase recall, curated storage, mandatory associations',
@@ -567,15 +795,15 @@ export function renderCursorProjectRule(params: CursorProjectRuleOptions): strin
     '',
     `Tools are \`${params.mcpToolPrefix}*\` (e.g. \`${params.mcpToolPrefix}recall_memory\`). Cursor MCP server: \`${params.mcpServerName}\`.`,
     '',
-    renderToolBehaviorSection(),
+    renderToolBehaviorSection(style),
     '',
     renderRecallRulesSection({
       projectName: params.projectName,
-      toolPrefix: params.mcpToolPrefix,
+      style,
       cursor: true,
     }),
     '',
-    renderStorageRulesSection(params.mcpToolPrefix, params.projectName),
+    renderStorageRulesSection(style, params.projectName),
     '',
     '## Optional GPT-5.4 Overlay',
     '',
@@ -598,7 +826,7 @@ export function renderCursorProjectRule(params: CursorProjectRuleOptions): strin
 }
 
 export function renderClaudeDesktopInstructions(params: PolicyTemplateOptions): string {
-  const toolPrefix = 'mcp__memory__';
+  const style = directStyle('mcp__memory__');
   return [
     '# Claude Desktop Personal Preferences Template',
     '',
@@ -606,7 +834,7 @@ export function renderClaudeDesktopInstructions(params: PolicyTemplateOptions): 
     '',
     'Copy everything below the divider into **Claude Desktop -> Settings -> Profile -> Personal Preferences**.',
     '',
-    'If your MCP server key is not `memory`, replace `mcp__memory__*` with Claude Desktop\'s tool prefix for your server.',
+    "If your MCP server key is not `memory`, replace `mcp__memory__*` with Claude Desktop's tool prefix for your server.",
     '',
     '---',
     '',
@@ -618,15 +846,15 @@ export function renderClaudeDesktopInstructions(params: PolicyTemplateOptions): 
     '',
     'Desktop conversations often are not project-scoped. Use semantic recall from the actual content nouns first; add tags only when the user clearly scopes the task.',
     '',
-    renderToolBehaviorSection(),
+    renderToolBehaviorSection(style),
     '',
     renderRecallRulesSection({
       projectName: '<project-slug>',
-      toolPrefix,
+      style,
       desktop: true,
     }),
     '',
-    renderStorageRulesSection(toolPrefix, '<project-slug>'),
+    renderStorageRulesSection(style, '<project-slug>'),
     '',
     renderMemoryVsCurrentState(),
     '',
@@ -691,10 +919,12 @@ export function renderHermesModeRules(mode: HermesInstallMode): string {
   ].join('\n');
 }
 
-export function renderHermesMemoryRules(params: PolicyTemplateOptions & {
-  projectName: string;
-  modeRules: string;
-}): string {
+export function renderHermesMemoryRules(
+  params: PolicyTemplateOptions & {
+    projectName: string;
+    modeRules: string;
+  }
+): string {
   return [
     '<!-- BEGIN AUTOMEM HERMES RULES -->',
     `<!-- automem-template-version: ${params.templateVersion} -->`,
@@ -840,360 +1070,360 @@ export function renderRelationTypesInline(): string {
 export function renderClaudeMdMemoryRules(params: PolicyTemplateOptions): string {
   const rules = AUTOMEM_RULES_POLICY_DEFAULTS;
   return [
-    "# AutoMem Memory Rules for CLAUDE.md",
-    "",
+    '# AutoMem Memory Rules for CLAUDE.md',
+    '',
     `<!-- automem-template-version: ${params.templateVersion} -->`,
-    "<!-- Generated by scripts/sync-memory-policy.ts. Do not edit by hand. -->",
-    "",
-    "Add this section to your `~/.claude/CLAUDE.md` file for Claude Code. The SessionStart hook will prompt memory recall automatically.",
-    "",
-    "For Claude Desktop, use Personal Preferences instead: copy the starter template from [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](CLAUDE_DESKTOP_INSTRUCTIONS.md).",
-    "",
-    "## Quick Installation",
-    "",
-    "```bash",
-    "cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md",
-    "```",
-    "",
-    "## Claude Code Memory Rules Template",
-    "",
-    "Add this to `~/.claude/CLAUDE.md`:",
-    "",
-    "````markdown",
-    "<memory_rules>",
-    "# AutoMem Memory Rules",
-    "",
-    "TOOL NAMING:",
-    "- Claude Code exposes MCP tools as `mcp__<server>__<tool>` (e.g. `mcp__memory__recall_memory`).",
-    "- These examples assume your server name is `memory`.",
-    "- Claude Desktop uses the same tool-name shape, but its setup instructions live in `templates/CLAUDE_DESKTOP_INSTRUCTIONS.md` because Desktop preferences are semantic-first and not project-session-first.",
-    "",
-    "---",
-    "",
+    '<!-- Generated by scripts/sync-memory-policy.ts. Do not edit by hand. -->',
+    '',
+    'Add this section to your `~/.claude/CLAUDE.md` file for Claude Code. The SessionStart hook will prompt memory recall automatically.',
+    '',
+    'For Claude Desktop, use Personal Preferences instead: copy the starter template from [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](CLAUDE_DESKTOP_INSTRUCTIONS.md).',
+    '',
+    '## Quick Installation',
+    '',
+    '```bash',
+    'cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md',
+    '```',
+    '',
+    '## Claude Code Memory Rules Template',
+    '',
+    'Add this to `~/.claude/CLAUDE.md`:',
+    '',
+    '````markdown',
+    '<memory_rules>',
+    '# AutoMem Memory Rules',
+    '',
+    'TOOL NAMING:',
+    '- Claude Code exposes MCP tools as `mcp__<server>__<tool>` (e.g. `mcp__memory__recall_memory`).',
+    '- These examples assume your server name is `memory`.',
+    '- Claude Desktop uses the same tool-name shape, but its setup instructions live in `templates/CLAUDE_DESKTOP_INSTRUCTIONS.md` because Desktop preferences are semantic-first and not project-session-first.',
+    '',
+    '---',
+    '',
     "## Tool's real behavior (validated against production corpus)",
-    "",
+    '',
     "- **Tags are a hard gate** — memories without a matching tag are excluded before scoring. Useful when you genuinely want a category (`preference`, `bugfix`); harmful when you're guessing a project slug.",
     "- **`auto_decompose: true` with template queries hurts focused recalls.** Sub-queries converge on the same top scorers, dedup strips them, residuals don't clear threshold. Keep it off by default; turn it on only for genuinely multi-topic questions.",
-    "- **`limit` caps at 50.** Anything under 15 is throwing away context budget you have.",
-    "- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id: \"<id>\" })`.",
-    "- **Graph expansion can respect tag scope.** Use `expand_respect_tags: true` when `expand_relations: true` should stay inside the tag gate; leave it false or drop tags when you intentionally want broader graph context.",
+    '- **`limit` caps at 50.** Anything under 15 is throwing away context budget you have.',
+    '- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id: "<id>" })`.',
+    '- **Graph expansion can respect tag scope.** Use `expand_respect_tags: true` when `expand_relations: true` should stay inside the tag gate; leave it false or drop tags when you intentionally want broader graph context.',
     "- **`store_memory` can silently fail** (returns success, doesn't persist). After storing anything you care about, recall it back with a distinctive phrase to verify. Retry if gone.",
     "- **Bare tag convention** — `automem`, not `project/automem`. Older memories use `project/<slug>` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. `entity:people:*`-style tags are server-injected — don't author them.",
-    "",
-    "### Slug-collision rule",
-    "",
-    "Bare project slugs must not collide with common topic words:",
-    "- `streamdeck-mcp` ✓ — unique",
-    "- `mcp-automem` ✓ — unique",
-    "- `video` ✗ — collides with \"video content strategy\", \"video generation\" memories",
-    "",
+    '',
+    '### Slug-collision rule',
+    '',
+    'Bare project slugs must not collide with common topic words:',
+    '- `streamdeck-mcp` ✓ — unique',
+    '- `mcp-automem` ✓ — unique',
+    '- `video` ✗ — collides with "video content strategy", "video generation" memories',
+    '',
     "If a project's natural name is a common word, use a more specific slug (`video-gen-project`) or omit the tag gate for that project and rely on semantic query alone.",
-    "",
-    "### When to gate vs when NOT to",
-    "",
-    "| Intent | Use |",
-    "|---|---|",
-    "| Pull all memories of a stable well-tagged category | `tags: [<category>], limit: 20+` |",
-    "| Scope to a project with a unique slug | `tags: [<slug>]` |",
-    "| Discovery / debugging / pre-edit lookup | Semantic `query` only. Do NOT gate on topical tags. |",
-    "",
-    "Do not rely on `context_tags` as a boost right now. Known server quirks: literal string match with no prefix-index consultation, and small `limit` values can drop boosted results before ranking. Use generous `limit` + good semantic `query` instead.",
-    "",
-    "---",
-    "",
-    "## Session Start — Two-Phase Recall (1M-context params)",
-    "",
+    '',
+    '### When to gate vs when NOT to',
+    '',
+    '| Intent | Use |',
+    '|---|---|',
+    '| Pull all memories of a stable well-tagged category | `tags: [<category>], limit: 20+` |',
+    '| Scope to a project with a unique slug | `tags: [<slug>]` |',
+    '| Discovery / debugging / pre-edit lookup | Semantic `query` only. Do NOT gate on topical tags. |',
+    '',
+    'Do not rely on `context_tags` as a boost right now. Known server quirks: literal string match with no prefix-index consultation, and small `limit` values can drop boosted results before ranking. Use generous `limit` + good semantic `query` instead.',
+    '',
+    '---',
+    '',
+    '## Session Start — Two-Phase Recall (1M-context params)',
+    '',
     "Run these at session start (the `automem-session-start.sh` hook prompts you; actually execute the calls). The two recalls are independent — issue them in parallel in a single message. Opus 4.7's 1M context lets us use higher limits and a wider time window than the old defaults.",
-    "",
-    "**Phase 1 — Preferences** (tag-only, no time filter, no query):",
-    "```",
-    "mcp__memory__recall_memory({",
-    "  tags: [\"preference\"],",
+    '',
+    '**Phase 1 — Preferences** (tag-only, no time filter, no query):',
+    '```',
+    'mcp__memory__recall_memory({',
+    '  tags: ["preference"],',
     `  limit: ${rules.preferenceRecallLimit},`,
-    "  sort: \"updated_desc\"",
-    "})",
-    "```",
-    "",
-    "No query, no time gate. Sort by `updated_desc` so the freshest preferences win; results surface created/updated timestamps and importance inline so you can judge staleness at a glance.",
-    "",
-    "**Phase 2 — Task context** (single semantic query built from content nouns + project-slug gate + 90-day window):",
-    "```",
-    "mcp__memory__recall_memory({",
-    "  query: \"<proper nouns, specific tools, exact topics from the user's message>\",",
-    "  tags: [<project-slug>],",
+    '  sort: "updated_desc"',
+    '})',
+    '```',
+    '',
+    'No query, no time gate. Sort by `updated_desc` so the freshest preferences win; results surface created/updated timestamps and importance inline so you can judge staleness at a glance.',
+    '',
+    '**Phase 2 — Task context** (single semantic query built from content nouns + project-slug gate + 90-day window):',
+    '```',
+    'mcp__memory__recall_memory({',
+    '  query: "<proper nouns, specific tools, exact topics from the user\'s message>",',
+    '  tags: [<project-slug>],',
     `  time_query: "last ${rules.contextRecallWindowDays} days",`,
     `  limit: ${rules.contextRecallLimit}`,
-    "})",
-    "```",
-    "",
-    "How to write the query:",
-    "- Use the specific things named. \"AutoMem Discord bot Railway deploy\" beats \"current project status.\"",
-    "- Proper nouns are gold — people, products, places.",
-    "- Tools mentioned = include them (Railway, Vercel, pytest, etc.).",
-    "- Skip meta words. \"Recent,\" \"decisions,\" \"corrections\" water down the embedding.",
-    "- Code context: add `language: \"typescript\"` / `\"python\"` as a _ranker_ (boosts in-language memories, doesn't gate them).",
-    "",
+    '})',
+    '```',
+    '',
+    'How to write the query:',
+    '- Use the specific things named. "AutoMem Discord bot Railway deploy" beats "current project status."',
+    '- Proper nouns are gold — people, products, places.',
+    '- Tools mentioned = include them (Railway, Vercel, pytest, etc.).',
+    '- Skip meta words. "Recent," "decisions," "corrections" water down the embedding.',
+    '- Code context: add `language: "typescript"` / `"python"` as a _ranker_ (boosts in-language memories, doesn\'t gate them).',
+    '',
     "Gate by the working-directory-derived project slug when it's unambiguous (see slug-collision rule); drop the gate otherwise. **Use `queries[]` + `auto_decompose: true` only for genuinely multi-topic questions** — the empirical default is one good query.",
-    "",
-    "**On-demand debugging** (only when actively investigating a specific error symptom):",
-    "```",
-    "mcp__memory__recall_memory({",
-    "  query: \"<error message or symptom>\",",
+    '',
+    '**On-demand debugging** (only when actively investigating a specific error symptom):',
+    '```',
+    'mcp__memory__recall_memory({',
+    '  query: "<error message or symptom>",',
     `  limit: ${rules.debugRecallLimit}`,
-    "})",
-    "```",
-    "",
-    "No tag gate on debug recall — bugfix/solution tagging is incomplete and a hard gate hides cross-corpus fixes.",
-    "",
+    '})',
+    '```',
+    '',
+    'No tag gate on debug recall — bugfix/solution tagging is incomplete and a hard gate hides cross-corpus fixes.',
+    '',
     "Don't re-recall mid-conversation unless the topic genuinely shifts. With 1M context, memories pulled on turn 1 are still in scope — burning another recall on turn 4 of the same thread is waste.",
-    "",
-    "**Validated tradeoffs** (tested on production corpus of ~9,400 memories):",
-    "- `limit 10→30` and `time_query \"last 30 days\"→\"last 90 days\"` compound: 2.5× useful results with zero score-quality loss.",
-    "- Single-query Phase 2 consistently beats `queries[]` + `auto_decompose` on focused tasks.",
-    "- `expand_relations`: no-op on the current sparse-association corpus. Revisit after association authoring discipline is established.",
-    "",
-    "---",
-    "",
-    "## MCP Tools Available",
-    "",
-    "- `store_memory` — save content with tags, importance (0.0–1.0), type, metadata, optional `t_valid` / `t_invalid`. Supports **batch mode** via `memories: [...]` (≤500 items, no per-item `id`/`embedding`/`t_valid`/`t_invalid`).",
-    "- `recall_memory` — three modes:",
-    "  - **ID fetch:** `memory_id` (ignores other params)",
-    "  - **Tag enumeration:** `tags` + `exhaustive: true` (paginated, exact-match, returns `has_more`)",
-    "  - **Ranked retrieval (default):** hybrid search; supports `exclude_tags`, `state_mode`, `recency_bias`, `scope_fallback`, `expand_respect_tags`, `min_score`, `adaptive_floor`, and diagnostics (`tag_scope`, `score_filter`, `query_time_ms`, `vector_search`, `outside_tag_scope`, `state_replaces`)",
-    "- `associate_memories` — create typed relationships between memories; supports **batch mode** via `associations: [...]` (≤500) and relation-specific props like `reason`, `context`, `resolution`, `observations`, `transformation`, and `role`",
-    "- `update_memory` — modify existing memories without duplication",
-    "- `delete_memory` — remove by ID, or **bulk-by-tag** with `tags: [...]` (exact, case-insensitive, no dry-run)",
-    "- `check_database_health` — FalkorDB + Qdrant status, including degraded state, sync counts, vector dimensions, and enrichment diagnostics when provided",
-    "",
-    "### Memory schema",
-    "",
-    "- `importance`: 0.9–1.0 (critical), 0.7–0.8 (important), 0.5–0.6 (standard), <0.5 (minor)",
+    '',
+    '**Validated tradeoffs** (tested on production corpus of ~9,400 memories):',
+    '- `limit 10→30` and `time_query "last 30 days"→"last 90 days"` compound: 2.5× useful results with zero score-quality loss.',
+    '- Single-query Phase 2 consistently beats `queries[]` + `auto_decompose` on focused tasks.',
+    '- `expand_relations`: no-op on the current sparse-association corpus. Revisit after association authoring discipline is established.',
+    '',
+    '---',
+    '',
+    '## MCP Tools Available',
+    '',
+    '- `store_memory` — save content with tags, importance (0.0–1.0), type, metadata, optional `t_valid` / `t_invalid`. Supports **batch mode** via `memories: [...]` (≤500 items, no per-item `id`/`embedding`/`t_valid`/`t_invalid`).',
+    '- `recall_memory` — three modes:',
+    '  - **ID fetch:** `memory_id` (ignores other params)',
+    '  - **Tag enumeration:** `tags` + `exhaustive: true` (paginated, exact-match, returns `has_more`)',
+    '  - **Ranked retrieval (default):** hybrid search; supports `exclude_tags`, `state_mode`, `recency_bias`, `scope_fallback`, `expand_respect_tags`, `min_score`, `adaptive_floor`, and diagnostics (`tag_scope`, `score_filter`, `query_time_ms`, `vector_search`, `outside_tag_scope`, `state_replaces`)',
+    '- `associate_memories` — create typed relationships between memories; supports **batch mode** via `associations: [...]` (≤500) and relation-specific props like `reason`, `context`, `resolution`, `observations`, `transformation`, and `role`',
+    '- `update_memory` — modify existing memories without duplication',
+    '- `delete_memory` — remove by ID, or **bulk-by-tag** with `tags: [...]` (exact, case-insensitive, no dry-run)',
+    '- `check_database_health` — FalkorDB + Qdrant status, including degraded state, sync counts, vector dimensions, and enrichment diagnostics when provided',
+    '',
+    '### Memory schema',
+    '',
+    '- `importance`: 0.9–1.0 (critical), 0.7–0.8 (important), 0.5–0.6 (standard), <0.5 (minor)',
     "- `confidence`: separate dial — 0.95 user-stated, 0.8 observed pattern, 0.6 tentative inference. Don't default everything to 0.95; it flattens the signal decay uses to identify noise.",
-    "- `type`: `Decision` | `Pattern` | `Preference` | `Style` | `Habit` | `Insight` | `Context`",
-    "- `tags`: array of bare strings — see convention above",
-    "",
-    "### Content size",
-    "",
-    "- Target 150–300 chars. One paragraph. \"Title. Context. Outcome.\"",
-    "- Soft limit 500 chars (server auto-summarizes beyond).",
-    "- Hard limit 2000 chars (rejected).",
-    "- For more detail: split into atomic memories + associate.",
-    "- Put structured data in `metadata`, not `content`.",
-    "",
-    "---",
-    "",
-    "## Storage Discipline",
-    "",
-    "Every `store_memory` call MUST set `type` and use bare conventional tags.",
-    "",
-    "### Required tags",
-    "- One category when applicable: `preference` | `decision` | `pattern` | `bugfix` | `solution` | `milestone` | `deployment` | `build` | `test`.",
-    "- Project slug (bare) when project-specific. Omit if too generic (slug-collision rule).",
-    "",
-    "### Storage patterns",
-    "",
-    "User preference (importance 0.9, confidence 0.95):",
-    "```",
-    "store_memory({",
-    "  content: \"User preference: [exact quote or paraphrase]. Applies when: [context]\",",
-    "  type: \"Preference\",",
-    "  tags: [\"preference\", <scope>],",
-    "  importance: 0.9,",
-    "  confidence: 0.95",
-    "})",
-    "```",
-    "",
-    "Architectural decision (importance 0.9, confidence 0.9):",
-    "```",
-    "store_memory({",
-    "  content: \"Decided [choice] because [rationale]. Alternatives: [X, Y]\",",
-    "  type: \"Decision\",",
-    "  tags: [\"decision\", <slug>],",
-    "  importance: 0.9,",
-    "  confidence: 0.9",
-    "})",
-    "```",
-    "",
-    "Bug fix (importance 0.75, confidence 0.85):",
-    "```",
-    "store_memory({",
-    "  content: \"Fixed [issue] in [project]: [solution]. Root cause: [analysis]\",",
-    "  type: \"Insight\",",
-    "  tags: [\"bugfix\", \"solution\", <slug>],",
-    "  importance: 0.75,",
-    "  confidence: 0.85",
-    "})",
-    "```",
-    "",
-    "Feature implementation (importance 0.8, confidence 0.8):",
-    "```",
-    "store_memory({",
-    "  content: \"Implemented [feature] using [approach]\",",
-    "  type: \"Pattern\",",
-    "  tags: [\"pattern\", \"feature\", <slug>],",
-    "  importance: 0.8,",
-    "  confidence: 0.8",
-    "})",
-    "```",
-    "",
-    "---",
-    "",
-    "## Mid-conversation memory ops — the three triggers, and only three",
-    "",
-    "Most memory systems fail here. Guidance that only lists what _counts_ as a correction or a decision, without telling you how to notice one fired mid-turn, results in stores piling up at session end (the session-summary dump pattern) or not happening at all. The fix is to listen for specific trigger phrases and treat store-and-associate as a single atomic ritual, not two separate thoughts.",
-    "",
-    "**1. User correction or override.**",
-    "Listen for: \"actually,\" \"no, I prefer,\" \"not X, Y,\" \"that's wrong,\" \"stop doing X,\" \"never do X,\" \"I told you before,\" \"we decided X already,\" \"you keep doing Y.\"",
-    "Store as `Preference`, importance 0.9, confidence 0.95, tags include `correction`. Store this turn — not queued for later.",
-    "",
-    "**2. Decision stabilizes after at least one round of discussion.**",
-    "Listen for: \"let's go with X,\" \"yeah that's the plan,\" \"do it that way,\" \"ship it,\" \"final answer,\" \"okay let's do that.\" Signal: the decision survived a round of pushback. One-turn ideas don't qualify — they haven't stabilized.",
-    "Store as `Decision`, importance 0.85–0.9. If alternatives came up, link with `PREFERS_OVER`.",
-    "",
-    "**3. Pattern articulated — not inferred.**",
-    "Listen for: \"I always do X,\" \"every time,\" \"this is how I usually,\" \"my thing is,\" or you observing \"you tend to do X\" and the user confirming. Patterns get stored when they're _articulated_, not when you pattern-match silently.",
-    "Store as `Pattern`, importance 0.8. Link to concrete examples with `EXEMPLIFIES`.",
-    "",
-    "### The atomic ritual — every store runs all four steps",
-    "",
-    "When a trigger fires, run this sequence inline in the same turn:",
-    "",
-    "```",
-    "// Step 1: Recall to find what this relates to",
-    "const related = recall_memory({",
-    "  query: \"<what's being corrected / decided / named>\",",
-    "  limit: 5",
-    "})",
-    "",
-    "// Step 2: Store with type, importance, tags, non-default confidence",
-    "const newId = store_memory({",
-    "  content: \"Brief title. Context + reasoning. Outcome.\",",
-    "  type: \"Preference\",  // or Decision / Pattern",
-    "  tags: [\"correction\", <scope if any>],",
-    "  importance: 0.9,",
-    "  confidence: 0.95",
-    "})",
-    "",
-    "// Step 3: Verify the store landed (silent-fail insurance)",
-    "recall_memory({ query: \"<distinctive phrase from content>\", limit: 3 })",
-    "// If not in results, retry the store once.",
-    "",
+    '- `type`: `Decision` | `Pattern` | `Preference` | `Style` | `Habit` | `Insight` | `Context`',
+    '- `tags`: array of bare strings — see convention above',
+    '',
+    '### Content size',
+    '',
+    '- Target 150–300 chars. One paragraph. "Title. Context. Outcome."',
+    '- Soft limit 500 chars (server auto-summarizes beyond).',
+    '- Hard limit 2000 chars (rejected).',
+    '- For more detail: split into atomic memories + associate.',
+    '- Put structured data in `metadata`, not `content`.',
+    '',
+    '---',
+    '',
+    '## Storage Discipline',
+    '',
+    'Every `store_memory` call MUST set `type` and use bare conventional tags.',
+    '',
+    '### Required tags',
+    '- One category when applicable: `preference` | `decision` | `pattern` | `bugfix` | `solution` | `milestone` | `deployment` | `build` | `test`.',
+    '- Project slug (bare) when project-specific. Omit if too generic (slug-collision rule).',
+    '',
+    '### Storage patterns',
+    '',
+    'User preference (importance 0.9, confidence 0.95):',
+    '```',
+    'store_memory({',
+    '  content: "User preference: [exact quote or paraphrase]. Applies when: [context]",',
+    '  type: "Preference",',
+    '  tags: ["preference", <scope>],',
+    '  importance: 0.9,',
+    '  confidence: 0.95',
+    '})',
+    '```',
+    '',
+    'Architectural decision (importance 0.9, confidence 0.9):',
+    '```',
+    'store_memory({',
+    '  content: "Decided [choice] because [rationale]. Alternatives: [X, Y]",',
+    '  type: "Decision",',
+    '  tags: ["decision", <slug>],',
+    '  importance: 0.9,',
+    '  confidence: 0.9',
+    '})',
+    '```',
+    '',
+    'Bug fix (importance 0.75, confidence 0.85):',
+    '```',
+    'store_memory({',
+    '  content: "Fixed [issue] in [project]: [solution]. Root cause: [analysis]",',
+    '  type: "Insight",',
+    '  tags: ["bugfix", "solution", <slug>],',
+    '  importance: 0.75,',
+    '  confidence: 0.85',
+    '})',
+    '```',
+    '',
+    'Feature implementation (importance 0.8, confidence 0.8):',
+    '```',
+    'store_memory({',
+    '  content: "Implemented [feature] using [approach]",',
+    '  type: "Pattern",',
+    '  tags: ["pattern", "feature", <slug>],',
+    '  importance: 0.8,',
+    '  confidence: 0.8',
+    '})',
+    '```',
+    '',
+    '---',
+    '',
+    '## Mid-conversation memory ops — the three triggers, and only three',
+    '',
+    'Most memory systems fail here. Guidance that only lists what _counts_ as a correction or a decision, without telling you how to notice one fired mid-turn, results in stores piling up at session end (the session-summary dump pattern) or not happening at all. The fix is to listen for specific trigger phrases and treat store-and-associate as a single atomic ritual, not two separate thoughts.',
+    '',
+    '**1. User correction or override.**',
+    'Listen for: "actually," "no, I prefer," "not X, Y," "that\'s wrong," "stop doing X," "never do X," "I told you before," "we decided X already," "you keep doing Y."',
+    'Store as `Preference`, importance 0.9, confidence 0.95, tags include `correction`. Store this turn — not queued for later.',
+    '',
+    '**2. Decision stabilizes after at least one round of discussion.**',
+    'Listen for: "let\'s go with X," "yeah that\'s the plan," "do it that way," "ship it," "final answer," "okay let\'s do that." Signal: the decision survived a round of pushback. One-turn ideas don\'t qualify — they haven\'t stabilized.',
+    'Store as `Decision`, importance 0.85–0.9. If alternatives came up, link with `PREFERS_OVER`.',
+    '',
+    '**3. Pattern articulated — not inferred.**',
+    'Listen for: "I always do X," "every time," "this is how I usually," "my thing is," or you observing "you tend to do X" and the user confirming. Patterns get stored when they\'re _articulated_, not when you pattern-match silently.',
+    'Store as `Pattern`, importance 0.8. Link to concrete examples with `EXEMPLIFIES`.',
+    '',
+    '### The atomic ritual — every store runs all four steps',
+    '',
+    'When a trigger fires, run this sequence inline in the same turn:',
+    '',
+    '```',
+    '// Step 1: Recall to find what this relates to',
+    'const related = recall_memory({',
+    '  query: "<what\'s being corrected / decided / named>",',
+    '  limit: 5',
+    '})',
+    '',
+    '// Step 2: Store with type, importance, tags, non-default confidence',
+    'const newId = store_memory({',
+    '  content: "Brief title. Context + reasoning. Outcome.",',
+    '  type: "Preference",  // or Decision / Pattern',
+    '  tags: ["correction", <scope if any>],',
+    '  importance: 0.9,',
+    '  confidence: 0.95',
+    '})',
+    '',
+    '// Step 3: Verify the store landed (silent-fail insurance)',
+    'recall_memory({ query: "<distinctive phrase from content>", limit: 3 })',
+    '// If not in results, retry the store once.',
+    '',
     "// Step 4: Link to step 1's result if plausible",
-    "if (related?.results?.length) {",
-    "  associate_memories({",
-    "    memory1_id: related.results[0].id,",
-    "    memory2_id: newId,",
-    "    type: \"INVALIDATED_BY\",  // or PREFERS_OVER / EXEMPLIFIES",
-    "    strength: 0.9",
-    "  })",
-    "}",
-    "```",
-    "",
-    "Step 4 is where the graph actually gets built. Skipping it is the #1 reason AutoMem degrades into a flat bag of notes.",
-    "",
-    "### Prefer `update_memory` over new-store-plus-invalidate",
-    "",
-    "When a fact changes — a price, a URL, a version, a name, a deployment state — update the existing memory in place. Use store + `INVALIDATED_BY` only when the old memory represents a genuinely different decision worth preserving for the record (\"we considered $15/mo before landing on $9/mo\" is archaeology; \"the dev URL changed\" is not).",
-    "",
-    "```",
-    "update_memory({",
-    "  memory_id: <existing id>,",
-    "  content: <updated content>,",
-    "  importance: 0.85  // optional — adjust if stakes changed",
-    "})",
-    "```",
-    "",
-    "### Mandatory association pairings",
-    "",
-    "| Trigger | Store | Then associate |",
-    "|---|---|---|",
-    "| User correction | `type: Preference`, importance 0.9 | Search old memory → `INVALIDATED_BY` (strength 0.9) |",
-    "| Architectural decision | `type: Decision`, importance 0.9 | Find alternatives → `PREFERS_OVER` |",
-    "| Bug fix | `type: Insight`, importance 0.75 | Link to bug report → `LEADS_TO` |",
-    "| Pattern discovered | `type: Pattern`, importance 0.8 | Link to abstract concept → `EXEMPLIFIES` |",
-    "| Knowledge evolved | `update_memory` old + store new | `EVOLVED_INTO` (old → new) |",
-    "| Deprecated info | `update_memory` (importance 0.1, `metadata.deprecated: true`) | `INVALIDATED_BY` (old ← new) |",
-    "",
-    "Skip the association only if the related-memory search returns nothing plausible.",
-    "",
-    "### What NOT to store mid-conversation",
-    "",
-    "- **Session summaries.** Ever. \"End of session, here's what we accomplished\" is the pattern that creates most corpus garbage.",
-    "- **Agent task result dumps.** Same family.",
-    "- **\"Useful context that might matter later.\"** Speculative stores are noise. If unsure, skip.",
+    'if (related?.results?.length) {',
+    '  associate_memories({',
+    '    memory1_id: related.results[0].id,',
+    '    memory2_id: newId,',
+    '    type: "INVALIDATED_BY",  // or PREFERS_OVER / EXEMPLIFIES',
+    '    strength: 0.9',
+    '  })',
+    '}',
+    '```',
+    '',
+    'Step 4 is where the graph actually gets built. Skipping it is the #1 reason AutoMem degrades into a flat bag of notes.',
+    '',
+    '### Prefer `update_memory` over new-store-plus-invalidate',
+    '',
+    'When a fact changes — a price, a URL, a version, a name, a deployment state — update the existing memory in place. Use store + `INVALIDATED_BY` only when the old memory represents a genuinely different decision worth preserving for the record ("we considered $15/mo before landing on $9/mo" is archaeology; "the dev URL changed" is not).',
+    '',
+    '```',
+    'update_memory({',
+    '  memory_id: <existing id>,',
+    '  content: <updated content>,',
+    '  importance: 0.85  // optional — adjust if stakes changed',
+    '})',
+    '```',
+    '',
+    '### Mandatory association pairings',
+    '',
+    '| Trigger | Store | Then associate |',
+    '|---|---|---|',
+    '| User correction | `type: Preference`, importance 0.9 | Search old memory → `INVALIDATED_BY` (strength 0.9) |',
+    '| Architectural decision | `type: Decision`, importance 0.9 | Find alternatives → `PREFERS_OVER` |',
+    '| Bug fix | `type: Insight`, importance 0.75 | Link to bug report → `LEADS_TO` |',
+    '| Pattern discovered | `type: Pattern`, importance 0.8 | Link to abstract concept → `EXEMPLIFIES` |',
+    '| Knowledge evolved | `update_memory` old + store new | `EVOLVED_INTO` (old → new) |',
+    '| Deprecated info | `update_memory` (importance 0.1, `metadata.deprecated: true`) | `INVALIDATED_BY` (old ← new) |',
+    '',
+    'Skip the association only if the related-memory search returns nothing plausible.',
+    '',
+    '### What NOT to store mid-conversation',
+    '',
+    '- **Session summaries.** Ever. "End of session, here\'s what we accomplished" is the pattern that creates most corpus garbage.',
+    '- **Agent task result dumps.** Same family.',
+    '- **"Useful context that might matter later."** Speculative stores are noise. If unsure, skip.',
     "- **Things the user said they'll remember themselves** — calendar, plans, preferences about restaurants. That's journaling, not memory infrastructure.",
-    "- **Confirmations.** \"Great, that worked\" doesn't need a memory. The decision that preceded it might.",
-    "- **Anything stored to perform attentiveness.** Memory is for future-you, not for showing the user you were listening this turn.",
-    "",
+    '- **Confirmations.** "Great, that worked" doesn\'t need a memory. The decision that preceded it might.',
+    '- **Anything stored to perform attentiveness.** Memory is for future-you, not for showing the user you were listening this turn.',
+    '',
     "### Mid-conversation recall is rarer than you'd think",
-    "",
-    "With 1M context, turn-1 memories are still loaded on turn 15. Mid-conversation recall is only justified when:",
-    "1. **Topic genuinely shifts.** New topic → new recall.",
+    '',
+    'With 1M context, turn-1 memories are still loaded on turn 15. Mid-conversation recall is only justified when:',
+    '1. **Topic genuinely shifts.** New topic → new recall.',
     "2. **About to assert a specific technical claim and want to verify it's current.**",
     "3. **A proper noun you don't recognize enters the conversation.** Quick targeted recall on just that noun.",
-    "",
-    "Not justified: re-pulling general preferences, \"checking if there's anything else relevant,\" pre-emptive context gathering just in case.",
-    "",
-    "### Relationship types",
-    "",
-    "| Type | Use case |",
-    "|---|---|",
-    "| `LEADS_TO` | Bug → Solution, Problem → Fix |",
-    "| `REINFORCES` | Supporting evidence, validation |",
-    "| `CONTRADICTS` | Conflicting approaches |",
-    "| `EVOLVED_INTO` | Knowledge progression, iterations |",
-    "| `INVALIDATED_BY` | Outdated info → current approach |",
-    "| `DERIVED_FROM` | Source relationships, origins |",
-    "| `RELATES_TO` | General connections |",
-    "| `PREFERS_OVER` | User / team preferences |",
-    "| `EXEMPLIFIES` | Pattern examples |",
-    "| `OCCURRED_BEFORE` | Temporal sequence |",
-    "| `PART_OF` | Hierarchical structure |",
-    "",
-    "System/internal relations (`SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, `DISCOVERED`) may appear in recall results but are NOT valid inputs to `associate_memories`.",
-    "",
-    "---",
-    "",
-    "## Temporal Validity",
-    "",
+    '',
+    'Not justified: re-pulling general preferences, "checking if there\'s anything else relevant," pre-emptive context gathering just in case.',
+    '',
+    '### Relationship types',
+    '',
+    '| Type | Use case |',
+    '|---|---|',
+    '| `LEADS_TO` | Bug → Solution, Problem → Fix |',
+    '| `REINFORCES` | Supporting evidence, validation |',
+    '| `CONTRADICTS` | Conflicting approaches |',
+    '| `EVOLVED_INTO` | Knowledge progression, iterations |',
+    '| `INVALIDATED_BY` | Outdated info → current approach |',
+    '| `DERIVED_FROM` | Source relationships, origins |',
+    '| `RELATES_TO` | General connections |',
+    '| `PREFERS_OVER` | User / team preferences |',
+    '| `EXEMPLIFIES` | Pattern examples |',
+    '| `OCCURRED_BEFORE` | Temporal sequence |',
+    '| `PART_OF` | Hierarchical structure |',
+    '',
+    'System/internal relations (`SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHARES_THEME`, `PARALLEL_CONTEXT`, `DISCOVERED`) may appear in recall results but are NOT valid inputs to `associate_memories`.',
+    '',
+    '---',
+    '',
+    '## Temporal Validity',
+    '',
     "For facts with a shelf life, set `t_valid` (ISO 8601 UTC, usually now) and `t_invalid` when known. These fields are persisted and queryable via `GET /memory/<id>`, though they don't always appear in `/recall` response envelopes.",
-    "",
-    "Use for: current deployment URL, active staging env, incident window, feature-flag rollout, ongoing PR, current sprint focus.",
-    "",
-    "```",
-    "store_memory({",
-    "  content: \"mcp-automem deployed to Railway at https://automem.up.railway.app\",",
-    "  type: \"Context\", importance: 0.8,",
-    "  tags: [\"deployment\", \"mcp-automem\", \"production\", \"railway\"],",
-    "  t_valid: \"<ISO timestamp now>\",",
-    "  t_invalid: \"<ISO timestamp +30 days>\"",
-    "})",
-    "```",
-    "",
-    "---",
-    "",
-    "## Lifecycle: Update > Duplicate",
-    "",
-    "- Before storing a new memory on a topic, do a recall. If a related memory exists, prefer `update_memory` or association over a new node.",
-    "- `update_memory` on an old memory: bump `importance`, add to `content` (\"Updated: …\"), or mark deprecated via `metadata.deprecated: true` + low importance.",
-    "- `delete_memory` only for true duplicates or credentials accidentally stored.",
-    "",
-    "### Known server quirk (workaround)",
-    "",
-    "A `store_memory` call can return success while failing to persist in rare cases. After storing anything you care about, do a quick recall with a content-specific query and verify. If not found, retry.",
-    "",
-    "---",
-    "",
-    "## Never Store",
-    "",
-    "- Secrets, credentials, API keys, private tokens.",
-    "- Temporary build output, logs, debug dumps.",
-    "- Large code blocks (store the pattern or decision instead).",
-    "- Ephemeral state that changes every session.",
-    "- Duplicate memories (recall first).",
-    "</memory_rules>",
-    "````",
-    "",
+    '',
+    'Use for: current deployment URL, active staging env, incident window, feature-flag rollout, ongoing PR, current sprint focus.',
+    '',
+    '```',
+    'store_memory({',
+    '  content: "mcp-automem deployed to Railway at https://automem.up.railway.app",',
+    '  type: "Context", importance: 0.8,',
+    '  tags: ["deployment", "mcp-automem", "production", "railway"],',
+    '  t_valid: "<ISO timestamp now>",',
+    '  t_invalid: "<ISO timestamp +30 days>"',
+    '})',
+    '```',
+    '',
+    '---',
+    '',
+    '## Lifecycle: Update > Duplicate',
+    '',
+    '- Before storing a new memory on a topic, do a recall. If a related memory exists, prefer `update_memory` or association over a new node.',
+    '- `update_memory` on an old memory: bump `importance`, add to `content` ("Updated: …"), or mark deprecated via `metadata.deprecated: true` + low importance.',
+    '- `delete_memory` only for true duplicates or credentials accidentally stored.',
+    '',
+    '### Known server quirk (workaround)',
+    '',
+    'A `store_memory` call can return success while failing to persist in rare cases. After storing anything you care about, do a quick recall with a content-specific query and verify. If not found, retry.',
+    '',
+    '---',
+    '',
+    '## Never Store',
+    '',
+    '- Secrets, credentials, API keys, private tokens.',
+    '- Temporary build output, logs, debug dumps.',
+    '- Large code blocks (store the pattern or decision instead).',
+    '- Ephemeral state that changes every session.',
+    '- Duplicate memories (recall first).',
+    '</memory_rules>',
+    '````',
+    '',
   ].join('\n');
 }

@@ -31,12 +31,7 @@ const MCP_PERMISSIONS = [
 
 // Pinned independently of the implementation's constant: the contract for
 // which permission grants a re-run may remove from a user's settings.
-const RETIRED_PERMISSIONS = [
-  'Bash(python3:*)',
-  'Bash(python:*)',
-  'Bash(py:*)',
-  'Bash(jq:*)',
-];
+const RETIRED_PERMISSIONS = ['Bash(python3:*)', 'Bash(python:*)', 'Bash(py:*)', 'Bash(jq:*)'];
 
 interface SettingsShape {
   env?: Record<string, string>;
@@ -63,18 +58,13 @@ describe('installer permission hygiene', () => {
     await applyClaudeCodeSetup({ targetDir, quiet: true });
 
     const settings = readSettings();
-    expect([...(settings.permissions?.allow ?? [])].sort()).toEqual(
-      [...MCP_PERMISSIONS].sort()
-    );
+    expect([...(settings.permissions?.allow ?? [])].sort()).toEqual([...MCP_PERMISSIONS].sort());
     // No opinionated extras: no env setting, no deny/ask blocks.
     expect(settings.env).toBeUndefined();
     expect(settings.permissions?.deny).toBeUndefined();
     expect(settings.permissions?.ask).toBeUndefined();
     // Default profile is silent at session end: no Stop hook registration.
-    expect(Object.keys(settings.hooks ?? {}).sort()).toEqual([
-      'PostToolUse',
-      'SessionStart',
-    ]);
+    expect(Object.keys(settings.hooks ?? {}).sort()).toEqual(['PostToolUse', 'SessionStart']);
   });
 
   it('nudged profile opts back into the Stop storage nudge', async () => {
@@ -95,12 +85,7 @@ describe('installer permission hygiene', () => {
         {
           env: { CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: 'true' },
           permissions: {
-            allow: [
-              ...RETIRED_PERMISSIONS,
-              'Bash(git:*)',
-              'Edit',
-              'mcp__other__tool',
-            ],
+            allow: [...RETIRED_PERMISSIONS, 'Bash(git:*)', 'Edit', 'mcp__other__tool'],
             deny: ['Bash(sudo:*)'],
             ask: ['Bash(git push:*)'],
           },
