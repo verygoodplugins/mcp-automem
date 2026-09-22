@@ -62,7 +62,7 @@
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.1",
     "node-fetch": "^3.3.2",
     "smol-toml": "^1.7.0",
     "yaml": "^2.9.0"
