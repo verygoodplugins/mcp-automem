@@ -924,6 +924,47 @@ describe('AutoMemClient', () => {
       });
     });
 
+    it('should explain a pre-0.16.0 service rejecting batch mode', async () => {
+      // An older service ignores `associations` and validates the payload as a single
+      // association, so it reports the very fields the client did send in every item.
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          code: 400,
+          message: "'memory1_id' and 'memory2_id' are required",
+          status: 'error',
+        }),
+      } as any);
+
+      const promise = client.associateMemories({
+        associations: [
+          { memory1_id: 'mem-1', memory2_id: 'mem-2', type: 'RELATES_TO', strength: 0.9 },
+        ],
+      } as any);
+
+      await expect(promise).rejects.toThrow(/requires AutoMem 0\.16\.0 or newer/);
+      await expect(promise).rejects.toThrow(/one per call/);
+      // The service's own wording is preserved so the failure stays greppable.
+      await expect(promise).rejects.toThrow(/'memory1_id' and 'memory2_id' are required/);
+    });
+
+    it('should not rewrite unrelated batch association failures', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ message: 'Unauthorized' }),
+      } as any);
+
+      await expect(
+        client.associateMemories({
+          associations: [
+            { memory1_id: 'mem-1', memory2_id: 'mem-2', type: 'RELATES_TO', strength: 0.9 },
+          ],
+        } as any)
+      ).rejects.toThrow(/Unauthorized/);
+    });
+
     it('should return partial batch association results for 207 responses', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

@@ -72,6 +72,29 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * AutoMem services older than 0.16.0 have no `associations` branch in POST /associate,
+ * so a valid batch request falls through to single-association validation and comes back
+ * as `'memory1_id' and 'memory2_id' are required` — naming the exact fields the client
+ * did send, inside every item. That reads as a malformed client request rather than an
+ * outdated service, so restate it as the version mismatch it is.
+ */
+function explainBatchAssociateRejection(error: unknown, itemCount: number): unknown {
+  const status = (error as { status?: number } | null | undefined)?.status;
+  const message = errorMessage(error);
+  const isSingleModeValidation = status === 400 && /memory1_id|memory2_id/.test(message);
+  if (!isSingleModeValidation) return error;
+
+  const explained = new Error(
+    `associate_memories: the AutoMem service rejected batch mode with "${message}". ` +
+      'Batch `associations` requires AutoMem 0.16.0 or newer; older services ignore the ' +
+      'array and validate the payload as a single association. Upgrade the AutoMem service, ' +
+      `or send the ${itemCount} association(s) one per call.`
+  ) as Error & { status?: number };
+  explained.status = status;
+  return explained;
+}
+
 function mapStoredMemory(raw: any) {
   return {
     memory_id: raw?.id || raw?.memory_id || '',
@@ -761,7 +784,12 @@ export class AutoMemClient {
       const associations = args.associations.map((association, index) =>
         sanitizeAssociationInput(association, `associations[${index}]`)
       );
-      const response = await this.makeRequest('POST', 'associate', { associations });
+      let response;
+      try {
+        response = await this.makeRequest('POST', 'associate', { associations });
+      } catch (error) {
+        throw explainBatchAssociateRejection(error, associations.length);
+      }
       const createdCount =
         typeof response.created_count === 'number'
           ? response.created_count
