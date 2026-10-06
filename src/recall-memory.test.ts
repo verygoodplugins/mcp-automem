@@ -252,6 +252,46 @@ describe('buildRecallMemoryResponse', () => {
     });
   });
 
+  it('marks which results came from scope_fallback in every text format', async () => {
+    const recallResult = makeRecallResult({ scope_fallback: true, dedup_removed: 2 });
+    recallResult.results.push({
+      ...recallResult.results[0],
+      id: 'mem-2',
+      outside_tag_scope: true,
+      memory: { ...recallResult.results[0].memory, memory_id: 'mem-2', content: 'Unscoped fill' },
+    });
+    const client = { recallMemory: vi.fn().mockResolvedValue(recallResult) };
+    const render = async (format: RecallMemoryArgs['format']) =>
+      (await buildRecallMemoryResponse(client, { query: 'x', format })).content.map((c) => c.text);
+
+    const [text] = await render('text');
+    expect(text).toContain('scope fallback included outside-scope results');
+    const [scoped, unscoped] = text.split('\n\n').slice(1);
+    expect(scoped).not.toContain('outside tag scope');
+    expect(unscoped.split('\n')[0]).toMatch(/Unscoped fill.* \[outside tag scope\]$/);
+
+    const [detailed] = await render('detailed');
+    const [detailedScoped, detailedUnscoped] = detailed.split('\n\n').slice(1);
+    expect(detailedScoped).not.toContain('Outside tag scope');
+    expect(detailedUnscoped).toContain('\n  Outside tag scope: true');
+
+    // items: one block per result, in order, then a trailing block with the notes.
+    const items = await render('items');
+    expect(items).toEqual([
+      '[mem-1] Tagged memory',
+      '[mem-2] Unscoped fill [outside tag scope]',
+      '[Notes: 2 duplicates removed; scope fallback included outside-scope results.]',
+    ]);
+  });
+
+  it('adds no trailing block to items when there are no notes', async () => {
+    const client = { recallMemory: vi.fn().mockResolvedValue(makeRecallResult()) };
+
+    const response = await buildRecallMemoryResponse(client, { query: 'x', format: 'items' });
+
+    expect(response.content).toEqual([{ type: 'text', text: '[mem-1] Tagged memory' }]);
+  });
+
   it('surfaces enumeration metadata (mode/has_more/limit/offset) when present', async () => {
     const recallResult = makeRecallResult({
       mode: 'enumeration',
@@ -396,6 +436,37 @@ describe('buildRecallMemoryResponse', () => {
       expect(stub.strength).toBe(0.8);
       // truncated summary + ellipsis
       expect(stub.summary.length).toBeLessThanOrEqual(RECALL_RELATION_SUMMARY_CHARS + 1);
+    }
+  });
+
+  it("keeps the seed (`from`) and `kind` of recall's own relation entries in stubs", async () => {
+    // What /recall sends: expanded results point back at their seed through `from`;
+    // state replacements point at the suppressed memory. Neither nests a memory.
+    const recallResult = makeRecallResult();
+    recallResult.results[0].relations = [
+      {
+        type: 'RELATES_TO',
+        strength: 0.7,
+        from: 'seed-1',
+        seed_rank: 0,
+        seed_score: 0.91,
+        kind: 'causal',
+      },
+      { type: 'INVALIDATED_BY', strength: 0.9, from: 'old-1' },
+    ];
+    const client = { recallMemory: vi.fn().mockResolvedValue(recallResult) };
+
+    for (const format of ['text', 'items', 'detailed'] as const) {
+      const response = await buildRecallMemoryResponse(client, { query: 'x', format });
+      const item = (response.structuredContent.results as any[])[0];
+      if (format !== 'detailed') {
+        expect(item, format).not.toHaveProperty('relations');
+        continue;
+      }
+      expect(item.relations).toEqual([
+        { from: 'seed-1', type: 'RELATES_TO', strength: 0.7, kind: 'causal' },
+        { from: 'old-1', type: 'INVALIDATED_BY', strength: 0.9 },
+      ]);
     }
   });
 
