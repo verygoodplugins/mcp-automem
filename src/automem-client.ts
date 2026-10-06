@@ -72,6 +72,44 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+// The API's own message and rule (automem/api/memory.py _validate_memory_id).
+const INVALID_MEMORY_ID_MESSAGE = 'memory_id must be a valid UUID';
+
+// What Python's int(s, 16) parses: optional whitespace on either end, a "+", a
+// "0x" prefix, then hex digits with single underscores between them. Any Unicode
+// decimal digit counts as a digit.
+const PY_SPACE = '[\\t-\\r \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*';
+const PY_HEX_DIGIT = '(?:[a-fA-F]|\\p{Nd})';
+const PY_HEX_INT_RE = new RegExp(
+  `^${PY_SPACE}\\+?(?:0[xX]_?)?${PY_HEX_DIGIT}(?:_?${PY_HEX_DIGIT})*${PY_SPACE}$`,
+  'u'
+);
+
+/**
+ * True when Python's uuid.UUID(), which the API validates ids with, accepts `value`:
+ * it drops "urn:" and "uuid:", strips braces from both ends and removes every hyphen,
+ * then needs 32 characters that int(s, 16) parses. Nothing it accepts contains "/" or
+ * ".", so an accepted id cannot reach another route under /memory/.
+ */
+export function isUuidAcceptedByApi(value: string): boolean {
+  const hex = value
+    .replaceAll('urn:', '')
+    .replaceAll('uuid:', '')
+    .replace(/^[{}]+|[{}]+$/g, '')
+    .replaceAll('-', '');
+  return [...hex].length === 32 && PY_HEX_INT_RE.test(hex);
+}
+
+// An id goes into the URL path, where one the API would reject can reach a different
+// route first: "by-tag" hits GET/DELETE /memory/by-tag, and ".." normalizes to "/".
+// Refuse those with the API's own message before any request.
+function memoryPath(memoryId: string): string {
+  if (!isUuidAcceptedByApi(memoryId)) {
+    throw new Error(INVALID_MEMORY_ID_MESSAGE);
+  }
+  return `memory/${encodeURIComponent(memoryId)}`;
+}
+
 function mapStoredMemory(raw: any) {
   return {
     memory_id: raw?.id || raw?.memory_id || '',
@@ -704,8 +742,9 @@ export class AutoMemClient {
   }
 
   private async fetchMemoryById(memoryId: string): Promise<any | null> {
+    const path = memoryPath(memoryId);
     try {
-      const response = await this.makeRequest('GET', `memory/${encodeURIComponent(memoryId)}`);
+      const response = await this.makeRequest('GET', path);
       return response?.memory ?? response ?? null;
     } catch (error) {
       // A missing ID should yield an empty result, not an exception. recallMemory's
@@ -840,11 +879,7 @@ export class AutoMemClient {
       throw new Error('memory_id is required');
     }
 
-    const response = await this.makeRequest(
-      'PATCH',
-      `memory/${encodeURIComponent(memoryId)}`,
-      updates
-    );
+    const response = await this.makeRequest('PATCH', memoryPath(memoryId), updates);
     return {
       memory_id: response.memory_id || memoryId,
       message: response.message || 'Memory updated successfully',
@@ -871,7 +906,7 @@ export class AutoMemClient {
     }
 
     const memoryId = args.memory_id!.trim();
-    const response = await this.makeRequest('DELETE', `memory/${encodeURIComponent(memoryId)}`);
+    const response = await this.makeRequest('DELETE', memoryPath(memoryId));
     return {
       memory_id: response.memory_id || memoryId,
       message: response.message || 'Memory deleted successfully',
