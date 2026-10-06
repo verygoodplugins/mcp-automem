@@ -76,14 +76,28 @@ function errorMessage(error: unknown): string {
 const INVALID_MEMORY_ID_MESSAGE = 'memory_id must be a valid UUID';
 
 // What Python's int(s, 16) parses: optional whitespace on either end, a "+", a
-// "0x" prefix, then hex digits with single underscores between them. Any Unicode
-// decimal digit counts as a digit.
+// "0x" prefix, then hex digits with single underscores between them. int() reads
+// any Unicode decimal digit as its ASCII value first, so every one counts as a
+// digit, and a Unicode zero can start the prefix ("٠x"). The prefix's digit is
+// captured so the caller can check that it is a zero.
 const PY_SPACE = '[\\t-\\r \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*';
 const PY_HEX_DIGIT = '(?:[a-fA-F]|\\p{Nd})';
 const PY_HEX_INT_RE = new RegExp(
-  `^${PY_SPACE}\\+?(?:0[xX]_?)?${PY_HEX_DIGIT}(?:_?${PY_HEX_DIGIT})*${PY_SPACE}$`,
+  `^${PY_SPACE}\\+?(?:(\\p{Nd})[xX]_?)?${PY_HEX_DIGIT}(?:_?${PY_HEX_DIGIT})*${PY_SPACE}$`,
   'u'
 );
+const DECIMAL_DIGIT_RE = /^\p{Nd}$/u;
+
+// Unicode encodes each decimal digit set as one contiguous run from 0 to 9, so a
+// digit's value is its distance from the start of its run of digits, mod 10.
+function isDecimalZero(digit: string): boolean {
+  const codePoint = digit.codePointAt(0)!;
+  let runStart = codePoint;
+  while (runStart > 0 && DECIMAL_DIGIT_RE.test(String.fromCodePoint(runStart - 1))) {
+    runStart -= 1;
+  }
+  return (codePoint - runStart) % 10 === 0;
+}
 
 /**
  * True when Python's uuid.UUID(), which the API validates ids with, accepts `value`:
@@ -97,7 +111,10 @@ export function isUuidAcceptedByApi(value: string): boolean {
     .replaceAll('uuid:', '')
     .replace(/^[{}]+|[{}]+$/g, '')
     .replaceAll('-', '');
-  return [...hex].length === 32 && PY_HEX_INT_RE.test(hex);
+  if ([...hex].length !== 32) return false;
+  const match = PY_HEX_INT_RE.exec(hex);
+  const prefixDigit = match?.[1];
+  return match !== null && (prefixDigit === undefined || isDecimalZero(prefixDigit));
 }
 
 // An id goes into the URL path, where one the API would reject can reach a different

@@ -1092,6 +1092,8 @@ describe('AutoMemClient', () => {
       `${'a'.repeat(31)}/`,
       `${'a'.repeat(15)}__${'a'.repeat(15)}`,
       `\x1c${'a'.repeat(31)}`,
+      // A radix prefix needs a zero: a Unicode one before x is not one.
+      `\u0661x${'a'.repeat(30)}`,
     ];
 
     it('refuses ids uuid.UUID() rejects before any request, in every path', async () => {
@@ -1126,6 +1128,9 @@ describe('AutoMemClient', () => {
         `${'a'.repeat(16)}_${'a'.repeat(15)}`,
         `{ ${'a'.repeat(30)} }`,
         `\u0661${'a'.repeat(31)}`,
+        // int() reads Unicode digits as ASCII first, so a Unicode zero starts a prefix.
+        `\u0660x${'a'.repeat(30)}`,
+        `\u{1D7CE}X_${'a'.repeat(29)}`,
       ];
       for (const memoryId of spellings) {
         mockFetch.mockResolvedValueOnce({
