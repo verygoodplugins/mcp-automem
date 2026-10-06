@@ -225,6 +225,43 @@ function buildStructuredEnvelope(recallResult: RecallResult): Record<string, unk
   };
 }
 
+function buildNotes(envelope: Record<string, unknown>): string[] {
+  const env = envelope as Partial<RecallResult>;
+  const notes: string[] = [];
+  if ((env.dedup_removed || 0) > 0) {
+    notes.push(`${env.dedup_removed} duplicates removed`);
+  }
+  if (env.entity_expansion?.enabled && env.entity_expansion.expanded_count > 0) {
+    notes.push(
+      `${env.entity_expansion.expanded_count} via entity expansion (${
+        env.entity_expansion.entities_found?.join(', ') || 'entities found'
+      })`
+    );
+  }
+  if (env.expansion?.enabled && env.expansion.expanded_count > 0) {
+    notes.push(`${env.expansion.expanded_count} via relation expansion`);
+  }
+  if (env.state_filter) {
+    notes.push(
+      `state filter suppressed ${env.state_filter.suppressed_count}, replacements ${env.state_filter.replacement_count}`
+    );
+  }
+  if (env.scope_fallback) {
+    notes.push('scope fallback included outside-scope results');
+  }
+  const filteredCount = env.score_filter?.filtered_count;
+  if (typeof filteredCount === 'number' && filteredCount > 0) {
+    notes.push(`score filter removed ${filteredCount}`);
+  }
+  if (env.mode === 'enumeration') {
+    const pageSuffix = env.has_more ? ' — more pages available' : '';
+    notes.push(
+      `enumeration page: offset ${env.offset ?? 0}, limit ${env.limit ?? env.count}${pageSuffix}`
+    );
+  }
+  return notes;
+}
+
 // scope_fallback appends unscoped fills after the scoped results; mark them so a
 // reader of the text channel can tell them apart.
 const OUTSIDE_SCOPE_NOTE = ' [outside tag scope]';
@@ -277,80 +314,49 @@ function renderDetailedBlock(item: RecallResultItem, preview: string): string {
   return lines.join('\n');
 }
 
-export async function buildRecallMemoryResponse(
-  client: RecallClient,
-  recallArgs: RecallMemoryArgs
-): Promise<RecallToolResponse> {
-  const recallResult = await client.recallMemory(recallArgs);
-  const results = recallResult.results || [];
-  const format = recallArgs.format || 'text';
-  const isRichFormat = format === 'detailed' || format === 'json';
-  const isIdFetch = recallResult.mode === 'id_fetch' || Boolean(recallArgs.memory_id);
-  // json keeps raw per-field passthrough; id fetches are never truncated.
-  const budgeted = !isIdFetch && format !== 'json';
-  const keepScoreComponents = format === 'json' || isIdFetch;
-
-  if (results.length === 0) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: 'No memories found matching your query.',
-        },
-      ],
-      structuredContent: {
-        results: [],
-        ...buildStructuredEnvelope(recallResult),
-      },
-    };
+function buildItemOutput(
+  item: RecallResultItem,
+  index: number,
+  format: string,
+  isRichFormat: boolean,
+  budgeted: boolean,
+  keepScoreComponents: boolean
+): PerItemOutput {
+  const { structuredItem, displayText, contentTruncated } = buildStructuredRecallItem(
+    item,
+    isRichFormat,
+    budgeted,
+    keepScoreComponents
+  );
+  let textBlock = '';
+  if (format === 'items') {
+    textBlock = `[${item.memory.memory_id}] ${displayText}${scopeNote(item)}`;
+  } else if (format === 'detailed') {
+    textBlock = renderDetailedBlock(item, displayText);
+  } else if (format !== 'json') {
+    textBlock = renderTextBlock(item, displayText, index);
   }
+  const structuredLength = JSON.stringify(structuredItem)?.length ?? 0;
+  // json repeats the structured payload in the text channel pretty-printed;
+  // measure that length directly (nesting can inflate it well past 2x).
+  const cost =
+    format === 'json'
+      ? structuredLength + (JSON.stringify(structuredItem, null, 2)?.length ?? 0)
+      : structuredLength + textBlock.length;
+  return { structuredItem, textBlock, cost, contentTruncated };
+}
 
-  const perItem: PerItemOutput[] = results.map((item, index) => {
-    const { structuredItem, displayText, contentTruncated } = buildStructuredRecallItem(
-      item,
-      isRichFormat,
-      budgeted,
-      keepScoreComponents
-    );
-    let textBlock = '';
-    if (format === 'items') {
-      textBlock = `[${item.memory.memory_id}] ${displayText}${scopeNote(item)}`;
-    } else if (format === 'detailed') {
-      textBlock = renderDetailedBlock(item, displayText);
-    } else if (format !== 'json') {
-      textBlock = renderTextBlock(item, displayText, index);
-    }
-    const structuredLength = JSON.stringify(structuredItem)?.length ?? 0;
-    // json repeats the structured payload in the text channel pretty-printed;
-    // measure that length directly (nesting can inflate it well past 2x).
-    const cost =
-      format === 'json'
-        ? structuredLength + (JSON.stringify(structuredItem, null, 2)?.length ?? 0)
-        : structuredLength + textBlock.length;
-    return { structuredItem, textBlock, cost, contentTruncated };
-  });
-
-  // Global budget: always keep the first result; keep the rest while in budget.
-  const tokenBudget = resolveTokenBudget();
-  const kept: PerItemOutput[] = [];
-  let runningTokens = RESPONSE_ENVELOPE_RESERVE_TOKENS;
-  if (isIdFetch) {
-    kept.push(...perItem);
-  } else {
-    for (const entry of perItem) {
-      const entryTokens = estimateTokens(entry.cost);
-      if (kept.length > 0 && runningTokens + entryTokens > tokenBudget) {
-        break;
-      }
-      kept.push(entry);
-      runningTokens += entryTokens;
-    }
-  }
-  const omitted = perItem.length - kept.length;
-
+function renderRecallResponse(
+  recallResult: RecallResult,
+  format: string,
+  kept: PerItemOutput[]
+): RecallToolResponse {
+  const total = (recallResult.results || []).length;
+  const omitted = total - kept.length;
+  const envelope = buildStructuredEnvelope(recallResult);
   const structuredContent: Record<string, unknown> = {
     results: kept.map((entry) => entry.structuredItem),
-    ...buildStructuredEnvelope(recallResult),
+    ...envelope,
     ...(omitted > 0
       ? {
           truncation: {
@@ -362,53 +368,17 @@ export async function buildRecallMemoryResponse(
       : {}),
   };
 
-  const notes: string[] = [];
-  if ((recallResult.dedup_removed || 0) > 0) {
-    notes.push(`${recallResult.dedup_removed} duplicates removed`);
+  if (total === 0) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: 'No memories found matching your query.',
+        },
+      ],
+      structuredContent,
+    };
   }
-  if (recallResult.entity_expansion?.enabled && recallResult.entity_expansion.expanded_count > 0) {
-    notes.push(
-      `${recallResult.entity_expansion.expanded_count} via entity expansion (${
-        recallResult.entity_expansion.entities_found?.join(', ') || 'entities found'
-      })`
-    );
-  }
-  if (recallResult.expansion?.enabled && recallResult.expansion.expanded_count > 0) {
-    notes.push(`${recallResult.expansion.expanded_count} via relation expansion`);
-  }
-  if (recallResult.state_filter) {
-    notes.push(
-      `state filter suppressed ${recallResult.state_filter.suppressed_count}, replacements ${recallResult.state_filter.replacement_count}`
-    );
-  }
-  if (recallResult.scope_fallback) {
-    notes.push('scope fallback included outside-scope results');
-  }
-  const filteredCount = recallResult.score_filter?.filtered_count;
-  if (typeof filteredCount === 'number' && filteredCount > 0) {
-    notes.push(`score filter removed ${filteredCount}`);
-  }
-  if (recallResult.mode === 'enumeration') {
-    const offset = recallResult.offset ?? 0;
-    const limit = recallResult.limit ?? results.length;
-    const pageSuffix = recallResult.has_more ? ' — more pages available' : '';
-    notes.push(`enumeration page: offset ${offset}, limit ${limit}${pageSuffix}`);
-  }
-  const notesSuffix = notes.length > 0 ? ` (${notes.join('; ')})` : '';
-
-  const anyContentTruncated = kept.some((entry) => entry.contentTruncated);
-  const trailerParts: string[] = [];
-  if (omitted > 0) {
-    trailerParts.push(
-      `Response budget: showing ${kept.length} of ${perItem.length} results; ${omitted} omitted.`
-    );
-  }
-  if (anyContentTruncated) {
-    trailerParts.push(
-      'Content shown as previews — fetch full records with recall_memory({ memory_id: "<id>" }).'
-    );
-  }
-  const trailer = trailerParts.length > 0 ? `\n\n[${trailerParts.join(' ')}]` : '';
 
   if (format === 'json') {
     return {
@@ -420,6 +390,19 @@ export async function buildRecallMemoryResponse(
       ],
       structuredContent,
     };
+  }
+
+  const notes = buildNotes(envelope);
+  const trailerParts: string[] = [];
+  if (omitted > 0) {
+    trailerParts.push(
+      `Response budget: showing ${kept.length} of ${total} results; ${omitted} omitted.`
+    );
+  }
+  if (kept.some((entry) => entry.contentTruncated)) {
+    trailerParts.push(
+      'Content shown as previews — fetch full records with recall_memory({ memory_id: "<id>" }).'
+    );
   }
 
   if (format === 'items') {
@@ -440,15 +423,54 @@ export async function buildRecallMemoryResponse(
     };
   }
 
-  const joinedBlocks = kept.map((entry) => entry.textBlock).join('\n\n');
+  const notesSuffix = notes.length > 0 ? ` (${notes.join('; ')})` : '';
   const showingSuffix = omitted > 0 ? ` (showing ${kept.length})` : '';
+  const joinedBlocks = kept.map((entry) => entry.textBlock).join('\n\n');
+  const trailer = trailerParts.length > 0 ? `\n\n[${trailerParts.join(' ')}]` : '';
   return {
     content: [
       {
         type: 'text',
-        text: `Found ${results.length} memories${showingSuffix}${notesSuffix}:\n\n${joinedBlocks}${trailer}`,
+        text: `Found ${total} memories${showingSuffix}${notesSuffix}:\n\n${joinedBlocks}${trailer}`,
       },
     ],
     structuredContent,
   };
+}
+
+export async function buildRecallMemoryResponse(
+  client: RecallClient,
+  recallArgs: RecallMemoryArgs
+): Promise<RecallToolResponse> {
+  const recallResult = await client.recallMemory(recallArgs);
+  const results = recallResult.results || [];
+  const format = recallArgs.format || 'text';
+  const isRichFormat = format === 'detailed' || format === 'json';
+  const isIdFetch = recallResult.mode === 'id_fetch' || Boolean(recallArgs.memory_id);
+  // json keeps raw per-field passthrough; id fetches are never truncated.
+  const budgeted = !isIdFetch && format !== 'json';
+  const keepScoreComponents = format === 'json' || isIdFetch;
+
+  const perItem = results.map((item, index) =>
+    buildItemOutput(item, index, format, isRichFormat, budgeted, keepScoreComponents)
+  );
+
+  // Global budget: always keep the first result; keep the rest while in budget.
+  const tokenBudget = resolveTokenBudget();
+  const kept: PerItemOutput[] = [];
+  let runningTokens = RESPONSE_ENVELOPE_RESERVE_TOKENS;
+  if (isIdFetch) {
+    kept.push(...perItem);
+  } else {
+    for (const entry of perItem) {
+      const entryTokens = estimateTokens(entry.cost);
+      if (kept.length > 0 && runningTokens + entryTokens > tokenBudget) {
+        break;
+      }
+      kept.push(entry);
+      runningTokens += entryTokens;
+    }
+  }
+
+  return renderRecallResponse(recallResult, format, kept);
 }
