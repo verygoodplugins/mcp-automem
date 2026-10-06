@@ -864,6 +864,26 @@ describe('buildRecallMemoryResponse', () => {
       expect(JSON.parse(response.content[0].text)).toEqual(structured);
     });
 
+    it('returns no results, within budget, when even the compact json result does not fit', async () => {
+      vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '1000');
+      const recallResult = makeRecallResult();
+      const first = recallResult.results[0];
+      first.memory.content = 'c'.repeat(1200);
+      first.memory.metadata = { blob: 'm'.repeat(3000) };
+      first.relations = Array.from({ length: 4 }, (_, i) => makeRelationRecord(i, 300));
+      const client = { recallMemory: vi.fn().mockResolvedValue(recallResult) };
+
+      const response = await buildRecallMemoryResponse(client, { query: 'big', format: 'json' });
+
+      expect(fitsBudget(response, 1000)).toBe(true);
+      expect(response.structuredContent.results).toEqual([]);
+      expect(response.structuredContent.truncation).toEqual({
+        applied: true,
+        omitted_results: 1,
+        reason: 'response_token_budget',
+      });
+    });
+
     it('drops state_filter detail, not results, when the diagnostics alone overflow', async () => {
       vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '4000');
       const suppressed = Array.from({ length: 400 }, (_, i) => ({

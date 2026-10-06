@@ -583,6 +583,7 @@ export async function buildRecallMemoryResponse(
       kept.push(compact);
       response = compacted;
     } else {
+      // `response` is still step 2's empty render, made before this flag was set.
       cuts.compactedResults = 0;
     }
   }
