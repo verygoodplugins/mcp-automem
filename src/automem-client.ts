@@ -3,6 +3,7 @@ import type {
   BatchMemoryInput,
   MemoryRecord,
   RecallResult,
+  StoredMemory,
   HealthStatus,
   StoreMemoryArgs,
   StoreMemoryResult,
@@ -85,6 +86,18 @@ function mapStoredMemory(raw: any) {
     type: raw?.type,
     confidence: raw?.confidence,
     last_accessed: raw?.last_accessed,
+    ...memoryStateFields(raw),
+  };
+}
+
+// t_valid, t_invalid and archived explain why a current_only: false or history recall
+// returned a memory. Kept only when the API sent a real value, so a null never reaches
+// a client that validates structuredContent against the outputSchema.
+function memoryStateFields(raw: any): Pick<StoredMemory, 't_valid' | 't_invalid' | 'archived'> {
+  return {
+    ...(typeof raw?.t_valid === 'string' ? { t_valid: raw.t_valid } : {}),
+    ...(typeof raw?.t_invalid === 'string' ? { t_invalid: raw.t_invalid } : {}),
+    ...(typeof raw?.archived === 'boolean' ? { archived: raw.archived } : {}),
   };
 }
 
@@ -673,6 +686,7 @@ export class AutoMemClient {
           type: result.memory?.type,
           confidence: result.memory?.confidence,
           last_accessed: result.memory?.last_accessed,
+          ...memoryStateFields(result.memory),
         },
       })),
       count: response.count || (response.results ? response.results.length : 0),
