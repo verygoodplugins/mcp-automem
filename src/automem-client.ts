@@ -72,6 +72,61 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+// The API's own message and rule (automem/api/memory.py _validate_memory_id).
+const INVALID_MEMORY_ID_MESSAGE = 'memory_id must be a valid UUID';
+
+// What Python's int(s, 16) parses: optional whitespace on either end, a "+", a
+// "0x" prefix, then hex digits with single underscores between them. int() reads
+// any Unicode decimal digit as its ASCII value first, so every one counts as a
+// digit, and a Unicode zero can start the prefix ("٠x"). The prefix's digit is
+// captured so the caller can check that it is a zero.
+const PY_SPACE = '[\\t-\\r \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*';
+const PY_HEX_DIGIT = '(?:[a-fA-F]|\\p{Nd})';
+const PY_HEX_INT_RE = new RegExp(
+  `^${PY_SPACE}\\+?(?:(\\p{Nd})[xX]_?)?${PY_HEX_DIGIT}(?:_?${PY_HEX_DIGIT})*${PY_SPACE}$`,
+  'u'
+);
+const DECIMAL_DIGIT_RE = /^\p{Nd}$/u;
+
+// Unicode encodes each decimal digit set as one contiguous run from 0 to 9, so a
+// digit's value is its distance from the start of its run of digits, mod 10.
+function isDecimalZero(digit: string): boolean {
+  const codePoint = digit.codePointAt(0)!;
+  let runStart = codePoint;
+  while (runStart > 0 && DECIMAL_DIGIT_RE.test(String.fromCodePoint(runStart - 1))) {
+    runStart -= 1;
+  }
+  return (codePoint - runStart) % 10 === 0;
+}
+
+/**
+ * True when Python's uuid.UUID(), which the API validates ids with, accepts `value`:
+ * it drops "urn:" and "uuid:", strips braces from both ends and removes every hyphen,
+ * then needs 32 characters that int(s, 16) parses. Nothing it accepts contains "/" or
+ * ".", so an accepted id cannot reach another route under /memory/.
+ */
+export function isUuidAcceptedByApi(value: string): boolean {
+  const hex = value
+    .replaceAll('urn:', '')
+    .replaceAll('uuid:', '')
+    .replace(/^[{}]+|[{}]+$/g, '')
+    .replaceAll('-', '');
+  if ([...hex].length !== 32) return false;
+  const match = PY_HEX_INT_RE.exec(hex);
+  const prefixDigit = match?.[1];
+  return match !== null && (prefixDigit === undefined || isDecimalZero(prefixDigit));
+}
+
+// An id goes into the URL path, where one the API would reject can reach a different
+// route first: "by-tag" hits GET/DELETE /memory/by-tag, and ".." normalizes to "/".
+// Refuse those with the API's own message before any request.
+function memoryPath(memoryId: string): string {
+  if (!isUuidAcceptedByApi(memoryId)) {
+    throw new Error(INVALID_MEMORY_ID_MESSAGE);
+  }
+  return `memory/${encodeURIComponent(memoryId)}`;
+}
+
 function mapStoredMemory(raw: any) {
   return {
     memory_id: raw?.id || raw?.memory_id || '',
@@ -704,8 +759,9 @@ export class AutoMemClient {
   }
 
   private async fetchMemoryById(memoryId: string): Promise<any | null> {
+    const path = memoryPath(memoryId);
     try {
-      const response = await this.makeRequest('GET', `memory/${encodeURIComponent(memoryId)}`);
+      const response = await this.makeRequest('GET', path);
       return response?.memory ?? response ?? null;
     } catch (error) {
       // A missing ID should yield an empty result, not an exception. recallMemory's
@@ -840,11 +896,7 @@ export class AutoMemClient {
       throw new Error('memory_id is required');
     }
 
-    const response = await this.makeRequest(
-      'PATCH',
-      `memory/${encodeURIComponent(memoryId)}`,
-      updates
-    );
+    const response = await this.makeRequest('PATCH', memoryPath(memoryId), updates);
     return {
       memory_id: response.memory_id || memoryId,
       message: response.message || 'Memory updated successfully',
@@ -871,7 +923,7 @@ export class AutoMemClient {
     }
 
     const memoryId = args.memory_id!.trim();
-    const response = await this.makeRequest('DELETE', `memory/${encodeURIComponent(memoryId)}`);
+    const response = await this.makeRequest('DELETE', memoryPath(memoryId));
     return {
       memory_id: response.memory_id || memoryId,
       message: response.message || 'Memory deleted successfully',

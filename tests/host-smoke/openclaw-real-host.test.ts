@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import openClawPlugin from '../../src/openclaw-plugin.js';
 import { HOST_SMOKE_SPECS } from '../helpers/host-specs.js';
-import { startFakeAutoMemApi } from '../helpers/host-smoke.js';
+import { fakeMemoryId, startFakeAutoMemApi } from '../helpers/host-smoke.js';
 
 interface RegisteredTool {
   name: string;
@@ -71,10 +71,10 @@ describe('OpenClaw plugin boundary', () => {
         tags: ['openclaw-smoke'],
         importance: 0.6,
       });
-      await call('automem_update_memory', { memory_id: 'mem-1', importance: 0.8 });
+      await call('automem_update_memory', { memory_id: fakeMemoryId(1), importance: 0.8 });
       await call('automem_associate_memories', {
-        memory1_id: 'mem-1',
-        memory2_id: 'mem-2',
+        memory1_id: fakeMemoryId(1),
+        memory2_id: fakeMemoryId(2),
         type: 'RELATES_TO',
         strength: 0.7,
       });
@@ -101,11 +101,13 @@ describe('OpenClaw plugin boundary', () => {
         importance: 0.6,
       });
 
-      expect(find('PATCH', (p) => p === '/memory/mem-1').body).toMatchObject({ importance: 0.8 });
+      expect(find('PATCH', (p) => p === `/memory/${fakeMemoryId(1)}`).body).toMatchObject({
+        importance: 0.8,
+      });
 
       expect(find('POST', (p) => p === '/associate').body).toMatchObject({
-        memory1_id: 'mem-1',
-        memory2_id: 'mem-2',
+        memory1_id: fakeMemoryId(1),
+        memory2_id: fakeMemoryId(2),
         type: 'RELATES_TO',
         strength: 0.7,
       });

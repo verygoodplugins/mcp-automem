@@ -20,6 +20,7 @@ import { parse as parseToml } from 'smol-toml';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyGrokSetup } from '../../src/cli/grok.js';
 import {
+  fakeMemoryId,
   localMcpServerCommand,
   startFakeAutoMemApi,
   StdioMcpClient,
@@ -137,19 +138,19 @@ describe('Grok real host contract', () => {
           name: 'store_memory',
           arguments: { content: 'grok host smoke memory', tags: ['grok-smoke'], importance: 0.6 },
         });
-        expect(stored.structuredContent.memory_id).toBe('mem-1');
+        expect(stored.structuredContent.memory_id).toBe(fakeMemoryId(1));
 
         const updated = await client.request('tools/call', {
           name: 'update_memory',
-          arguments: { memory_id: 'mem-1', importance: 0.8 },
+          arguments: { memory_id: fakeMemoryId(1), importance: 0.8 },
         });
-        expect(updated.structuredContent.memory_id).toBe('mem-1');
+        expect(updated.structuredContent.memory_id).toBe(fakeMemoryId(1));
 
         const associated = await client.request('tools/call', {
           name: 'associate_memories',
           arguments: {
-            memory1_id: 'mem-1',
-            memory2_id: 'mem-2',
+            memory1_id: fakeMemoryId(1),
+            memory2_id: fakeMemoryId(2),
             type: 'RELATES_TO',
             strength: 0.7,
           },
@@ -177,10 +178,12 @@ describe('Grok real host contract', () => {
           tags: ['grok-smoke'],
           importance: 0.6,
         });
-        expect(find('PATCH', (p) => p === '/memory/mem-1').body).toMatchObject({ importance: 0.8 });
+        expect(find('PATCH', (p) => p === `/memory/${fakeMemoryId(1)}`).body).toMatchObject({
+          importance: 0.8,
+        });
         expect(find('POST', (p) => p === '/associate').body).toMatchObject({
-          memory1_id: 'mem-1',
-          memory2_id: 'mem-2',
+          memory1_id: fakeMemoryId(1),
+          memory2_id: fakeMemoryId(2),
           type: 'RELATES_TO',
           strength: 0.7,
         });
