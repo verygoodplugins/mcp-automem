@@ -242,7 +242,7 @@ An optional sidecar service (deployable to Railway or any Docker host) connects 
   - **Batch**: `memories: [...]` (≤500 items) for bulk ingestion. Per-item `id`/`embedding`/`t_valid`/`t_invalid` are not supported in batch mode.
 - **`recall_memory`** — Three modes selected by which params you pass:
   - **ID fetch**: `memory_id` → fetches one memory by ID; updates `last_accessed`.
-  - **Tag enumeration**: `tags` + `exhaustive: true` → paginated exact-match listing for cleanup/audit workflows where ranked recall undercounts. Pair with `limit` (≤200) and `offset`; returns `has_more`.
+  - **Tag enumeration**: `tags` + `exhaustive: true` → paginated exact-match listing for cleanup/audit workflows where ranked recall undercounts. Pair with `limit` (≤200) and `offset`; returns `has_more`, plus `next_offset` for the next page while more remain.
   - **Ranked retrieval (default)**: hybrid search across vector, keyword, tags, recency/state controls, score filters, and graph expansion. Supports `state_mode`, `recency_bias`, `scope_fallback`, `expand_respect_tags`, `min_score`, `adaptive_floor`, and diagnostics such as `tag_scope`, `score_filter`, `query_time_ms`, `vector_search`, and per-result `outside_tag_scope`/`state_replaces`.
 - **`associate_memories`** — Create relationships (11 public authorable types; recall results may also include read-only system relations). Supports single-pair mode and batch mode via `associations: [...]` (≤500) with relation-specific props like `reason`, `context`, `resolution`, `observations`, `transformation`, and `role`.
 - **`update_memory`** — Modify existing memories

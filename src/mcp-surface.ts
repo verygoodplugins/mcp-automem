@@ -274,7 +274,7 @@ export const tools: Tool[] = [
 
 **Mode 1 — ID fetch:** pass \`memory_id\` to retrieve a single memory by ID. All other params are ignored. Routes to GET /memory/{id} and updates last_accessed.
 
-**Mode 2 — Tag enumeration:** pass \`tags\` + \`exhaustive: true\` for paginated exact-match listing (NOT ranked retrieval). Use this for cleanup/audit workflows where ranked retrieval silently undercounts large tag sets. Pair with \`limit\` (≤200) and \`offset\`. Returns \`has_more\`/\`limit\`/\`offset\` page metadata. Tag matching is exact, case-insensitive, any-of mode — \`tag_match: "prefix"\` and \`tag_mode: "all"\` are rejected in this mode.
+**Mode 2 — Tag enumeration:** pass \`tags\` + \`exhaustive: true\` for paginated exact-match listing (NOT ranked retrieval). Use this for cleanup/audit workflows where ranked retrieval silently undercounts large tag sets. Pair with \`limit\` (≤200) and \`offset\`. Returns \`has_more\`/\`limit\`/\`offset\` page metadata; next page at \`next_offset\`. Tag matching is exact, case-insensitive, any-of mode — \`tag_match: "prefix"\` and \`tag_mode: "all"\` are rejected in this mode.
 
 **Mode 3 — Ranked retrieval (default):** hybrid search across vector, keyword, tags, recency, and optional graph expansion. The primary tool for finding relevant context. By default, ranked recall requests current active memories only; set \`current_only: false\` for audits.
 
@@ -526,15 +526,22 @@ export const tools: Tool[] = [
         },
         has_more: {
           type: 'boolean',
-          description: 'Enumeration mode only: true if more pages exist past `offset + limit`.',
+          description:
+            'Enumeration mode only: true if more records exist past this page. Continue at `next_offset`.',
         },
         limit: {
           type: 'integer',
-          description: 'Enumeration mode only: page size used for this response.',
+          description:
+            'Enumeration mode only: page size of this response. When the response budget trims a page, `count` and `limit` shrink to the results returned, so `offset + limit` still starts the next page.',
         },
         offset: {
           type: 'integer',
           description: 'Enumeration mode only: offset used for this response.',
+        },
+        next_offset: {
+          type: 'integer',
+          description:
+            'Enumeration mode only, when `has_more` is true: the `offset` for the next page (this offset plus the results returned).',
         },
         results: {
           type: 'array',
@@ -592,7 +599,7 @@ export const tools: Tool[] = [
         truncation: {
           type: 'object',
           description:
-            'Present when trailing results were dropped to fit the response budget: { applied, omitted_results, reason }.',
+            'Present when the response budget cut anything: { applied, omitted_results, reason }, plus `omitted_fields` (diagnostics dropped because they did not fit even without results) and `compacted_results` (a json result shown in compact form because it did not fit whole).',
         },
         dedup_removed: {
           type: 'integer',
