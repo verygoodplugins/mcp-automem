@@ -503,7 +503,7 @@ export const tools: Tool[] = [
           enum: ['text', 'items', 'detailed', 'json'],
           default: 'text',
           description:
-            'Output format: text (default), items (one block per memory), detailed (adds type/confidence/metadata keys/relation stubs), json (raw per-memory fields incl. full content/metadata/relations; whole-response token budget still applies). text/items/detailed show a content preview (default 400 chars) and keep any stored summary as an additive field — fetch a full record via memory_id.',
+            'Output format: text (default), items (one block per memory, in `results` order, then one bracketed trailing block when there are notes or budget cuts), detailed (adds type/confidence/metadata keys/relation stubs), json (raw per-memory fields incl. full content/metadata/relations; whole-response token budget still applies). text/items/detailed show a content preview (default 400 chars) and keep any stored summary as an additive field — fetch a full record via memory_id.',
         },
         offset: {
           type: 'integer',
