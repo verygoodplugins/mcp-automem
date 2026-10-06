@@ -10,19 +10,37 @@ import type { RecallMemoryArgs, RecallResult } from './types.js';
 // (empirical: a 64.8k-char response was rejected by Claude Code's 25k-token
 // cap), so the old 80k-char budget overflowed despite firing. `format: "json"`
 // keeps raw per-field passthrough (escape hatch) but the global budget still
-// applies. ID fetches (`memory_id`) are never truncated — that is the
-// documented way to retrieve a full record.
+// applies. The budget bounds the whole serialized response (structuredContent
+// plus every text block, JSON-escaped), not just the results: diagnostics that
+// do not fit even with no results are dropped, and a json result too large to
+// show whole falls back to the compact shape. ID fetches (`memory_id`) are never
+// truncated — that is the documented way to retrieve a full record.
 export const RECALL_CONTENT_PREVIEW_CHARS = 400;
 export const RECALL_MAX_RELATIONS = 3;
 export const RECALL_RELATION_SUMMARY_CHARS = 100;
 export const RECALL_CHARS_PER_TOKEN = 2.5;
 export const DEFAULT_RECALL_TOKEN_BUDGET = 18_000;
 
-const RESPONSE_ENVELOPE_RESERVE_TOKENS = 800;
-
-function estimateTokens(chars: number): number {
-  return Math.ceil(chars / RECALL_CHARS_PER_TOKEN);
-}
+// Diagnostics the budget drops, in this order, when the response does not fit even
+// with no results. Never dropped: results, count, mode, the paging fields and
+// truncation. state_filter keeps its counts, which the text notes read.
+const ENVELOPE_DROP_ORDER = [
+  'state_filter.suppressed',
+  'state_filter.replacements',
+  'entities',
+  'entity_expansion',
+  'expansion',
+  'context_priority',
+  'vector_search',
+  'tag_scope',
+  'score_filter',
+  'keywords',
+  'queries',
+  'query',
+  'exclude_tags',
+  'tags',
+  'time_window',
+];
 
 function resolveTokenBudget(): number {
   const raw = process.env.AUTOMEM_RECALL_TOKEN_BUDGET;
@@ -53,8 +71,15 @@ type RecallResultItem = NonNullable<RecallResult['results']>[number];
 type PerItemOutput = {
   structuredItem: Record<string, unknown>;
   textBlock: string;
+  /** Estimated characters this result adds to the serialized response. */
   cost: number;
   contentTruncated: boolean;
+};
+
+/** What the budget cut, beyond trailing results; reported in `truncation`. */
+type BudgetCuts = {
+  omittedFields: string[];
+  compactedResults: number;
 };
 
 function capContent(
@@ -183,14 +208,26 @@ function buildStructuredRecallItem(
   return { structuredItem, displayText, contentTruncated: truncated };
 }
 
-function buildStructuredEnvelope(recallResult: RecallResult): Record<string, unknown> {
+// `returned` is how many results the response keeps. An enumeration page the budget
+// trimmed reports itself as a page of that size with more to come, so a pager that
+// continues at offset + limit, or at next_offset, still sees every record.
+function buildStructuredEnvelope(
+  recallResult: RecallResult,
+  returned: number
+): Record<string, unknown> {
   const results = recallResult.results || [];
+  const isEnumeration = recallResult.mode === 'enumeration';
+  const trimmedPage = isEnumeration && returned < results.length;
+  const hasMore = trimmedPage ? true : recallResult.has_more;
+  const limit = trimmedPage ? returned : recallResult.limit;
+  const offset = recallResult.offset;
   return {
-    count: recallResult.count ?? results.length,
+    count: trimmedPage ? returned : (recallResult.count ?? results.length),
     ...(recallResult.mode ? { mode: recallResult.mode } : {}),
-    ...(typeof recallResult.has_more === 'boolean' ? { has_more: recallResult.has_more } : {}),
-    ...(typeof recallResult.limit === 'number' ? { limit: recallResult.limit } : {}),
-    ...(typeof recallResult.offset === 'number' ? { offset: recallResult.offset } : {}),
+    ...(typeof hasMore === 'boolean' ? { has_more: hasMore } : {}),
+    ...(typeof limit === 'number' ? { limit } : {}),
+    ...(typeof offset === 'number' ? { offset } : {}),
+    ...(isEnumeration && hasMore === true ? { next_offset: (offset ?? 0) + returned } : {}),
     ...(typeof recallResult.dedup_removed === 'number'
       ? { dedup_removed: recallResult.dedup_removed }
       : {}),
@@ -225,8 +262,24 @@ function buildStructuredEnvelope(recallResult: RecallResult): Record<string, unk
   };
 }
 
+// Drops one ENVELOPE_DROP_ORDER entry ("field" or "field.nested") without touching
+// the recall result it was copied from. Returns false when the field is absent.
+function omitEnvelopeField(envelope: Record<string, unknown>, field: string): boolean {
+  const [key, nested] = field.split('.');
+  const value = envelope[key];
+  if (value === undefined) return false;
+  if (nested === undefined) {
+    delete envelope[key];
+    return true;
+  }
+  if (!value || typeof value !== 'object' || !(nested in value)) return false;
+  const { [nested]: _omitted, ...rest } = value as Record<string, unknown>;
+  envelope[key] = rest;
+  return true;
+}
+
 function buildNotes(envelope: Record<string, unknown>): string[] {
-  const env = envelope as Partial<RecallResult>;
+  const env = envelope as Partial<RecallResult> & { next_offset?: number };
   const notes: string[] = [];
   if ((env.dedup_removed || 0) > 0) {
     notes.push(`${env.dedup_removed} duplicates removed`);
@@ -254,7 +307,9 @@ function buildNotes(envelope: Record<string, unknown>): string[] {
     notes.push(`score filter removed ${filteredCount}`);
   }
   if (env.mode === 'enumeration') {
-    const pageSuffix = env.has_more ? ' — more pages available' : '';
+    const pageSuffix = env.has_more
+      ? ` — more pages available, next offset ${env.next_offset}`
+      : '';
     notes.push(
       `enumeration page: offset ${env.offset ?? 0}, limit ${env.limit ?? env.count}${pageSuffix}`
     );
@@ -314,6 +369,26 @@ function renderDetailedBlock(item: RecallResultItem, preview: string): string {
   return lines.join('\n');
 }
 
+// Estimated characters a result adds to the serialized response: its structured
+// item, plus its text block JSON-escaped (json repeats the item pretty-printed,
+// four spaces deeper inside `results`). The final size check is exact; this only
+// has to be close.
+function estimateItemCost(
+  format: string,
+  structuredItem: Record<string, unknown>,
+  textBlock: string
+): number {
+  const structured = (JSON.stringify(structuredItem)?.length ?? 0) + 1;
+  if (format === 'json') {
+    const nested = (JSON.stringify(structuredItem, null, 2) ?? '').replace(/^/gm, '    ');
+    return structured + JSON.stringify(nested).length + 1;
+  }
+  if (format === 'items') {
+    return structured + JSON.stringify({ type: 'text', text: textBlock }).length + 1;
+  }
+  return structured + JSON.stringify(textBlock).length + 2;
+}
+
 function buildItemOutput(
   item: RecallResultItem,
   index: number,
@@ -336,32 +411,38 @@ function buildItemOutput(
   } else if (format !== 'json') {
     textBlock = renderTextBlock(item, displayText, index);
   }
-  const structuredLength = JSON.stringify(structuredItem)?.length ?? 0;
-  // json repeats the structured payload in the text channel pretty-printed;
-  // measure that length directly (nesting can inflate it well past 2x).
-  const cost =
-    format === 'json'
-      ? structuredLength + (JSON.stringify(structuredItem, null, 2)?.length ?? 0)
-      : structuredLength + textBlock.length;
+  const cost = estimateItemCost(format, structuredItem, textBlock);
   return { structuredItem, textBlock, cost, contentTruncated };
+}
+
+// The whole response as it goes over the wire: what the budget bounds.
+function responseChars(response: RecallToolResponse): number {
+  return JSON.stringify(response).length;
 }
 
 function renderRecallResponse(
   recallResult: RecallResult,
   format: string,
-  kept: PerItemOutput[]
+  kept: PerItemOutput[],
+  cuts: BudgetCuts
 ): RecallToolResponse {
   const total = (recallResult.results || []).length;
   const omitted = total - kept.length;
-  const envelope = buildStructuredEnvelope(recallResult);
+  const envelope = buildStructuredEnvelope(recallResult, kept.length);
+  for (const field of cuts.omittedFields) {
+    omitEnvelopeField(envelope, field);
+  }
+  const truncated = omitted > 0 || cuts.omittedFields.length > 0 || cuts.compactedResults > 0;
   const structuredContent: Record<string, unknown> = {
     results: kept.map((entry) => entry.structuredItem),
     ...envelope,
-    ...(omitted > 0
+    ...(truncated
       ? {
           truncation: {
             applied: true,
             omitted_results: omitted,
+            ...(cuts.omittedFields.length > 0 ? { omitted_fields: cuts.omittedFields } : {}),
+            ...(cuts.compactedResults > 0 ? { compacted_results: cuts.compactedResults } : {}),
             reason: 'response_token_budget',
           },
         }
@@ -398,6 +479,9 @@ function renderRecallResponse(
     trailerParts.push(
       `Response budget: showing ${kept.length} of ${total} results; ${omitted} omitted.`
     );
+  }
+  if (cuts.omittedFields.length > 0) {
+    trailerParts.push(`Response budget: omitted ${cuts.omittedFields.join(', ')}.`);
   }
   if (kept.some((entry) => entry.contentTruncated)) {
     trailerParts.push(
@@ -454,23 +538,62 @@ export async function buildRecallMemoryResponse(
   const perItem = results.map((item, index) =>
     buildItemOutput(item, index, format, isRichFormat, budgeted, keepScoreComponents)
   );
-
-  // Global budget: always keep the first result; keep the rest while in budget.
-  const tokenBudget = resolveTokenBudget();
-  const kept: PerItemOutput[] = [];
-  let runningTokens = RESPONSE_ENVELOPE_RESERVE_TOKENS;
+  const cuts: BudgetCuts = { omittedFields: [], compactedResults: 0 };
   if (isIdFetch) {
-    kept.push(...perItem);
-  } else {
-    for (const entry of perItem) {
-      const entryTokens = estimateTokens(entry.cost);
-      if (kept.length > 0 && runningTokens + entryTokens > tokenBudget) {
-        break;
-      }
-      kept.push(entry);
-      runningTokens += entryTokens;
+    return renderRecallResponse(recallResult, format, perItem, cuts);
+  }
+
+  const tokenBudget = resolveTokenBudget();
+  const budgetChars = tokenBudget * RECALL_CHARS_PER_TOKEN;
+  const render = (kept: PerItemOutput[]) => renderRecallResponse(recallResult, format, kept, cuts);
+
+  // 1. Everything but the results must fit on its own: drop diagnostics until it does.
+  const probe = buildStructuredEnvelope(recallResult, 0);
+  for (const field of ENVELOPE_DROP_ORDER) {
+    if (responseChars(render([])) <= budgetChars) break;
+    if (omitEnvelopeField(probe, field)) {
+      cuts.omittedFields.push(field);
     }
   }
 
-  return renderRecallResponse(recallResult, format, kept);
+  // 2. Results in rank order while the whole response fits. The per-item costs are
+  // estimates (headers and counts change with what is kept), so the assembled
+  // response is measured and trimmed from the tail until it really fits.
+  const kept: PerItemOutput[] = [];
+  let used = responseChars(render([]));
+  for (const entry of perItem) {
+    if (used + entry.cost > budgetChars) break;
+    kept.push(entry);
+    used += entry.cost;
+  }
+  let response = render(kept);
+  while (kept.length > 0 && responseChars(response) > budgetChars) {
+    kept.pop();
+    response = render(kept);
+  }
+
+  // 3. A json result too large to show whole falls back to the compact shape
+  // (preview, metadata keys, relation stubs) rather than leaving nothing: the
+  // caller still gets its id and can fetch the full record with memory_id.
+  if (kept.length === 0 && results.length > 0 && format === 'json') {
+    const compact = buildItemOutput(results[0], 0, format, true, true, false);
+    cuts.compactedResults = 1;
+    const compacted = render([compact]);
+    if (responseChars(compacted) <= budgetChars) {
+      kept.push(compact);
+      response = compacted;
+    } else {
+      cuts.compactedResults = 0;
+    }
+  }
+
+  // An enumeration page that shows nothing would send a pager back to the same
+  // offset forever, so refuse it with what the caller can do instead.
+  if (kept.length === 0 && results.length > 0 && recallResult.mode === 'enumeration') {
+    throw new Error(
+      `recall_memory: the record at offset ${recallResult.offset ?? 0} does not fit the response budget (AUTOMEM_RECALL_TOKEN_BUDGET=${tokenBudget}); fetch it with recall_memory({ memory_id: "${results[0].memory.memory_id}" }) or raise the budget`
+    );
+  }
+
+  return response;
 }

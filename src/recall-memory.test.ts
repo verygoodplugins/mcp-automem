@@ -679,7 +679,7 @@ describe('buildRecallMemoryResponse', () => {
     const response = await buildRecallMemoryResponse(client, { query: 'big' });
 
     const structured = response.structuredContent as any;
-    // tiny budget: first result always kept, nearly everything else dropped
+    // tiny budget: nearly everything dropped
     expect(structured.results.length).toBeLessThan(5);
     expect(structured.truncation.applied).toBe(true);
     expect(structured.truncation.omitted_results).toBe(20 - structured.results.length);
@@ -796,10 +796,10 @@ describe('buildRecallMemoryResponse', () => {
     });
 
     const structured = response.structuredContent as any;
-    expect(structured.results).toHaveLength(19);
+    expect(structured.results).toHaveLength(20);
     expect(structured.truncation).toMatchObject({
       applied: true,
-      omitted_results: 7,
+      omitted_results: 6,
       reason: 'response_token_budget',
     });
     for (const item of structured.results) {
@@ -808,10 +808,9 @@ describe('buildRecallMemoryResponse', () => {
       expect(item).not.toHaveProperty('metadata');
       expect(item.metadata_keys).toEqual(expect.arrayContaining(['enrichment', 'entities']));
     }
-    const totalChars =
-      JSON.stringify(response.structuredContent).length +
-      response.content.reduce((sum, block) => sum + block.text.length, 0);
-    expect(totalChars).toBeLessThanOrEqual(DEFAULT_RECALL_TOKEN_BUDGET * RECALL_CHARS_PER_TOKEN);
+    expect(JSON.stringify(response).length).toBeLessThanOrEqual(
+      DEFAULT_RECALL_TOKEN_BUDGET * RECALL_CHARS_PER_TOKEN
+    );
   });
 
   it('surfaces updated_at in text output and the structured base item', async () => {
@@ -824,5 +823,252 @@ describe('buildRecallMemoryResponse', () => {
     expect(response.content[0].text).toContain('Updated: 2026-03-25T01:00:00Z');
     const item = (response.structuredContent.results as any[])[0];
     expect(item.updated_at).toBe('2026-03-25T01:00:00Z');
+  });
+
+  describe('whole-response budget', () => {
+    const FORMATS = ['text', 'items', 'detailed', 'json'] as const;
+    const fitsBudget = (response: unknown, tokens = DEFAULT_RECALL_TOKEN_BUDGET) =>
+      JSON.stringify(response).length <= tokens * RECALL_CHARS_PER_TOKEN;
+
+    it('compacts a json result too large to show whole instead of keeping it anyway', async () => {
+      vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '1500');
+      const recallResult = makeRecallResult({ count: 2 });
+      const first = recallResult.results[0];
+      first.memory.content = 'c'.repeat(1500);
+      first.memory.metadata = { blob: 'm'.repeat(4000), source: 'test' };
+      first.relations = Array.from({ length: 4 }, (_, i) => makeRelationRecord(i));
+      recallResult.results.push({
+        ...first,
+        id: 'mem-2',
+        memory: { ...first.memory, memory_id: 'mem-2' },
+      });
+      const client = { recallMemory: vi.fn().mockResolvedValue(recallResult) };
+
+      const response = await buildRecallMemoryResponse(client, { query: 'big', format: 'json' });
+
+      expect(fitsBudget(response, 1500)).toBe(true);
+      const structured = response.structuredContent as any;
+      expect(structured.results).toHaveLength(1);
+      const [item] = structured.results;
+      expect(item.memory_id).toBe('mem-1');
+      expect(item.content_truncated).toBe(true);
+      expect(item).not.toHaveProperty('metadata');
+      expect(item.metadata_keys).toEqual(['blob', 'source']);
+      expect(item.relations).toHaveLength(RECALL_MAX_RELATIONS);
+      expect(structured.truncation).toEqual({
+        applied: true,
+        omitted_results: 1,
+        compacted_results: 1,
+        reason: 'response_token_budget',
+      });
+      expect(JSON.parse(response.content[0].text)).toEqual(structured);
+    });
+
+    it('drops state_filter detail, not results, when the diagnostics alone overflow', async () => {
+      vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '4000');
+      const suppressed = Array.from({ length: 400 }, (_, i) => ({
+        memory_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        reason: 'invalidated',
+      }));
+      const stateFilter = {
+        current_only: true,
+        suppressed_count: 400,
+        replacement_count: 1,
+        suppressed,
+        replacements: [{ old_id: 'old-1', new_id: 'new-1' }],
+      };
+      const client = {
+        recallMemory: vi.fn().mockResolvedValue(makeRecallResult({ state_filter: stateFilter })),
+      };
+
+      for (const format of FORMATS) {
+        const response = await buildRecallMemoryResponse(client, {
+          query: 'corrections',
+          state_debug: true,
+          format,
+        });
+        expect(fitsBudget(response, 4000), format).toBe(true);
+        const structured = response.structuredContent as any;
+        expect(structured.results, format).toHaveLength(1);
+        expect(structured.state_filter, format).toEqual({
+          current_only: true,
+          suppressed_count: 400,
+          replacement_count: 1,
+          replacements: [{ old_id: 'old-1', new_id: 'new-1' }],
+        });
+        expect(structured.truncation, format).toEqual({
+          applied: true,
+          omitted_results: 0,
+          omitted_fields: ['state_filter.suppressed'],
+          reason: 'response_token_budget',
+        });
+        if (format !== 'json') {
+          const text = response.content.map((block) => block.text).join('\n');
+          expect(text, format).toContain('state filter suppressed 400, replacements 1');
+          expect(text, format).toContain('Response budget: omitted state_filter.suppressed.');
+        }
+      }
+      expect(stateFilter.suppressed).toHaveLength(400);
+    });
+
+    it('bounds a response with no results whose diagnostics alone overflow', async () => {
+      vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '1000');
+      const entities = Array.from({ length: 300 }, (_, i) => ({
+        slug: `entity-${i}`,
+        identity: 'x'.repeat(40),
+      }));
+      const client = {
+        recallMemory: vi.fn().mockResolvedValue({ results: [], count: 0, entities, query: 'q' }),
+      };
+
+      const response = await buildRecallMemoryResponse(client, { query: 'q' });
+
+      expect(fitsBudget(response, 1000)).toBe(true);
+      expect(response.content).toEqual([
+        { type: 'text', text: 'No memories found matching your query.' },
+      ]);
+      expect(response.structuredContent).not.toHaveProperty('entities');
+      expect(response.structuredContent).toMatchObject({
+        results: [],
+        count: 0,
+        query: 'q',
+        truncation: { applied: true, omitted_results: 0, omitted_fields: ['entities'] },
+      });
+    });
+
+    it('keeps every format under the budget whatever the results and diagnostics', async () => {
+      const results = Array.from({ length: 120 }, (_, i) => ({
+        ...makeTypicalPreferenceResult(i, i % 6),
+        memory: {
+          ...makeTypicalPreferenceResult(i, 0).memory,
+          content: `memory ${i} `.padEnd(80 + ((i * 397) % 2400), 'q"\n'),
+          metadata: { blob: 'n'.repeat((i * 131) % 3000), list: Array.from({ length: i % 9 }) },
+        },
+      }));
+      const diagnostics = {
+        state_filter: {
+          suppressed_count: 50,
+          replacement_count: 0,
+          suppressed: Array.from({ length: 50 }, (_, i) => ({ memory_id: `s-${i}` })),
+        },
+        entities: Array.from({ length: 40 }, (_, i) => ({ slug: `e-${i}`, identity: 'id' })),
+        queries: ['a', 'b'],
+      };
+      const client = {
+        recallMemory: vi
+          .fn()
+          .mockResolvedValue({ results, count: results.length, ...diagnostics } as any),
+      };
+
+      for (const tokens of [1500, 6000, DEFAULT_RECALL_TOKEN_BUDGET]) {
+        vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', String(tokens));
+        for (const format of FORMATS) {
+          const response = await buildRecallMemoryResponse(client, { query: 'x', format });
+          expect(fitsBudget(response, tokens), `${format} @ ${tokens}`).toBe(true);
+          expect((response.structuredContent.results as any[]).length).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it('reports a trimmed enumeration page so paging loops see every record', async () => {
+      // 60 memories of 1,500 chars on one tag: one upstream page (limit 200) holds all.
+      const memories = Array.from({ length: 60 }, (_, i) => ({
+        id: `mem-${i}`,
+        match_type: 'direct',
+        final_score: 1,
+        score_components: {},
+        relations: [],
+        memory: {
+          memory_id: `mem-${i}`,
+          content: `memory ${i} `.padEnd(1500, 'x'),
+          tags: ['audit'],
+          importance: 0.5,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      }));
+      // GET /memory/by-tag semantics: up to `limit` records from `offset`.
+      const client = {
+        recallMemory: vi.fn(async (args: RecallMemoryArgs): Promise<RecallResult> => {
+          const offset = args.offset ?? 0;
+          const limit = Math.min(args.limit ?? 20, 200);
+          const page = memories.slice(offset, offset + limit);
+          return {
+            results: page,
+            count: page.length,
+            mode: 'enumeration',
+            tags: ['audit'],
+            limit,
+            offset,
+            has_more: offset + limit < memories.length,
+          };
+        }),
+      };
+      const args = { tags: ['audit'], exhaustive: true, limit: 200 };
+
+      const first = await buildRecallMemoryResponse(client, args);
+      const page = first.structuredContent as any;
+      const kept = page.results.length;
+      expect(kept).toBeGreaterThan(0);
+      expect(kept).toBeLessThan(60);
+      expect(page).toMatchObject({
+        count: kept,
+        limit: kept,
+        offset: 0,
+        has_more: true,
+        next_offset: kept,
+        truncation: { applied: true, omitted_results: 60 - kept },
+      });
+      expect(first.content[0].text).toContain(
+        `enumeration page: offset 0, limit ${kept} — more pages available, next offset ${kept}`
+      );
+
+      // A pager following next_offset, and one continuing at offset + limit as the
+      // contract said before next_offset existed, both see all 60 exactly once.
+      const page$ = async (offset: number, format: RecallMemoryArgs['format']) => {
+        const response = await buildRecallMemoryResponse(client, { ...args, offset, format });
+        expect(fitsBudget(response)).toBe(true);
+        return response.structuredContent as any;
+      };
+      for (const format of FORMATS) {
+        for (const next of [
+          (sc: any) => sc.next_offset as number,
+          (sc: any) => (sc.offset as number) + (sc.limit as number),
+        ]) {
+          const seen: string[] = [];
+          let offset = 0;
+          for (let guard = 0; guard < 20; guard += 1) {
+            const sc = await page$(offset, format);
+            seen.push(...sc.results.map((r: any) => r.memory_id));
+            if (!sc.has_more) break;
+            offset = next(sc);
+          }
+          expect(seen, format).toEqual(memories.map((m) => m.id));
+        }
+      }
+    });
+
+    it('refuses an enumeration page that cannot show even one record', async () => {
+      // Returning an empty page with has_more would send a pager back to the same
+      // offset forever.
+      vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '100');
+      const client = {
+        recallMemory: vi.fn().mockResolvedValue(
+          makeRecallResult({
+            mode: 'enumeration',
+            count: 1,
+            limit: 20,
+            offset: 40,
+            has_more: true,
+          })
+        ),
+      };
+
+      await expect(
+        buildRecallMemoryResponse(client, { tags: ['project-x'], exhaustive: true, offset: 40 })
+      ).rejects.toThrow(
+        'recall_memory: the record at offset 40 does not fit the response budget (AUTOMEM_RECALL_TOKEN_BUDGET=100); fetch it with recall_memory({ memory_id: "mem-1" }) or raise the budget'
+      );
+    });
   });
 });
