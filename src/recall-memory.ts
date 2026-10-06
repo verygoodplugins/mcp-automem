@@ -82,7 +82,9 @@ function metadataKeyList(metadata: unknown): string[] | undefined {
 
 // A relation as stored on a recall result embeds a full nested memory record.
 // Budgeted formats keep only what makes the edge meaningful: the target id,
-// edge type/strength, and a short summary of the target.
+// edge type/strength, and a short summary of the target. Recall's own relation
+// entries name their other end in `from` instead (the seed for expanded results,
+// the suppressed memory for state replacements) and may carry a `kind`.
 function relationStub(rel: Record<string, any>): Record<string, unknown> {
   const memory = rel?.memory && typeof rel.memory === 'object' ? rel.memory : undefined;
   const id = memory?.id ?? rel?.id ?? rel?.memory_id;
@@ -95,8 +97,10 @@ function relationStub(rel: Record<string, any>): Record<string, unknown> {
       : undefined;
   return {
     ...(id !== undefined ? { id } : {}),
+    ...(typeof rel?.from === 'string' ? { from: rel.from } : {}),
     ...(rel?.type !== undefined ? { type: rel.type } : {}),
     ...(typeof rel?.strength === 'number' ? { strength: rel.strength } : {}),
+    ...(typeof rel?.kind === 'string' ? { kind: rel.kind } : {}),
     ...(summary !== undefined ? { summary } : {}),
   };
 }
@@ -221,6 +225,14 @@ function buildStructuredEnvelope(recallResult: RecallResult): Record<string, unk
   };
 }
 
+// scope_fallback appends unscoped fills after the scoped results; mark them so a
+// reader of the text channel can tell them apart.
+const OUTSIDE_SCOPE_NOTE = ' [outside tag scope]';
+
+function scopeNote(item: RecallResultItem): string {
+  return item.outside_tag_scope ? OUTSIDE_SCOPE_NOTE : '';
+}
+
 function renderTextBlock(item: RecallResultItem, preview: string, index: number): string {
   const memory = item.memory;
   const tags = memory.tags?.length ? ` [${memory.tags.join(', ')}]` : '';
@@ -238,7 +250,7 @@ function renderTextBlock(item: RecallResultItem, preview: string, index: number)
       : '';
   const entityNote = item.expanded_from_entity ? ` [via entity: ${item.expanded_from_entity}]` : '';
   const updatedNote = memory.updated_at ? `  Updated: ${memory.updated_at}` : '';
-  return `${index + 1}. ${preview}${tags}${importance}${score}${matchType}${relationNote}${entityNote}${dedupNote}\n   ID: ${
+  return `${index + 1}. ${preview}${tags}${importance}${score}${matchType}${relationNote}${entityNote}${dedupNote}${scopeNote(item)}\n   ID: ${
     memory.memory_id
   }\n   Created: ${memory.created_at}${updatedNote}`;
 }
@@ -261,6 +273,7 @@ function renderDetailedBlock(item: RecallResultItem, preview: string): string {
     lines.push(`  Score: ${item.final_score.toFixed(3)}`);
   }
   if (item.match_type) lines.push(`  Match: ${item.match_type}`);
+  if (item.outside_tag_scope) lines.push('  Outside tag scope: true');
   return lines.join('\n');
 }
 
@@ -301,7 +314,7 @@ export async function buildRecallMemoryResponse(
     );
     let textBlock = '';
     if (format === 'items') {
-      textBlock = `[${item.memory.memory_id}] ${displayText}`;
+      textBlock = `[${item.memory.memory_id}] ${displayText}${scopeNote(item)}`;
     } else if (format === 'detailed') {
       textBlock = renderDetailedBlock(item, displayText);
     } else if (format !== 'json') {
@@ -414,8 +427,12 @@ export async function buildRecallMemoryResponse(
       type: 'text' as const,
       text: entry.textBlock,
     }));
-    if (trailer) {
-      itemBlocks.push({ type: 'text' as const, text: trailer.trim() });
+    // items has no header, so its notes ride in the trailing block, after the
+    // per-memory blocks, which keep their one-to-one order with `results`.
+    const itemsTrailerParts =
+      notes.length > 0 ? [`Notes: ${notes.join('; ')}.`, ...trailerParts] : trailerParts;
+    if (itemsTrailerParts.length > 0) {
+      itemBlocks.push({ type: 'text' as const, text: `[${itemsTrailerParts.join(' ')}]` });
     }
     return {
       content: itemBlocks,
