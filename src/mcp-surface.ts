@@ -1162,7 +1162,9 @@ export function createAutoMemMcpServer({
         }
 
         case 'recall_memory': {
-          return buildRecallMemoryResponse(client, args as unknown as RecallMemoryArgs);
+          // Awaited so a rejection reaches the catch below and returns an isError
+          // result; a bare return would surface as a JSON-RPC internal error.
+          return await buildRecallMemoryResponse(client, args as unknown as RecallMemoryArgs);
         }
 
         case 'associate_memories': {
