@@ -572,6 +572,26 @@ describe('AutoMemClient', () => {
       expect(url).toContain('context_types=Style');
       expect(url).toContain('context_types=Pattern');
     });
+
+    it('should reject offset in ranked mode instead of forwarding it', async () => {
+      // /recall never reads offset, so a second "page" would repeat the first.
+      await expect(client.recallMemory({ query: 'auth', offset: 5 })).rejects.toThrow(
+        '`offset` only pages enumeration mode'
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should accept offset 0 in ranked mode without forwarding it', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [], count: 0 }),
+      } as any);
+
+      await client.recallMemory({ query: 'auth', offset: 0 });
+
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).not.toContain('offset');
+    });
   });
 
   describe('recallMemory — ID fetch mode', () => {
@@ -717,6 +737,26 @@ describe('AutoMemClient', () => {
       ).rejects.toThrow(
         /state_mode.*recency_bias.*scope_fallback.*expand_respect_tags.*min_score.*adaptive_floor/
       );
+    });
+
+    it('should reject exhaustive combined with context hints and per_query_limit', async () => {
+      // GET /memory/by-tag reads only tags, limit and offset, so these would be ignored.
+      await expect(
+        client.recallMemory({
+          tags: ['x'],
+          exhaustive: true,
+          context: 'coding-style',
+          language: 'typescript',
+          active_path: 'src/auth.ts',
+          context_tags: ['style'],
+          context_types: ['Style'],
+          priority_ids: ['67c0f41f-3818-48fd-8dac-af659cbb2a4f'],
+          per_query_limit: 3,
+        })
+      ).rejects.toThrow(
+        /Remove ranked-only param\(s\): context, language, active_path, context_tags, context_types, priority_ids, per_query_limit\./
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should accept exhaustive + format (format is allowed in enumeration mode)', async () => {
