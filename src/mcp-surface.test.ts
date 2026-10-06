@@ -29,6 +29,26 @@ describe('mcp-surface', () => {
     }
   });
 
+  it('uses UUID-shaped memory ids in every description example', () => {
+    // The API validates ids with uuid.UUID(), so a copied "abc123" always errors.
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    const examples = tools.flatMap((tool) =>
+      [...(tool.description ?? '').matchAll(/memory[12]?_id: "([^"]*)"/g)].map((m) => m[1])
+    );
+    expect(examples.length).toBeGreaterThan(0);
+    for (const id of examples) {
+      expect(id).toMatch(uuid);
+    }
+  });
+
+  it('documents the recall limit default per mode instead of one schema default', () => {
+    // Ranked recall defaults to 5 server-side, enumeration to 20.
+    const recall = tools.find((t) => t.name === 'recall_memory')!;
+    const limit = (recall.inputSchema.properties as Record<string, Record<string, unknown>>).limit;
+    expect(limit).not.toHaveProperty('default');
+    expect(limit.description).toContain('5 in ranked mode and 20 in enumeration mode');
+  });
+
   it('builds a server without touching process state', () => {
     const client = new AutoMemClient({ endpoint: 'http://127.0.0.1:8001' });
     const server = createAutoMemMcpServer({ client, name: 'test-transport', version: '9.9.9' });

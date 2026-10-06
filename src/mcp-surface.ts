@@ -110,7 +110,7 @@ export const tools: Tool[] = [
 **Examples:**
 - store_memory({ content: "Chose PostgreSQL over MongoDB for user service. Need ACID for transactions.", tags: ["architecture", "database"], importance: 0.9 })
 - store_memory({ content: "User prefers early returns over nested conditionals.", tags: ["code-style"], importance: 0.7 })
-- store_memory({ content: "User now prefers SQLite for small local tools.", supersedes_memory_id: "old-id", supersede_reason: "Correction from user" })`,
+- store_memory({ content: "User now prefers SQLite for small local tools.", supersedes_memory_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91", supersede_reason: "Correction from user" })`,
     annotations: {
       title: 'Store Memory',
       readOnlyHint: false,
@@ -288,7 +288,7 @@ export const tools: Tool[] = [
 
 **Examples:**
 - recall_memory({ query: "database architecture decisions", tags: ["my-project"], limit: 5 })
-- recall_memory({ memory_id: "abc123" })  // Mode 1
+- recall_memory({ memory_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91" })  // Mode 1
 - recall_memory({ tags: ["benchmark-test"], exhaustive: true, limit: 50 })  // Mode 2 (add offset for later pages)
 - recall_memory({ query: "auth", exclude_tags: ["deprecated"] })  // Mode 3 with exclusion
 - recall_memory({ query: "What is Sarah's sister's job?", expand_entities: true })  // Mode 3 multi-hop`,
@@ -338,9 +338,8 @@ export const tools: Tool[] = [
           type: 'integer',
           minimum: 1,
           maximum: 200,
-          default: 5,
           description:
-            'Max memories to return. Schema allows 1–200; in enumeration mode (`exhaustive: true`) the server honors up to 200, while ranked mode is typically clamped server-side to ~50. Default 5.',
+            'Max memories to return. Schema allows 1–200; in enumeration mode (`exhaustive: true`) the server honors up to 200, while ranked mode is typically clamped server-side to ~50. When omitted, the server defaults to 5 in ranked mode and 20 in enumeration mode.',
         },
         time_query: {
           type: 'string',
@@ -368,7 +367,8 @@ export const tools: Tool[] = [
         tag_match: {
           type: 'string',
           enum: ['exact', 'prefix'],
-          description: '"exact" for exact tag match (default), "prefix" for starts-with matching',
+          description:
+            '"prefix" (ranked default) matches tags that start with the value, so `tags: ["automem"]` also matches `automem-evals`; "exact" matches whole tags only. Enumeration mode is always exact.',
         },
         expand_entities: {
           type: 'boolean',
@@ -508,7 +508,8 @@ export const tools: Tool[] = [
         offset: {
           type: 'integer',
           minimum: 0,
-          description: 'Result offset for pagination',
+          description:
+            'Enumeration mode only (`exhaustive: true`): records to skip, for paging. Ranked recall has no offset and rejects one; raise `limit` instead.',
         },
       },
     },
@@ -685,9 +686,9 @@ ${Object.entries(RELATION_TYPE_METADATA)
 - System/internal relations such as SIMILAR_TO, PRECEDED_BY, EXPLAINS, SHARES_THEME, PARALLEL_CONTEXT, and DISCOVERED may appear in recall results, but they are not valid inputs for associate_memories.
 
 **Examples:**
-- associate_memories({ memory1_id: "bug-fix-123", memory2_id: "feature-456", type: "RELATES_TO", strength: 0.9 })
-- associate_memories({ memory1_id: "new-decision", memory2_id: "old-decision", type: "EVOLVED_INTO", strength: 0.8 })
-- associate_memories({ associations: [{ memory1_id: "a", memory2_id: "b", type: "RELATES_TO", strength: 0.8 }] })`,
+- associate_memories({ memory1_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91", memory2_id: "3c9e7b2a-1f4d-4a8e-9b6c-5d2e8f1a7c34", type: "RELATES_TO", strength: 0.9 })  // bug fix → feature
+- associate_memories({ memory1_id: "3c9e7b2a-1f4d-4a8e-9b6c-5d2e8f1a7c34", memory2_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91", type: "EVOLVED_INTO", strength: 0.8 })  // old decision → new
+- associate_memories({ associations: [{ memory1_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91", memory2_id: "3c9e7b2a-1f4d-4a8e-9b6c-5d2e8f1a7c34", type: "RELATES_TO", strength: 0.8 }] })`,
     annotations: {
       title: 'Associate Memories',
       readOnlyHint: false,
@@ -805,9 +806,9 @@ ${Object.entries(RELATION_TYPE_METADATA)
 - To add metadata after the fact
 
 **Examples:**
-- update_memory({ memory_id: "abc123", importance: 0.95 })  // Increase importance
-- update_memory({ memory_id: "abc123", tags: ["project-x", "critical", "auth"] })  // Add tags
-- update_memory({ memory_id: "abc123", content: "Updated: PostgreSQL chosen for ACID + team expertise" })`,
+- update_memory({ memory_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91", importance: 0.95 })  // Increase importance
+- update_memory({ memory_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91", tags: ["project-x", "critical", "auth"] })  // Add tags
+- update_memory({ memory_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91", content: "Updated: PostgreSQL chosen for ACID + team expertise" })`,
     annotations: {
       title: 'Update Memory',
       readOnlyHint: false,
@@ -906,7 +907,7 @@ ${Object.entries(RELATION_TYPE_METADATA)
 - Removing all memories under a deprecated tag namespace (Mode 2)
 
 **Examples:**
-- delete_memory({ memory_id: "abc123" })  // Mode 1
+- delete_memory({ memory_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91" })  // Mode 1
 - delete_memory({ tags: ["benchmark-test"] })  // Mode 2, bulk by tag`,
     annotations: {
       title: 'Delete Memory',
