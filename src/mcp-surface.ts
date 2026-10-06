@@ -567,6 +567,19 @@ export const tools: Tool[] = [
               match_type: { type: 'string' },
               created_at: { type: 'string' },
               updated_at: { type: 'string' },
+              t_valid: {
+                type: 'string',
+                description: 'json and ID fetch only: when the memory became valid.',
+              },
+              t_invalid: {
+                type: 'string',
+                description:
+                  'json and ID fetch only: when the memory stopped being valid (set when superseded). Absent while current.',
+              },
+              archived: {
+                type: 'boolean',
+                description: 'json and ID fetch only: true when the memory is archived.',
+              },
               deduped_from: {
                 type: 'array',
                 items: { type: 'string' },

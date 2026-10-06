@@ -534,6 +534,60 @@ describe('AutoMemClient', () => {
       });
     });
 
+    it('should keep memory state fields on every path and drop null ones', async () => {
+      const id = '67c0f41f-3818-48fd-8dac-af659cbb2a4f';
+      const superseded = {
+        id,
+        content: 'Old fact',
+        t_valid: '2026-05-01T00:00:00+00:00',
+        t_invalid: '2026-06-01T00:00:00+00:00',
+        archived: true,
+      };
+      const current = { id, content: 'Fact', t_valid: '2026-05-01T00:00:00+00:00' };
+      const nulls = { id, content: 'Fact', t_invalid: null, archived: null };
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            results: [
+              { id, score: 0.9, memory: superseded },
+              { id, score: 0.8, memory: nulls },
+            ],
+            count: 2,
+          }),
+        } as any)
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ memory: superseded }) } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memories: [current, nulls], count: 2, has_more: false }),
+        } as any);
+
+      const ranked = await client.recallMemory({ query: 'old fact', current_only: false });
+      const fetched = await client.recallMemory({ memory_id: id });
+      const listed = await client.recallMemory({ tags: ['x'], exhaustive: true });
+
+      const state = (memory: Record<string, unknown>) => ({
+        t_valid: memory.t_valid,
+        t_invalid: memory.t_invalid,
+        archived: memory.archived,
+      });
+      expect(state(ranked.results[0].memory)).toEqual({
+        t_valid: '2026-05-01T00:00:00+00:00',
+        t_invalid: '2026-06-01T00:00:00+00:00',
+        archived: true,
+      });
+      expect(state(fetched.results[0].memory)).toEqual(state(ranked.results[0].memory));
+      expect(state(listed.results[0].memory)).toEqual({
+        t_valid: '2026-05-01T00:00:00+00:00',
+        t_invalid: undefined,
+        archived: undefined,
+      });
+      for (const memory of [ranked.results[1].memory, listed.results[1].memory]) {
+        expect(memory).not.toHaveProperty('t_invalid');
+        expect(memory).not.toHaveProperty('archived');
+      }
+    });
+
     it('should support expansion filtering', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
