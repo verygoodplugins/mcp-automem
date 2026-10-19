@@ -15,6 +15,11 @@ export interface FakeAutoMemApi {
   close: () => Promise<void>;
 }
 
+/** The id the fake API mints for the nth stored memory: UUID-shaped, as the client requires. */
+export function fakeMemoryId(n: number): string {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+}
+
 export async function startFakeAutoMemApi(): Promise<FakeAutoMemApi> {
   const requests: FakeAutoMemApi['requests'] = [];
   let memoryCounter = 0;
@@ -91,7 +96,7 @@ export async function startFakeAutoMemApi(): Promise<FakeAutoMemApi> {
     if (method === 'POST' && url.pathname === '/memory') {
       memoryCounter += 1;
       sendJson(200, {
-        memory_id: `mem-${memoryCounter}`,
+        memory_id: fakeMemoryId(memoryCounter),
         message: 'Memory stored successfully',
       });
       return;

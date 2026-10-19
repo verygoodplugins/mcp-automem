@@ -169,16 +169,19 @@ describe('openclaw AutoMem plugin', () => {
 
     it('routes recall_memory({memory_id}) to GET /memory/{id}', async () => {
       mockFetch.mockResolvedValueOnce(
-        jsonResponse({ status: 'success', memory: { id: 'mem-x', content: 'hi' } })
+        jsonResponse({
+          status: 'success',
+          memory: { id: '67c0f41f-3818-48fd-8dac-af659cbb2a4f', content: 'hi' },
+        })
       );
 
       const tools = captureRegisteredTools();
       const recall = tools.find((t) => t.name === 'automem_recall_memory')!;
 
-      await recall.execute('call-1', { memory_id: 'mem-x' });
+      await recall.execute('call-1', { memory_id: '67c0f41f-3818-48fd-8dac-af659cbb2a4f' });
 
       const url = getRequestUrl(0);
-      expect(url.pathname).toBe('/memory/mem-x');
+      expect(url.pathname).toBe('/memory/67c0f41f-3818-48fd-8dac-af659cbb2a4f');
     });
   });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
 import {
+  fakeMemoryId,
   localMcpServerCommand,
   startFakeAutoMemApi,
   StdioMcpClient,
@@ -122,7 +123,7 @@ describe('MCP server real stdio contract', () => {
           importance: 0.7,
         },
       });
-      expect(stored.structuredContent.memory_id).toBe('mem-1');
+      expect(stored.structuredContent.memory_id).toBe(fakeMemoryId(1));
 
       const recalled = await client.request('tools/call', {
         name: 'recall_memory',
