@@ -90,9 +90,12 @@ group PRs by hand.
 Dependabot is exempt from the Copilot gate on purpose — a human-review requirement
 would stall every bump, which is the problem the workflow exists to solve. The gate
 still applies in full to every human- and agent-authored PR, including a human commit
-pushed onto a Dependabot branch: the workflow keys off the PR author rather than the
-pusher, so a non-Dependabot push to an armed branch cancels auto-merge instead of
-riding in on it.
+pushed onto a Dependabot branch. Eligibility is decided by commit provenance, not by
+who triggered the run: the job runs whenever the PR *author* is Dependabot, then arms
+auto-merge only if every commit on the head is Dependabot's, and otherwise cancels any
+auto-merge already armed. So a human push to an armed branch cancels instead of riding
+in, while a maintainer merely reopening an untouched Dependabot PR still arms. An
+unattributed commit has no login and fails closed.
 
 Two things worth knowing when a Dependabot PR does not merge:
 

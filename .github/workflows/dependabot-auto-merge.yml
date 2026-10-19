@@ -14,21 +14,40 @@ permissions:
 
 jobs:
   auto-merge:
-    # Gate on the PR *author*, not `github.actor`. On a `synchronize` push the actor
-    # is whoever pushed, so gating on the actor would skip this job entirely when a
-    # maintainer pushes to an already-armed Dependabot branch — and GitHub only
-    # cancels auto-merge for pushes by users *without* write access, so that
-    # maintainer's human-authored commit would ride in on Dependabot's armed merge,
-    # bypassing the Copilot review gate. Running on author instead lets the job
-    # re-evaluate, and actively cancel, on every update.
+    # Gate on the PR *author*, not `github.actor`. The actor is whoever triggered the
+    # run, so gating on it would skip this job when a maintainer pushes to, or
+    # reopens, a Dependabot PR — and GitHub only cancels auto-merge for pushes by
+    # users *without* write access. Running on author lets the job re-evaluate on
+    # every update, and the provenance check below is what actually decides.
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      # Only meaningful when Dependabot itself pushed the head commit: the action
-      # reads the bump out of the commit message.
+      # Eligibility comes from who wrote the commits, not from who triggered the run.
+      # `github.actor` is the maintainer on a human `reopened` or `synchronize`, which
+      # says nothing about the contents: a reopened PR still holds only Dependabot's
+      # commit and stays eligible, while a pushed-to branch does not. Fails closed —
+      # an unattributed commit has no login and is treated as not Dependabot's.
+      - name: Check the head holds only Dependabot commits
+        id: provenance
+        run: |
+          authors=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" \
+            --paginate --jq '.[].author.login // "unattributed"' | sort -u | paste -sd, -)
+          echo "Commit authors on this PR: ${authors}"
+          if [ "${authors}" = "dependabot[bot]" ]; then
+            echo "dependabot-only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dependabot-only=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Reads the bump out of the head commit message, so it is only meaningful once
+      # the head is known to be Dependabot's.
       - name: Fetch Dependabot metadata
         id: metadata
-        if: github.actor == 'dependabot[bot]'
+        if: steps.provenance.outputs.dependabot-only == 'true'
         uses: dependabot/fetch-metadata@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -39,7 +58,7 @@ jobs:
       # bump in the group, so a group containing a major is not auto-merged.
       - name: Arm auto-merge for patch and minor bumps
         if: >-
-          github.actor == 'dependabot[bot]' &&
+          steps.provenance.outputs.dependabot-only == 'true' &&
           (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           steps.metadata.outputs.update-type == 'version-update:semver-minor')
         run: gh pr merge --auto --squash "$PR_URL"
@@ -47,17 +66,17 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # The inverse case: a human pushed to this branch, or a rebase turned the
+      # The inverse case: a human commit landed on the branch, or a rebase turned the
       # bump into a major. Either way any previously armed auto-merge has to come
       # back off, or it would merge content this workflow never approved.
-      - name: Cancel auto-merge on a non-Dependabot push or a major bump
+      - name: Cancel auto-merge on a non-Dependabot commit or a major bump
         if: >-
-          !(github.actor == 'dependabot[bot]' &&
+          !(steps.provenance.outputs.dependabot-only == 'true' &&
           (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           steps.metadata.outputs.update-type == 'version-update:semver-minor'))
         run: |
           if [ "$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')" = "true" ]; then
-            echo "Auto-merge is armed but this update is not an auto-mergeable Dependabot bump; cancelling."
+            echo "Auto-merge is armed but this head is not an auto-mergeable Dependabot bump; cancelling."
             gh pr merge --disable-auto "$PR_URL"
           else
             echo "Auto-merge is not armed; nothing to cancel."
