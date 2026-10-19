@@ -96,8 +96,7 @@ npx @verygoodplugins/mcp-automem install
 npx @verygoodplugins/mcp-automem install --dry-run                # Preview the plan
 npx @verygoodplugins/mcp-automem install --yes --target existing --endpoint <url>
 
-# Guided setup wizard (creates .env, prints config snippets)
-npx @verygoodplugins/mcp-automem setup
+# `setup` is an alias of `install`
 
 # Install Claude Code automation hooks & merge settings
 npx @verygoodplugins/mcp-automem claude-code

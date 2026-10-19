@@ -2,7 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { runConfig, runSetup } from './setup.js';
+import { findRemovedSetupFlag, removedSetupFlagMessage, runConfig, runSetup } from './setup.js';
+
+describe('setup alias', () => {
+  it('names flags the old .env wizard accepted and install does not', () => {
+    expect(findRemovedSetupFlag(['--endpoint', 'http://127.0.0.1:8001', '--yes'])).toBeUndefined();
+    expect(findRemovedSetupFlag(['--claude-code', '--yes'])).toBe('--claude-code');
+    expect(findRemovedSetupFlag(['--env', '.env'])).toBe('--env');
+    expect(removedSetupFlagMessage('--claude-dir')).toMatch(/guided installer/);
+    expect(removedSetupFlagMessage('--claude-dir')).toMatch(/claude-code/);
+  });
+});
 
 describe('runConfig — API key handling in printed snippets', () => {
   const REAL_KEY = 'sk-super-secret-runconfig';

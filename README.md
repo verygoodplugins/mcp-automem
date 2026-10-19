@@ -14,7 +14,7 @@
 **One command. Infinite memory. Perfect recall across all your AI tools.**
 
 ```bash
-npx @verygoodplugins/mcp-automem setup
+npx @verygoodplugins/mcp-automem install
 ```
 
 Your AI assistant now remembers everything. Forever. Across every conversation.
@@ -141,23 +141,7 @@ modified file keeps a `.bak` backup. Add `--dry-run` to preview, `--yes` to
 apply non-interactively. See the [Installation Guide](INSTALLATION.md#guided-install-fastest)
 for all flags.
 
-Just need the `.env` + config snippets without the agent setup? Use the lighter wizard:
-
-```bash
-# Creates .env and prints config for your AI platform
-npx @verygoodplugins/mcp-automem setup
-```
-
-**When prompted:**
-
-- **AutoMem Endpoint:** `http://localhost:8001` (or your Railway URL if deployed)
-- **API Key:** Leave blank for local development (or paste your token for Railway)
-
-The wizard will:
-
-- ✅ Save your endpoint and API key to `.env`
-- ✅ Generate config snippets for Claude Desktop/Cursor/Code
-- ✅ Validate connection to your AutoMem service
+`setup` is an alias of `install`. To print config snippets again later, use `npx @verygoodplugins/mcp-automem config`.
 
 ### 3. Platform-Specific Setup
 
@@ -384,7 +368,7 @@ MIT - Because great memory should be free.
 **Ready to give your AI perfect memory?**
 
 ```bash
-npx @verygoodplugins/mcp-automem setup
+npx @verygoodplugins/mcp-automem install
 ```
 
 _Built with obsession. Validated by neuroscience. Powered by graph theory. Works with every MCP-enabled AI._

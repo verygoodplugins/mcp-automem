@@ -134,6 +134,23 @@ async function promptValue(prompt: string, fallback: string, prefilled?: string)
   }
 }
 
+// Flags that only the retired .env wizard understood. `setup` is now an alias of
+// `install`, and the guided installer silently ignores unknown flags — so these
+// have to be rejected here or `setup --claude-code` would look successful and
+// skip the settings write the caller asked for.
+const REMOVED_SETUP_FLAGS = ['--env', '-e', '--claude-code', '--claude-dir', '--claude-dry-run'];
+
+export function findRemovedSetupFlag(args: string[]): string | undefined {
+  return args.find((arg) => REMOVED_SETUP_FLAGS.includes(arg));
+}
+
+export function removedSetupFlagMessage(flag: string): string {
+  return (
+    `\`${flag}\` belonged to the old .env wizard. \`setup\` is now the guided installer, same as \`install\`.\n` +
+    `Re-run without ${flag}. Use \`config\` to print snippets, or \`claude-code\` for the settings-level writer.`
+  );
+}
+
 export async function runSetup(args: string[] = []): Promise<void> {
   const options = parseSetupArgs(args);
   const envPath = path.resolve(options.envPath ?? '.env');
