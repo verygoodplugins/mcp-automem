@@ -104,6 +104,15 @@ auto-merge already armed. So a human push to an armed branch cancels instead of 
 in, while a maintainer merely reopening an untouched Dependabot PR still arms. An
 unattributed commit has no login and fails closed.
 
+**If the merge queue is ever enabled, this workflow needs a different token.** PR #178
+added `merge_group` support to `ci.yml` and `semantic-pr-title.yml` so a merge-queue
+ruleset *could* be turned on, but no such rule exists today — no ruleset carries a
+`merge_queue` rule and `mergeQueue(branch: "main")` is null. That matters because the
+built-in `GITHUB_TOKEN` cannot add a pull request to a merge queue. The day a merge-queue
+rule is enabled on `main`, this workflow stops being able to do its job and needs a PAT
+or GitHub App token in place of `GITHUB_TOKEN`. It would fail quietly, so change the
+token in the same commit that enables the queue.
+
 Two things worth knowing when a Dependabot PR does not merge:
 
 - **Unresolved review threads block the merge.** The `Protect MCP Main Branches`
