@@ -423,6 +423,51 @@ describe('CLI Smoke Tests', () => {
   });
 });
 
+const REPO_ROOT = path.resolve(__dirname, '../..');
+const TEMPLATE_FILE_RE = /\.(md|mdc|template)$/;
+
+/**
+ * Candidate marker-bearing files, mirroring scripts/sync-template-versions.mjs: prefer
+ * git-tracked paths, and fall back to a walk for source snapshots without git. Shared by
+ * the marker-drift test and the Release Please contract test so the two cannot disagree
+ * about which files are in scope.
+ */
+function listTemplateFiles(): string[] {
+  const FALLBACK_ROOTS = ['.'];
+  const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist', '.worktrees']);
+
+  function walkTemplateFiles(rootRel: string): string[] {
+    const rootAbs = path.join(REPO_ROOT, rootRel);
+    if (!fs.existsSync(rootAbs)) return [];
+    const files: string[] = [];
+    // Iterative depth-first traversal using an explicit stack to avoid recursion limits.
+    const stack = [rootRel];
+    while (stack.length > 0) {
+      const currentRel = stack.pop()!;
+      const currentAbs = path.join(REPO_ROOT, currentRel);
+      for (const entry of fs.readdirSync(currentAbs, { withFileTypes: true })) {
+        const entryRel = path.normalize(path.join(currentRel, entry.name));
+        if (entry.isDirectory()) {
+          if (!IGNORED_DIRS.has(entry.name)) stack.push(entryRel);
+          continue;
+        }
+        if (entry.isFile() && TEMPLATE_FILE_RE.test(entryRel)) files.push(entryRel);
+      }
+    }
+    return files;
+  }
+
+  try {
+    return execSync('git ls-files', { cwd: REPO_ROOT, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean)
+      .filter((f) => TEMPLATE_FILE_RE.test(f));
+  } catch {
+    // Fallback for environments without git (e.g. source snapshots or some CI caches).
+    return [...new Set(FALLBACK_ROOTS.flatMap((root) => walkTemplateFiles(root)))];
+  }
+}
+
 describe('Template Generation', () => {
   it('should have cursor template file', () => {
     const templatePath = path.resolve(__dirname, '../../templates/cursor/automem.mdc.template');
@@ -500,42 +545,8 @@ describe('Template Generation', () => {
       fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8')
     ).version;
 
-    const repoRoot = path.resolve(__dirname, '../..');
-    const TEMPLATE_FILE_RE = /\.(md|mdc|template)$/;
-    const FALLBACK_ROOTS = ['templates', 'skills', 'plugins'];
-    const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist']);
-
-    function walkTemplateFiles(rootRel: string): string[] {
-      const rootAbs = path.join(repoRoot, rootRel);
-      if (!fs.existsSync(rootAbs)) return [];
-      const files: string[] = [];
-      // Iterative depth-first traversal using an explicit stack to avoid recursion limits.
-      const stack = [rootRel];
-      while (stack.length > 0) {
-        const currentRel = stack.pop()!;
-        const currentAbs = path.join(repoRoot, currentRel);
-        for (const entry of fs.readdirSync(currentAbs, { withFileTypes: true })) {
-          const entryRel = path.join(currentRel, entry.name);
-          if (entry.isDirectory()) {
-            if (!IGNORED_DIRS.has(entry.name)) stack.push(entryRel);
-            continue;
-          }
-          if (entry.isFile() && TEMPLATE_FILE_RE.test(entryRel)) files.push(entryRel);
-        }
-      }
-      return files;
-    }
-
-    let tracked: string[];
-    try {
-      tracked = execSync('git ls-files', { cwd: repoRoot, encoding: 'utf8' })
-        .split('\n')
-        .filter(Boolean)
-        .filter((f) => TEMPLATE_FILE_RE.test(f));
-    } catch {
-      // Fallback for environments without git (e.g. source snapshots or some CI caches).
-      tracked = FALLBACK_ROOTS.flatMap((root) => walkTemplateFiles(root));
-    }
+    const repoRoot = REPO_ROOT;
+    const tracked = listTemplateFiles();
 
     const marker = /<!--\s*automem-template-version:\s*([\d.]+)\s*-->/g;
     const drifted: string[] = [];
@@ -558,6 +569,64 @@ describe('Template Generation', () => {
     expect(
       drifted,
       `\nTemplate versions drifted from package.json (${pkgVersion}). Run \`npm run sync-versions\` (or \`npm run build\`) to fix:\n  ${drifted.join('\n  ')}`
+    ).toEqual([]);
+  });
+
+  // Release Please bumps package.json on the release PR, but nothing on that PR runs
+  // `prebuild`. Before #257 the markers silently lagged a release behind: CI masked it
+  // because the `test` job builds first, so `prebuild` repaired them in the runner while a
+  // clean developer checkout went dirty on `npm run build`. The fix is to let Release
+  // Please rewrite the markers itself, in the same commit as the version bump, via the
+  // `generic` updater — which only touches lines carrying an `x-release-please-version`
+  // annotation. This test is the contract: a new marker-bearing file that is not wired up
+  // fails here instead of on release day.
+  it('every version-marker file should be wired into release-please extra-files with the generic annotation', () => {
+    const marker =
+      /<!--\s*automem-(?:template|mdc)-version:\s*[\d.]+\s*-->(?<annotation>[ \t]*<!--\s*x-release-please-version\s*-->)?/g;
+
+    const config = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, 'release-please-config.json'), 'utf8')
+    );
+    const genericPaths = new Set<string>(
+      (config.packages?.['.']?.['extra-files'] ?? [])
+        .filter(
+          (entry: unknown): entry is { type: string; path: string } =>
+            typeof entry === 'object' &&
+            entry !== null &&
+            (entry as { type?: string }).type === 'generic'
+        )
+        .map((entry: { path: string }) => entry.path)
+    );
+
+    const missingAnnotation: string[] = [];
+    const missingFromConfig: string[] = [];
+    const markerFiles: string[] = [];
+
+    for (const rel of listTemplateFiles()) {
+      const abs = path.join(REPO_ROOT, rel);
+      if (!fs.existsSync(abs)) continue;
+      const content = fs.readFileSync(abs, 'utf8');
+      let hasMarker = false;
+      let m: RegExpExecArray | null;
+      marker.lastIndex = 0;
+      while ((m = marker.exec(content)) !== null) {
+        hasMarker = true;
+        if (!m.groups?.annotation) missingAnnotation.push(`${rel}: ${m[0]}`);
+      }
+      if (!hasMarker) continue;
+      markerFiles.push(rel);
+      // Posix separators: config paths are repo-relative and git-style.
+      if (!genericPaths.has(rel.split(path.sep).join('/'))) missingFromConfig.push(rel);
+    }
+
+    expect(markerFiles.length).toBeGreaterThan(0);
+    expect(
+      missingAnnotation,
+      `\nVersion markers missing the Release Please annotation. Run \`npm run sync-versions\` (or \`npm run build\`):\n  ${missingAnnotation.join('\n  ')}`
+    ).toEqual([]);
+    expect(
+      missingFromConfig,
+      `\nMarker-bearing files absent from release-please-config.json \`extra-files\`. Add a { "type": "generic", "path": ... } entry for each, or the marker will lag the next release:\n  ${missingFromConfig.join('\n  ')}`
     ).toEqual([]);
   });
 
