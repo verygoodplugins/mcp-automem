@@ -15,6 +15,15 @@ permissions:
   contents: write
   pull-requests: write
 
+# One run at a time per PR, newest wins. Without this, two overlapping `synchronize`
+# runs can interleave: the older one validates a Dependabot-only head, the newer one
+# cancels auto-merge after a human push, and then the older one re-arms against the
+# head it never saw. A cancelled run stops at the `!cancelled()` guard below, so the
+# surviving newest run is the only one that acts.
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   auto-merge:
     # Gate on the PR *author*, not `github.actor`. The actor is whoever triggered the
@@ -64,9 +73,13 @@ jobs:
           steps.provenance.outputs.dependabot-only == 'true' &&
           (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           steps.metadata.outputs.update-type == 'version-update:semver-minor')
-        run: gh pr merge --auto --squash "$PR_URL"
+        # `--match-head-commit` pins the arm to the SHA this run actually validated, so
+        # a run that was slow enough for the head to move refuses rather than arming
+        # against a commit its provenance check never inspected.
+        run: gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # The inverse case: a human commit landed on the branch, or a rebase turned the

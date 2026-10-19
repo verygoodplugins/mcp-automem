@@ -87,6 +87,13 @@ bumps. They merge on green required checks with no Copilot review and no human c
 Majors are not auto-merged: review the `dev-toolchain-majors` and `dev-other-majors`
 group PRs by hand.
 
+It arms on `opened`, `reopened` and `synchronize`, so it only covers a PR that sees one
+of those events. A Dependabot PR already open when the workflow lands gets no event just
+because the workflow file appeared, and stays unarmed until its branch next moves. To
+backfill one, comment `@dependabot recreate` on it: Dependabot force-pushes the branch,
+which fires `synchronize` and arms it. (The backlog that existed at rollout was merged by
+hand instead.)
+
 Dependabot is exempt from the Copilot gate on purpose — a human-review requirement
 would stall every bump, which is the problem the workflow exists to solve. The gate
 still applies in full to every human- and agent-authored PR, including a human commit
