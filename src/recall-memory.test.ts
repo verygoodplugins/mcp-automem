@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { AutoMemClient } from './automem-client.js';
+import { createAutoMemMcpServer } from './mcp-surface.js';
 import {
   buildRecallMemoryResponse,
   DEFAULT_RECALL_TOKEN_BUDGET,
@@ -481,6 +485,76 @@ describe('buildRecallMemoryResponse', () => {
     expect(item.metadata).toEqual({ source: 'test' });
     expect(item.relations[0].memory.id).toBe('rel-mem-1');
     expect(item).not.toHaveProperty('related_to');
+  });
+
+  it('keeps t_valid, t_invalid and archived in json and ID-fetch output only', async () => {
+    const state = {
+      t_valid: '2026-05-01T00:00:00+00:00',
+      t_invalid: '2026-06-01T00:00:00+00:00',
+      archived: true,
+    };
+    const withState = (mode?: RecallResult['mode']) => {
+      const recallResult = makeRecallResult(mode ? { mode } : {});
+      Object.assign(recallResult.results![0].memory, state);
+      return { recallMemory: vi.fn().mockResolvedValue(recallResult) };
+    };
+    const firstItem = async (args: RecallMemoryArgs, mode?: RecallResult['mode']) => {
+      const response = await buildRecallMemoryResponse(withState(mode), args);
+      return (response.structuredContent.results as any[])[0];
+    };
+
+    expect(await firstItem({ query: 'audit', current_only: false, format: 'json' })).toMatchObject(
+      state
+    );
+    expect(await firstItem({ memory_id: 'mem-1' }, 'id_fetch')).toMatchObject(state);
+    expect(await firstItem({ memory_id: 'mem-1', format: 'json' }, 'id_fetch')).toMatchObject(
+      state
+    );
+    // Budgeted formats stay compact.
+    for (const format of ['text', 'items', 'detailed'] as const) {
+      const item = await firstItem({ query: 'audit', current_only: false, format });
+      expect(item.t_valid, format).toBeUndefined();
+      expect(item.t_invalid, format).toBeUndefined();
+      expect(item.archived, format).toBeUndefined();
+    }
+  });
+
+  it('passes outputSchema validation when the API sends null state fields', async () => {
+    const id = '67c0f41f-3818-48fd-8dac-af659cbb2a4f';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          memory: { id, content: 'x', t_valid: '2026-05-01T00:00:00+00:00', t_invalid: null },
+        }),
+      }))
+    );
+    const server = createAutoMemMcpServer({
+      client: new AutoMemClient({ endpoint: 'http://127.0.0.1:8001', maxRetries: 0 }),
+      name: 'test-transport',
+      version: '9.9.9',
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    await client.connect(clientTransport);
+    try {
+      // Listing tools turns on the client's structuredContent validation.
+      await client.listTools();
+      const result = await client.callTool({
+        name: 'recall_memory',
+        arguments: { memory_id: id, format: 'json' },
+      });
+      expect(result.isError).toBeUndefined();
+      const [item] = (result.structuredContent as { results: Array<Record<string, unknown>> })
+        .results;
+      expect(item.t_valid).toBe('2026-05-01T00:00:00+00:00');
+      expect(item.t_invalid).toBeUndefined();
+    } finally {
+      await client.close();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('keeps raw per-field passthrough in json format but still applies the global budget', async () => {

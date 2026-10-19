@@ -91,6 +91,10 @@ export interface StoredMemory {
   type?: MemoryType;
   confidence?: number;
   last_accessed?: string;
+  /** Node state: why a current_only: false or history recall returned this memory. */
+  t_valid?: string;
+  t_invalid?: string;
+  archived?: boolean;
 }
 
 export interface RecallResult {

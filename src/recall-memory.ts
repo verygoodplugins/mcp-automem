@@ -143,6 +143,11 @@ function buildStructuredRecallItem(
     updated_at: memory.updated_at,
     final_score: item.final_score,
     match_type: item.match_type,
+    // Node state that explains why an audit recall returned this memory. The
+    // unbudgeted outputs (json, ID fetch) carry it; budgeted ones stay compact.
+    ...(budgeted
+      ? {}
+      : { t_valid: memory.t_valid, t_invalid: memory.t_invalid, archived: memory.archived }),
   };
   if (!isRichFormat) {
     return { structuredItem: base, displayText, contentTruncated: truncated };
