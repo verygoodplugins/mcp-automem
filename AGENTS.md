@@ -133,9 +133,12 @@ those runs. `actions/create-github-app-token` mints one from two repository secr
 this repository with Contents read/write, Pull requests read/write and Metadata read.
 **If either secret is missing the mint step fails and nothing auto-merges at all** — the
 cancel step still runs on a `GITHUB_TOKEN` fallback, so an already-armed auto-merge is
-disarmed rather than left to fire. Add `Workflows: write` to the App if the
-`github-actions` ecosystem is ever added to `dependabot.yml`; without it the App cannot
-merge a PR that touches `.github/workflows/`.
+disarmed rather than left to fire. If the `github-actions` ecosystem is ever added to
+`dependabot.yml`, two grants are needed, not one: `Workflows: write` on the App *and*
+`permission-workflows: write` on the token step. `create-github-app-token` scopes the
+token it mints to the `permission-*` inputs it is given, so widening the App alone leaves
+the minted token without workflow permission — and either gap stops the merge of a PR
+that touches `.github/workflows/`.
 
 **A merge queue would need the same token, and now has it.** PR #178 added `merge_group`
 support to `ci.yml` and `semantic-pr-title.yml` so a merge-queue ruleset *could* be
