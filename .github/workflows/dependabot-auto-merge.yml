@@ -1,9 +1,12 @@
 name: Dependabot Auto-merge
 
-# `pull_request_target` runs in the base-repo context, so GITHUB_TOKEN keeps write
-# scope — a plain `pull_request` run from Dependabot is read-only and cannot enable
-# auto-merge. Nothing here checks out or executes PR code, which is what makes
-# `pull_request_target` safe to use for this.
+# Dependabot-triggered runs are treated like fork PRs, so GITHUB_TOKEN is read-only by
+# default. A plain `pull_request` run can lift that with an explicit `permissions:`
+# block — that is what GitHub's own auto-merge example does — so this is not the only
+# way to get a write token. `pull_request_target` is used because it reads the workflow
+# from the base branch rather than the PR head, so the provenance check below cannot be
+# edited by whatever is on the branch it is judging. Nothing here checks out or executes
+# PR code, which is what keeps `pull_request_target` safe to use.
 on:
   pull_request_target:
     types: [opened, reopened, synchronize]
@@ -70,7 +73,12 @@ jobs:
       # bump into a major. Either way any previously armed auto-merge has to come
       # back off, or it would merge content this workflow never approved.
       - name: Cancel auto-merge on a non-Dependabot commit or a major bump
+        # `!cancelled()` is required: a custom `if:` otherwise carries an implicit
+        # `success() &&`, so a failure in the provenance or metadata step would skip
+        # this step and leave an armed auto-merge in place — failing open, which is
+        # the opposite of what the provenance check is for.
         if: >-
+          !cancelled() &&
           !(steps.provenance.outputs.dependabot-only == 'true' &&
           (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           steps.metadata.outputs.update-type == 'version-update:semver-minor'))
