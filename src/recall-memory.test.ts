@@ -938,6 +938,25 @@ describe('buildRecallMemoryResponse', () => {
       expect(JSON.parse(response.content[0].text)).toEqual(structured);
     });
 
+    it('keeps a json result whole when the whole response fits, right at the budget', async () => {
+      const recallResult = makeRecallResult();
+      recallResult.results[0].memory.content = 'r'.repeat(500);
+      const client = { recallMemory: vi.fn().mockResolvedValue(recallResult) };
+      const args = { query: 'edge', format: 'json' } as const;
+      const exactChars = JSON.stringify(await buildRecallMemoryResponse(client, args)).length;
+
+      // The smallest budget that holds the untruncated response must still return it raw.
+      const tokens = Math.ceil(exactChars / RECALL_CHARS_PER_TOKEN);
+      vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', String(tokens));
+      const response = await buildRecallMemoryResponse(client, args);
+
+      expect(fitsBudget(response, tokens)).toBe(true);
+      expect(response.structuredContent).not.toHaveProperty('truncation');
+      const [item] = response.structuredContent.results as any[];
+      expect(item.content).toHaveLength(500);
+      expect(item.metadata).toEqual({ source: 'test' });
+    });
+
     it('returns no results, within budget, when even the compact json result does not fit', async () => {
       vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '1000');
       const recallResult = makeRecallResult();

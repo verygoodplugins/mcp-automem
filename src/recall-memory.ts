@@ -575,7 +575,15 @@ export async function buildRecallMemoryResponse(
   const kept: PerItemOutput[] = [];
   let used = emptyChars;
   for (const entry of perItem) {
-    if (used + entry.cost > budgetChars) break;
+    if (used + entry.cost > budgetChars) {
+      // Near the edge the estimate runs high (it still counts the truncation notes
+      // that go away once everything fits), so measure the real candidate first.
+      const exact = responseChars(render([...kept, entry]));
+      if (exact > budgetChars) break;
+      kept.push(entry);
+      used = exact;
+      continue;
+    }
     kept.push(entry);
     used += entry.cost;
   }
