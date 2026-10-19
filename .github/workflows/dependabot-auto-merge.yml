@@ -1,0 +1,39 @@
+name: Dependabot Auto-merge
+
+# `pull_request_target` runs in the base-repo context, so GITHUB_TOKEN keeps write
+# scope — a plain `pull_request` run from Dependabot is read-only and cannot enable
+# auto-merge. Nothing here checks out or executes PR code, which is what makes
+# `pull_request_target` safe to use for this.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    # Hard gate: only Dependabot's own PRs. Without this, any contributor's PR
+    # would reach the merge step with write permissions.
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Patch and minor only. Majors — the dev-toolchain-majors and
+      # dev-other-majors groups in dependabot.yml — stay manual: they are the
+      # ones that break builds. For a grouped PR, update-type is the highest
+      # bump in the group, so a group containing a major is not auto-merged.
+      - name: Enable auto-merge for patch and minor bumps
+        if: |
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

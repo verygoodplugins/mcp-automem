@@ -59,7 +59,8 @@ Notes:
 
 **Copilot Review Completeness Rule** (applies to every agent, including Claude Code, Cursor, Codex, Grok, etc.):
 
-- Every PR must receive a GitHub Copilot review.
+- Every PR must receive a GitHub Copilot review. **Exception:** Dependabot PRs are
+  exempt — see "Dependabot auto-merge" below.
 - When opening a PR in a **published / ready (non-draft) state**, immediately trigger review with the `/copilot-review` comment (our standard convention):
   ```bash
   gh pr comment <PR> --body "/copilot-review"
@@ -77,6 +78,27 @@ Notes:
 - In the final PR summary / handoff, explicitly state how many threads were addressed and confirm the review is clean.
 
 This rule exists because open Copilot comments on merged PRs create technical debt and surprise the next person who touches the code.
+
+### Dependabot auto-merge
+
+`.github/workflows/dependabot-auto-merge.yml` enables GitHub auto-merge (squash) on
+Dependabot PRs for `version-update:semver-patch` and `version-update:semver-minor`
+bumps. They merge on green required checks with no Copilot review and no human click.
+Majors are not auto-merged: review the `dev-toolchain-majors` and `dev-other-majors`
+group PRs by hand.
+
+Dependabot is exempt from the Copilot gate on purpose — a human-review requirement
+would stall every bump, which is the problem the workflow exists to solve. The gate
+still applies in full to every human- and agent-authored PR.
+
+Two things worth knowing when a Dependabot PR does not merge:
+
+- **Unresolved review threads block the merge.** The `Protect MCP Main Branches`
+  ruleset sets `required_review_thread_resolution`, so a single open Codex or Copilot
+  thread holds a PR at `BLOCKED` even with every check green and auto-merge armed.
+  Resolve the thread and the merge fires on its own.
+- **`Check Links` is not a required check.** Only `test` and `semantic-pr-title` are
+  required, so transient link-rot in docs does not block auto-merge.
 
 **Grok's personal standing rule (internalized as default behavior):** I will never hand off a PR I'm involved with while Copilot threads are dangling. I treat the review as a hard gate. "Well-addressed" always includes an actual reply + resolution. If a fix is warranted, I make the fix. I re-trigger `/copilot-review` after pushes until the review is clean on the final head. I use the `copilot-review` skill (or equivalent) to systematically process threads rather than doing ad-hoc fixes.
 
