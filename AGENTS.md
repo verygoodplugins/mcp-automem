@@ -119,8 +119,12 @@ gh api "repos/verygoodplugins/mcp-automem/actions/runs?head_sha=<merge-sha>&even
 Filter on `event=push`. A bare total is misleading: 5775c95 reports 2 runs, both
 Dependabot's own `event=dynamic` update runs attached to main's head, and 0 push runs.
 
-The four workflows triggered by `push: branches: [main]` are `ci.yml`,
-`release-please.yml`, `docs-dispatch.yml` and `security.yml`, so merging under
+Three workflows are triggered by `push: branches: [main]`: `ci.yml`,
+`release-please.yml` and `security.yml`. **Docs Dispatch is not one of them** — it is a
+`workflow_call` from `release-please.yml`, gated on `release_created`, so it shows up as
+an inherited `event=push` run only on a push that actually cuts a release. Expect **3**
+push runs on an ordinary bump and **4** when a release is cut; 3 is not a failure. So
+merging under
 `GITHUB_TOKEN` cost: no release-PR update, which stalls releases until the next human
 merge (release-please accumulates, so this delays rather than loses them); no
 push-to-main CI run, which is the only thing that tests bumps *in combination*, because
