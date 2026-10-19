@@ -473,6 +473,13 @@ export class AutoMemClient {
         'min_score',
         'adaptive_floor',
         'sort',
+        'context',
+        'language',
+        'active_path',
+        'context_tags',
+        'context_types',
+        'priority_ids',
+        'per_query_limit',
       ];
       const conflicting = rankedOnlyParams.filter((key) => {
         const v = (args as Record<string, unknown>)[key];
@@ -489,6 +496,14 @@ export class AutoMemClient {
     }
 
     // Mode 3: ranked retrieval — existing /recall path.
+    // /recall never reads `offset` (only GET /memory/by-tag pages), so forwarding it
+    // would quietly return the first page again.
+    if (args.offset !== undefined && args.offset > 0) {
+      throw new Error(
+        'recall_memory: `offset` only pages enumeration mode (`exhaustive: true` with `tags`); ranked recall has no offset. Remove `offset`, or raise `limit` for more ranked results.'
+      );
+    }
+
     const params = new URLSearchParams();
 
     // Support single query OR multiple queries
@@ -634,10 +649,6 @@ export class AutoMemClient {
 
     if (args.format) {
       params.set('format', args.format);
-    }
-
-    if (args.offset !== undefined && args.offset > 0) {
-      params.set('offset', String(args.offset));
     }
 
     const queryString = params.toString();

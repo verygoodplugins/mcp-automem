@@ -1497,8 +1497,8 @@ Internal/system relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHAR
 ```javascript
 // Link a bug fix to the original feature it relates to
 associate_memories({
-  memory1_id: "bug-fix-123",
-  memory2_id: "feature-456",
+  memory1_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91",
+  memory2_id: "3c9e7b2a-1f4d-4a8e-9b6c-5d2e8f1a7c34",
   type: "RELATES_TO",
   strength: 0.9,
 });
@@ -1506,8 +1506,8 @@ associate_memories({
 associate_memories({
   associations: [
     {
-      memory1_id: "new-decision",
-      memory2_id: "old-decision",
+      memory1_id: "3c9e7b2a-1f4d-4a8e-9b6c-5d2e8f1a7c34",
+      memory2_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91",
       type: "INVALIDATED_BY",
       strength: 0.9,
       reason: "Superseded by the 0.15 release plan",
@@ -1534,7 +1534,7 @@ Update existing memory fields. Use this to correct or enhance memories rather th
 
 ```javascript
 update_memory({
-  memory_id: "abc123",
+  memory_id: "8f3a2c1e-5b7d-4e9a-a1c3-2d4f6b8e0a91",
   importance: 0.95,
   tags: ["project-x", "critical", "auth"],
 });
