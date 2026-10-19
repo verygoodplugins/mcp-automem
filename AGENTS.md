@@ -128,9 +128,12 @@ the `MCP TypeScript CI` ruleset sets `strict_required_status_checks_policy: fals
 each PR's own CI ran against an older base; and no npm audit or CodeQL.
 
 A GitHub App installation token is not `GITHUB_TOKEN`, so merges it performs do start
-those runs. `actions/create-github-app-token` mints one from two repository secrets,
-`AUTOMERGE_APP_CLIENT_ID` and `AUTOMERGE_APP_PRIVATE_KEY`. The App must be installed on
-this repository with Contents read/write, Pull requests read/write and Metadata read.
+those runs. `actions/create-github-app-token` mints one from two secrets,
+`AUTOMERGE_APP_CLIENT_ID` and `AUTOMERGE_APP_PRIVATE_KEY`. Add both as **Actions secrets
+and as Dependabot secrets**: the job runs as Dependabot on `opened`/`synchronize` and as
+a maintainer on `reopened`, and if secret resolution depends on the actor those paths read
+different stores. The App must be installed on this repository with Contents read/write,
+Pull requests read/write and Metadata read.
 **If either secret is missing the mint step fails and nothing auto-merges at all** — the
 cancel step still runs on a `GITHUB_TOKEN` fallback, so an already-armed auto-merge is
 disarmed rather than left to fire. If the `github-actions` ecosystem is ever added to

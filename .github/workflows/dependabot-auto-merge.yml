@@ -11,11 +11,13 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize]
 
-# GITHUB_TOKEN is now only a fallback for the cancel step (see its comment). Arming
-# auto-merge uses the GitHub App token minted below, so `contents` no longer needs to
-# be writable here: disabling an armed auto-merge is a pull-requests operation.
+# Unchanged. Arming auto-merge now uses the GitHub App token minted below, so in the
+# normal path GITHUB_TOKEN does nothing — but it is still the cancel step's fallback,
+# and that path only runs when minting failed and an App-armed auto-merge has to be
+# disarmed. That case cannot be exercised until the App exists, so this keeps the
+# permission set `gh pr merge` was known to work with rather than narrowing on a guess.
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 # One run at a time per PR, newest wins. Without this, two overlapping `synchronize`
