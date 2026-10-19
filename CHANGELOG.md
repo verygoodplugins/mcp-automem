@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.1](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.16.0...mcp-automem-v0.16.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **ci:** collapse duplicate semantic-pr-title check runs ([#256](https://github.com/verygoodplugins/mcp-automem/issues/256)) ([0638985](https://github.com/verygoodplugins/mcp-automem/commit/06389856ffc6cd2706463c7c80f21dafe7c9db51))
+* **client:** refuse memory ids the API would reject before they reach a URL path ([#235](https://github.com/verygoodplugins/mcp-automem/issues/235)) ([ebb9b49](https://github.com/verygoodplugins/mcp-automem/commit/ebb9b49e8a656477d8e0bd3f7d165b52bc993233))
+* **deps:** split vitest majors out of dev-toolchain-majors ([#253](https://github.com/verygoodplugins/mcp-automem/issues/253)) ([390582c](https://github.com/verygoodplugins/mcp-automem/commit/390582cf30511d12d34453c5df74d495b50c2339))
+* **recall:** bound the whole recall response and keep trimmed pages pageable ([#238](https://github.com/verygoodplugins/mcp-automem/issues/238)) ([06f6fb1](https://github.com/verygoodplugins/mcp-automem/commit/06f6fb1c377557ef3288014486e0bb03c0688541))
+* **recall:** keep t_valid, t_invalid and archived in json and ID-fetch output ([#236](https://github.com/verygoodplugins/mcp-automem/issues/236)) ([b688c88](https://github.com/verygoodplugins/mcp-automem/commit/b688c88dfedabcd0d3b4c95cd15991bf4b647933))
+* **recall:** mark outside-scope results and keep relation endpoints in compact output ([#237](https://github.com/verygoodplugins/mcp-automem/issues/237)) ([5495d28](https://github.com/verygoodplugins/mcp-automem/commit/5495d280492954fd7c742bb14b0cb1182076e196))
+* **recall:** reject params a recall mode cannot honor and correct the schema ([#234](https://github.com/verygoodplugins/mcp-automem/issues/234)) ([fdd3bf0](https://github.com/verygoodplugins/mcp-automem/commit/fdd3bf0597dd1eb6462815a7df8df19426f7b849))
+* **recall:** return recall errors as isError tool results ([#233](https://github.com/verygoodplugins/mcp-automem/issues/233)) ([871e13b](https://github.com/verygoodplugins/mcp-automem/commit/871e13b480b937e1c90e658c5214735999f25011)), closes [#224](https://github.com/verygoodplugins/mcp-automem/issues/224)
+
 ## [0.16.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.15.0...mcp-automem-v0.16.0) (2026-08-23)
 
 
