@@ -6,6 +6,8 @@ on:
   # and was merged untested. Every PR gets the full suite; push stays main-only so
   # feature branches do not double-run.
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
 
