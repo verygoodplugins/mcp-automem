@@ -1,5 +1,5 @@
 <!-- BEGIN AUTOMEM GROK RULES -->
-<!-- automem-template-version: 0.16.0 -->
+<!-- automem-template-version: 0.16.0 --> <!-- x-release-please-version -->
 
 ## Memory - AutoMem (persistent context for {{PROJECT_NAME}})
 

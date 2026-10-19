@@ -61,6 +61,32 @@ jobs:
       - name: Build
         run: npm run build
 
+      # `prebuild` regenerates the memory-policy artifacts and pegs every
+      # <!-- automem-template-version --> marker to package.json. If building dirties the
+      # tree, the committed artifacts are stale and a clean developer checkout goes dirty on
+      # `npm run build` — exactly the 0.16.0 marker drift that PR #257 had to clean up by
+      # hand. Before this guard, CI masked that: the build below runs *before* the tests, so
+      # `prebuild` quietly repaired the markers in the runner and the drift assertion in
+      # tests/cli/smoke.test.ts passed on a tree that was wrong in git.
+      #
+      # Safe on a Release Please PR: `extra-files` in release-please-config.json lists every
+      # marker-bearing file with the `generic` updater, so the release commit rewrites the
+      # markers in the same commit as the package.json bump and `prebuild` finds nothing left
+      # to change. A naive version of this guard (added before that wiring existed) would
+      # have failed every release PR instead.
+      - name: Verify build leaves no uncommitted changes
+        run: |
+          dirty="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$dirty" ]; then
+            echo "::error::npm run build modified the working tree. Run 'npm run build' locally and commit the regenerated files."
+            echo "Offending paths:"
+            echo "$dirty"
+            echo "--- diff ---"
+            git --no-pager diff
+            exit 1
+          fi
+          echo "Tree clean after build."
+
       - name: Test
         run: npm test
 

@@ -39,6 +39,34 @@ sync on every build — formatting them would fight the generator. Markdown is e
 `tests/docs/integration-coverage.test.ts` asserts against README/INSTALLATION prose and table
 sections, so reflowing them risks silent coverage breakage.
 
+### Template version markers
+
+Every memory-policy artifact carries a `<!-- automem-template-version: x.y.z -->` comment
+(plus `automem-mdc-version` in the Cursor template) that must equal `package.json`'s version.
+Three things keep it that way, and all three are load-bearing:
+
+- `prebuild` — `scripts/sync-memory-policy.ts` then `scripts/sync-template-versions.mjs` —
+  pegs every marker on each `npm run build`.
+- The `test` job's **Verify build leaves no uncommitted changes** step fails CI when building
+  dirties the tree. Without it CI masked drift: the job builds before it tests, so `prebuild`
+  repaired the markers in the runner and the drift assertion in `tests/cli/smoke.test.ts`
+  passed on a tree that was stale in git. The breakage only showed up as a dirty
+  `git status` on a developer machine.
+- Release Please rewrites the markers on the release PR. Each marker line ends with a
+  trailing Release Please annotation comment, and `release-please-config.json` lists all 13
+  marker-bearing files under `extra-files` with the `generic` updater, so the markers move in
+  the same commit as the `package.json` bump. Before that wiring the markers lagged a whole
+  release behind (0.16.0 shipped with 0.15.0 markers; #257 fixed it by hand), and the CI
+  guard above would have failed every release PR.
+
+Never hand-edit a marker — change the generator and re-run `npm run build`. A new
+marker-bearing file needs a `generic` `extra-files` entry as well; `tests/cli/smoke.test.ts`
+fails if you forget. Keep the annotation in its own trailing comment so the marker comment
+stays byte-identical for the parsers in `src/cli/cursor.ts` and
+`scripts/sync-template-versions.mjs`, and do not write the annotation token into prose in any
+of those 13 files: the `generic` updater rewrites the first semver on *any* line that
+contains it.
+
 ## Commit Standards (Required)
 
 This repo uses **Conventional Commits** so Release Please can generate releases reliably.
@@ -483,7 +511,7 @@ System/internal relations such as `SIMILAR_TO`, `PRECEDED_BY`, `EXPLAINS`, `SHAR
 - Memory rules template: `templates/CLAUDE_MD_MEMORY_RULES.md`
 
 <!-- BEGIN AUTOMEM CODEX RULES -->
-<!-- automem-template-version: 0.16.0 -->
+<!-- automem-template-version: 0.16.0 --> <!-- x-release-please-version -->
 
 ## Memory - AutoMem (persistent context for mcp-automem)
 
