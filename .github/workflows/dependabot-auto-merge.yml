@@ -11,6 +11,11 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize]
 
+# Unchanged. Arming auto-merge now uses the GitHub App token minted below, so in the
+# normal path GITHUB_TOKEN does nothing — but it is still the cancel step's fallback,
+# and that path only runs when minting failed and an App-armed auto-merge has to be
+# disarmed. That case cannot be exercised until the App exists, so this keeps the
+# permission set `gh pr merge` was known to work with rather than narrowing on a guess.
 permissions:
   contents: write
   pull-requests: write
@@ -34,6 +39,29 @@ jobs:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
+      # GitHub does not start new workflow runs from events caused by GITHUB_TOKEN, and
+      # that extends to the merge an auto-merge it armed performs. Measured on this repo:
+      # the three auto-merged bumps 5775c95, 07db972 and 9ed9084 each produced 0 runs for
+      # `event=push`, while the human merges on either side (d2a2660, 06f6fb1) each
+      # produced 4 — CI, Release Please, Docs Dispatch and Security. A GitHub App
+      # installation token is not GITHUB_TOKEN, so merges it performs do start those
+      # runs. The same swap is what a merge queue would need: GITHUB_TOKEN cannot add a
+      # pull request to one either.
+      #
+      # Pinned to an exact version rather than the `v3` major, so a new release cannot
+      # change what runs here without a commit. `client-id` is used because `app-id` is
+      # deprecated in v3 and warns on every run. The `permission-*` inputs narrow the
+      # minted token to what this job actually does, independently of whatever
+      # permissions the App itself is granted.
+      - name: Mint a GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.AUTOMERGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
       # Eligibility comes from who wrote the commits, not from who triggered the run.
       # `github.actor` is the maintainer on a human `reopened` or `synchronize`, which
       # says nothing about the contents: a reopened PR still holds only Dependabot's
@@ -53,7 +81,7 @@ jobs:
         env:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
       # Reads the bump out of the head commit message, so it is only meaningful once
       # the head is known to be Dependabot's.
@@ -62,7 +90,7 @@ jobs:
         if: steps.provenance.outputs.dependabot-only == 'true'
         uses: dependabot/fetch-metadata@v2
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
 
       # Patch and minor only. Majors — the dev-toolchain-majors and
       # dev-other-majors groups in dependabot.yml — stay manual: they are the
@@ -80,7 +108,7 @@ jobs:
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
       # The inverse case: a human commit landed on the branch, or a rebase turned the
       # bump into a major. Either way any previously armed auto-merge has to come
@@ -104,4 +132,12 @@ jobs:
           fi
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This is the only step that falls back to GITHUB_TOKEN, and it has to. If the
+          # App token cannot be minted — secrets missing, key rotated, App uninstalled —
+          # every step above is skipped by the implicit `success()`, but this one still
+          # runs on `!cancelled()`. With an empty token `gh` would fail on auth and an
+          # already-armed auto-merge would survive: exactly the fail-open case the
+          # `!cancelled()` guard exists to prevent. Disarming does not need to trigger
+          # downstream workflows, so GITHUB_TOKEN is sufficient here; arming is the only
+          # step that genuinely requires the App token.
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
