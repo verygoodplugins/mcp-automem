@@ -600,7 +600,23 @@ describe('Template Generation', () => {
 
     const missingAnnotation: string[] = [];
     const missingFromConfig: string[] = [];
+    const strayAnnotation: string[] = [];
     const markerFiles: string[] = [];
+
+    // The generic updater rewrites the first semver on ANY line carrying the annotation
+    // token, so a prose line that merely mentions it would have its version silently
+    // rewritten on release — and no build guard would notice, because `prebuild` never
+    // touches that line. Every occurrence in a listed file must be a real marker.
+    for (const rel of genericPaths) {
+      const abs = path.join(REPO_ROOT, rel);
+      if (!fs.existsSync(abs)) continue;
+      for (const line of fs.readFileSync(abs, 'utf8').split('\n')) {
+        if (!line.includes('x-release-please')) continue;
+        marker.lastIndex = 0;
+        const m = marker.exec(line);
+        if (!m?.groups?.annotation) strayAnnotation.push(`${rel}: ${line.trim()}`);
+      }
+    }
 
     for (const rel of listTemplateFiles()) {
       const abs = path.join(REPO_ROOT, rel);
@@ -620,6 +636,10 @@ describe('Template Generation', () => {
     }
 
     expect(markerFiles.length).toBeGreaterThan(0);
+    expect(
+      strayAnnotation,
+      `\nRelease Please annotation token outside a version marker. The generic updater would rewrite the first semver on these lines; keep the token out of prose:\n  ${strayAnnotation.join('\n  ')}`
+    ).toEqual([]);
     expect(
       missingAnnotation,
       `\nVersion markers missing the Release Please annotation. Run \`npm run sync-versions\` (or \`npm run build\`):\n  ${missingAnnotation.join('\n  ')}`
