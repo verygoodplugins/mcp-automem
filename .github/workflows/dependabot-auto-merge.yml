@@ -43,7 +43,9 @@ jobs:
       # that extends to the merge an auto-merge it armed performs. Measured on this repo:
       # the three auto-merged bumps 5775c95, 07db972 and 9ed9084 each produced 0 runs for
       # `event=push`, while the human merges on either side (d2a2660, 06f6fb1) each
-      # produced 4 — CI, Release Please, Docs Dispatch and Security. A GitHub App
+      # produced 4 — CI, Release Please, Security, and Docs Dispatch, which is a
+      # `workflow_call` from release-please gated on `release_created` rather than a
+      # push-triggered workflow of its own, so an ordinary bump shows 3, not 4. A GitHub App
       # installation token is not GITHUB_TOKEN, so merges it performs do start those
       # runs. The same swap is what a merge queue would need: GITHUB_TOKEN cannot add a
       # pull request to one either.
