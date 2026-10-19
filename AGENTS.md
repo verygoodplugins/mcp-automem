@@ -84,8 +84,10 @@ This rule exists because open Copilot comments on merged PRs create technical de
 `.github/workflows/dependabot-auto-merge.yml` enables GitHub auto-merge (squash) on
 Dependabot PRs for `version-update:semver-patch` and `version-update:semver-minor`
 bumps. They merge on green required checks with no Copilot review and no human click.
-Majors are not auto-merged: review the `dev-toolchain-majors` and `dev-other-majors`
-group PRs by hand.
+Majors are not auto-merged: review the `dev-vitest-majors`, `dev-toolchain-majors` and
+`dev-other-majors` group PRs by hand. Vitest majors are grouped separately from the
+typescript/eslint toolchain because a group lands as one PR, so one upstream peer ceiling
+blocks all of it — see the comment in `.github/dependabot.yml`.
 
 It arms on `opened`, `reopened` and `synchronize`, so it only covers a PR that sees one
 of those events. A Dependabot PR already open when the workflow lands gets no event just
