@@ -16,6 +16,24 @@ updates:
           - 'patch'
         patterns:
           - '*'
+      # Vitest majors are their own group, deliberately apart from
+      # dev-toolchain-majors. A group lands as one PR, so a single upstream peer
+      # ceiling blocks every package in it: PR #214 bumped typescript 6 -> 7
+      # alongside vitest 4 -> 5, and because typescript-eslint caps at
+      # `peer typescript >=4.8.4 <6.1.0` in both its latest and canary releases,
+      # `npm ci` failed ERESOLVE and took the whole PR down. The vitest bump was
+      # fine on its own. Vitest has no dependency on the typescript/eslint
+      # version, so there is nothing to gain from updating them together.
+      dev-vitest-majors:
+        dependency-type: 'development'
+        update-types:
+          - 'major'
+        patterns:
+          - '@vitest/*'
+          - 'vitest'
+      # typescript, eslint and typescript-eslint DO have to move together:
+      # typescript-eslint pins a peer range on typescript, and the eslint
+      # packages move with it.
       dev-toolchain-majors:
         dependency-type: 'development'
         update-types:
@@ -23,11 +41,9 @@ updates:
         patterns:
           - '@eslint/*'
           - '@types/*'
-          - '@vitest/*'
           - 'eslint'
           - 'typescript'
           - 'typescript-eslint'
-          - 'vitest'
       dev-other-majors:
         dependency-type: 'development'
         update-types:

@@ -94,7 +94,7 @@ jobs:
         with:
           github-token: ${{ steps.app-token.outputs.token }}
 
-      # Patch and minor only. Majors — the dev-toolchain-majors and
+      # Patch and minor only. Majors — the dev-vitest-majors, dev-toolchain-majors and
       # dev-other-majors groups in dependabot.yml — stay manual: they are the
       # ones that break builds. For a grouped PR, update-type is the highest
       # bump in the group, so a group containing a major is not auto-merged.
