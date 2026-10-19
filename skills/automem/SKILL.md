@@ -5,7 +5,7 @@ user-invocable: true
 metadata: {"openclaw":{"skillKey":"automem"}}
 ---
 
-<!-- automem-template-version: 0.15.0 -->
+<!-- automem-template-version: 0.16.0 -->
 
 # AutoMem
 
