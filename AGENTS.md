@@ -59,7 +59,8 @@ Notes:
 
 **Copilot Review Completeness Rule** (applies to every agent, including Claude Code, Cursor, Codex, Grok, etc.):
 
-- Every PR must receive a GitHub Copilot review.
+- Every PR must receive a GitHub Copilot review. **Exception:** Dependabot PRs are
+  exempt — see "Dependabot auto-merge" below.
 - When opening a PR in a **published / ready (non-draft) state**, immediately trigger review with the `/copilot-review` comment (our standard convention):
   ```bash
   gh pr comment <PR> --body "/copilot-review"
@@ -77,6 +78,49 @@ Notes:
 - In the final PR summary / handoff, explicitly state how many threads were addressed and confirm the review is clean.
 
 This rule exists because open Copilot comments on merged PRs create technical debt and surprise the next person who touches the code.
+
+### Dependabot auto-merge
+
+`.github/workflows/dependabot-auto-merge.yml` enables GitHub auto-merge (squash) on
+Dependabot PRs for `version-update:semver-patch` and `version-update:semver-minor`
+bumps. They merge on green required checks with no Copilot review and no human click.
+Majors are not auto-merged: review the `dev-toolchain-majors` and `dev-other-majors`
+group PRs by hand.
+
+It arms on `opened`, `reopened` and `synchronize`, so it only covers a PR that sees one
+of those events. A Dependabot PR already open when the workflow lands gets no event just
+because the workflow file appeared, and stays unarmed until its branch next moves. To
+backfill one, comment `@dependabot recreate` on it: Dependabot force-pushes the branch,
+which fires `synchronize` and arms it. (The backlog that existed at rollout was merged by
+hand instead.)
+
+Dependabot is exempt from the Copilot gate on purpose — a human-review requirement
+would stall every bump, which is the problem the workflow exists to solve. The gate
+still applies in full to every human- and agent-authored PR, including a human commit
+pushed onto a Dependabot branch. Eligibility is decided by commit provenance, not by
+who triggered the run: the job runs whenever the PR *author* is Dependabot, then arms
+auto-merge only if every commit on the head is Dependabot's, and otherwise cancels any
+auto-merge already armed. So a human push to an armed branch cancels instead of riding
+in, while a maintainer merely reopening an untouched Dependabot PR still arms. An
+unattributed commit has no login and fails closed.
+
+**If the merge queue is ever enabled, this workflow needs a different token.** PR #178
+added `merge_group` support to `ci.yml` and `semantic-pr-title.yml` so a merge-queue
+ruleset *could* be turned on, but no such rule exists today — no ruleset carries a
+`merge_queue` rule and `mergeQueue(branch: "main")` is null. That matters because the
+built-in `GITHUB_TOKEN` cannot add a pull request to a merge queue. The day a merge-queue
+rule is enabled on `main`, this workflow stops being able to do its job and needs a PAT
+or GitHub App token in place of `GITHUB_TOKEN`. It would fail quietly, so change the
+token in the same commit that enables the queue.
+
+Two things worth knowing when a Dependabot PR does not merge:
+
+- **Unresolved review threads block the merge.** The `Protect MCP Main Branches`
+  ruleset sets `required_review_thread_resolution`, so a single open Codex or Copilot
+  thread holds a PR at `BLOCKED` even with every check green and auto-merge armed.
+  Resolve the thread and the merge fires on its own.
+- **`Check Links` is not a required check.** Only `test` and `semantic-pr-title` are
+  required, so transient link-rot in docs does not block auto-merge.
 
 **Grok's personal standing rule (internalized as default behavior):** I will never hand off a PR I'm involved with while Copilot threads are dangling. I treat the review as a hard gate. "Well-addressed" always includes an actual reply + resolution. If a fix is warranted, I make the fix. I re-trigger `/copilot-review` after pushes until the review is clean on the final head. I use the `copilot-review` skill (or equivalent) to systematically process threads rather than doing ad-hoc fixes.
 
