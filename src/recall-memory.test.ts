@@ -1145,24 +1145,44 @@ describe('buildRecallMemoryResponse', () => {
     it('refuses an enumeration page that cannot show even one record', async () => {
       // Returning an empty page with has_more would send a pager back to the same
       // offset forever.
-      vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '100');
-      const client = {
-        recallMemory: vi.fn().mockResolvedValue(
-          makeRecallResult({
-            mode: 'enumeration',
-            count: 1,
-            limit: 20,
-            offset: 40,
-            has_more: true,
-          })
-        ),
-      };
+      // An empty page fits this budget; the record (a 400-char preview, twice) does not.
+      vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '300');
+      const recallResult = makeRecallResult({
+        mode: 'enumeration',
+        count: 1,
+        limit: 20,
+        offset: 40,
+        has_more: true,
+      });
+      recallResult.results[0].memory.content = 'e'.repeat(2000);
+      const client = { recallMemory: vi.fn().mockResolvedValue(recallResult) };
 
       await expect(
         buildRecallMemoryResponse(client, { tags: ['project-x'], exhaustive: true, offset: 40 })
       ).rejects.toThrow(
-        'recall_memory: the record at offset 40 does not fit the response budget (AUTOMEM_RECALL_TOKEN_BUDGET=100); fetch it with recall_memory({ memory_id: "mem-1" }) or raise the budget'
+        'recall_memory: the record at offset 40 does not fit the response budget (AUTOMEM_RECALL_TOKEN_BUDGET=300); fetch it with recall_memory({ memory_id: "mem-1" }) or raise the budget'
       );
+    });
+
+    it('refuses a budget too small for even an empty response instead of exceeding it', async () => {
+      vi.stubEnv('AUTOMEM_RECALL_TOKEN_BUDGET', '1');
+      for (const recallResult of [{ results: [], count: 0 }, makeRecallResult()]) {
+        const client = { recallMemory: vi.fn().mockResolvedValue(recallResult) };
+        for (const format of FORMATS) {
+          await expect(
+            buildRecallMemoryResponse(client, { query: 'x', format }),
+            format
+          ).rejects.toThrow(
+            /^recall_memory: AUTOMEM_RECALL_TOKEN_BUDGET=1 is too small for even an empty recall response \(about \d+ tokens\); raise it$/
+          );
+        }
+      }
+      // ID fetches stay exempt from the budget.
+      const idClient = {
+        recallMemory: vi.fn().mockResolvedValue(makeRecallResult({ mode: 'id_fetch' })),
+      };
+      const fetched = await buildRecallMemoryResponse(idClient, { memory_id: 'mem-1' });
+      expect(fetched.structuredContent.results).toHaveLength(1);
     });
   });
 });

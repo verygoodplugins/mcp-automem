@@ -560,12 +560,20 @@ export async function buildRecallMemoryResponse(
       cuts.omittedFields.push(field);
     }
   }
+  // What is left (counts, mode, paging, the header) is the smallest response there is.
+  // A budget below it is misconfigured: say so rather than break the bound.
+  const emptyChars = responseChars(render([]));
+  if (emptyChars > budgetChars) {
+    throw new Error(
+      `recall_memory: AUTOMEM_RECALL_TOKEN_BUDGET=${tokenBudget} is too small for even an empty recall response (about ${Math.ceil(emptyChars / RECALL_CHARS_PER_TOKEN)} tokens); raise it`
+    );
+  }
 
   // 2. Results in rank order while the whole response fits. The per-item costs are
   // estimates (headers and counts change with what is kept), so the assembled
   // response is measured and trimmed from the tail until it really fits.
   const kept: PerItemOutput[] = [];
-  let used = responseChars(render([]));
+  let used = emptyChars;
   for (const entry of perItem) {
     if (used + entry.cost > budgetChars) break;
     kept.push(entry);
