@@ -162,6 +162,7 @@ COMMANDS:
             --yes, -y              Skip confirmation prompts
 
           Configures ~/.cursor/mcp.json, project memory rules, and a sessionStart recall hook.
+          The uninstall command removes all three, including the shared ~/.cursor/mcp.json entry.
           Hooks provide recall guidance; the model decides when to store memories.
           For guided endpoint and credential setup, run the install command from your project.
 
@@ -199,7 +200,7 @@ UNINSTALL:
   Options:
     --dir <path>          Project / hermes-home / grok-home directory
     --rules <path>        Rule file to remove (Cursor) or strip (default: codex <project>/AGENTS.md, hermes/grok <home>/AGENTS.md)
-    --clean-all          Also check legacy MCP config (including Claude Desktop)
+    --clean-all          Also clean other hosts' MCP config (e.g. Claude Desktop)
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation
 

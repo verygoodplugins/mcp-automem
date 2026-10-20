@@ -839,6 +839,44 @@ describe('Cursor uninstall round trip', () => {
     }
   );
 
+  it('uninstalls from a hooks.json whose version it does not recognise', async () => {
+    // A `version` bump is a forward-compatible Cursor change, not corruption.
+    // Gating removal on it stranded every installed user with no way to uninstall.
+    await applyCursorSetup({ projectDir: project, quiet: true });
+    const configPath = path.join(home, '.cursor', 'mcp.json');
+    const hooksPath = path.join(project, '.cursor', 'hooks.json');
+    const installed = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
+    fs.writeFileSync(hooksPath, JSON.stringify({ ...installed, version: 2 }, null, 2));
+
+    await runUninstall({ platform: 'cursor', projectDir: project, yes: true, quiet: true });
+
+    expect(fs.existsSync(path.join(project, '.cursor', 'rules', 'automem.mdc'))).toBe(false);
+    expect(fs.existsSync(path.join(project, '.cursor', 'hooks', 'automem-session-start.mjs'))).toBe(
+      false
+    );
+    const hooks = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
+    // The unknown version is preserved; only our own entry is taken out.
+    expect(hooks.version).toBe(2);
+    expect(hooks.hooks.sessionStart ?? []).toEqual([]);
+    const servers = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers ?? {};
+    expect(Object.keys(servers)).toEqual([]);
+  });
+
+  it('keeps a foreign sessionStart hook while removing ours from an unknown version', async () => {
+    await applyCursorSetup({ projectDir: project, quiet: true });
+    const hooksPath = path.join(project, '.cursor', 'hooks.json');
+    const installed = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
+    installed.version = 7;
+    installed.hooks.sessionStart.unshift({ command: 'someone-elses-script' });
+    fs.writeFileSync(hooksPath, JSON.stringify(installed, null, 2));
+
+    await runUninstall({ platform: 'cursor', projectDir: project, yes: true, quiet: true });
+
+    const hooks = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
+    expect(hooks.version).toBe(7);
+    expect(hooks.hooks.sessionStart).toEqual([{ command: 'someone-elses-script' }]);
+  });
+
   it('removes the custom rule selected by --rules along with project hooks and global registration', async () => {
     const targetDir = path.join(project, 'custom rules');
     const customRule = path.join(targetDir, 'automem.mdc');

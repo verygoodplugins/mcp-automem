@@ -21,7 +21,11 @@ import { CODEX_RULES_END, CODEX_RULES_START } from './codex.js';
 import { COPILOT_RULES_END, COPILOT_RULES_START } from './copilot.js';
 import { HERMES_RULES_END, HERMES_RULES_START } from './hermes.js';
 import { isAutoMemServerEntry } from './host-toolkit.js';
-import { planCursorHooks, removeCursorHook, removeCursorMemoryServers } from './cursor-config.js';
+import {
+  assertCursorHooksRemovable,
+  removeCursorHook,
+  removeCursorMemoryServers,
+} from './cursor-config.js';
 import { UNINSTALL_PLATFORMS, type UninstallPlatform } from './clients.js';
 
 interface UninstallOptions {
@@ -214,20 +218,24 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
 
   log('\n🗑️  Uninstalling Cursor AutoMem...', options.quiet);
 
+  const hooksFile = path.join(projectDir, '.cursor', 'hooks.json');
   // Preflight both shared documents before disconnecting the global server.
-  planCursorHooks(path.join(projectDir, '.cursor', 'hooks.json'));
+  assertCursorHooksRemovable(hooksFile);
+  // Said before the write, not after: ~/.cursor/mcp.json is shared, so this is
+  // the step that stops AutoMem in the user's *other* Cursor projects too.
+  log(
+    'Removing the AutoMem MCP registration from ~/.cursor/mcp.json, which Cursor shares across every project.',
+    options.quiet
+  );
   removeCursorMemoryServers(options);
-  removeCursorHook(path.join(projectDir, '.cursor', 'hooks.json'), options);
+  removeCursorHook(hooksFile, options);
   removeFileWithBackup(automemRuleFile, options.dryRun ?? false, options.quiet);
   removeFileWithBackup(
     path.join(projectDir, '.cursor', 'hooks', 'automem-session-start.mjs'),
     options.dryRun ?? false,
     options.quiet
   );
-  log(
-    'Cursor AutoMem configuration removed. Its global MCP registration was shared across projects.',
-    options.quiet
-  );
+  log('Cursor AutoMem configuration removed.', options.quiet);
 }
 
 async function uninstallHermes(options: UninstallOptions): Promise<void> {
@@ -719,8 +727,10 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
     } else {
       // Remove from Claude Desktop config (if present)
       removeClaudeDesktopMemoryServer(options.dryRun ?? false, options.quiet);
-      // Remove from Cursor MCP config (if present)
-      removeCursorMemoryServers(options);
+      // Remove a legacy Cursor registration left by another platform's install.
+      // Skipped for `cursor` itself, where uninstallCursor already removed it and
+      // this call could only ever be a no-op.
+      if (options.platform !== 'cursor') removeCursorMemoryServers(options);
     }
   }
 

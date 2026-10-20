@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   isAutoMemServerEntry,
+  isRecord,
   readApiKeyFrom,
   readEndpointFrom,
   resolveInheritedApiKey,
@@ -13,10 +14,6 @@ import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 type Document = Record<string, unknown>;
 export type CursorWriteOptions = { dryRun?: boolean; quiet?: boolean };
 export const CURSOR_SESSION_COMMAND = 'node ".cursor/hooks/automem-session-start.mjs"';
-
-export function isRecord(value: unknown): value is Document {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 /** Never echo parse errors: newer Node versions include credential-bearing input. */
 export function readCursorDocument(filePath: string, field: 'mcpServers' | 'hooks'): Document {
@@ -102,7 +99,16 @@ export function writeCursorMcpDocument(
 ): void {
   writeFileWithBackup(filePath, `${JSON.stringify(doc, null, 2)}\n`, { ...opts, secret: true });
   // The shared writer's unchanged fast path does not tighten old file permissions.
-  if (!opts.dryRun && process.platform !== 'win32') fs.chmodSync(filePath, 0o600);
+  if (!opts.dryRun && process.platform !== 'win32') {
+    try {
+      fs.chmodSync(filePath, 0o600);
+    } catch {
+      // Best-effort, as in writeFileWithBackup: a chmod that the filesystem
+      // refuses (a network mount, a file owned by someone else) must not abort
+      // the caller, which would leave the global MCP document written but the
+      // project rule, hook script, and hooks.json unwritten.
+    }
+  }
 }
 
 export function removeCursorMemoryServers(opts: CursorWriteOptions): void {
@@ -117,15 +123,43 @@ export function removeCursorMemoryServers(opts: CursorWriteOptions): void {
   writeCursorMcpDocument(configPath, { ...doc, mcpServers: remaining }, opts);
 }
 
-export function planCursorHooks(filePath: string): Document {
+/**
+ * Structural validation shared by the install planner and the removal path: the
+ * file must be a JSON object whose optional `hooks.sessionStart` is an array.
+ *
+ * Deliberately does not inspect `version` — only writing needs to understand the
+ * schema. See planCursorHooks and assertCursorHooksRemovable.
+ */
+export function readCursorHooksDocument(filePath: string): Document {
   const doc = readCursorDocument(filePath, 'hooks');
-  if (doc.version !== undefined && doc.version !== 1) {
-    throw new Error(`Unsupported Cursor hooks version in ${filePath}. Expected version 1.`);
-  }
   const hooks = (doc.hooks ?? {}) as Document;
   if (hooks.sessionStart !== undefined && !Array.isArray(hooks.sessionStart)) {
     throw new Error(`Expected a sessionStart array in ${filePath}.`);
   }
+  return doc;
+}
+
+/**
+ * Uninstall preflight: refuse a hooks.json we cannot parse, because tearing down
+ * half a Cursor install is worse than refusing outright.
+ *
+ * Unlike the install planner this tolerates an unrecognised `version`. Removing
+ * our entry matches on `command` alone and never has to understand the rest of
+ * the document, so gating removal on the version would strand every existing
+ * user the day Cursor bumps its hooks schema, with no way to uninstall.
+ */
+export function assertCursorHooksRemovable(filePath: string): void {
+  readCursorHooksDocument(filePath);
+}
+
+export function planCursorHooks(filePath: string): Document {
+  const doc = readCursorHooksDocument(filePath);
+  // Writing into a schema this version does not know could corrupt it, so the
+  // installer refuses an unknown version. Removal deliberately does not.
+  if (doc.version !== undefined && doc.version !== 1) {
+    throw new Error(`Unsupported Cursor hooks version in ${filePath}. Expected version 1.`);
+  }
+  const hooks = (doc.hooks ?? {}) as Document;
   const entries = (hooks.sessionStart ?? []) as unknown[];
   const preserved = entries.filter(
     (entry) => !isRecord(entry) || entry.command !== CURSOR_SESSION_COMMAND
@@ -139,7 +173,7 @@ export function planCursorHooks(filePath: string): Document {
 
 export function removeCursorHook(filePath: string, opts: CursorWriteOptions): void {
   if (!fs.existsSync(filePath)) return;
-  const doc = readCursorDocument(filePath, 'hooks');
+  const doc = readCursorHooksDocument(filePath);
   const hooks = (doc.hooks ?? {}) as Document;
   if (!Array.isArray(hooks.sessionStart)) return;
   const remaining = hooks.sessionStart.filter(
