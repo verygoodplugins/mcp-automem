@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { config } from 'dotenv';
 import { HOST_SETUP_COMMANDS } from './cli/clients.js';
-import { runConfig, runSetup } from './cli/setup.js';
+import { findRemovedSetupFlag, removedSetupFlagMessage, runConfig } from './cli/setup.js';
 import { runInstallCommand } from './cli/install.js';
 import { runClaudeCodeSetup } from './cli/claude-code.js';
 import { runCursorSetup } from './cli/cursor.js';
@@ -66,6 +66,7 @@ const shouldSilenceDotenv =
   isHelpRequest ||
   wantsQuietOutput ||
   command === 'install' ||
+  command === 'setup' ||
   !KNOWN_COMMANDS.has(command);
 
 // Prevent dotenv from writing its banner to stdout when the caller expects clean
@@ -132,7 +133,7 @@ USAGE:
   npx @verygoodplugins/mcp-automem <command> [options]
 
 COMMANDS:
-  setup              Interactive setup for .env configuration
+  setup              Alias of install (the guided installer)
   install            Guided installer for local/cloud AutoMem + agent setup
   config             Show configuration snippets
   claude-code        Set up AutoMem for Claude Code
@@ -304,8 +305,14 @@ https://github.com/verygoodplugins/mcp-automem
 }
 
 if (command === 'setup') {
-  await runSetup(process.argv.slice(3));
-  process.exit(0);
+  const removed = findRemovedSetupFlag(commandArgs);
+  if (removed) {
+    console.error(removedSetupFlagMessage(removed));
+    process.exit(1);
+  }
+  await runInstallCommand(process.argv.slice(3));
+  // Same exit contract as `install`: a partial install sets a non-zero exitCode.
+  process.exit(process.exitCode ?? 0);
 }
 
 if (command === 'install') {
@@ -416,7 +423,7 @@ const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 if (automemApiUrlSource === 'default') {
   if (isInteractiveTerminal()) {
     console.warn(
-      '⚠️  AUTOMEM_API_URL not set. Run `npx @verygoodplugins/mcp-automem setup` or export the environment variable before connecting.'
+      '⚠️  AUTOMEM_API_URL not set. Run `npx @verygoodplugins/mcp-automem install` or export the environment variable before connecting.'
     );
   }
 } else if (automemApiUrlSource === 'AUTOMEM_ENDPOINT') {

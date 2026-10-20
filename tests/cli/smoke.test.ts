@@ -269,19 +269,37 @@ describe('CLI Smoke Tests', () => {
   });
 
   describe('setup command', () => {
-    it('should show config with --yes flag (non-interactive)', () => {
-      // Sandbox cwd + HOME so `setup` writes its .env into the temp workspace,
-      // not the developer's real project-root .env (setup resolves .env against cwd).
+    it('is the guided installer, same as install', () => {
       const cwd = path.join(tempDir, 'setup-cwd');
       const homeDir = path.join(tempDir, 'setup-home');
       fs.mkdirSync(cwd, { recursive: true });
       fs.mkdirSync(homeDir, { recursive: true });
 
-      const result = runCli(['setup', '--yes', '--endpoint', 'http://test:8001'], {
+      const result = runCli(['setup', '--dry-run', '--target', 'existing', '--no-agent-install'], {
         cwd,
         env: { HOME: homeDir },
       });
-      expect((result.stdout + result.stderr).length).toBeGreaterThan(0);
+      const output = result.stdout + result.stderr;
+      expect(result.exitCode).toBe(0);
+      expect(output).toMatch(/Dry run only/);
+      expect(output).not.toMatch(/Saved AutoMem settings/);
+    });
+
+    it('rejects flags from the old .env wizard', () => {
+      const cwd = path.join(tempDir, 'setup-reject-cwd');
+      const homeDir = path.join(tempDir, 'setup-reject-home');
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.mkdirSync(homeDir, { recursive: true });
+
+      const result = runCli(['setup', '--claude-code'], {
+        cwd,
+        env: { HOME: homeDir },
+      });
+      const output = result.stdout + result.stderr;
+      expect(result.exitCode).not.toBe(0);
+      expect(output).toMatch(/guided installer/);
+      expect(output).toMatch(/--claude-code/);
+      expect(fs.existsSync(path.join(cwd, '.env'))).toBe(false);
     });
   });
 

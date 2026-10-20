@@ -255,32 +255,9 @@ Common fixes from the sidecar guide:
 
 For deeper details, see the AutoMem service docs linked above.
 
-### Guided Setup Wizard
+### Guided installer
 
-After deploying the AutoMem service, use the setup wizard to configure your MCP client:
-
-```bash
-npx @verygoodplugins/mcp-automem setup
-```
-
-**The wizard will:**
-
-- Prompt for your AutoMem endpoint (`http://localhost:8001` or Railway URL)
-- Prompt for API key (if using Railway)
-- Create/update `.env` file in current directory
-- Print config snippets for your platform
-- Validate connection to AutoMem service
-
-**Example:**
-
-```bash
-$ npx @verygoodplugins/mcp-automem setup
-? AutoMem Endpoint: http://localhost:8001
-? API Key (optional): [leave blank for local]
-✓ Connection successful!
-✓ Config saved to .env
-✓ Claude Desktop config snippet generated
-```
+`npx @verygoodplugins/mcp-automem setup` is an alias of `install`. Both open the guided installer above. `claude-code`, `cursor`, `codex`, and the other host commands stay available as scriptable writers. Print snippets again with `npx @verygoodplugins/mcp-automem config`.
 
 ---
 
