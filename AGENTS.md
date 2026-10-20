@@ -485,6 +485,11 @@ from `.github/workflows/release-please.yml`, which has no token to run locally.
    publishes to npm with provenance, uploads the `.mcpb` extension, and asks
    automem-website to document the release.
 
+Release PRs are opened with `RELEASE_PLEASE_TOKEN` rather than `GITHUB_TOKEN`, so
+their checks start without manual approval. The workflow probes that token first and
+falls back to `GITHUB_TOKEN` unless it authenticates — a missing, expired, or revoked
+secret costs the manual approval again rather than blocking the release.
+
 **Verifying a release:** npm serves a new version a minute or two after the job
 reports success, so an immediate `npm view` can still show the old one — that is
 propagation, not a failed publish. npm's local packument cache can also return

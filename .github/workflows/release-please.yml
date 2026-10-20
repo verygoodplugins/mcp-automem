@@ -28,9 +28,12 @@
 #   `semantic-pr-title` checks can report. Three release PRs in a row stalled on
 #   that. RELEASE_PLEASE_TOKEN (an org secret, visible to this repo) is used instead
 #   so the PR's checks run on their own. It needs contents:write and
-#   pull-requests:write. If the secret is ever absent or expired the expression
-#   falls back to github.token, which still opens the PR correctly - it just needs
-#   the manual approval again, rather than failing the release outright.
+#   pull-requests:write. The token is probed before use and the workflow falls back
+#   to github.token unless it authenticates, so a missing, expired, or revoked
+#   secret still opens the release PR correctly - it just needs the manual approval
+#   again, rather than failing the release outright. A `||` test alone is not
+#   enough: an expired credential is still a non-empty string, so the expression
+#   would select it and the job would die on authentication.
 
 name: Release Please
 
@@ -50,12 +53,34 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      # An unset secret is an empty string, but an expired or revoked one is not:
+      # it stays truthy, so `secrets.X || github.token` would hand release-please a
+      # dead credential and fail the job. Probe it and fall back unless it actually
+      # authenticates. A false negative here costs only the manual approval this
+      # change removes; selecting a dead token would block releases outright.
+      - name: Check the release token authenticates
+        id: token
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "No RELEASE_PLEASE_TOKEN configured; using GITHUB_TOKEN."
+            echo 'usable=false' >> "$GITHUB_OUTPUT"
+          elif gh api "repos/${REPO}/pulls" --silent >/dev/null 2>&1; then
+            echo "RELEASE_PLEASE_TOKEN authenticates."
+            echo 'usable=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::RELEASE_PLEASE_TOKEN did not authenticate (expired, revoked, or lacking access). Falling back to GITHUB_TOKEN; the release PR's checks will need manual approval until the secret is repaired."
+            echo 'usable=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: googleapis/release-please-action@v4
         id: release
         with:
           # See "Release PR token" above: the default github.token would open a
           # release PR whose checks need manual approval.
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          token: ${{ steps.token.outputs.usable == 'true' && secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
