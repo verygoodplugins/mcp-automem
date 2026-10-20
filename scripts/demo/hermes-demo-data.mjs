@@ -38,13 +38,11 @@ export const PROVABLE_FACT = {
 
 // Prompt for the injected-context PNG (debug-recall). Broad + substantive so it
 // triggers first-substantive recall (Preferences + Task context sections).
-export const DEBUG_RECALL_PROMPT =
-  'What do you remember about my preferences and Project Nimbus?';
+export const DEBUG_RECALL_PROMPT = 'What do you remember about my preferences and Project Nimbus?';
 
 // Prompt for the live `hermes -z` GIF. Narrow + answerable ONLY from the seeded
 // port memory, so the captured answer must cite PROVABLE_FACT.token.
-export const LIVE_SESSION_PROMPT =
-  'What port does the Project Nimbus staging API listen on?';
+export const LIVE_SESSION_PROMPT = 'What port does the Project Nimbus staging API listen on?';
 
 // ~9 synthetic memories: 3 preferences (also DEMO_TAG so the cleanliness
 // enumeration counts them), 4 project/task, 2 bugfix/solution. The Preferences
@@ -81,8 +79,7 @@ export const MEMORIES = [
     importance: 0.6,
   },
   {
-    content:
-      'Project Nimbus stores its graph in FalkorDB and its embeddings in Qdrant.',
+    content: 'Project Nimbus stores its graph in FalkorDB and its embeddings in Qdrant.',
     tags: [DEMO_TAG, 'nimbus', 'architecture'],
     importance: 0.6,
   },
@@ -93,8 +90,7 @@ export const MEMORIES = [
     importance: 0.55,
   },
   {
-    content:
-      'Fixed Project Nimbus staging 502s by raising the gateway timeout from 30s to 60s.',
+    content: 'Fixed Project Nimbus staging 502s by raising the gateway timeout from 30s to 60s.',
     tags: [DEMO_TAG, 'nimbus', 'bugfix', 'solution'],
     importance: 0.6,
   },

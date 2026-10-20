@@ -1,8 +1,13 @@
 name: CI
 
 on:
+  # No base-branch filter: `pull_request.branches` matches the *base*, so a stacked PR
+  # (one targeting another feature branch rather than main) ran only semantic-pr-title
+  # and was merged untested. Every PR gets the full suite; push stays main-only so
+  # feature branches do not double-run.
   pull_request:
-    branches: [main]
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
 
@@ -16,6 +21,10 @@ jobs:
       - name: Check links in documentation
         uses: lycheeverse/lychee-action@v2
         with:
+          # Release-asset "latest download" URLs (e.g. the .mcpb button in README)
+          # 404 transiently on a release: this link check runs concurrently with the
+          # release workflow, which uploads the asset ~1 min after creating the
+          # release. Exclude them — the build-extension job validates the asset.
           args: >-
             --verbose
             --no-progress
@@ -24,6 +33,7 @@ jobs:
             --exclude '127.0.0.1'
             --exclude 'x.com/i/communities'
             --exclude 'github.com/.*/compare/.*\.\.\..*'
+            --exclude 'github.com/.*/releases/latest/download/.*'
             README.md
             INSTALLATION.md
             CHANGELOG.md
@@ -36,17 +46,46 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
-          cache: "npm"
+          node-version: '24'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Format check
+        run: npm run format:check
 
       - name: Lint
         run: npm run lint
 
       - name: Build
         run: npm run build
+
+      # `prebuild` regenerates the memory-policy artifacts and pegs every
+      # <!-- automem-template-version --> marker to package.json. If building dirties the
+      # tree, the committed artifacts are stale and a clean developer checkout goes dirty on
+      # `npm run build` — exactly the 0.16.0 marker drift that PR #257 had to clean up by
+      # hand. Before this guard, CI masked that: the build below runs *before* the tests, so
+      # `prebuild` quietly repaired the markers in the runner and the drift assertion in
+      # tests/cli/smoke.test.ts passed on a tree that was wrong in git.
+      #
+      # Safe on a Release Please PR: `extra-files` in release-please-config.json lists every
+      # marker-bearing file with the `generic` updater, so the release commit rewrites the
+      # markers in the same commit as the package.json bump and `prebuild` finds nothing left
+      # to change. A naive version of this guard (added before that wiring existed) would
+      # have failed every release PR instead.
+      - name: Verify build leaves no uncommitted changes
+        run: |
+          dirty="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$dirty" ]; then
+            echo "::error::npm run build modified the working tree. Run 'npm run build' locally and commit the regenerated files."
+            echo "Offending paths:"
+            echo "$dirty"
+            echo "--- diff ---"
+            git --no-pager diff
+            exit 1
+          fi
+          echo "Tree clean after build."
 
       - name: Test
         run: npm test
@@ -74,7 +113,7 @@ jobs:
           # website-bootstrap (curl | sh) scenario can never be silently skipped again.
           # A missing/renamed checkout now fails the build instead of going green-untested.
           AUTOMEM_INSTALL_SH: ${{ github.workspace }}/automem-website/public/install.sh
-          AUTOMEM_REQUIRE_INSTALL_SH: "1"
+          AUTOMEM_REQUIRE_INSTALL_SH: '1'
         run: npm run test:e2e
 
   hooks-windows:
@@ -85,8 +124,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
-          cache: "npm"
+          node-version: '24'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci

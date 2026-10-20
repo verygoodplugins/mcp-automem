@@ -20,7 +20,15 @@
 //   node tests/e2e/railway-guided-install.mjs --watch   # stream installer UI
 //   (build first: npm run build)
 
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, statSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+  statSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,7 +64,8 @@ try {
 }
 
 const ANSI = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-const strip = (s) => s.replace(ANSI, '');
+const OSC = /\x1B][^\x07\x1B]*(\x07|\x1B\\)/g;
+const strip = (s) => s.replace(OSC, '').replace(ANSI, '');
 const KEY = { enter: '\r' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -113,7 +122,16 @@ async function run() {
 
   const term = spawn(
     process.execPath,
-    [DIST, 'install', '--target', 'cloud', '--cloud-provider', 'railway', '--no-agent-install', '--yes'],
+    [
+      DIST,
+      'install',
+      '--target',
+      'cloud',
+      '--cloud-provider',
+      'railway',
+      '--no-agent-install',
+      '--yes',
+    ],
     { name: 'xterm-color', cols: 100, rows: 40, cwd, env }
   );
 
@@ -129,10 +147,12 @@ async function run() {
     if (WATCH) process.stdout.write(d);
   });
   let exitCode = null;
-  const exited = new Promise((res) => term.onExit(({ exitCode: c }) => {
-    exitCode = c;
-    res();
-  }));
+  const exited = new Promise((res) =>
+    term.onExit(({ exitCode: c }) => {
+      exitCode = c;
+      res();
+    })
+  );
 
   const waitFor = async (re, timeout = 12000) => {
     const start = Date.now();
@@ -160,7 +180,10 @@ async function run() {
     const recallAuthed = mock.requests.some((r) => r.path === '/recall' && r.token === TOKEN);
     const checks = [
       ['exited cleanly', exitCode === 0],
-      ['verified endpoint', /Endpoint verified|Verify endpoint/.test(out) && !/Couldn't verify/.test(out)],
+      [
+        'verified endpoint',
+        /Endpoint verified|Verify endpoint/.test(out) && !/Couldn't verify/.test(out),
+      ],
       ['wrote .env', /Wrote /.test(out)],
       ['mock got /health', healthHit],
       ['mock got authed /recall', recallAuthed],
@@ -187,6 +210,12 @@ if (result.ok) {
   console.log('▶ railway guided install (mock) … FAIL');
   console.log(`   failed checks: ${result.failed.join(' | ')}`);
   console.log(`   exit: ${result.exitCode}`);
-  console.log(`   tail:\n${strip(result.out).split('\n').slice(-25).map((l) => '     ' + l).join('\n')}`);
+  console.log(
+    `   tail:\n${strip(result.out)
+      .split('\n')
+      .slice(-25)
+      .map((l) => '     ' + l)
+      .join('\n')}`
+  );
   process.exit(1);
 }

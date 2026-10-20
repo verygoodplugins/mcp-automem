@@ -31,7 +31,7 @@ describe('claude-code CLI', () => {
     it('should merge unique strings without duplicates', () => {
       const target = ['a', 'b'];
       const additions = ['b', 'c', 'd'];
-      
+
       // Simulate the merge logic
       const set = new Set(target);
       for (const value of additions) {
@@ -40,14 +40,14 @@ describe('claude-code CLI', () => {
           set.add(value);
         }
       }
-      
+
       expect(target).toEqual(['a', 'b', 'c', 'd']);
     });
 
     it('should handle empty target', () => {
       const target: string[] = [];
       const additions = ['a', 'b'];
-      
+
       const set = new Set(target);
       for (const value of additions) {
         if (!set.has(value)) {
@@ -55,7 +55,7 @@ describe('claude-code CLI', () => {
           set.add(value);
         }
       }
-      
+
       expect(target).toEqual(['a', 'b']);
     });
   });
@@ -68,7 +68,7 @@ describe('claude-code CLI', () => {
           deny: ['Bash(sudo:*)'],
         },
       };
-      
+
       const template = {
         permissions: {
           allow: ['Write', 'mcp__memory__store_memory', 'mcp__memory__recall_memory'],
@@ -79,7 +79,7 @@ describe('claude-code CLI', () => {
       // Simulate merge logic
       const merged = { ...target };
       merged.permissions = merged.permissions ?? {};
-      
+
       const targetAllow = merged.permissions.allow ?? [];
       const set = new Set(targetAllow);
       for (const perm of template.permissions.allow) {
@@ -94,7 +94,7 @@ describe('claude-code CLI', () => {
       expect(merged.permissions.allow).toContain('mcp__memory__store_memory');
       expect(merged.permissions.allow).toContain('mcp__memory__recall_memory');
       // Should not duplicate 'Write'
-      expect(merged.permissions.allow.filter(p => p === 'Write').length).toBe(1);
+      expect(merged.permissions.allow.filter((p) => p === 'Write').length).toBe(1);
     });
 
     it('should preserve existing permissions', () => {
@@ -128,35 +128,35 @@ describe('claude-code CLI', () => {
   describe('backupPath', () => {
     it('should generate unique backup path', () => {
       const filePath = '/path/to/settings.json';
-      
+
       // First backup doesn't exist
       mockFs.existsSync.mockReturnValueOnce(false);
-      
+
       let candidate = `${filePath}.bak`;
       let counter = 1;
       while (fs.existsSync(candidate)) {
         candidate = `${filePath}.bak.${counter}`;
         counter += 1;
       }
-      
+
       expect(candidate).toBe('/path/to/settings.json.bak');
     });
 
     it('should increment counter if backup exists', () => {
       const filePath = '/path/to/settings.json';
-      
+
       // .bak exists, .bak.1 doesn't
       mockFs.existsSync
-        .mockReturnValueOnce(true)  // .bak
+        .mockReturnValueOnce(true) // .bak
         .mockReturnValueOnce(false); // .bak.1
-      
+
       let candidate = `${filePath}.bak`;
       let counter = 1;
       while (fs.existsSync(candidate)) {
         candidate = `${filePath}.bak.${counter}`;
         counter += 1;
       }
-      
+
       expect(candidate).toBe('/path/to/settings.json.bak.1');
     });
   });
@@ -165,47 +165,47 @@ describe('claude-code CLI', () => {
     it('should parse --dir argument', () => {
       const args = ['--dir', '/custom/path'];
       const options: Record<string, any> = {};
-      
+
       for (let i = 0; i < args.length; i++) {
         if (args[i] === '--dir') {
           options.targetDir = args[i + 1];
           i += 1;
         }
       }
-      
+
       expect(options.targetDir).toBe('/custom/path');
     });
 
     it('should parse --dry-run flag', () => {
       const args = ['--dry-run'];
       const options: Record<string, any> = {};
-      
+
       for (const arg of args) {
         if (arg === '--dry-run') {
           options.dryRun = true;
         }
       }
-      
+
       expect(options.dryRun).toBe(true);
     });
 
     it('should parse --quiet flag', () => {
       const args = ['--quiet'];
       const options: Record<string, any> = {};
-      
+
       for (const arg of args) {
         if (arg === '--quiet') {
           options.quiet = true;
         }
       }
-      
+
       expect(options.quiet).toBe(true);
     });
 
     it('should parse multiple arguments', () => {
       const args = ['--dir', '/path', '--dry-run', '--quiet'];
       const options: Record<string, any> = {};
-      
+
       for (let i = 0; i < args.length; i++) {
         const arg = args[i];
         if (arg === '--dir') {
@@ -217,7 +217,7 @@ describe('claude-code CLI', () => {
           options.quiet = true;
         }
       }
-      
+
       expect(options.targetDir).toBe('/path');
       expect(options.dryRun).toBe(true);
       expect(options.quiet).toBe(true);
@@ -248,4 +248,3 @@ describe('claude-code CLI', () => {
     });
   });
 });
-

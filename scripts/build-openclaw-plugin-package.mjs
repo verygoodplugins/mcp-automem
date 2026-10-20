@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -46,7 +54,10 @@ writeFileSync(
   )}\n`
 );
 
-writeFileSync(join(OUTPUT_ROOT, 'openclaw.plugin.json'), `${JSON.stringify(pluginManifest, null, 2)}\n`);
+writeFileSync(
+  join(OUTPUT_ROOT, 'openclaw.plugin.json'),
+  `${JSON.stringify(pluginManifest, null, 2)}\n`
+);
 
 for (const filename of runtimeFiles) {
   const targetPath = join(OUTPUT_DIST, filename);

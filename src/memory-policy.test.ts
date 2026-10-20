@@ -14,6 +14,7 @@ import {
   renderClaudeMdMemoryRules,
   renderCodexMemoryRules,
   renderCursorProjectRule,
+  renderGrokMemoryRules,
   renderClaudeCodeSessionStartPrompt,
   renderCopilotSessionStartPrompt,
   renderClaudeCodeSessionStartHook,
@@ -83,7 +84,9 @@ function expectSharedPolicySurface(source: string) {
   const normalized = normalize(source);
   expect(normalized).toContain(`limit: ${AUTOMEM_POLICY_DEFAULTS.preferenceRecallLimit}`);
   expect(normalized).toContain(`limit: ${AUTOMEM_POLICY_DEFAULTS.contextRecallLimit}`);
-  expect(normalized).toContain(`time_query: "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days"`);
+  expect(normalized).toContain(
+    `time_query: "last ${AUTOMEM_POLICY_DEFAULTS.contextRecallWindowDays} days"`
+  );
   expect(normalized).toContain(`limit: ${AUTOMEM_POLICY_DEFAULTS.debugRecallLimit}`);
   expect(normalized).toContain('No tag gate on debug recall');
   expect(normalized).toContain('issue them in parallel');
@@ -274,11 +277,23 @@ describe('shared AutoMem memory policy', () => {
 
   it('keeps generated host rule artifacts exactly aligned with shared renderers', () => {
     const templateVersion = readPackageVersion();
-    expectFileEquals('templates/claude-code/hooks/automem-session-start.sh', renderClaudeCodeSessionStartHook());
-    expectFileEquals('plugins/automem/scripts/session-start.sh', renderClaudeCodeSessionStartHook());
-    expectFileEquals('templates/claude-code/hooks/automem-stop-nudge.sh', renderClaudeCodeStopNudgeHook());
+    expectFileEquals(
+      'templates/claude-code/hooks/automem-session-start.sh',
+      renderClaudeCodeSessionStartHook()
+    );
+    expectFileEquals(
+      'plugins/automem/scripts/session-start.sh',
+      renderClaudeCodeSessionStartHook()
+    );
+    expectFileEquals(
+      'templates/claude-code/hooks/automem-stop-nudge.sh',
+      renderClaudeCodeStopNudgeHook()
+    );
     expectFileEquals('plugins/automem/scripts/stop-nudge.sh', renderClaudeCodeStopNudgeHook());
-    expectFileEquals('templates/claude-code/hooks/automem-track-store.sh', renderClaudeCodeTrackStoreHook());
+    expectFileEquals(
+      'templates/claude-code/hooks/automem-track-store.sh',
+      renderClaudeCodeTrackStoreHook()
+    );
     expectFileEquals('plugins/automem/scripts/track-store.sh', renderClaudeCodeTrackStoreHook());
     expectFileEquals(
       'templates/codex/memory-rules.md',
@@ -309,6 +324,10 @@ describe('shared AutoMem memory policy', () => {
         templateVersion,
       })
     );
+    expectFileEquals(
+      'templates/grok/memory-rules.md',
+      renderGrokMemoryRules({ projectName: '{{PROJECT_NAME}}', templateVersion })
+    );
   });
 
   it('keeps the Copilot bash session-start hook aligned with the shared renderer', () => {
@@ -335,6 +354,54 @@ describe('shared AutoMem memory policy', () => {
 
   it('keeps the Codex memory rules aligned with the shared defaults', () => {
     expectSharedPolicySurface(readRepoFile('templates/codex/memory-rules.md'));
+  });
+
+  it('keeps the Grok memory rules aligned with the shared defaults', () => {
+    expectSharedPolicySurface(readRepoFile('templates/grok/memory-rules.md'));
+  });
+
+  it('renders Grok calls through use_tool instead of the direct-call style', () => {
+    const grok = renderGrokMemoryRules({
+      projectName: '{{PROJECT_NAME}}',
+      templateVersion: readPackageVersion(),
+    });
+
+    // Grok has no callable tool names — every call goes through the dispatcher.
+    // Emitting `memory__recall_memory({…})` here produces rules Grok cannot execute
+    // (the class of bug that shipped for Copilot in #186).
+    expect(grok).toContain('use_tool({ tool_name: "memory__recall_memory"');
+    expect(grok).toContain('tool_name: "memory__store_memory"');
+    expect(grok).not.toMatch(/^memory__\w+\(\{/m);
+    expect(grok).not.toContain('mcp__memory__');
+
+    // Prose references are strings, not callables, so they stay backticked.
+    expect(grok).toContain('Prefer `memory__update_memory`');
+
+    // The truncated-response recovery path is an instruction Grok must be able to
+    // follow: a bare `recall_memory({ memory_id })` names nothing it can call.
+    expect(grok).toContain(
+      'use_tool({ tool_name: "memory__recall_memory", tool_input: { memory_id: "<id>" } })'
+    );
+    expect(grok).not.toContain('with `recall_memory({ memory_id })`');
+
+    // Host-specific guidance that only Grok carries.
+    expect(grok).toContain('Always run `search_tool` before the first `use_tool`');
+    expect(grok).toContain('~/.grok/config.toml');
+    expect(grok).toContain('do not rely on Claude/Cursor compat imports alone');
+
+    // The ritual is narrated, not variable-bound: `use_tool` returns no promise.
+    expect(grok).toContain('// 4) associate when a prior memory exists');
+    expect(grok).not.toContain('const related = await');
+  });
+
+  it('keeps the direct-call style intact for hosts that expose callable tools', () => {
+    const codex = renderCodexMemoryRules({
+      projectName: '{{PROJECT_NAME}}',
+      templateVersion: readPackageVersion(),
+    });
+    expect(codex).toContain('mcp__memory__recall_memory({');
+    expect(codex).toContain('const related = await mcp__memory__recall_memory(');
+    expect(codex).not.toContain('use_tool(');
   });
 
   it('keeps the Hermes provider template aligned with the provider profile', () => {
@@ -373,7 +440,12 @@ describe('shared AutoMem memory policy', () => {
       'templates/hermes/provider/automem_policy.py',
     ];
     const before = new Map(generatedFiles.map((file) => [file, readRepoFile(file)]));
-    const tsx = path.join(REPO_ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
+    const tsx = path.join(
+      REPO_ROOT,
+      'node_modules',
+      '.bin',
+      process.platform === 'win32' ? 'tsx.cmd' : 'tsx'
+    );
 
     execFileSync(tsx, ['scripts/sync-memory-policy.ts'], { cwd: REPO_ROOT, stdio: 'pipe' });
     execFileSync(tsx, ['scripts/sync-memory-policy.ts'], { cwd: REPO_ROOT, stdio: 'pipe' });

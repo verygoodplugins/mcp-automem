@@ -23,9 +23,16 @@ describe('railway-api', () => {
 
   it('fetchTemplateConfig queries the template UNAUTHENTICATED and returns id + serializedConfig', async () => {
     const calls: Array<{ url: string; auth: string | undefined; body: string }> = [];
-    const fetchFn = async (url: string, init?: { headers?: Record<string, string>; body?: string }) => {
+    const fetchFn = async (
+      url: string,
+      init?: { headers?: Record<string, string>; body?: string }
+    ) => {
       calls.push({ url, auth: init?.headers?.Authorization, body: init?.body ?? '' });
-      return jsonResponse({ data: { template: { id: 'tmpl-1', name: 'AutoMem', serializedConfig: { services: { a: {} } } } } });
+      return jsonResponse({
+        data: {
+          template: { id: 'tmpl-1', name: 'AutoMem', serializedConfig: { services: { a: {} } } },
+        },
+      });
     };
     const res = await fetchTemplateConfig('automem-ai-memory-service', { fetchFn });
     expect(res.templateId).toBe('tmpl-1');
@@ -38,18 +45,28 @@ describe('railway-api', () => {
   });
 
   it('fetchTemplateConfig throws when the GraphQL response carries errors', async () => {
-    const fetchFn = async () => jsonResponse({ errors: [{ message: 'Not Authorized' }], data: null });
+    const fetchFn = async () =>
+      jsonResponse({ errors: [{ message: 'Not Authorized' }], data: null });
     await expect(fetchTemplateConfig('x', { fetchFn })).rejects.toThrow(/not authorized|template/i);
   });
 
   it('deployTemplate posts templateDeployV2 WITH a Bearer token and returns the workflowId', async () => {
     const calls: Array<{ auth: string | undefined; body: string }> = [];
-    const fetchFn = async (_url: string, init?: { headers?: Record<string, string>; body?: string }) => {
+    const fetchFn = async (
+      _url: string,
+      init?: { headers?: Record<string, string>; body?: string }
+    ) => {
       calls.push({ auth: init?.headers?.Authorization, body: init?.body ?? '' });
       return jsonResponse({ data: { templateDeployV2: { projectId: 'p1', workflowId: 'wf-1' } } });
     };
     const res = await deployTemplate(
-      { token: 'tok-123', projectId: 'p1', environmentId: 'e1', templateId: 't1', serializedConfig: { services: {} } },
+      {
+        token: 'tok-123',
+        projectId: 'p1',
+        environmentId: 'e1',
+        templateId: 't1',
+        serializedConfig: { services: {} },
+      },
       { fetchFn }
     );
     expect(res.workflowId).toBe('wf-1');
@@ -72,12 +89,19 @@ describe('railway-api', () => {
     const fetchFn = async (_url: string, init?: { headers?: Record<string, string> }) => {
       auths.push(init?.headers?.Authorization);
       if (auths.length === 1) {
-        return jsonResponse({ data: { template: { id: 'ti', name: 'X', serializedConfig: { services: {} } } } });
+        return jsonResponse({
+          data: { template: { id: 'ti', name: 'X', serializedConfig: { services: {} } } },
+        });
       }
       return jsonResponse({ data: { templateDeployV2: { workflowId: 'wf' } } });
     };
     const res = await provisionTemplate(
-      { token: 'tok', projectId: 'p', environmentId: 'e', templateCode: 'automem-ai-memory-service' },
+      {
+        token: 'tok',
+        projectId: 'p',
+        environmentId: 'e',
+        templateCode: 'automem-ai-memory-service',
+      },
       { fetchFn }
     );
     expect(res.workflowId).toBe('wf');

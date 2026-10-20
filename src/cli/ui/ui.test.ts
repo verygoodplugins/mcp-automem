@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  hyperlink,
   makeTheme,
   padEndVisible,
   repeatVisible,
@@ -23,10 +24,22 @@ describe('ui/theme', () => {
     expect(plain.color).toBe(false);
     expect(plain.style.gold('hi')).toBe('hi');
     expect(plain.style.inverseGold('hi')).toBe('[hi]');
+    expect(plain.link('https://example.com', 'label\x1b')).toBe('label%1B');
+    expect(plain.link('https://example.com', 'label\x1b')).not.toContain('\x1b]8;');
 
     const colored = makeTheme(stream, { color: 'always', symbols: 'unicode' });
     expect(colored.style.gold('hi')).toContain('\x1b[');
     expect(stripAnsi(colored.style.gold('hi'))).toBe('hi');
+    const prevTerm = process.env.TERM;
+    process.env.TERM = 'xterm-256color';
+    try {
+      const linked = makeTheme(stream, { color: 'always', symbols: 'unicode' });
+      expect(linked.link('https://example.com', 'label')).toContain('\x1b]8;');
+      expect(stripAnsi(linked.link('https://example.com', 'docs'))).toBe('docs');
+    } finally {
+      if (prevTerm === undefined) delete process.env.TERM;
+      else process.env.TERM = prevTerm;
+    }
   });
 
   it('switches symbol sets between unicode and ascii', () => {
@@ -53,6 +66,35 @@ describe('ui/theme', () => {
     expect(visibleLength(padEndVisible(colored, 6))).toBe(6);
     expect(repeatVisible('-', 4)).toBe('----');
     expect(repeatVisible('-', -2)).toBe('');
+  });
+
+  it('percent-encodes control characters in hyperlink labels', () => {
+    const rendered = hyperlink('https://example.com/path', 'label\x1b\x07\n\x7f');
+
+    expect(rendered).toContain('label%1B%07%0A%7F');
+    expect(stripAnsi(rendered)).toBe('label%1B%07%0A%7F');
+    expect(visibleLength(rendered)).toBe('label%1B%07%0A%7F'.length);
+  });
+
+  it('percent-encodes fallback text when hyperlink URLs are invalid', () => {
+    expect(hyperlink('not a url', 'label\x1b')).toBe('label%1B');
+    expect(hyperlink('file:///tmp/example', 'label\x07')).toBe('label%07');
+    expect(hyperlink('<prompted>/health')).toBe('<prompted>/health');
+  });
+
+  it('does not emit OSC 8 when TERM=dumb even if the stream is a color TTY', () => {
+    const prev = process.env.TERM;
+    process.env.TERM = 'dumb';
+    try {
+      const tty = { isTTY: true } as unknown as NodeJS.WriteStream;
+      const theme = makeTheme(tty, { color: 'always' });
+      expect(theme.color).toBe(true);
+      expect(theme.link('https://example.com', 'docs')).toBe('docs');
+      expect(theme.link('https://example.com')).not.toContain('\x1b]8;');
+    } finally {
+      if (prev === undefined) delete process.env.TERM;
+      else process.env.TERM = prev;
+    }
   });
 });
 
@@ -98,9 +140,18 @@ describe('ui/messages', () => {
   it('routes makeLogger diagnostics to stderr, everything else to the out stream', () => {
     let outBuf = '';
     let errBuf = '';
-    const fakeOut = { write: (s: string) => { outBuf += s; return true; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    const fakeOut = {
+      write: (s: string) => {
+        outBuf += s;
+        return true;
+      },
+      isTTY: false,
+    } as unknown as NodeJS.WriteStream;
     const origErrWrite = process.stderr.write.bind(process.stderr);
-    (process.stderr as unknown as { write: (s: string) => boolean }).write = (s: string) => { errBuf += s; return true; };
+    (process.stderr as unknown as { write: (s: string) => boolean }).write = (s: string) => {
+      errBuf += s;
+      return true;
+    };
     try {
       const logger = makeLogger(fakeOut);
       logger.info('info-line');
@@ -160,7 +211,13 @@ describe('ui/checklist', () => {
     process.env.AUTOMEM_ASCII = '1';
     try {
       let out = '';
-      const fake = { write: (s: string) => { out += s; }, isTTY: true, columns: 80 } as unknown as NodeJS.WriteStream;
+      const fake = {
+        write: (s: string) => {
+          out += s;
+        },
+        isTTY: true,
+        columns: 80,
+      } as unknown as NodeJS.WriteStream;
       const list = startChecklist([{ key: 'a', label: 'Step A' }], fake);
       list.stop();
       expect(out).toContain('o'); // ascii pending glyph
@@ -174,9 +231,17 @@ describe('ui/checklist', () => {
 
   it('prints one clean line per completed step on a non-TTY (no cursor escapes)', () => {
     let out = '';
-    const fake = { write: (s: string) => { out += s; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    const fake = {
+      write: (s: string) => {
+        out += s;
+      },
+      isTTY: false,
+    } as unknown as NodeJS.WriteStream;
     const list = startChecklist(
-      [{ key: 'a', label: 'Verify endpoint' }, { key: 'b', label: 'Write .env' }],
+      [
+        { key: 'a', label: 'Verify endpoint' },
+        { key: 'b', label: 'Write .env' },
+      ],
       fake
     );
     list.start('a');
@@ -197,7 +262,13 @@ describe('ui/tasks', () => {
     process.env.AUTOMEM_ASCII = '1';
     try {
       let out = '';
-      const fake = { write: (s: string) => { out += s; }, isTTY: true, columns: 80 } as unknown as NodeJS.WriteStream;
+      const fake = {
+        write: (s: string) => {
+          out += s;
+        },
+        isTTY: true,
+        columns: 80,
+      } as unknown as NodeJS.WriteStream;
       const sp = startSpinner('Working', fake);
       sp.stop('Done');
       expect(out).not.toContain('◐'); // never a unicode frame
@@ -212,7 +283,12 @@ describe('ui/tasks', () => {
 describe('ui/animate', () => {
   it('writes everything at once (with a trailing newline) when disabled', async () => {
     let out = '';
-    const fake = { write: (s: string) => { out += s; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    const fake = {
+      write: (s: string) => {
+        out += s;
+      },
+      isTTY: false,
+    } as unknown as NodeJS.WriteStream;
     await revealLines('a\nb\nc', { stream: fake });
     expect(out).toBe('a\nb\nc\n');
   });
@@ -229,7 +305,12 @@ describe('ui/animate', () => {
 
   it('typed reveal types prose but snaps box/rule lines in whole', async () => {
     let out = '';
-    const fake = { write: (s: string) => { out += s; }, isTTY: true } as unknown as NodeJS.WriteStream;
+    const fake = {
+      write: (s: string) => {
+        out += s;
+      },
+      isTTY: true,
+    } as unknown as NodeJS.WriteStream;
     await revealLines('Hello there friend\n╭───╮\n│ x │\n╰───╯', {
       stream: fake,
       enabled: true,
@@ -247,7 +328,12 @@ describe('ui/animate', () => {
 
   it('revealHeroLine prints once on a non-TTY (no cursor hide)', async () => {
     let out = '';
-    const fake = { write: (s: string) => { out += s; }, isTTY: false } as unknown as NodeJS.WriteStream;
+    const fake = {
+      write: (s: string) => {
+        out += s;
+      },
+      isTTY: false,
+    } as unknown as NodeJS.WriteStream;
     await revealHeroLine('Set up your memory', { stream: fake });
     expect(out).toContain('Set up your memory');
     expect(out).not.toContain('\x1b[?25l');
@@ -270,5 +356,36 @@ describe('install-ui/centering', () => {
     const pads = centered.split('\n').map((line) => line.length - line.trimStart().length);
     expect(new Set(pads).size).toBe(1); // same indent on every row
     expect(pads[0]).toBeGreaterThan(0);
+  });
+});
+
+describe('color tier fallback', () => {
+  const stream = { isTTY: true, columns: 100 } as unknown as NodeJS.WriteStream;
+
+  it('emits truecolor SGR only when COLORTERM signals support', () => {
+    const prev = process.env.COLORTERM;
+    process.env.COLORTERM = 'truecolor';
+    try {
+      expect(makeTheme(stream, { color: 'always' }).style.gold('x')).toContain('\x1b[38;2;');
+    } finally {
+      if (prev === undefined) delete process.env.COLORTERM;
+      else process.env.COLORTERM = prev;
+    }
+  });
+
+  it('falls back to ANSI-16 codes when COLORTERM is unset', () => {
+    const prev = process.env.COLORTERM;
+    delete process.env.COLORTERM;
+    try {
+      const gold = makeTheme(stream, { color: 'always' }).style.gold('x');
+      // Bright yellow, terminal-theme mapped — never a raw 24-bit sequence the
+      // terminal may not understand (and that is illegible on light themes).
+      expect(gold).toContain('\x1b[93m');
+      expect(gold).not.toContain('38;2');
+      expect(makeTheme(stream, { color: 'always' }).style.red('x')).toContain('\x1b[31m');
+    } finally {
+      if (prev === undefined) delete process.env.COLORTERM;
+      else process.env.COLORTERM = prev;
+    }
   });
 });

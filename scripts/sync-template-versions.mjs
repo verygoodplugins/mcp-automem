@@ -1,8 +1,16 @@
 #!/usr/bin/env node
-// Pegs every <!-- automem-template-version: x.y.z --> marker to package.json's version.
+// Pegs every <!-- automem-template-version: x.y.z --> and <!-- automem-mdc-version: x.y.z -->
+// marker to package.json's version, and appends the Release Please `generic` annotation that
+// lets the release PR bump the markers in the same commit as package.json (see the
+// `extra-files` list in release-please-config.json).
 // Runs as the `prebuild` step so npm run build (CI + publish) keeps templates in sync.
 // We never ship a template-prose change without also bumping the package, so one version
 // number is the source of truth for both.
+//
+// The annotation goes in a separate trailing comment so the marker comment itself stays
+// byte-identical for the `<!--\s*...\s*-->` parsers in src/cli/cursor.ts and
+// tests/cli/smoke.test.ts. Matching the optional annotation here is what keeps re-runs
+// idempotent instead of appending a second copy.
 
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
@@ -10,7 +18,11 @@ import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MARKER = /<!--\s*automem-template-version:\s*([\d.]+)\s*-->/g;
+const ANNOTATION = '<!-- x-release-please-version -->';
+// `[ \t]*` rather than `\s*` before the annotation: a newline must not be swallowed,
+// or two adjacent marker lines would collapse into one.
+const MARKER =
+  /<!--\s*automem-(template|mdc)-version:\s*([\d.]+)\s*-->(?:[ \t]*<!--\s*x-release-please-version\s*-->)?/g;
 const TEMPLATE_FILE_RE = /\.(md|mdc|template)$/;
 const FALLBACK_ROOTS = ['templates', 'skills', 'plugins'];
 const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist']);
@@ -72,15 +84,16 @@ for (const rel of trackedFiles) {
   } catch {
     continue;
   }
-  if (!content.includes('automem-template-version')) {
+  if (!/automem-(template|mdc)-version/.test(content)) {
     continue;
   }
   scanned += 1;
   let changed = false;
-  const next = content.replace(MARKER, (match, current) => {
-    if (current === pkgVersion) return match;
+  const next = content.replace(MARKER, (match, kind) => {
+    const pegged = `<!-- automem-${kind}-version: ${pkgVersion} --> ${ANNOTATION}`;
+    if (match === pegged) return match;
     changed = true;
-    return `<!-- automem-template-version: ${pkgVersion} -->`;
+    return pegged;
   });
   if (changed) {
     writeFileSync(abs, next);

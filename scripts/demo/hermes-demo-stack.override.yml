@@ -15,16 +15,16 @@
 services:
   falkordb:
     ports: !override
-      - "16380:6379"
-      - "13050:3000"
+      - '16380:6379'
+      - '13050:3000'
 
   qdrant:
     ports: !override
-      - "16340:6333"
+      - '16340:6333'
 
   flask-api:
     ports: !override
-      - "8051:8001"
+      - '8051:8001'
     environment:
       PORT: 8001
       FALKORDB_HOST: falkordb
@@ -34,8 +34,8 @@ services:
       # no background summary/enrichment, so seeded memory_count stays exact and
       # recall is purely keyword/tag/recency (matching the seed-data design).
       EMBEDDING_PROVIDER: placeholder
-      MEMORY_AUTO_SUMMARIZE: "false"
-      JIT_ENRICHMENT_ENABLED: "false"
+      MEMORY_AUTO_SUMMARIZE: 'false'
+      JIT_ENRICHMENT_ENABLED: 'false'
       # Known token so the seed script and debug-recall can authenticate.
       AUTOMEM_API_TOKEN: hermes-demo-token
       ADMIN_API_TOKEN: hermes-demo-admin

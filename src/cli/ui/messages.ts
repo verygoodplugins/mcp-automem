@@ -30,7 +30,8 @@ export function makeLogger(stream: NodeJS.WriteStream = process.stdout): Logger 
   return {
     info: (message) => stream.write(`${theme.style.dim(theme.symbol.arrow)} ${message}\n`),
     warn: (message) => stream.write(`${theme.style.yellow(theme.symbol.warn)} ${message}\n`),
-    error: (message) => errStream.write(`${errTheme.style.red(errTheme.symbol.cross)} ${message}\n`),
+    error: (message) =>
+      errStream.write(`${errTheme.style.red(errTheme.symbol.cross)} ${message}\n`),
     ok: (message) => stream.write(`${theme.style.gold(theme.symbol.check)} ${message}\n`),
     raw: (text) => stream.write(text),
   };

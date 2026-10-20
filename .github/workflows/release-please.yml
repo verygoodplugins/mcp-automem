@@ -8,7 +8,8 @@
 #    - Creates a GitHub Release with tag
 #    - Triggers the npm publish job below
 #
-# Docs dispatch is handled separately by docs-dispatch.yml on main pushes.
+# After a release, the docs-dispatch job asks automem-website to document it
+# (docs on automem.ai follow published releases, not every push to main).
 #
 # Commit message format:
 #   feat: add new feature          → minor version bump
@@ -44,6 +45,14 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  docs-dispatch:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    uses: ./.github/workflows/docs-dispatch.yml
+    with:
+      release_tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit
+
   npm-publish:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
@@ -57,8 +66,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
 
       - run: npm ci
       - run: npm run build
@@ -79,7 +88,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: '24'
 
       - run: npm ci
       - run: npm run build
@@ -93,4 +102,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.release-please.outputs.tag_name }}
-          files: "*.mcpb"
+          files: '*.mcpb'

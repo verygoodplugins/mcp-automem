@@ -105,10 +105,7 @@ interface OrphanPids {
   sleeperPid: number;
 }
 
-function waitForServerPidAndReady(
-  wrapper: ChildProcess,
-  timeoutMs: number
-): Promise<OrphanPids> {
+function waitForServerPidAndReady(wrapper: ChildProcess, timeoutMs: number): Promise<OrphanPids> {
   return new Promise((resolve, reject) => {
     let out = '';
     let err = '';
@@ -186,66 +183,58 @@ describe.skipIf(process.platform === 'win32')('MCP server lifecycle', () => {
     holderPid = undefined;
   });
 
-  it(
-    'self-terminates within 3s when stdin closes (client disconnect)',
-    async () => {
-      child = spawn(process.execPath, [SERVER_PATH], {
-        env: {
-          ...process.env,
-          AUTOMEM_API_URL: 'http://localhost:9999',
-          AUTOMEM_LOG_LEVEL: 'debug',
-        },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+  it('self-terminates within 3s when stdin closes (client disconnect)', async () => {
+    child = spawn(process.execPath, [SERVER_PATH], {
+      env: {
+        ...process.env,
+        AUTOMEM_API_URL: 'http://localhost:9999',
+        AUTOMEM_LOG_LEVEL: 'debug',
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
 
-      await waitForReady(child);
+    await waitForReady(child);
 
-      // Simulate the client going away: close the write-end of the server's
-      // stdin so it receives EOF, exactly as a disconnecting MCP client would.
-      child.stdin?.end();
+    // Simulate the client going away: close the write-end of the server's
+    // stdin so it receives EOF, exactly as a disconnecting MCP client would.
+    child.stdin?.end();
 
-      const result = await waitForExit(child, 3000);
-      expect(result.exited).toBe(true);
-    },
-    15000
-  );
+    const result = await waitForExit(child, 3000);
+    expect(result.exited).toBe(true);
+  }, 15000);
 
-  it(
-    'orphaned leaf self-terminates via parent-liveness watchdog',
-    async () => {
-      // Spawn the wrapper (the `node -e` WRAPPER_SRC above). It starts a
-      // DETACHED `sleep 600` and wires the sleeper's stdout to the server as
-      // stdin, then spawns the server as its own child. When we SIGKILL the
-      // wrapper, the server is orphaned (reparented to PID 1) but its stdin
-      // write-end is still held by the surviving detached sleeper — so no EOF
-      // ever arrives. That is the production leak; only the watchdog escapes
-      // it. (Routing stdin through a wrapper/test-owned pipe instead would let
-      // Node close it on the wrapper's death and the server self-heal via EOF,
-      // masking the leak — that was the earlier spurious-pass trap.)
-      child = spawn(process.execPath, ['-e', WRAPPER_SRC, SERVER_PATH], {
-        env: {
-          ...process.env,
-          AUTOMEM_API_URL: 'http://localhost:9999',
-          AUTOMEM_LOG_LEVEL: 'debug',
-          // Tick fast so the test doesn't wait the 30s production default.
-          AUTOMEM_PARENT_WATCHDOG_MS: '250',
-        },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+  it('orphaned leaf self-terminates via parent-liveness watchdog', async () => {
+    // Spawn the wrapper (the `node -e` WRAPPER_SRC above). It starts a
+    // DETACHED `sleep 600` and wires the sleeper's stdout to the server as
+    // stdin, then spawns the server as its own child. When we SIGKILL the
+    // wrapper, the server is orphaned (reparented to PID 1) but its stdin
+    // write-end is still held by the surviving detached sleeper — so no EOF
+    // ever arrives. That is the production leak; only the watchdog escapes
+    // it. (Routing stdin through a wrapper/test-owned pipe instead would let
+    // Node close it on the wrapper's death and the server self-heal via EOF,
+    // masking the leak — that was the earlier spurious-pass trap.)
+    child = spawn(process.execPath, ['-e', WRAPPER_SRC, SERVER_PATH], {
+      env: {
+        ...process.env,
+        AUTOMEM_API_URL: 'http://localhost:9999',
+        AUTOMEM_LOG_LEVEL: 'debug',
+        // Tick fast so the test doesn't wait the 30s production default.
+        AUTOMEM_PARENT_WATCHDOG_MS: '250',
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
 
-      const pids = await waitForServerPidAndReady(child, 8000);
-      leafPid = pids.serverPid;
-      holderPid = pids.sleeperPid;
-      expect(isAlive(leafPid)).toBe(true);
+    const pids = await waitForServerPidAndReady(child, 8000);
+    leafPid = pids.serverPid;
+    holderPid = pids.sleeperPid;
+    expect(isAlive(leafPid)).toBe(true);
 
-      // Kill the wrapper (plain SIGKILL). The leaf is now PPID==1 with stdin
-      // held open by the surviving detached sleeper — the orphan condition.
-      child.kill('SIGKILL');
+    // Kill the wrapper (plain SIGKILL). The leaf is now PPID==1 with stdin
+    // held open by the surviving detached sleeper — the orphan condition.
+    child.kill('SIGKILL');
 
-      // Watchdog ticks at 250ms; allow generous margin for reparent + reap.
-      const gone = await waitForPidGone(leafPid, 8000);
-      expect(gone).toBe(true);
-    },
-    20000
-  );
+    // Watchdog ticks at 250ms; allow generous margin for reparent + reap.
+    const gone = await waitForPidGone(leafPid, 8000);
+    expect(gone).toBe(true);
+  }, 20000);
 });

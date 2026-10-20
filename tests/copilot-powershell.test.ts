@@ -9,9 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const TEMPLATE_ROOT = path.resolve(
-  fileURLToPath(new URL('../templates/copilot', import.meta.url))
-);
+const TEMPLATE_ROOT = path.resolve(fileURLToPath(new URL('../templates/copilot', import.meta.url)));
 
 const PS_SCRIPTS = [
   'automem-session-start.ps1',
@@ -71,7 +69,10 @@ describe('Hook JSON dual-key verification', () => {
         for (const entry of entries as Array<Record<string, unknown>>) {
           if (entry.type === 'command') {
             expect(entry.bash, `${hookFile} -> ${eventName}: missing bash key`).toBeTruthy();
-            expect(entry.powershell, `${hookFile} -> ${eventName}: missing powershell key`).toBeTruthy();
+            expect(
+              entry.powershell,
+              `${hookFile} -> ${eventName}: missing powershell key`
+            ).toBeTruthy();
           }
         }
       }

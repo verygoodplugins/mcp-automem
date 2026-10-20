@@ -36,14 +36,13 @@ const DISPLAY_NAMES: Record<AgentClient, string> = {
   cursor: 'Cursor',
   openclaw: 'OpenClaw',
   hermes: 'Hermes',
+  grok: 'Grok Build',
 };
 
 /** Extract a markdown section: its heading line through (excluding) the next heading. */
 function section(markdown: string, headingContains: string): string {
   const lines = markdown.split('\n');
-  const start = lines.findIndex(
-    (line) => /^#{2,4}\s/.test(line) && line.includes(headingContains),
-  );
+  const start = lines.findIndex((line) => /^#{2,4}\s/.test(line) && line.includes(headingContains));
   if (start === -1) return '';
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
@@ -64,7 +63,7 @@ describe('integration docs coverage', () => {
     // Guards against a heading rename silently disabling the row checks below.
     expect(
       compatibilityTable,
-      'Could not find the README "Works Everywhere You Code" compatibility table',
+      'Could not find the README "Works Everywhere You Code" compatibility table'
     ).not.toBe('');
   });
 
@@ -75,19 +74,16 @@ describe('integration docs coverage', () => {
       expect(
         compatibilityTable.includes(name),
         `README compatibility table is missing "${name}" (AGENT_CLIENTS includes '${client}'). ` +
-          'Add a row for it in README.md.',
+          'Add a row for it in README.md.'
       ).toBe(true);
-    },
+    }
   );
 
-  it.each(AGENT_CLIENTS)(
-    'documents installer client "%s" in INSTALLATION.md',
-    (client) => {
-      const name = DISPLAY_NAMES[client];
-      expect(
-        installation.includes(name),
-        `INSTALLATION.md does not mention "${name}" (AGENT_CLIENTS includes '${client}').`,
-      ).toBe(true);
-    },
-  );
+  it.each(AGENT_CLIENTS)('documents installer client "%s" in INSTALLATION.md', (client) => {
+    const name = DISPLAY_NAMES[client];
+    expect(
+      installation.includes(name),
+      `INSTALLATION.md does not mention "${name}" (AGENT_CLIENTS includes '${client}').`
+    ).toBe(true);
+  });
 });

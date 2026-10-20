@@ -14,7 +14,7 @@
 **One command. Infinite memory. Perfect recall across all your AI tools.**
 
 ```bash
-npx @verygoodplugins/mcp-automem setup
+npx @verygoodplugins/mcp-automem install
 ```
 
 Your AI assistant now remembers everything. Forever. Across every conversation.
@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/fd79112b-5158-4320-a054-8c18ab1ea314
 
 <p align="center"><sub><b>The guided installer</b> — <code>npx @verygoodplugins/mcp-automem install</code> walks you through local, hosted, or existing-endpoint setup.</sub></p>
 
-Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex**, **OpenClaw**, **Hermes**, **Google Antigravity** - any MCP-compatible AI platform.
+Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex**, **OpenClaw**, **Hermes**, **Grok Build**, **Google Antigravity** - any MCP-compatible AI platform.
 
 ## The Problem We Solve
 
@@ -42,7 +42,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 ### 🧠 Persistent Memory Across Sessions
 
 - AI remembers decisions, patterns, and context **forever**
-- Works across **all MCP platforms** - Claude Desktop, Cursor, Claude Code, OpenAI Codex, OpenClaw, Hermes, Google Antigravity
+- Works across **all MCP platforms** - Claude Desktop, Cursor, Claude Code, OpenAI Codex, OpenClaw, Hermes, Grok Build, Google Antigravity
 - **Cross-device sync** - same memory on Mac, Windows, Linux
 
 ### 🏆 Graph-Vector Architecture
@@ -62,6 +62,7 @@ AutoMem MCP connects your AI to persistent memory powered by **[AutoMem](https:/
 | **OpenAI Codex**   | ✅ Full | 30 seconds |
 | **OpenClaw**       | ✅ Full | 30 seconds |
 | **Hermes Agent**   | ✅ Full | 30 seconds |
+| **Grok Build**     | ✅ Full | 30 seconds |
 | **Google Antigravity** | ✅ Full | 30 seconds |
 | **Any MCP client** | ✅ Full | 30 seconds |
 
@@ -140,23 +141,7 @@ modified file keeps a `.bak` backup. Add `--dry-run` to preview, `--yes` to
 apply non-interactively. See the [Installation Guide](INSTALLATION.md#guided-install-fastest)
 for all flags.
 
-Just need the `.env` + config snippets without the agent setup? Use the lighter wizard:
-
-```bash
-# Creates .env and prints config for your AI platform
-npx @verygoodplugins/mcp-automem setup
-```
-
-**When prompted:**
-
-- **AutoMem Endpoint:** `http://localhost:8001` (or your Railway URL if deployed)
-- **API Key:** Leave blank for local development (or paste your token for Railway)
-
-The wizard will:
-
-- ✅ Save your endpoint and API key to `.env`
-- ✅ Generate config snippets for Claude Desktop/Cursor/Code
-- ✅ Validate connection to your AutoMem service
+`setup` is an alias of `install`. To print config snippets again later, use `npx @verygoodplugins/mcp-automem config`.
 
 ### 3. Platform-Specific Setup
 
@@ -181,7 +166,7 @@ On Windows, the hook payload assumes a POSIX shell environment such as Git Bash,
 npx @verygoodplugins/mcp-automem cursor
 ```
 
-**Other platforms** — Claude Desktop (one-click `.mcpb` above, plus the [Personal Preferences template](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md)), [OpenAI Codex](INSTALLATION.md#openai-codex), [Hermes Agent](INSTALLATION.md#hermes-agent), [OpenClaw](INSTALLATION.md#openclaw), [Google Antigravity](INSTALLATION.md#google-antigravity), and [GitHub Copilot](INSTALLATION.md#github-copilot-coding-agent-githubcom):
+**Other platforms** — Claude Desktop (one-click `.mcpb` above, plus the [Personal Preferences template](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md)), [OpenAI Codex](INSTALLATION.md#openai-codex), [Hermes Agent](INSTALLATION.md#hermes-agent), [Grok Build](INSTALLATION.md#grok-build), [OpenClaw](INSTALLATION.md#openclaw), [Google Antigravity](INSTALLATION.md#google-antigravity), and [GitHub Copilot](INSTALLATION.md#github-copilot-coding-agent-githubcom):
 
 👉 **[Full Installation Guide](INSTALLATION.md)** for every platform's setup and verification steps
 
@@ -241,7 +226,7 @@ An optional sidecar service (deployable to Railway or any Docker host) connects 
   - **Batch**: `memories: [...]` (≤500 items) for bulk ingestion. Per-item `id`/`embedding`/`t_valid`/`t_invalid` are not supported in batch mode.
 - **`recall_memory`** — Three modes selected by which params you pass:
   - **ID fetch**: `memory_id` → fetches one memory by ID; updates `last_accessed`.
-  - **Tag enumeration**: `tags` + `exhaustive: true` → paginated exact-match listing for cleanup/audit workflows where ranked recall undercounts. Pair with `limit` (≤200) and `offset`; returns `has_more`.
+  - **Tag enumeration**: `tags` + `exhaustive: true` → paginated exact-match listing for cleanup/audit workflows where ranked recall undercounts. Pair with `limit` (≤200) and `offset`; returns `has_more`, plus `next_offset` for the next page while more remain.
   - **Ranked retrieval (default)**: hybrid search across vector, keyword, tags, recency/state controls, score filters, and graph expansion. Supports `state_mode`, `recency_bias`, `scope_fallback`, `expand_respect_tags`, `min_score`, `adaptive_floor`, and diagnostics such as `tag_scope`, `score_filter`, `query_time_ms`, `vector_search`, and per-result `outside_tag_scope`/`state_replaces`.
 - **`associate_memories`** — Create relationships (11 public authorable types; recall results may also include read-only system relations). Supports single-pair mode and batch mode via `associations: [...]` (≤500) with relation-specific props like `reason`, `context`, `resolution`, `observations`, `transformation`, and `role`.
 - **`update_memory`** — Modify existing memories
@@ -383,7 +368,7 @@ MIT - Because great memory should be free.
 **Ready to give your AI perfect memory?**
 
 ```bash
-npx @verygoodplugins/mcp-automem setup
+npx @verygoodplugins/mcp-automem install
 ```
 
 _Built with obsession. Validated by neuroscience. Powered by graph theory. Works with every MCP-enabled AI._

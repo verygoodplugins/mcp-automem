@@ -54,7 +54,9 @@ export function createMock(opts = {}) {
       // is down) — never the literal "ok". The verify gate must accept any status
       // STRING, not a hardcoded value, so mirror the real shape here.
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ status: 'healthy', falkordb: 'connected', qdrant: 'connected' }));
+      return res.end(
+        JSON.stringify({ status: 'healthy', falkordb: 'connected', qdrant: 'connected' })
+      );
     }
 
     if (url.pathname === '/recall') {
@@ -82,8 +84,7 @@ export function createMock(opts = {}) {
         url: `http://127.0.0.1:${addr.port}`,
         port: addr.port,
         requests,
-        close: () =>
-          new Promise((res) => server.close(() => res())),
+        close: () => new Promise((res) => server.close(() => res())),
       });
     });
   });

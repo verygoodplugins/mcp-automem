@@ -41,8 +41,8 @@ describe('uninstall --clean-all preserves foreign Claude Desktop mcpServers', ()
           ...extra,
         },
         null,
-        2,
-      ),
+        2
+      )
     );
     return cfgPath;
   }
@@ -88,9 +88,7 @@ describe('uninstall --clean-all preserves foreign Claude Desktop mcpServers', ()
     });
 
     expect(fs.readFileSync(cfgPath, 'utf8')).toBe(before);
-    const backups = fs
-      .readdirSync(path.dirname(cfgPath))
-      .filter((f) => f.includes('.backup.'));
+    const backups = fs.readdirSync(path.dirname(cfgPath)).filter((f) => f.includes('.backup.'));
     expect(backups).toHaveLength(0);
   });
 });
@@ -129,7 +127,7 @@ describe('uninstall hermes', () => {
         '  other:',
         '    command: bash',
         '',
-      ].join('\n'),
+      ].join('\n')
     );
     fs.writeFileSync(
       path.join(tmpDir, '.env'),
@@ -141,7 +139,7 @@ describe('uninstall hermes', () => {
         'AUTOMEM_HERMES_PROVIDER_TOOLS=true',
         'KEEP_ME=1',
         '',
-      ].join('\n'),
+      ].join('\n')
     );
     fs.writeFileSync(
       path.join(tmpDir, 'AGENTS.md'),
@@ -154,7 +152,7 @@ describe('uninstall hermes', () => {
         '',
         'keep this',
         '',
-      ].join('\n'),
+      ].join('\n')
     );
     fs.writeFileSync(path.join(tmpDir, 'plugins', 'automem', 'plugin.yaml'), 'name: automem\n');
   }
@@ -197,7 +195,7 @@ describe('uninstall hermes', () => {
         '    args:',
         '      - other-memory-server.py',
         '',
-      ].join('\n'),
+      ].join('\n')
     );
 
     await runUninstall({
@@ -226,7 +224,7 @@ describe('uninstall hermes', () => {
         '',
         'keep this custom',
         '',
-      ].join('\n'),
+      ].join('\n')
     );
     // A default AGENTS.md with its own block must be untouched when --rules redirects.
     fs.writeFileSync(
@@ -236,7 +234,7 @@ describe('uninstall hermes', () => {
         'should NOT be touched',
         '<!-- END AUTOMEM HERMES RULES -->',
         '',
-      ].join('\n'),
+      ].join('\n')
     );
 
     await runUninstall({
@@ -310,7 +308,7 @@ describe('removeManagedHookEntries', () => {
             {
               type: 'command',
               command:
-                "bash -c 'CLAUDE_HOOK_TYPE=session_end bash \"$HOME/.claude/hooks/session-memory.sh\"'",
+                'bash -c \'CLAUDE_HOOK_TYPE=session_end bash "$HOME/.claude/hooks/session-memory.sh"\'',
             },
           ],
         },
@@ -326,7 +324,9 @@ describe('removeManagedHookEntries', () => {
       PreToolUse: [
         {
           matcher: 'AskUserQuestion',
-          hooks: [{ type: 'command', command: 'node "/Users/testuser/.claude/hooks/plan-autonomy.js"' }],
+          hooks: [
+            { type: 'command', command: 'node "/Users/testuser/.claude/hooks/plan-autonomy.js"' },
+          ],
         },
       ],
     };
@@ -403,7 +403,10 @@ describe('uninstall claude-code', () => {
               {
                 matcher: 'startup|clear',
                 hooks: [
-                  { type: 'command', command: 'bash "$HOME/.claude/hooks/automem-session-start.sh"' },
+                  {
+                    type: 'command',
+                    command: 'bash "$HOME/.claude/hooks/automem-session-start.sh"',
+                  },
                 ],
               },
             ],
@@ -465,10 +468,9 @@ describe('uninstall claude-code', () => {
     await runUninstall({ platform: 'claude-code', yes: true, quiet: true });
 
     for (const rel of OWNED_FILES) {
-      expect(
-        fs.existsSync(path.join(tmpHome, '.claude', rel)),
-        `${rel} should be removed`
-      ).toBe(false);
+      expect(fs.existsSync(path.join(tmpHome, '.claude', rel)), `${rel} should be removed`).toBe(
+        false
+      );
     }
     for (const rel of FOREIGN_FILES) {
       expect(
@@ -611,9 +613,111 @@ describe('uninstall codex', () => {
     const agents = path.join(tmpDir, 'AGENTS.md');
     fs.writeFileSync(agents, CODEX_BLOCK, 'utf8');
 
-    await runUninstall({ platform: 'codex', projectDir: tmpDir, yes: true, dryRun: true, quiet: true });
+    await runUninstall({
+      platform: 'codex',
+      projectDir: tmpDir,
+      yes: true,
+      dryRun: true,
+      quiet: true,
+    });
 
     expect(fs.readFileSync(agents, 'utf8')).toContain('BEGIN AUTOMEM CODEX RULES');
     expect(fs.readdirSync(tmpDir).filter((f) => f.includes('.backup.'))).toEqual([]);
+  });
+});
+
+describe('uninstall grok', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-uninstall-grok-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function writeGrokState(): void {
+    fs.writeFileSync(
+      path.join(tmpDir, 'config.toml'),
+      [
+        '[cli]',
+        'installer = "internal"',
+        '',
+        '[mcp_servers.memory]',
+        'command = "npx"',
+        'args = ["-y", "@verygoodplugins/mcp-automem"]',
+        'enabled = true',
+        '',
+        '[mcp_servers.memory.env]',
+        'AUTOMEM_API_URL = "https://automem.example.test"',
+        'AUTOMEM_PROCESS_TAG = "grok:memory"',
+        '',
+        '[mcp_servers.other]',
+        'command = "bash"',
+        '',
+      ].join('\n')
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'AGENTS.md'),
+      [
+        '# Grok',
+        '',
+        '<!-- BEGIN AUTOMEM GROK RULES -->',
+        'AutoMem managed rules',
+        '<!-- END AUTOMEM GROK RULES -->',
+        '',
+        'keep this',
+        '',
+      ].join('\n')
+    );
+  }
+
+  it('removes AutoMem mcp_servers.memory and strips AGENTS.md markers', async () => {
+    writeGrokState();
+
+    await runUninstall({
+      platform: 'grok',
+      projectDir: tmpDir,
+      yes: true,
+      quiet: true,
+    });
+
+    const { parse: parseToml } = await import('smol-toml');
+    const parsed = parseToml(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')) as {
+      mcp_servers: Record<string, unknown>;
+      cli: { installer: string };
+    };
+    expect(parsed.cli.installer).toBe('internal');
+    expect(parsed.mcp_servers.memory).toBeUndefined();
+    expect(parsed.mcp_servers.other).toBeDefined();
+
+    const agents = fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8');
+    expect(agents).toContain('keep this');
+    expect(agents).not.toContain('BEGIN AUTOMEM GROK RULES');
+  });
+
+  it('parses grok as an uninstall platform', () => {
+    expect(parseUninstallArgs(['grok', '--yes'])).toMatchObject({
+      platform: 'grok',
+      yes: true,
+    });
+  });
+
+  it('honors dry-run without changing Grok files', async () => {
+    writeGrokState();
+    const beforeConfig = fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8');
+    const beforeAgents = fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8');
+
+    await runUninstall({
+      platform: 'grok',
+      projectDir: tmpDir,
+      yes: true,
+      dryRun: true,
+      quiet: true,
+    });
+
+    expect(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')).toBe(beforeConfig);
+    expect(fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8')).toBe(beforeAgents);
   });
 });

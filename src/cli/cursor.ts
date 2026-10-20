@@ -36,7 +36,7 @@ function extractMdcVersion(content: string): string | null {
 function compareVersions(v1: string, v2: string): number {
   const parts1 = v1.split('.').map(Number);
   const parts2 = v2.split('.').map(Number);
-  
+
   for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
     const p1 = parts1[i] || 0;
     const p2 = parts2[i] || 0;
@@ -51,7 +51,7 @@ async function promptUser(question: string): Promise<boolean> {
     input: process.stdin,
     output: process.stdout,
   });
-  
+
   return new Promise((resolve) => {
     rl.question(question, (answer) => {
       rl.close();
@@ -129,7 +129,7 @@ function writeFileWithBackup(targetPath: string, content: string, options: Curso
   fs.mkdirSync(dir, { recursive: true });
 
   const fileExisted = fs.existsSync(targetPath);
-  
+
   if (fileExisted) {
     const current = fs.readFileSync(targetPath, 'utf8');
     if (current === content) {
@@ -225,7 +225,11 @@ function detectCursorAutoMemServerName(
   }
 }
 
-function checkCursorMcpConfigured(): { configured: boolean; configPath: string; serverName?: string } {
+function checkCursorMcpConfigured(): {
+  configured: boolean;
+  configPath: string;
+  serverName?: string;
+} {
   const configPath = getCursorMcpConfigPath();
 
   const detection = detectCursorAutoMemServerName(configPath);
@@ -246,14 +250,14 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
 
   // Check for existing installation and version
   let shouldUpdate = true;
-  
+
   if (fs.existsSync(targetPath)) {
     const existingContent = fs.readFileSync(targetPath, 'utf8');
     const existingVersion = extractMdcVersion(existingContent);
-    
+
     if (existingVersion) {
       const comparison = compareVersions(PACKAGE_VERSION, existingVersion);
-      
+
       if (comparison === 0) {
         // Same version
         log(`\n✅ automem.mdc is already up to date (v${existingVersion})`, cliOptions.quiet);
@@ -263,10 +267,13 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
         log(`\n📦 Found existing automem.mdc v${existingVersion}`, cliOptions.quiet);
         log(`   New version available: v${PACKAGE_VERSION}`, cliOptions.quiet);
         log(`\n   What's new in v${PACKAGE_VERSION}:`, cliOptions.quiet);
-        log(`   • Expansion filtering: expand_min_importance, expand_min_strength`, cliOptions.quiet);
+        log(
+          `   • Expansion filtering: expand_min_importance, expand_min_strength`,
+          cliOptions.quiet
+        );
         log(`   • Reduces noise in multi-hop and graph expansion results`, cliOptions.quiet);
         log(`   • Updated examples and best practices\n`, cliOptions.quiet);
-        
+
         if (!cliOptions.skipPrompts && !cliOptions.dryRun) {
           shouldUpdate = await promptUser('Update to latest version? [Y/n] ');
           if (!shouldUpdate) {
@@ -275,14 +282,17 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
         }
       } else {
         // Existing is newer (shouldn't happen normally)
-        log(`\n⚠️  Existing automem.mdc (v${existingVersion}) is newer than package (v${PACKAGE_VERSION})`, cliOptions.quiet);
+        log(
+          `\n⚠️  Existing automem.mdc (v${existingVersion}) is newer than package (v${PACKAGE_VERSION})`,
+          cliOptions.quiet
+        );
         shouldUpdate = false;
       }
     } else {
       // No version marker - legacy file
       log(`\n📦 Found legacy automem.mdc (no version marker)`, cliOptions.quiet);
       log(`   Updating to v${PACKAGE_VERSION} with new features.\n`, cliOptions.quiet);
-      
+
       if (!cliOptions.skipPrompts && !cliOptions.dryRun) {
         shouldUpdate = await promptUser('Update to latest version? [Y/n] ');
       }
@@ -319,15 +329,15 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
 
   // Install automem.mdc rule
   const templatePath = path.join(TEMPLATE_ROOT, 'automem.mdc.template');
-  
+
   const templateContent = fs.readFileSync(templatePath, 'utf8');
   const processedContent = replaceTemplateVars(templateContent, vars);
-  
+
   writeFileWithBackup(targetPath, processedContent, cliOptions);
 
   log('\n📊 Configuration Status:', cliOptions.quiet);
   log(`  ✅ Cursor rule installed: ${targetPath}`, cliOptions.quiet);
-  
+
   if (!mcpCheck.configured) {
     log(`\n  ⚠️  AutoMem MCP server not configured in Cursor`, cliOptions.quiet);
     log(`\n  Add to ${mcpCheck.configPath}:`, cliOptions.quiet);
@@ -348,16 +358,19 @@ export async function applyCursorSetup(cliOptions: CursorSetupOptions): Promise<
 
   log('\n✨ Cursor AutoMem setup complete!\n', cliOptions.quiet);
   log('Next steps:', cliOptions.quiet);
-  
+
   if (!mcpCheck.configured) {
     log('  1. Add MCP server config (see above)', cliOptions.quiet);
     log('  2. Restart Cursor to load the configuration', cliOptions.quiet);
     log('  3. Start a conversation - Cursor will use automem.mdc rule', cliOptions.quiet);
   } else {
     log('  1. Restart Cursor to load the new rule', cliOptions.quiet);
-    log('  2. Start a conversation - Cursor will recall and store memories as needed', cliOptions.quiet);
+    log(
+      '  2. Start a conversation - Cursor will recall and store memories as needed',
+      cliOptions.quiet
+    );
   }
-  
+
   log('\n💡 Tip: For memory-first behavior across ALL projects, add memory', cliOptions.quiet);
   log('   instructions to Cursor Settings > General > Rules for AI', cliOptions.quiet);
 }

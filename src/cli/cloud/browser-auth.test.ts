@@ -52,7 +52,10 @@ describe('buildBrowserOpenCommand', () => {
   });
 });
 
-function fakeServer(token: string | Promise<string>): { start: StartCallbackServer; closed: () => boolean } {
+function fakeServer(token: string | Promise<string>): {
+  start: StartCallbackServer;
+  closed: () => boolean;
+} {
   let closed = false;
   const server: CallbackServer = {
     redirectUri: 'http://127.0.0.1:5999/callback',
@@ -79,7 +82,9 @@ describe('browserAuthorize', () => {
 
     expect(result).toEqual({ token: 'tok-callback', method: 'callback' });
     expect(opened).toHaveLength(1);
-    expect(new URL(opened[0]).searchParams.get('redirect_uri')).toBe('http://127.0.0.1:5999/callback');
+    expect(new URL(opened[0]).searchParams.get('redirect_uri')).toBe(
+      'http://127.0.0.1:5999/callback'
+    );
   });
 
   it('uses the paste fallback (and never starts a server) when preferPaste is set', async () => {

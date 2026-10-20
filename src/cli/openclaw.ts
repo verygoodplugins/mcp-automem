@@ -4,15 +4,32 @@ import path from 'path';
 import { execFileSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { AutoMemClient } from '../automem-client.js';
-import { readAutoMemApiKeyFromEnv } from '../env.js';
 import { buildDefaultProjectTags } from '../memory-policy/shared.js';
 import { buildStartupProfileFromResults } from '../openclaw-startup-profile.js';
+import {
+  AUTOMEM_API_KEY_NAMES,
+  describeMarkedBlockDefect,
+  readApiKeyFrom,
+  readEndpointFrom,
+  resolveInheritedApiKey,
+  sameEndpoint,
+  scanMarkedBlock,
+  stripMarkedBlock,
+  type MarkedBlockMarkers,
+} from './host-toolkit.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
+
+export const OPENCLAW_RULES_START = '<!-- BEGIN AUTOMEM OPENCLAW RULES -->';
+export const OPENCLAW_RULES_END = '<!-- END AUTOMEM OPENCLAW RULES -->';
+const OPENCLAW_RULES_MARKERS: MarkedBlockMarkers = {
+  start: OPENCLAW_RULES_START,
+  end: OPENCLAW_RULES_END,
+};
 
 export type OpenClawSetupMode = 'plugin' | 'mcp' | 'skill';
 export type OpenClawSetupScope = 'workspace' | 'shared';
 
-interface OpenClawSetupOptions {
+export interface OpenClawSetupOptions {
   workspace?: string;
   projectName?: string;
   dryRun?: boolean;
@@ -154,12 +171,19 @@ function readJsonFile(filePath: string): JsonObject {
   }
 }
 
-function writeJsonFileWithBackup(targetPath: string, data: JsonObject, options: OpenClawSetupOptions) {
+function writeJsonFileWithBackup(
+  targetPath: string,
+  data: JsonObject,
+  options: OpenClawSetupOptions
+) {
   const serialized = `${JSON.stringify(data, null, 2)}\n`;
 
   if (options.dryRun) {
     log(`[DRY RUN] Would write ${targetPath}`, options.quiet);
-    log(`[DRY RUN] Redacted preview:\n${JSON.stringify(redactConfigForOutput(data), null, 2)}`, options.quiet);
+    log(
+      `[DRY RUN] Redacted preview:\n${JSON.stringify(redactConfigForOutput(data), null, 2)}`,
+      options.quiet
+    );
     return;
   }
 
@@ -216,7 +240,10 @@ function detectProjectName(): string {
   }
 
   try {
-    const remote = execSync('git remote get-url origin', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+    const remote = execSync('git remote get-url origin', {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
     const match = remote.match(/\/([^/]+?)(\.git)?$/);
     if (match?.[1]) {
       return match[1];
@@ -254,7 +281,9 @@ function looksLikePath(input: string): boolean {
 function resolvePluginSource(input?: string): string {
   const candidate =
     input?.trim() ||
-    (fs.existsSync(BUNDLED_PLUGIN_ROOT) ? BUNDLED_PLUGIN_ROOT : readCurrentPackageName() || DEFAULT_PLUGIN_SOURCE);
+    (fs.existsSync(BUNDLED_PLUGIN_ROOT)
+      ? BUNDLED_PLUGIN_ROOT
+      : readCurrentPackageName() || DEFAULT_PLUGIN_SOURCE);
   return looksLikePath(candidate) ? resolveTildePath(candidate) : candidate;
 }
 
@@ -376,7 +405,8 @@ function readWorkspaceFromConfig(): string | null {
     const config = readJsonFile(configPath);
     const agents = isRecord(config.agents) ? config.agents : undefined;
     const defaults = isRecord(agents?.defaults) ? agents.defaults : undefined;
-    const defaultWorkspace = typeof defaults?.workspace === 'string' ? defaults.workspace : undefined;
+    const defaultWorkspace =
+      typeof defaults?.workspace === 'string' ? defaults.workspace : undefined;
     if (defaultWorkspace) {
       const resolved = resolveTildePath(defaultWorkspace);
       if (fs.existsSync(resolved)) {
@@ -411,19 +441,27 @@ function readMcporterConfig(configPath: string): JsonObject {
 /**
  * Remove old AGENTS.md AutoMem block if present from previous installs.
  */
-function cleanOldAgentsBlock(workspaceDir: string, options: OpenClawSetupOptions): boolean {
+export function cleanOldAgentsBlock(workspaceDir: string, options: OpenClawSetupOptions): boolean {
   const agentsPath = path.join(workspaceDir, 'AGENTS.md');
   if (!fs.existsSync(agentsPath)) {
     return false;
   }
 
   const content = fs.readFileSync(agentsPath, 'utf8');
-  const startMarker = '<!-- BEGIN AUTOMEM OPENCLAW RULES -->';
-  const endMarker = '<!-- END AUTOMEM OPENCLAW RULES -->';
-  const startIndex = content.indexOf(startMarker);
-  const endIndex = content.indexOf(endMarker);
+  const scan = scanMarkedBlock(content, OPENCLAW_RULES_MARKERS);
 
-  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
+  if (scan.absent) {
+    return false;
+  }
+
+  if (!scan.paired) {
+    // Stripping across a stray marker walks from a start to the *next* end and takes
+    // the user's content in between with it. This is a best-effort cleanup of a legacy
+    // block, so leave the file alone and say why rather than guessing at a repair.
+    console.warn(
+      `Warning: left ${agentsPath} untouched — ${describeMarkedBlockDefect(scan, OPENCLAW_RULES_MARKERS)}. ` +
+        'Remove the stray marker by hand, then re-run.'
+    );
     return false;
   }
 
@@ -436,9 +474,7 @@ function cleanOldAgentsBlock(workspaceDir: string, options: OpenClawSetupOptions
   fs.copyFileSync(agentsPath, backup);
   log(`Backup created: ${backup}`, options.quiet);
 
-  const before = content.slice(0, startIndex).trimEnd();
-  const after = content.slice(endIndex + endMarker.length).trimStart();
-  const cleaned = `${before}${after ? `\n\n${after}` : ''}\n`;
+  const cleaned = `${stripMarkedBlock(content, OPENCLAW_RULES_MARKERS).replace(/\n+$/, '')}\n`;
 
   fs.writeFileSync(agentsPath, cleaned, 'utf8');
   log('Removed old AutoMem block from AGENTS.md', options.quiet);
@@ -473,6 +509,11 @@ function renderConfigEntryForOutput(label: string, entry: unknown, options: Open
   log(`${label}: ${JSON.stringify(redactConfigForOutput(entry), null, 2)}`, options.quiet);
 }
 
+/** A non-blank string key, or undefined. */
+function reusableKey(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 export function buildPluginConfigEntry(params: {
   existing?: Record<string, unknown>;
   endpoint: string;
@@ -482,47 +523,55 @@ export function buildPluginConfigEntry(params: {
 }): Record<string, unknown> {
   const existing = isRecord(params.existing) ? params.existing : {};
   const existingConfig = isRecord(existing.config) ? existing.config : {};
-  const existingApiKey =
-    typeof existingConfig.apiKey === 'string' && existingConfig.apiKey.trim()
-      ? existingConfig.apiKey.trim()
-      : undefined;
+  // The installed key is reused on a flagless re-run, but only when it was issued for
+  // the endpoint being written. Without the pairing check, `--endpoint B` with no
+  // --api-key kept A's key here and the plugin sent A's credential to B — the resolver
+  // correctly returned undefined and this fallback put it straight back.
+  const existingApiKey = sameEndpoint(
+    typeof existingConfig.endpoint === 'string' ? existingConfig.endpoint : undefined,
+    params.endpoint
+  )
+    ? reusableKey(existingConfig.apiKey)
+    : undefined;
+  const apiKey = params.apiKey?.trim() || existingApiKey;
 
-  return {
-    ...existing,
-    enabled: true,
-    config: {
-      ...existingConfig,
-      endpoint: params.endpoint,
-      ...(params.apiKey || existingApiKey ? { apiKey: params.apiKey || existingApiKey } : {}),
-      autoRecall:
-        typeof existingConfig.autoRecall === 'boolean' ? existingConfig.autoRecall : true,
-      ...(typeof existingConfig.autoRecallLimit === 'number' && Number.isFinite(existingConfig.autoRecallLimit)
-        ? { autoRecallLimit: existingConfig.autoRecallLimit }
-        : {}),
-      ...(typeof existingConfig.preferenceRecallLimit === 'number' &&
-      Number.isFinite(existingConfig.preferenceRecallLimit)
-        ? { preferenceRecallLimit: existingConfig.preferenceRecallLimit }
-        : {}),
-      ...(typeof existingConfig.contextRecallLimit === 'number' &&
-      Number.isFinite(existingConfig.contextRecallLimit)
-        ? { contextRecallLimit: existingConfig.contextRecallLimit }
-        : {}),
-      ...(typeof existingConfig.debugRecallLimit === 'number' &&
-      Number.isFinite(existingConfig.debugRecallLimit)
-        ? { debugRecallLimit: existingConfig.debugRecallLimit }
-        : {}),
-      ...(typeof existingConfig.contextRecallWindowDays === 'number' &&
-      Number.isFinite(existingConfig.contextRecallWindowDays)
-        ? { contextRecallWindowDays: existingConfig.contextRecallWindowDays }
-        : {}),
-      exposure:
-        typeof existingConfig.exposure === 'string' && existingConfig.exposure.trim()
-          ? existingConfig.exposure
-          : 'dm-only',
-      ...(params.defaultTags.length > 0 ? { defaultTags: params.defaultTags } : {}),
-      ...(params.startupProfile ? { startupProfile: params.startupProfile } : {}),
-    },
+  const config: Record<string, unknown> = {
+    ...existingConfig,
+    endpoint: params.endpoint,
+    autoRecall: typeof existingConfig.autoRecall === 'boolean' ? existingConfig.autoRecall : true,
+    ...(typeof existingConfig.autoRecallLimit === 'number' &&
+    Number.isFinite(existingConfig.autoRecallLimit)
+      ? { autoRecallLimit: existingConfig.autoRecallLimit }
+      : {}),
+    ...(typeof existingConfig.preferenceRecallLimit === 'number' &&
+    Number.isFinite(existingConfig.preferenceRecallLimit)
+      ? { preferenceRecallLimit: existingConfig.preferenceRecallLimit }
+      : {}),
+    ...(typeof existingConfig.contextRecallLimit === 'number' &&
+    Number.isFinite(existingConfig.contextRecallLimit)
+      ? { contextRecallLimit: existingConfig.contextRecallLimit }
+      : {}),
+    ...(typeof existingConfig.debugRecallLimit === 'number' &&
+    Number.isFinite(existingConfig.debugRecallLimit)
+      ? { debugRecallLimit: existingConfig.debugRecallLimit }
+      : {}),
+    ...(typeof existingConfig.contextRecallWindowDays === 'number' &&
+    Number.isFinite(existingConfig.contextRecallWindowDays)
+      ? { contextRecallWindowDays: existingConfig.contextRecallWindowDays }
+      : {}),
+    exposure:
+      typeof existingConfig.exposure === 'string' && existingConfig.exposure.trim()
+        ? existingConfig.exposure
+        : 'dm-only',
+    ...(params.defaultTags.length > 0 ? { defaultTags: params.defaultTags } : {}),
+    ...(params.startupProfile ? { startupProfile: params.startupProfile } : {}),
   };
+  // Explicit delete, not an omitted spread: `...existingConfig` above already copied
+  // the old key forward, so leaving it out of the literal would not remove it.
+  if (apiKey) config.apiKey = apiKey;
+  else delete config.apiKey;
+
+  return { ...existing, enabled: true, config };
 }
 
 export function buildSkillConfigEntry(params: {
@@ -533,21 +582,57 @@ export function buildSkillConfigEntry(params: {
 }): Record<string, unknown> {
   const existing = isRecord(params.existing) ? params.existing : {};
   const existingEnv = isRecord(existing.env) ? existing.env : {};
-  const existingApiKey =
-    typeof existing.apiKey === 'string' && existing.apiKey.trim() ? existing.apiKey.trim() : undefined;
+  // Same pairing rule as the plugin entry; here the previously written endpoint lives
+  // in the entry's own env block. Read under both supported names — an entry written
+  // before the AUTOMEM_ENDPOINT → AUTOMEM_API_URL rename still names its endpoint, and
+  // reading only the canonical one would call a matching pair unpaired and delete the
+  // key out of a working authenticated install.
+  const existingEndpoint = readEndpointFrom(existingEnv);
+  // The credential can live in either of two places on disk, and both have to obey the
+  // pairing. Pre-#77 installs wrote it *inside* this env block (`configureEnvVars` set
+  // AUTOMEM_ENDPOINT and AUTOMEM_API_KEY into the same literal); the current shape is a
+  // top-level `apiKey`. Guarding only the top-level field let the env copy ride along:
+  // `...existingEnv` carried the old key forward while both endpoint names beside it
+  // were rewritten to the new host.
+  const existingApiKey = sameEndpoint(existingEndpoint, params.endpoint)
+    ? (reusableKey(existing.apiKey) ?? readApiKeyFrom(existingEnv))
+    : undefined;
+  const apiKey = params.apiKey?.trim() || existingApiKey;
 
-  return {
-    ...existing,
-    enabled: true,
-    ...(params.apiKey || existingApiKey ? { apiKey: params.apiKey || existingApiKey } : {}),
-    env: {
-      ...existingEnv,
-      AUTOMEM_API_URL: params.endpoint,
-      ...(params.defaultTags.length > 0
-        ? { AUTOMEM_DEFAULT_TAGS: params.defaultTags.join(',') }
-        : {}),
-    },
+  const env: Record<string, unknown> = {
+    ...existingEnv,
+    AUTOMEM_API_URL: params.endpoint,
+    // The spread carries a pre-rename AUTOMEM_ENDPOINT forward untouched, which would
+    // leave it naming the *old* host after an endpoint change. Kept in sync when the
+    // entry already uses it, never added when it does not — matching how install.ts
+    // treats the same alias in .env.
+    ...(typeof existingEnv.AUTOMEM_ENDPOINT === 'string'
+      ? { AUTOMEM_ENDPOINT: params.endpoint }
+      : {}),
+    ...(params.defaultTags.length > 0
+      ? { AUTOMEM_DEFAULT_TAGS: params.defaultTags.join(',') }
+      : {}),
   };
+  // Blank overrides, not deletes. Deleting clears the value the spread copied forward,
+  // but this env block is layered over the host's own when the skill's curl commands
+  // and the mcporter subprocess run — so an absent name lets a shell-exported key,
+  // issued for a different endpoint, pass through to a server this entry just
+  // repointed. Same boundary, and the same treatment, as the Grok and Hermes entries.
+  if (apiKey) {
+    // A resolved key lives in the top-level `apiKey` field, which is what OpenClaw maps
+    // into the skill's environment; an env copy is only synced when the entry already
+    // carried one, so the entry shape does not change.
+    for (const name of AUTOMEM_API_KEY_NAMES) {
+      if (Object.prototype.hasOwnProperty.call(env, name)) env[name] = apiKey;
+    }
+  } else {
+    for (const name of AUTOMEM_API_KEY_NAMES) env[name] = '';
+  }
+
+  const entry: Record<string, unknown> = { ...existing, enabled: true, env };
+  if (apiKey) entry.apiKey = apiKey;
+  else delete entry.apiKey;
+  return entry;
 }
 
 export function buildMcporterConfig(params: {
@@ -593,7 +678,9 @@ export function enablePluginsCommand(config: JsonObject): void {
 export function allowPluginWhenAllowlistExists(config: JsonObject, pluginId: string): void {
   const plugins = isRecord(config.plugins) ? { ...config.plugins } : {};
   const allow = Array.isArray(plugins.allow)
-    ? plugins.allow.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    ? plugins.allow.filter(
+        (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+      )
     : [];
 
   if (allow.length === 0 || allow.includes(pluginId)) {
@@ -610,14 +697,21 @@ export function allowPluginWhenAllowlistExists(config: JsonObject, pluginId: str
 export function allowAutoMemTools(config: JsonObject): void {
   const tools = isRecord(config.tools) ? { ...config.tools } : {};
   const allow = Array.isArray(tools.allow)
-    ? tools.allow.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    ? tools.allow.filter(
+        (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+      )
     : [];
   const alsoAllow = Array.isArray(tools.alsoAllow)
-    ? tools.alsoAllow.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    ? tools.alsoAllow.filter(
+        (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+      )
     : [];
   const normalizedAutoMemTools = new Set(OPENCLAW_TOOL_NAMES);
   const legacyAutoMemOnlyAllow =
-    allow.length > 0 && allow.every((entry) => normalizedAutoMemTools.has(entry as (typeof OPENCLAW_TOOL_NAMES)[number]));
+    allow.length > 0 &&
+    allow.every((entry) =>
+      normalizedAutoMemTools.has(entry as (typeof OPENCLAW_TOOL_NAMES)[number])
+    );
 
   if (allow.length > 0 && !legacyAutoMemOnlyAllow) {
     const nextAllow = [...allow];
@@ -669,9 +763,7 @@ export function hasOnboardingArtifacts(workspaceDir: string | null): boolean {
     return false;
   }
 
-  return OPENCLAW_ONBOARDING_ARTIFACTS.some((name) =>
-    fs.existsSync(path.join(workspaceDir, name))
-  );
+  return OPENCLAW_ONBOARDING_ARTIFACTS.some((name) => fs.existsSync(path.join(workspaceDir, name)));
 }
 
 export function isFreshOnboardingTarget(config: JsonObject, workspaceDir: string | null): boolean {
@@ -784,7 +876,10 @@ function archiveSkillOverride(targetPath: string, options: OpenClawSetupOptions)
   return archived;
 }
 
-function archiveLegacySkillOverrides(workspaceDir: string | null, options: OpenClawSetupOptions): string[] {
+function archiveLegacySkillOverrides(
+  workspaceDir: string | null,
+  options: OpenClawSetupOptions
+): string[] {
   const archived: string[] = [];
   const sharedSkillDir = path.join(os.homedir(), '.openclaw', 'skills', OPENCLAW_PLUGIN_ID);
   const workspaceSkillDir = workspaceDir
@@ -843,9 +938,7 @@ export function disableSessionMemoryHook(config: JsonObject) {
   const hooks = isRecord(config.hooks) ? { ...config.hooks } : {};
   const internal = isRecord(hooks.internal) ? { ...hooks.internal } : {};
   const entries = isRecord(internal.entries) ? { ...internal.entries } : {};
-  const sessionMemory = isRecord(entries['session-memory'])
-    ? { ...entries['session-memory'] }
-    : {};
+  const sessionMemory = isRecord(entries['session-memory']) ? { ...entries['session-memory'] } : {};
   sessionMemory.enabled = false;
   entries['session-memory'] = sessionMemory as JsonValue;
   internal.entries = entries as JsonValue;
@@ -887,7 +980,11 @@ function resolveMcporterConfigPath(scope: OpenClawSetupScope, workspaceDir: stri
   return path.join(workspaceDir, 'config', 'mcporter.json');
 }
 
-function updateOpenClawConfig(config: JsonObject, configPath: string, options: OpenClawSetupOptions) {
+function updateOpenClawConfig(
+  config: JsonObject,
+  configPath: string,
+  options: OpenClawSetupOptions
+) {
   writeJsonFileWithBackup(configPath, config, options);
 }
 
@@ -923,7 +1020,10 @@ async function applyPluginMode(params: {
       enableSkipBootstrap(params.config);
       startupProfile = await hydrateStartupProfile(client);
       if (startupProfile) {
-        log('Hydrated startup profile from AutoMem for the first OpenClaw turn.', params.options.quiet);
+        log(
+          'Hydrated startup profile from AutoMem for the first OpenClaw turn.',
+          params.options.quiet
+        );
       }
       log(
         `${probe.reason}${probe.memoryCount ? ` (${probe.memoryCount} memory found in probe)` : ''}`,
@@ -1075,14 +1175,18 @@ function resolveEndpoint(options: OpenClawSetupOptions): string {
   );
 }
 
-function resolveApiKey(options: OpenClawSetupOptions): string | undefined {
-  return options.apiKey?.trim() || readAutoMemApiKeyFromEnv();
+// A key belongs to the endpoint it was issued for: an exported key with an exported
+// endpoint must not follow `--endpoint <other>` to a different host. The *stored* half
+// is enforced in buildPluginConfigEntry/buildSkillConfigEntry instead, because the
+// previously written endpoint lives in the config entry those functions already read.
+export function resolveApiKey(options: OpenClawSetupOptions, endpoint: string): string | undefined {
+  return resolveInheritedApiKey({ endpoint, explicitKey: options.apiKey });
 }
 
 export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Promise<void> {
   const projectName = cliOptions.projectName ?? detectProjectName();
   const endpoint = resolveEndpoint(cliOptions);
-  const apiKey = resolveApiKey(cliOptions);
+  const apiKey = resolveApiKey(cliOptions, endpoint);
   const defaultTags = buildDefaultTags(projectName);
   const workspaceDir = resolveWorkspaceDir(cliOptions.workspace);
   const requiresWorkspace = cliOptions.mode !== 'plugin' || cliOptions.scope === 'workspace';
@@ -1162,9 +1266,15 @@ export async function applyOpenClawSetup(cliOptions: OpenClawSetupOptions): Prom
   log('', cliOptions.quiet);
   log('OpenClaw AutoMem setup complete.', cliOptions.quiet);
   if (cliOptions.mode === 'plugin') {
-    log('Next: restart the OpenClaw gateway so the plugin and bundled skill are reloaded.', cliOptions.quiet);
+    log(
+      'Next: restart the OpenClaw gateway so the plugin and bundled skill are reloaded.',
+      cliOptions.quiet
+    );
   } else if (cliOptions.mode === 'mcp') {
-    log('Next: start a new session so OpenClaw loads the mcporter-backed AutoMem tools.', cliOptions.quiet);
+    log(
+      'Next: start a new session so OpenClaw loads the mcporter-backed AutoMem tools.',
+      cliOptions.quiet
+    );
   } else {
     log('Next: start a new session so OpenClaw loads the legacy curl skill.', cliOptions.quiet);
   }

@@ -15,6 +15,11 @@ export interface FakeAutoMemApi {
   close: () => Promise<void>;
 }
 
+/** The id the fake API mints for the nth stored memory: UUID-shaped, as the client requires. */
+export function fakeMemoryId(n: number): string {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+}
+
 export async function startFakeAutoMemApi(): Promise<FakeAutoMemApi> {
   const requests: FakeAutoMemApi['requests'] = [];
   let memoryCounter = 0;
@@ -91,7 +96,7 @@ export async function startFakeAutoMemApi(): Promise<FakeAutoMemApi> {
     if (method === 'POST' && url.pathname === '/memory') {
       memoryCounter += 1;
       sendJson(200, {
-        memory_id: `mem-${memoryCounter}`,
+        memory_id: fakeMemoryId(memoryCounter),
         message: 'Memory stored successfully',
       });
       return;
@@ -148,12 +153,7 @@ export class StdioMcpClient {
   private stderrBuffer = '';
   private invalidStdout: string[] = [];
 
-  constructor(
-    command: string,
-    args: string[],
-    env: NodeJS.ProcessEnv,
-    cwd: string,
-  ) {
+  constructor(command: string, args: string[], env: NodeJS.ProcessEnv, cwd: string) {
     this.child = spawn(command, args, {
       cwd,
       env,
@@ -168,7 +168,7 @@ export class StdioMcpClient {
     });
     this.child.on('exit', (code, signal) => {
       const error = new Error(
-        `MCP server exited before response (code=${code}, signal=${signal})\n${this.stderrBuffer}`,
+        `MCP server exited before response (code=${code}, signal=${signal})\n${this.stderrBuffer}`
       );
       for (const pending of this.pending.values()) {
         pending.reject(error);
@@ -294,7 +294,7 @@ export function hermesPythonPath(): string | null {
   }
   candidates.push(
     path.resolve(path.dirname(wrapper), '..', 'hermes-agent', 'venv', 'bin', 'python'),
-    path.join(process.env.HOME ?? '', '.hermes', 'hermes-agent', 'venv', 'bin', 'python'),
+    path.join(process.env.HOME ?? '', '.hermes', 'hermes-agent', 'venv', 'bin', 'python')
   );
 
   for (const python of candidates) {

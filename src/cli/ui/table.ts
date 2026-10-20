@@ -31,7 +31,5 @@ export function keyValueRows(rows: TableRow[], theme: Theme, indent = '  '): str
 }
 
 export function bulletList(items: string[], theme: Theme, indent = '  '): string {
-  return items
-    .map((item) => `${indent}${theme.style.dim(theme.symbol.bullet)} ${item}`)
-    .join('\n');
+  return items.map((item) => `${indent}${theme.style.dim(theme.symbol.bullet)} ${item}`).join('\n');
 }

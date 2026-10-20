@@ -9,9 +9,7 @@
 // which are standardizing on _KEY). AUTOMEM_API_TOKEN is the deprecated alias,
 // still read so the Railway template / SSE sidecar / existing deploys (which set
 // AUTOMEM_API_TOKEN) keep working.
-export function readAutoMemApiKeyFromEnv(
-  env: NodeJS.ProcessEnv = process.env
-): string | undefined {
+export function readAutoMemApiKeyFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const candidates = [
     env.AUTOMEM_API_KEY,
     env.AUTOMEM_API_TOKEN,
@@ -19,19 +17,16 @@ export function readAutoMemApiKeyFromEnv(
     env.CLAUDE_PLUGIN_OPTION_API_TOKEN ?? env.CLAUDE_PLUGIN_OPTION_api_token,
   ];
   for (const candidate of candidates) {
-    const value = String(candidate ?? "").trim();
+    const value = String(candidate ?? '').trim();
     if (value) return value;
   }
   return undefined;
 }
 
-export const DEFAULT_AUTOMEM_API_URL = "http://127.0.0.1:8001";
+export const DEFAULT_AUTOMEM_API_URL = 'http://127.0.0.1:8001';
 
 export type AutoMemApiUrlSource =
-  | "AUTOMEM_API_URL"
-  | "CLAUDE_PLUGIN_OPTION_API_URL"
-  | "AUTOMEM_ENDPOINT"
-  | "default";
+  'AUTOMEM_API_URL' | 'CLAUDE_PLUGIN_OPTION_API_URL' | 'AUTOMEM_ENDPOINT' | 'default';
 
 // Precedence: the documented env var beats the plugin prompt (a user who
 // exports AUTOMEM_API_URL has configured explicitly); the plugin prompt
@@ -41,17 +36,17 @@ export function resolveAutoMemApiUrl(env: NodeJS.ProcessEnv = process.env): {
   url: string;
   source: AutoMemApiUrlSource;
 } {
-  const candidates: Array<[Exclude<AutoMemApiUrlSource, "default">, string | undefined]> = [
-    ["AUTOMEM_API_URL", env.AUTOMEM_API_URL],
+  const candidates: Array<[Exclude<AutoMemApiUrlSource, 'default'>, string | undefined]> = [
+    ['AUTOMEM_API_URL', env.AUTOMEM_API_URL],
     [
-      "CLAUDE_PLUGIN_OPTION_API_URL",
+      'CLAUDE_PLUGIN_OPTION_API_URL',
       env.CLAUDE_PLUGIN_OPTION_API_URL ?? env.CLAUDE_PLUGIN_OPTION_api_url,
     ],
-    ["AUTOMEM_ENDPOINT", env.AUTOMEM_ENDPOINT],
+    ['AUTOMEM_ENDPOINT', env.AUTOMEM_ENDPOINT],
   ];
   for (const [source, candidate] of candidates) {
-    const value = String(candidate ?? "").trim();
+    const value = String(candidate ?? '').trim();
     if (value) return { url: value, source };
   }
-  return { url: DEFAULT_AUTOMEM_API_URL, source: "default" };
+  return { url: DEFAULT_AUTOMEM_API_URL, source: 'default' };
 }

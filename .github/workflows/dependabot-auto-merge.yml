@@ -1,0 +1,145 @@
+name: Dependabot Auto-merge
+
+# Dependabot-triggered runs are treated like fork PRs, so GITHUB_TOKEN is read-only by
+# default. A plain `pull_request` run can lift that with an explicit `permissions:`
+# block — that is what GitHub's own auto-merge example does — so this is not the only
+# way to get a write token. `pull_request_target` is used because it reads the workflow
+# from the base branch rather than the PR head, so the provenance check below cannot be
+# edited by whatever is on the branch it is judging. Nothing here checks out or executes
+# PR code, which is what keeps `pull_request_target` safe to use.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+# Unchanged. Arming auto-merge now uses the GitHub App token minted below, so in the
+# normal path GITHUB_TOKEN does nothing — but it is still the cancel step's fallback,
+# and that path only runs when minting failed and an App-armed auto-merge has to be
+# disarmed. That case cannot be exercised until the App exists, so this keeps the
+# permission set `gh pr merge` was known to work with rather than narrowing on a guess.
+permissions:
+  contents: write
+  pull-requests: write
+
+# One run at a time per PR, newest wins. Without this, two overlapping `synchronize`
+# runs can interleave: the older one validates a Dependabot-only head, the newer one
+# cancels auto-merge after a human push, and then the older one re-arms against the
+# head it never saw. A cancelled run stops at the `!cancelled()` guard below, so the
+# surviving newest run is the only one that acts.
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    # Gate on the PR *author*, not `github.actor`. The actor is whoever triggered the
+    # run, so gating on it would skip this job when a maintainer pushes to, or
+    # reopens, a Dependabot PR — and GitHub only cancels auto-merge for pushes by
+    # users *without* write access. Running on author lets the job re-evaluate on
+    # every update, and the provenance check below is what actually decides.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      # GitHub does not start new workflow runs from events caused by GITHUB_TOKEN, and
+      # that extends to the merge an auto-merge it armed performs. Measured on this repo:
+      # the three auto-merged bumps 5775c95, 07db972 and 9ed9084 each produced 0 runs for
+      # `event=push`, while the human merges on either side (d2a2660, 06f6fb1) each
+      # produced 4 — CI, Release Please, Security, and Docs Dispatch, which is a
+      # `workflow_call` from release-please gated on `release_created` rather than a
+      # push-triggered workflow of its own, so an ordinary bump shows 3, not 4. A GitHub App
+      # installation token is not GITHUB_TOKEN, so merges it performs do start those
+      # runs. The same swap is what a merge queue would need: GITHUB_TOKEN cannot add a
+      # pull request to one either.
+      #
+      # Pinned to an exact version rather than the `v3` major, so a new release cannot
+      # change what runs here without a commit. `client-id` is used because `app-id` is
+      # deprecated in v3 and warns on every run. The `permission-*` inputs narrow the
+      # minted token to what this job actually does, independently of whatever
+      # permissions the App itself is granted.
+      - name: Mint a GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.AUTOMERGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      # Eligibility comes from who wrote the commits, not from who triggered the run.
+      # `github.actor` is the maintainer on a human `reopened` or `synchronize`, which
+      # says nothing about the contents: a reopened PR still holds only Dependabot's
+      # commit and stays eligible, while a pushed-to branch does not. Fails closed —
+      # an unattributed commit has no login and is treated as not Dependabot's.
+      - name: Check the head holds only Dependabot commits
+        id: provenance
+        run: |
+          authors=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" \
+            --paginate --jq '.[].author.login // "unattributed"' | sort -u | paste -sd, -)
+          echo "Commit authors on this PR: ${authors}"
+          if [ "${authors}" = "dependabot[bot]" ]; then
+            echo "dependabot-only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dependabot-only=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      # Reads the bump out of the head commit message, so it is only meaningful once
+      # the head is known to be Dependabot's.
+      - name: Fetch Dependabot metadata
+        id: metadata
+        if: steps.provenance.outputs.dependabot-only == 'true'
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+
+      # Patch and minor only. Majors — the dev-vitest-majors, dev-toolchain-majors and
+      # dev-other-majors groups in dependabot.yml — stay manual: they are the
+      # ones that break builds. For a grouped PR, update-type is the highest
+      # bump in the group, so a group containing a major is not auto-merged.
+      - name: Arm auto-merge for patch and minor bumps
+        if: >-
+          steps.provenance.outputs.dependabot-only == 'true' &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor')
+        # `--match-head-commit` pins the arm to the SHA this run actually validated, so
+        # a run that was slow enough for the head to move refuses rather than arming
+        # against a commit its provenance check never inspected.
+        run: gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      # The inverse case: a human commit landed on the branch, or a rebase turned the
+      # bump into a major. Either way any previously armed auto-merge has to come
+      # back off, or it would merge content this workflow never approved.
+      - name: Cancel auto-merge on a non-Dependabot commit or a major bump
+        # `!cancelled()` is required: a custom `if:` otherwise carries an implicit
+        # `success() &&`, so a failure in the provenance or metadata step would skip
+        # this step and leave an armed auto-merge in place — failing open, which is
+        # the opposite of what the provenance check is for.
+        if: >-
+          !cancelled() &&
+          !(steps.provenance.outputs.dependabot-only == 'true' &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'))
+        run: |
+          if [ "$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')" = "true" ]; then
+            echo "Auto-merge is armed but this head is not an auto-mergeable Dependabot bump; cancelling."
+            gh pr merge --disable-auto "$PR_URL"
+          else
+            echo "Auto-merge is not armed; nothing to cancel."
+          fi
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          # This is the only step that falls back to GITHUB_TOKEN, and it has to. If the
+          # App token cannot be minted — secrets missing, key rotated, App uninstalled —
+          # every step above is skipped by the implicit `success()`, but this one still
+          # runs on `!cancelled()`. With an empty token `gh` would fail on auth and an
+          # already-armed auto-merge would survive: exactly the fail-open case the
+          # `!cancelled()` guard exists to prevent. Disarming does not need to trigger
+          # downstream workflows, so GITHUB_TOKEN is sufficient here; arming is the only
+          # step that genuinely requires the App token.
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}

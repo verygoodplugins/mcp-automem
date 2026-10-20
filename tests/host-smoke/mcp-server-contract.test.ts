@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
 import {
+  fakeMemoryId,
   localMcpServerCommand,
   startFakeAutoMemApi,
   StdioMcpClient,
@@ -22,7 +23,7 @@ describe('MCP server real stdio contract', () => {
         AUTOMEM_PARENT_WATCHDOG_MS: '0',
         DOTENV_CONFIG_QUIET: 'true',
       },
-      REPO_ROOT,
+      REPO_ROOT
     );
 
     try {
@@ -48,14 +49,26 @@ describe('MCP server real stdio contract', () => {
       // three on every session. CC also truncates descriptions at 2KB under tool
       // search, so every description must stay within that cap.
       const alwaysLoaded = listed.tools
-        .filter((tool: { _meta?: Record<string, unknown> }) => tool._meta?.['anthropic/alwaysLoad'] === true)
+        .filter(
+          (tool: { _meta?: Record<string, unknown> }) =>
+            tool._meta?.['anthropic/alwaysLoad'] === true
+        )
         .map((tool: { name: string }) => tool.name);
       expect(alwaysLoaded).toEqual(['store_memory', 'recall_memory', 'associate_memories']);
       for (const tool of listed.tools) {
         expect(Buffer.byteLength(tool.description ?? '', 'utf8')).toBeLessThanOrEqual(2048);
       }
 
-      const recallTool = listed.tools.find((tool: { name: string }) => tool.name === 'recall_memory');
+      const recallTool = listed.tools.find(
+        (tool: { name: string }) => tool.name === 'recall_memory'
+      );
+      // The AutoMem service always mints a server-side UUID (memory.py: "Always
+      // generate server-side UUID to prevent collision/overwrite attacks") and
+      // never reads an inbound id. Advertising the parameter promises something
+      // no deployment can honor.
+      const storeTool = listed.tools.find((tool: { name: string }) => tool.name === 'store_memory');
+      expect(storeTool.inputSchema.properties).not.toHaveProperty('id');
+
       expect(recallTool.inputSchema.properties).toMatchObject({
         state_mode: { type: 'string', enum: ['current', 'history'] },
         recency_bias: { type: 'string', enum: ['auto', 'on', 'off'] },
@@ -66,7 +79,7 @@ describe('MCP server real stdio contract', () => {
       });
 
       const associateTool = listed.tools.find(
-        (tool: { name: string }) => tool.name === 'associate_memories',
+        (tool: { name: string }) => tool.name === 'associate_memories'
       );
       expect(associateTool.inputSchema.required ?? []).toEqual([]);
       expect(associateTool.inputSchema.properties.associations).toMatchObject({
@@ -80,8 +93,7 @@ describe('MCP server real stdio contract', () => {
         transformation: { type: 'string' },
       });
 
-      const associationItem =
-        associateTool.inputSchema.properties.associations.items.properties;
+      const associationItem = associateTool.inputSchema.properties.associations.items.properties;
       expect(associationItem).toMatchObject({
         context: { type: 'string' },
         reason: { type: 'string' },
@@ -89,7 +101,7 @@ describe('MCP server real stdio contract', () => {
       });
 
       const healthTool = listed.tools.find(
-        (tool: { name: string }) => tool.name === 'check_database_health',
+        (tool: { name: string }) => tool.name === 'check_database_health'
       );
       expect(healthTool.outputSchema.properties.status.enum).toEqual([
         'healthy',
@@ -111,7 +123,7 @@ describe('MCP server real stdio contract', () => {
           importance: 0.7,
         },
       });
-      expect(stored.structuredContent.memory_id).toBe('mem-1');
+      expect(stored.structuredContent.memory_id).toBe(fakeMemoryId(1));
 
       const recalled = await client.request('tools/call', {
         name: 'recall_memory',
@@ -129,7 +141,9 @@ describe('MCP server real stdio contract', () => {
         '/memory',
         '/recall?query=stdio+smoke&limit=1&tags=host-smoke',
       ]);
-      expect(fakeApi.requests.every((request) => request.authorization === 'Bearer test-key')).toBe(true);
+      expect(fakeApi.requests.every((request) => request.authorization === 'Bearer test-key')).toBe(
+        true
+      );
     } finally {
       await client.close();
       await fakeApi.close();

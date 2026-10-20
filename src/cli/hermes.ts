@@ -5,10 +5,19 @@ import {
   CommonOptions,
   detectProjectName,
   log,
+  type MarkedBlockMarkers,
   parseCommonFlags,
   replaceTemplateVars,
+  AUTOMEM_API_KEY_NAMES,
+  AUTOMEM_ENDPOINT_NAMES,
+  parseEnvAssignment,
+  resolveInheritedApiKey,
+  scanMarkedBlock,
+  stripMarkedBlock,
+  upsertMarkedBlock,
   writeFileWithBackup,
 } from './host-toolkit.js';
+import { CODEX_RULES_MARKERS } from './codex.js';
 import {
   buildAutoMemServerEntry,
   readExistingHermesCredentials,
@@ -18,7 +27,6 @@ import {
   upsertHermesMemoryProvider,
   upsertMcpServer,
 } from './hermes-config.js';
-import { readAutoMemApiKeyFromEnv } from '../env.js';
 import { renderHermesModeRules } from '../memory-policy/shared.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
@@ -37,37 +45,24 @@ const HERMES_TEMPLATE_ROOT = path.resolve(
 const HERMES_PROVIDER_TEMPLATE_ROOT = path.join(HERMES_TEMPLATE_ROOT, 'provider');
 const HERMES_MCP_SERVER_NAME = 'automem';
 const HERMES_PROVIDER_NAME = 'automem';
-const HERMES_RULES_START = '<!-- BEGIN AUTOMEM HERMES RULES -->';
-const HERMES_RULES_END = '<!-- END AUTOMEM HERMES RULES -->';
-const CODEX_RULES_START = '<!-- BEGIN AUTOMEM CODEX RULES -->';
-const CODEX_RULES_END = '<!-- END AUTOMEM CODEX RULES -->';
+export const HERMES_RULES_START = '<!-- BEGIN AUTOMEM HERMES RULES -->';
+export const HERMES_RULES_END = '<!-- END AUTOMEM HERMES RULES -->';
+const HERMES_RULES_MARKERS: MarkedBlockMarkers = {
+  start: HERMES_RULES_START,
+  end: HERMES_RULES_END,
+};
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function removeMarkedBlocks(existing: string, start: string, end: string): string {
-  const pattern = new RegExp(`\\n?${escapeRegExp(start)}[\\s\\S]*?${escapeRegExp(end)}\\n?`, 'g');
-  return existing.replace(pattern, '\n').replace(/\n{3,}/g, '\n\n');
-}
-
-function upsertRulesWithMarkers(existing: string | null, block: string): string {
-  // Normalize to exactly one trailing newline so re-runs are byte-stable
-  // (the previous codex.ts shape accreted a newline each merge).
-  const normalize = (s: string) => `${s.replace(/\n+$/, '')}\n`;
+function upsertRulesWithMarkers(existing: string | null, block: string, rulesPath: string): string {
   if (!existing) {
-    return normalize(block);
+    return upsertMarkedBlock(null, block, HERMES_RULES_MARKERS, rulesPath);
   }
-  const cleaned = removeMarkedBlocks(existing, CODEX_RULES_START, CODEX_RULES_END);
-  const startIdx = cleaned.indexOf(HERMES_RULES_START);
-  const endIdx = cleaned.indexOf(HERMES_RULES_END);
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const before = cleaned.slice(0, startIdx);
-    const after = cleaned.slice(endIdx + HERMES_RULES_END.length);
-    return normalize(`${before}${block}${after}`);
-  }
-  const sep = cleaned.endsWith('\n') ? '\n' : '\n\n';
-  return normalize(`${cleaned}${sep}${block}`);
+  // Hermes used to install the Codex rules into this same file. Dropping that block is
+  // a best-effort migration, so a malformed Codex pair is left alone rather than made
+  // fatal — the Hermes block is what this run is responsible for, and refusing the
+  // install over someone else's stray marker helps nobody.
+  const codexScan = scanMarkedBlock(existing, CODEX_RULES_MARKERS);
+  const cleaned = codexScan.paired ? stripMarkedBlock(existing, CODEX_RULES_MARKERS) : existing;
+  return upsertMarkedBlock(cleaned, block, HERMES_RULES_MARKERS, rulesPath);
 }
 
 function formatEnvValue(value: string): string {
@@ -79,10 +74,10 @@ function formatEnvValue(value: string): string {
 function mergeHermesEnvFile(
   envPath: string,
   updates: Record<string, string | undefined>,
-  options: Pick<CommonOptions, 'dryRun' | 'quiet'>,
+  options: Pick<CommonOptions, 'dryRun' | 'quiet'>
 ): void {
   const filtered = Object.fromEntries(
-    Object.entries(updates).filter((entry): entry is [string, string] => Boolean(entry[1])),
+    Object.entries(updates).filter((entry): entry is [string, string] => Boolean(entry[1]))
   );
   if (Object.keys(filtered).length === 0) return;
 
@@ -91,22 +86,26 @@ function mergeHermesEnvFile(
     return;
   }
 
-  const lines: Array<{ key?: string; line: string }> = [];
+  const lines: Array<{ key?: string; exported?: boolean; line: string }> = [];
   if (fs.existsSync(envPath)) {
     for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
       if (!line.trim()) {
         lines.push({ line });
         continue;
       }
-      const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
-      lines.push(match ? { key: match[1].trim(), line } : { line });
+      const assignment = parseEnvAssignment(line);
+      lines.push(
+        assignment ? { key: assignment.key, exported: assignment.exported, line } : { line }
+      );
     }
   }
 
   const updatedKeys = new Set<string>();
   for (const entry of lines) {
     if (entry.key && Object.prototype.hasOwnProperty.call(filtered, entry.key)) {
-      entry.line = `${entry.key}=${formatEnvValue(filtered[entry.key])}`;
+      // Put the `export ` prefix back rather than silently changing what the line
+      // means to a shell sourcing this file.
+      entry.line = `${entry.exported ? 'export ' : ''}${entry.key}=${formatEnvValue(filtered[entry.key])}`;
       updatedKeys.add(entry.key);
     }
   }
@@ -116,9 +115,15 @@ function mergeHermesEnvFile(
     }
   }
 
-  const content = lines.map((entry) => entry.line).join('\n').replace(/\s+$/, '');
+  const content = lines
+    .map((entry) => entry.line)
+    .join('\n')
+    .replace(/\s+$/, '');
   fs.mkdirSync(path.dirname(envPath), { recursive: true });
-  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   try {
     fs.chmodSync(envPath, 0o600);
   } catch {
@@ -130,14 +135,14 @@ function mergeHermesEnvFile(
 function removeHermesEnvKeys(
   envPath: string,
   keys: string[],
-  options: Pick<CommonOptions, 'dryRun' | 'quiet'>,
+  options: Pick<CommonOptions, 'dryRun' | 'quiet'>
 ): boolean {
   if (!fs.existsSync(envPath)) return false;
   const keySet = new Set(keys);
   const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
   const filtered = lines.filter((line) => {
-    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
-    return !match || !keySet.has(match[1]);
+    const assignment = parseEnvAssignment(line);
+    return !assignment || !keySet.has(assignment.key);
   });
   if (filtered.join('\n') === lines.join('\n')) return false;
 
@@ -147,7 +152,10 @@ function removeHermesEnvKeys(
   }
 
   const content = filtered.join('\n').replace(/\s+$/, '');
-  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(envPath, content.length ? `${content}\n` : '', {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   try {
     fs.chmodSync(envPath, 0o600);
   } catch {
@@ -162,7 +170,7 @@ function installHermesProvider(
   endpoint: string,
   apiKey: string | undefined,
   providerToolsEnabled: boolean,
-  options: Pick<CommonOptions, 'dryRun' | 'quiet'>,
+  options: Pick<CommonOptions, 'dryRun' | 'quiet'>
 ): void {
   const providerRoot = path.join(paths.home, 'plugins', HERMES_PROVIDER_NAME);
   const files = ['__init__.py', 'plugin.yaml', 'cli.py', 'automem_policy.py'];
@@ -173,14 +181,23 @@ function installHermesProvider(
     writeFileWithBackup(targetPath, content, options);
   }
 
+  const envPath = path.join(paths.home, '.env');
+  // An absent update is not a deletion — mergeHermesEnvFile drops undefined values so
+  // unrelated settings survive a partial write. So when no key resolved for this run,
+  // the persisted one has to be removed explicitly: rewriting AUTOMEM_API_URL to a new
+  // endpoint while leaving the old credential in place makes the provider send that
+  // credential to the new host. Both supported names go, since either authenticates.
+  if (!apiKey) {
+    removeHermesEnvKeys(envPath, [...AUTOMEM_API_KEY_NAMES], options);
+  }
   mergeHermesEnvFile(
-    path.join(paths.home, '.env'),
+    envPath,
     {
       AUTOMEM_API_URL: endpoint,
       AUTOMEM_API_KEY: apiKey,
       AUTOMEM_HERMES_PROVIDER_TOOLS: providerToolsEnabled ? 'true' : 'false',
     },
-    options,
+    options
   );
 
   upsertHermesMemoryProvider(paths.configPath, HERMES_PROVIDER_NAME, options);
@@ -202,7 +219,15 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
     process.env.AUTOMEM_ENDPOINT ||
     existing.endpoint ||
     DEFAULT_AUTOMEM_API_URL;
-  const apiKey = cliOptions.apiKey ?? readAutoMemApiKeyFromEnv() ?? existing.apiKey;
+  // A key belongs to the endpoint it was issued for: an exported key must not follow
+  // `--endpoint <other>` to a host it was never issued for, and neither must the key
+  // already installed for Hermes when the endpoint changes underneath it.
+  const apiKey = resolveInheritedApiKey({
+    endpoint,
+    explicitKey: cliOptions.apiKey,
+    storedEndpoint: existing.endpoint,
+    storedKey: existing.apiKey,
+  });
   const rulesPath = cliOptions.rulesPath ?? paths.agentsPath;
 
   log(`\n🔧 Setting up Hermes AutoMem for: ${projectName}`, cliOptions.quiet);
@@ -210,6 +235,23 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
   log(`📁 Hermes home: ${paths.home}`, cliOptions.quiet);
   log(`📄 Config: ${paths.configPath}`, cliOptions.quiet);
   log(`📄 Rules: ${rulesPath}\n`, cliOptions.quiet);
+
+  // Everything that can reject the run happens before anything is written, matching
+  // applyGrokSetup. upsertRulesWithMarkers throws on a stray marker, and rendering the
+  // template is pure — so validating here is what makes "nothing was written" true.
+  // Validating after the config write would leave a failed mode switch having already
+  // moved the MCP entry, the memory provider, the .env, and the provider files while
+  // telling the user to repair their rules file and re-run.
+  const templateContent = fs.readFileSync(
+    path.join(HERMES_TEMPLATE_ROOT, 'memory-rules.md'),
+    'utf8'
+  );
+  const processed = replaceTemplateVars(templateContent, {
+    PROJECT_NAME: projectName,
+    HERMES_MODE_RULES: renderHermesModeRules(mode),
+  });
+  const existingContent = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : null;
+  const finalContent = upsertRulesWithMarkers(existingContent, processed, rulesPath);
 
   if (mode === 'provider') {
     removeMcpServerEntry(paths.configPath, HERMES_MCP_SERVER_NAME, {
@@ -236,7 +278,16 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
       dryRun: cliOptions.dryRun,
       quiet: cliOptions.quiet,
     });
-    removeHermesEnvKeys(path.join(paths.home, '.env'), ['AUTOMEM_HERMES_PROVIDER_TOOLS'], cliOptions);
+    // The provider was just uninstalled, so its dotenv credentials are dead config —
+    // and worse than dead: Hermes loads this file before MCP discovery, so a key left
+    // here for the previous endpoint is inherited by the MCP server whose entry now
+    // names a different one. Removing the endpoint names too, since they belong to the
+    // provider that is going away; a later re-run recovers both from config.yaml.
+    removeHermesEnvKeys(
+      path.join(paths.home, '.env'),
+      ['AUTOMEM_HERMES_PROVIDER_TOOLS', ...AUTOMEM_API_KEY_NAMES, ...AUTOMEM_ENDPOINT_NAMES],
+      cliOptions
+    );
   }
 
   if (mode === 'mcp' || mode === 'both') {
@@ -255,49 +306,54 @@ export async function applyHermesSetup(cliOptions: HermesSetupOptions): Promise<
     installHermesProvider(paths, endpoint, apiKey, mode === 'provider', cliOptions);
   }
 
-  const templateContent = fs.readFileSync(
-    path.join(HERMES_TEMPLATE_ROOT, 'memory-rules.md'),
-    'utf8',
-  );
-  const processed = replaceTemplateVars(templateContent, {
-    PROJECT_NAME: projectName,
-    HERMES_MODE_RULES: renderHermesModeRules(mode),
-  });
-
-  const existingContent = fs.existsSync(rulesPath)
-    ? fs.readFileSync(rulesPath, 'utf8')
-    : null;
-  const finalContent = upsertRulesWithMarkers(existingContent, processed);
   writeFileWithBackup(rulesPath, finalContent, cliOptions);
 
   log('\n📊 Configuration Status:', cliOptions.quiet);
   if (mode === 'mcp' || mode === 'both') {
-    log(`  ✅ mcp_servers.${HERMES_MCP_SERVER_NAME} written to ${path.basename(paths.configPath)}`, cliOptions.quiet);
+    log(
+      `  ✅ mcp_servers.${HERMES_MCP_SERVER_NAME} written to ${path.basename(paths.configPath)}`,
+      cliOptions.quiet
+    );
   }
   if (mode === 'provider' || mode === 'both') {
     log(`  ✅ memory.provider set to ${HERMES_PROVIDER_NAME}`, cliOptions.quiet);
     log(`  ✅ Hermes provider installed in plugins/${HERMES_PROVIDER_NAME}`, cliOptions.quiet);
-    log('  ℹ️  If `hermes plugins list` shows AutoMem as not enabled, that is expected for memory providers', cliOptions.quiet);
+    log(
+      '  ℹ️  If `hermes plugins list` shows AutoMem as not enabled, that is expected for memory providers',
+      cliOptions.quiet
+    );
   }
   log(`  ✅ AutoMem rules installed in ${path.basename(rulesPath)}`, cliOptions.quiet);
   if (!apiKey) {
-    log('  ⚠️  No AUTOMEM_API_KEY set — set one before connecting to a remote AutoMem instance', cliOptions.quiet);
+    log(
+      '  ⚠️  No AUTOMEM_API_KEY set — set one before connecting to a remote AutoMem instance',
+      cliOptions.quiet
+    );
   }
 
   log('\n✨ Hermes AutoMem setup complete! Next steps:', cliOptions.quiet);
   log('  1. Restart Hermes (or run /reload-mcp) to pick up AutoMem changes', cliOptions.quiet);
   if (mode === 'mcp') {
     log('  2. Verify MCP tools: hermes mcp test automem', cliOptions.quiet);
-    log('  3. Start a task — Hermes should use the mcp_automem_* tools when relevant', cliOptions.quiet);
+    log(
+      '  3. Start a task — Hermes should use the mcp_automem_* tools when relevant',
+      cliOptions.quiet
+    );
   } else if (mode === 'both') {
     log('  2. Verify MCP tools: hermes mcp test automem', cliOptions.quiet);
     log('  3. Verify provider mode: hermes memory status', cliOptions.quiet);
     log('  4. Run diagnostics: hermes automem doctor', cliOptions.quiet);
-    log('  5. Explicit tools use mcp_automem_*; provider recall is injected into the model payload', cliOptions.quiet);
+    log(
+      '  5. Explicit tools use mcp_automem_*; provider recall is injected into the model payload',
+      cliOptions.quiet
+    );
   } else {
     log('  2. Verify provider mode: hermes memory status', cliOptions.quiet);
     log('  3. Run diagnostics: hermes automem doctor', cliOptions.quiet);
-    log('  4. Recall context is injected into the model payload; Hermes may not print it in the terminal UI', cliOptions.quiet);
+    log(
+      '  4. Recall context is injected into the model payload; Hermes may not print it in the terminal UI',
+      cliOptions.quiet
+    );
   }
 }
 

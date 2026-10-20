@@ -60,7 +60,7 @@ if (!isLoopbackEndpoint(endpoint) && !allowRemote) {
       '  This script seeds (and resets via DELETE) demo data. The default target is\n' +
       `  the isolated demo stack at ${DEMO_ENDPOINT}. A remote URL here usually means a\n` +
       '  stray AUTOMEM_API_URL / AUTOMEM_ENDPOINT in your shell is redirecting the run.\n' +
-      '  If you truly intend a remote target, re-run with --allow-remote.',
+      '  If you truly intend a remote target, re-run with --allow-remote.'
   );
   process.exit(1);
 }
@@ -99,12 +99,14 @@ async function request(method, path, body) {
 
 async function main() {
   console.log(`\nSeeding Hermes demo dataset → ${endpoint}`);
-  console.log(`  tag: ${DEMO_TAG}   memories: ${EXPECTED_COUNT}   api key: ${apiKey ? 'set' : 'not set'}`);
+  console.log(
+    `  tag: ${DEMO_TAG}   memories: ${EXPECTED_COUNT}   api key: ${apiKey ? 'set' : 'not set'}`
+  );
   if (endpoint === PERSONAL_ENDPOINT) {
     console.warn(
       '\n  ⚠️  Targeting the default personal AutoMem instance (:8001).\n' +
         '      Demo memories are tagged `hermes-demo` and are removed on the next reset,\n' +
-        '      but the isolated demo stack (:8051) is the intended target. Continuing.',
+        '      but the isolated demo stack (:8051) is the intended target. Continuing.'
     );
   }
 
@@ -112,7 +114,9 @@ async function main() {
     try {
       const deleted = await request('DELETE', `memory/by-tag?tags=${encodeURIComponent(DEMO_TAG)}`);
       const count = deleted?.deleted_count ?? deleted?.count ?? 0;
-      console.log(`\n  reset: removed ${count} existing \`${DEMO_TAG}\` memor${count === 1 ? 'y' : 'ies'}`);
+      console.log(
+        `\n  reset: removed ${count} existing \`${DEMO_TAG}\` memor${count === 1 ? 'y' : 'ies'}`
+      );
     } catch (err) {
       console.error(`\n  ✗ reset failed: ${err.message}`);
       process.exit(1);
@@ -136,7 +140,9 @@ async function main() {
     }
   }
 
-  console.log(`\n${stored === EXPECTED_COUNT ? '✓' : '✗'} stored ${stored}/${EXPECTED_COUNT} memories`);
+  console.log(
+    `\n${stored === EXPECTED_COUNT ? '✓' : '✗'} stored ${stored}/${EXPECTED_COUNT} memories`
+  );
   if (stored !== EXPECTED_COUNT) {
     process.exit(1);
   }

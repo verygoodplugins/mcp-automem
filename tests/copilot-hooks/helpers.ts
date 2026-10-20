@@ -16,10 +16,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-export const COPILOT_SCRIPTS_DIR = path.resolve(
-  __dirname,
-  '../../templates/copilot/scripts'
-);
+export const COPILOT_SCRIPTS_DIR = path.resolve(__dirname, '../../templates/copilot/scripts');
 
 // ---- interpreter detection (cached) ----
 
@@ -110,11 +107,7 @@ function toUnixPath(p: string): string {
  * plus stdout/stderr/exit. The HOME directory is left behind so callers can
  * inspect it; tests should register a cleanup in afterEach.
  */
-export function runCaptureHook(
-  shell: Shell,
-  scriptBaseName: string,
-  input: HookInput
-): HookResult {
+export function runCaptureHook(shell: Shell, scriptBaseName: string, input: HookInput): HookResult {
   const ext = shell === 'bash' ? '.sh' : '.ps1';
   const scriptPath = path.join(COPILOT_SCRIPTS_DIR, scriptBaseName + ext);
   if (!fs.existsSync(scriptPath)) {
@@ -172,7 +165,10 @@ export function runCaptureHook(
     const bashHome = toUnixPath(home);
     result = spawnSync(
       'bash',
-      ['-c', `export HOME="${bashHome}" AUTOMEM_API_KEY="" AUTOMEM_API_URL="" AUTOMEM_ENDPOINT=""; exec bash "${bashPath}"`],
+      [
+        '-c',
+        `export HOME="${bashHome}" AUTOMEM_API_KEY="" AUTOMEM_API_URL="" AUTOMEM_ENDPOINT=""; exec bash "${bashPath}"`,
+      ],
       {
         input: payload,
         encoding: 'utf8',
@@ -180,23 +176,19 @@ export function runCaptureHook(
       }
     );
   } else {
-    result = spawnSync(
-      'pwsh',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
-      {
-        input: payload,
-        encoding: 'utf8',
-        timeout: 15000,
-        env: {
-          ...process.env,
-          HOME: home,
-          USERPROFILE: home,
-          AUTOMEM_API_KEY: '',
-          AUTOMEM_API_URL: '',
-          AUTOMEM_ENDPOINT: '',
-        },
-      }
-    );
+    result = spawnSync('pwsh', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+      input: payload,
+      encoding: 'utf8',
+      timeout: 15000,
+      env: {
+        ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+        AUTOMEM_API_KEY: '',
+        AUTOMEM_API_URL: '',
+        AUTOMEM_ENDPOINT: '',
+      },
+    });
   }
 
   const queue = readQueue(queuePath);
@@ -230,26 +222,18 @@ export function runSessionStart(
   if (shell === 'bash') {
     const bashPath = toUnixPath(scriptPath);
     const bashCwd = toUnixPath(options.cwd ?? process.cwd());
-    result = spawnSync(
-      'bash',
-      ['-c', `cd "${bashCwd}" && exec bash "${bashPath}"`],
-      {
-        encoding: 'utf8',
-        timeout: 10000,
-        env: { ...process.env, ...options.env },
-      }
-    );
+    result = spawnSync('bash', ['-c', `cd "${bashCwd}" && exec bash "${bashPath}"`], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { ...process.env, ...options.env },
+    });
   } else {
-    result = spawnSync(
-      'pwsh',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
-      {
-        encoding: 'utf8',
-        timeout: 10000,
-        cwd: options.cwd ?? process.cwd(),
-        env: { ...process.env, ...options.env },
-      }
-    );
+    result = spawnSync('pwsh', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+      encoding: 'utf8',
+      timeout: 10000,
+      cwd: options.cwd ?? process.cwd(),
+      env: { ...process.env, ...options.env },
+    });
   }
 
   const stdout = result.stdout ?? '';

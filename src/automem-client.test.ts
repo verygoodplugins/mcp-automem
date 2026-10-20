@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { AutoMemClient } from './automem-client.js';
+import { AutoMemClient, isUuidAcceptedByApi } from './automem-client.js';
 
 const mockFetch = vi.fn();
+
+// The client refuses ids the API's uuid.UUID() would reject, so fixtures use UUIDs.
+const OLD_MEMORY_ID = '11111111-1111-4111-8111-111111111111';
+const NEW_MEMORY_ID = '22222222-2222-4222-8222-222222222222';
+const MISSING_MEMORY_ID = '33333333-3333-4333-8333-333333333333';
+const MEMORY_ID = '67c0f41f-3818-48fd-8dac-af659cbb2a4f';
 
 describe('AutoMemClient', () => {
   let client: AutoMemClient;
@@ -93,7 +99,7 @@ describe('AutoMemClient', () => {
           ok: true,
           json: async () => ({
             memory: {
-              id: 'old-memory-id',
+              id: OLD_MEMORY_ID,
               content: 'Old memory',
               metadata: { source: 'test', existing: true },
             },
@@ -101,11 +107,11 @@ describe('AutoMemClient', () => {
         } as any)
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory_id: 'new-memory-id', message: 'Memory stored' }),
+          json: async () => ({ memory_id: NEW_MEMORY_ID, message: 'Memory stored' }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory_id: 'old-memory-id', message: 'Updated' }),
+          json: async () => ({ memory_id: OLD_MEMORY_ID, message: 'Updated' }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
@@ -116,16 +122,16 @@ describe('AutoMemClient', () => {
         content: 'Corrected memory',
         tags: ['project-x', 'correction'],
         metadata: { source: 'replacement' },
-        supersedes_memory_id: 'old-memory-id',
+        supersedes_memory_id: OLD_MEMORY_ID,
         supersede_reason: 'FAMA stale fact correction',
       });
 
-      expect(result.memory_id).toBe('new-memory-id');
-      expect(result.superseded_memory_id).toBe('old-memory-id');
+      expect(result.memory_id).toBe(NEW_MEMORY_ID);
+      expect(result.superseded_memory_id).toBe(OLD_MEMORY_ID);
       expect(result.association_created).toBe(true);
 
       const fetchOldCall = mockFetch.mock.calls[0];
-      expect(fetchOldCall[0]).toBe('http://localhost:8001/memory/old-memory-id');
+      expect(fetchOldCall[0]).toBe(`http://localhost:8001/memory/${OLD_MEMORY_ID}`);
       expect(fetchOldCall[1]?.method).toBe('GET');
 
       const storeCall = mockFetch.mock.calls[1];
@@ -137,7 +143,7 @@ describe('AutoMemClient', () => {
       });
 
       const patchCall = mockFetch.mock.calls[2];
-      expect(patchCall[0]).toBe('http://localhost:8001/memory/old-memory-id');
+      expect(patchCall[0]).toBe(`http://localhost:8001/memory/${OLD_MEMORY_ID}`);
       expect(patchCall[1]?.method).toBe('PATCH');
       const patchBody = JSON.parse(patchCall[1]?.body as string);
       expect(patchBody.t_invalid).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -145,7 +151,7 @@ describe('AutoMemClient', () => {
         source: 'test',
         existing: true,
         deprecated: true,
-        superseded_by: 'new-memory-id',
+        superseded_by: NEW_MEMORY_ID,
         supersede_relation: 'INVALIDATED_BY',
         supersede_reason: 'FAMA stale fact correction',
       });
@@ -153,8 +159,8 @@ describe('AutoMemClient', () => {
       const associateCall = mockFetch.mock.calls[3];
       expect(associateCall[0]).toBe('http://localhost:8001/associate');
       expect(JSON.parse(associateCall[1]?.body as string)).toEqual({
-        memory1_id: 'old-memory-id',
-        memory2_id: 'new-memory-id',
+        memory1_id: OLD_MEMORY_ID,
+        memory2_id: NEW_MEMORY_ID,
         type: 'INVALIDATED_BY',
         strength: 0.9,
       });
@@ -164,15 +170,15 @@ describe('AutoMemClient', () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory: { id: 'old-memory-id', metadata: {} } }),
+          json: async () => ({ memory: { id: OLD_MEMORY_ID, metadata: {} } }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory_id: 'new-memory-id' }),
+          json: async () => ({ memory_id: NEW_MEMORY_ID }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory_id: 'old-memory-id' }),
+          json: async () => ({ memory_id: OLD_MEMORY_ID }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
@@ -181,7 +187,7 @@ describe('AutoMemClient', () => {
 
       await client.storeMemory({
         content: 'Updated concept memory',
-        supersedes_memory_id: 'old-memory-id',
+        supersedes_memory_id: OLD_MEMORY_ID,
         supersede_relation: 'EVOLVED_INTO',
       });
 
@@ -199,23 +205,23 @@ describe('AutoMemClient', () => {
       await expect(
         client.storeMemory({
           content: 'Corrected memory',
-          supersedes_memory_id: 'missing-memory-id',
+          supersedes_memory_id: MISSING_MEMORY_ID,
         })
-      ).rejects.toThrow('store_memory: superseded memory not found: missing-memory-id');
+      ).rejects.toThrow(`store_memory: superseded memory not found: ${MISSING_MEMORY_ID}`);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
-      expect(mockFetch.mock.calls[0][0]).toBe('http://localhost:8001/memory/missing-memory-id');
+      expect(mockFetch.mock.calls[0][0]).toBe(`http://localhost:8001/memory/${MISSING_MEMORY_ID}`);
     });
 
     it('should report patch failures and clean up the replacement before old memory is updated', async () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory: { id: 'old-memory-id', metadata: {} } }),
+          json: async () => ({ memory: { id: OLD_MEMORY_ID, metadata: {} } }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory_id: 'new-memory-id' }),
+          json: async () => ({ memory_id: NEW_MEMORY_ID }),
         } as any)
         .mockResolvedValueOnce({
           ok: false,
@@ -224,20 +230,20 @@ describe('AutoMemClient', () => {
         } as any)
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory_id: 'new-memory-id', message: 'Deleted' }),
+          json: async () => ({ memory_id: NEW_MEMORY_ID, message: 'Deleted' }),
         } as any);
 
       await expect(
         client.storeMemory({
           content: 'Corrected memory',
-          supersedes_memory_id: 'old-memory-id',
+          supersedes_memory_id: OLD_MEMORY_ID,
         })
       ).rejects.toThrow(
         /old_memory_updated=false, association_created=false; replacement cleanup succeeded.*Patch failed/
       );
 
       expect(mockFetch).toHaveBeenCalledTimes(4);
-      expect(mockFetch.mock.calls[3][0]).toBe('http://localhost:8001/memory/new-memory-id');
+      expect(mockFetch.mock.calls[3][0]).toBe(`http://localhost:8001/memory/${NEW_MEMORY_ID}`);
       expect(mockFetch.mock.calls[3][1]?.method).toBe('DELETE');
     });
 
@@ -245,15 +251,15 @@ describe('AutoMemClient', () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory: { id: 'old-memory-id', metadata: {} } }),
+          json: async () => ({ memory: { id: OLD_MEMORY_ID, metadata: {} } }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory_id: 'new-memory-id' }),
+          json: async () => ({ memory_id: NEW_MEMORY_ID }),
         } as any)
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ memory_id: 'old-memory-id', message: 'Updated' }),
+          json: async () => ({ memory_id: OLD_MEMORY_ID, message: 'Updated' }),
         } as any)
         .mockResolvedValueOnce({
           ok: false,
@@ -264,7 +270,7 @@ describe('AutoMemClient', () => {
       await expect(
         client.storeMemory({
           content: 'Corrected memory',
-          supersedes_memory_id: 'old-memory-id',
+          supersedes_memory_id: OLD_MEMORY_ID,
         })
       ).rejects.toThrow(
         /old_memory_updated=true, association_created=false; replacement cleanup not attempted.*Association failed/
@@ -534,6 +540,60 @@ describe('AutoMemClient', () => {
       });
     });
 
+    it('should keep memory state fields on every path and drop null ones', async () => {
+      const id = '67c0f41f-3818-48fd-8dac-af659cbb2a4f';
+      const superseded = {
+        id,
+        content: 'Old fact',
+        t_valid: '2026-05-01T00:00:00+00:00',
+        t_invalid: '2026-06-01T00:00:00+00:00',
+        archived: true,
+      };
+      const current = { id, content: 'Fact', t_valid: '2026-05-01T00:00:00+00:00' };
+      const nulls = { id, content: 'Fact', t_invalid: null, archived: null };
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            results: [
+              { id, score: 0.9, memory: superseded },
+              { id, score: 0.8, memory: nulls },
+            ],
+            count: 2,
+          }),
+        } as any)
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ memory: superseded }) } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memories: [current, nulls], count: 2, has_more: false }),
+        } as any);
+
+      const ranked = await client.recallMemory({ query: 'old fact', current_only: false });
+      const fetched = await client.recallMemory({ memory_id: id });
+      const listed = await client.recallMemory({ tags: ['x'], exhaustive: true });
+
+      const state = (memory: Record<string, unknown>) => ({
+        t_valid: memory.t_valid,
+        t_invalid: memory.t_invalid,
+        archived: memory.archived,
+      });
+      expect(state(ranked.results[0].memory)).toEqual({
+        t_valid: '2026-05-01T00:00:00+00:00',
+        t_invalid: '2026-06-01T00:00:00+00:00',
+        archived: true,
+      });
+      expect(state(fetched.results[0].memory)).toEqual(state(ranked.results[0].memory));
+      expect(state(listed.results[0].memory)).toEqual({
+        t_valid: '2026-05-01T00:00:00+00:00',
+        t_invalid: undefined,
+        archived: undefined,
+      });
+      for (const memory of [ranked.results[1].memory, listed.results[1].memory]) {
+        expect(memory).not.toHaveProperty('t_invalid');
+        expect(memory).not.toHaveProperty('archived');
+      }
+    });
+
     it('should support expansion filtering', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -572,6 +632,26 @@ describe('AutoMemClient', () => {
       expect(url).toContain('context_types=Style');
       expect(url).toContain('context_types=Pattern');
     });
+
+    it('should reject offset in ranked mode instead of forwarding it', async () => {
+      // /recall never reads offset, so a second "page" would repeat the first.
+      await expect(client.recallMemory({ query: 'auth', offset: 5 })).rejects.toThrow(
+        '`offset` only pages enumeration mode'
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should accept offset 0 in ranked mode without forwarding it', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [], count: 0 }),
+      } as any);
+
+      await client.recallMemory({ query: 'auth', offset: 0 });
+
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).not.toContain('offset');
+    });
   });
 
   describe('recallMemory — ID fetch mode', () => {
@@ -580,30 +660,30 @@ describe('AutoMemClient', () => {
         ok: true,
         json: async () => ({
           status: 'success',
-          memory: { id: 'mem-abc', content: 'hello', tags: ['x'], importance: 0.7 },
+          memory: { id: MEMORY_ID, content: 'hello', tags: ['x'], importance: 0.7 },
         }),
       } as any);
 
-      const result = await client.recallMemory({ memory_id: 'mem-abc' });
+      const result = await client.recallMemory({ memory_id: MEMORY_ID });
 
-      expect(mockFetch.mock.calls[0][0]).toBe('http://localhost:8001/memory/mem-abc');
+      expect(mockFetch.mock.calls[0][0]).toBe(`http://localhost:8001/memory/${MEMORY_ID}`);
       expect(mockFetch.mock.calls[0][1]?.method).toBe('GET');
       expect(result.mode).toBe('id_fetch');
       expect(result.count).toBe(1);
-      expect(result.results[0].memory.memory_id).toBe('mem-abc');
+      expect(result.results[0].memory.memory_id).toBe(MEMORY_ID);
       expect(result.results[0].memory.content).toBe('hello');
     });
 
     it('should ignore other params when memory_id is set', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ memory: { id: 'mem-1', content: 'x' } }),
+        json: async () => ({ memory: { id: MEMORY_ID, content: 'x' } }),
       } as any);
 
-      await client.recallMemory({ memory_id: 'mem-1', query: 'should be ignored', tags: ['x'] });
+      await client.recallMemory({ memory_id: MEMORY_ID, query: 'should be ignored', tags: ['x'] });
 
       const url = mockFetch.mock.calls[0][0] as string;
-      expect(url).toBe('http://localhost:8001/memory/mem-1');
+      expect(url).toBe(`http://localhost:8001/memory/${MEMORY_ID}`);
       expect(url).not.toContain('query=');
       expect(url).not.toContain('tags=');
     });
@@ -659,9 +739,9 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject exhaustive without tags', async () => {
-      await expect(
-        client.recallMemory({ exhaustive: true } as any)
-      ).rejects.toThrow('non-empty `tags`');
+      await expect(client.recallMemory({ exhaustive: true } as any)).rejects.toThrow(
+        'non-empty `tags`'
+      );
     });
 
     it('should reject exhaustive + tag_match=prefix', async () => {
@@ -717,6 +797,26 @@ describe('AutoMemClient', () => {
       ).rejects.toThrow(
         /state_mode.*recency_bias.*scope_fallback.*expand_respect_tags.*min_score.*adaptive_floor/
       );
+    });
+
+    it('should reject exhaustive combined with context hints and per_query_limit', async () => {
+      // GET /memory/by-tag reads only tags, limit and offset, so these would be ignored.
+      await expect(
+        client.recallMemory({
+          tags: ['x'],
+          exhaustive: true,
+          context: 'coding-style',
+          language: 'typescript',
+          active_path: 'src/auth.ts',
+          context_tags: ['style'],
+          context_types: ['Style'],
+          priority_ids: ['67c0f41f-3818-48fd-8dac-af659cbb2a4f'],
+          per_query_limit: 3,
+        })
+      ).rejects.toThrow(
+        /Remove ranked-only param\(s\): context, language, active_path, context_tags, context_types, priority_ids, per_query_limit\./
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should accept exhaustive + format (format is allowed in enumeration mode)', async () => {
@@ -779,9 +879,9 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject empty memories array', async () => {
-      await expect(
-        client.storeMemory({ memories: [] } as any)
-      ).rejects.toThrow('at least one item');
+      await expect(client.storeMemory({ memories: [] } as any)).rejects.toThrow(
+        'at least one item'
+      );
     });
 
     it('should reject memories array exceeding 500 items', async () => {
@@ -804,9 +904,9 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject items with empty content', async () => {
-      await expect(
-        client.storeMemory({ memories: [{ content: '   ' }] } as any)
-      ).rejects.toThrow('content is required');
+      await expect(client.storeMemory({ memories: [{ content: '   ' }] } as any)).rejects.toThrow(
+        'content is required'
+      );
     });
 
     it('should reject XOR collision (content + memories)', async () => {
@@ -829,7 +929,7 @@ describe('AutoMemClient', () => {
       await expect(
         client.storeMemory({
           memories: [{ content: 'one' }],
-          supersedes_memory_id: 'old-memory-id',
+          supersedes_memory_id: OLD_MEMORY_ID,
         } as any)
       ).rejects.toThrow('Remove top-level single-mode field(s): supersedes_memory_id');
     });
@@ -1024,36 +1124,37 @@ describe('AutoMemClient', () => {
     it('should update memory fields', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ memory_id: 'mem-123', message: 'Updated' }),
+        json: async () => ({ memory_id: MEMORY_ID, message: 'Updated' }),
       } as any);
 
       const result = await client.updateMemory({
-        memory_id: 'mem-123',
+        memory_id: MEMORY_ID,
         importance: 0.95,
         tags: ['updated', 'tag'],
       });
 
-      expect(result.memory_id).toBe('mem-123');
+      expect(result.memory_id).toBe(MEMORY_ID);
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8001/memory/mem-123',
+        `http://localhost:8001/memory/${MEMORY_ID}`,
         expect.objectContaining({ method: 'PATCH' })
       );
     });
 
-    it('should URL-encode custom memory IDs when patching', async () => {
+    it('should URL-encode accepted UUID spellings when patching', async () => {
+      const braced = `{${MEMORY_ID}}`;
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ memory_id: 'custom/id?#', message: 'Updated' }),
+        json: async () => ({ memory_id: braced, message: 'Updated' }),
       } as any);
 
       const result = await client.updateMemory({
-        memory_id: 'custom/id?#',
+        memory_id: braced,
         importance: 0.95,
       });
 
-      expect(result.memory_id).toBe('custom/id?#');
+      expect(result.memory_id).toBe(braced);
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8001/memory/custom%2Fid%3F%23',
+        `http://localhost:8001/memory/%7B${MEMORY_ID}%7D`,
         expect.objectContaining({ method: 'PATCH' })
       );
     });
@@ -1067,14 +1168,14 @@ describe('AutoMemClient', () => {
     it('should delete memory', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ memory_id: 'mem-123', message: 'Deleted' }),
+        json: async () => ({ memory_id: MEMORY_ID, message: 'Deleted' }),
       } as any);
 
-      const result = await client.deleteMemory({ memory_id: 'mem-123' });
+      const result = await client.deleteMemory({ memory_id: MEMORY_ID });
 
-      expect(result.memory_id).toBe('mem-123');
+      expect(result.memory_id).toBe(MEMORY_ID);
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8001/memory/mem-123',
+        `http://localhost:8001/memory/${MEMORY_ID}`,
         expect.objectContaining({ method: 'DELETE' })
       );
     });
@@ -1103,15 +1204,88 @@ describe('AutoMemClient', () => {
     });
 
     it('should reject when both memory_id and tags are passed', async () => {
-      await expect(
-        client.deleteMemory({ memory_id: 'mem-1', tags: ['x'] } as any)
-      ).rejects.toThrow('not both');
+      await expect(client.deleteMemory({ memory_id: 'mem-1', tags: ['x'] } as any)).rejects.toThrow(
+        'not both'
+      );
     });
 
     it('should reject when tags contains only whitespace entries (treated as no input)', async () => {
-      await expect(
-        client.deleteMemory({ tags: ['', '  '] } as any)
-      ).rejects.toThrow('`memory_id` or `tags` is required');
+      await expect(client.deleteMemory({ tags: ['', '  '] } as any)).rejects.toThrow(
+        '`memory_id` or `tags` is required'
+      );
+    });
+  });
+
+  describe('memory id validation', () => {
+    // Ids go into the URL path, so one the API would reject can reach another route
+    // first: "by-tag" hits GET/DELETE /memory/by-tag and ".." normalizes to "/".
+    const routeShaped = [
+      '67c0f41f',
+      'by-tag',
+      '..',
+      `${'a'.repeat(30)}..`,
+      `${'a'.repeat(31)}/`,
+      `${'a'.repeat(15)}__${'a'.repeat(15)}`,
+      `\x1c${'a'.repeat(31)}`,
+      // A radix prefix needs a zero: a Unicode one before x is not one.
+      `\u0661x${'a'.repeat(30)}`,
+    ];
+
+    it('refuses ids uuid.UUID() rejects before any request, in every path', async () => {
+      for (const memoryId of routeShaped) {
+        await expect(client.recallMemory({ memory_id: memoryId }), memoryId).rejects.toThrow(
+          'memory_id must be a valid UUID'
+        );
+        await expect(client.updateMemory({ memory_id: memoryId, importance: 0.5 })).rejects.toThrow(
+          'memory_id must be a valid UUID'
+        );
+        await expect(client.deleteMemory({ memory_id: memoryId })).rejects.toThrow(
+          'memory_id must be a valid UUID'
+        );
+        await expect(
+          client.storeMemory({ content: 'replacement', supersedes_memory_id: memoryId })
+        ).rejects.toThrow('memory_id must be a valid UUID');
+      }
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('forwards every spelling uuid.UUID() accepts, URL-encoded', async () => {
+      // uuid.UUID() strips urn:uuid: and braces, drops hyphens, then parses with
+      // int(s, 16), which also takes a 0x prefix, single underscores between digits,
+      // padding whitespace and any Unicode decimal digit.
+      const spellings = [
+        MEMORY_ID,
+        `{${MEMORY_ID}}`,
+        `urn:uuid:${MEMORY_ID}`,
+        MEMORY_ID.replaceAll('-', ''),
+        MEMORY_ID.toUpperCase(),
+        `0x${'a'.repeat(30)}`,
+        `${'a'.repeat(16)}_${'a'.repeat(15)}`,
+        `{ ${'a'.repeat(30)} }`,
+        `\u0661${'a'.repeat(31)}`,
+        // int() reads Unicode digits as ASCII first, so a Unicode zero starts a prefix.
+        `\u0660x${'a'.repeat(30)}`,
+        `\u{1D7CE}X_${'a'.repeat(29)}`,
+      ];
+      for (const memoryId of spellings) {
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ memory: { id: memoryId, content: 'x' } }),
+        } as any);
+        const result = await client.recallMemory({ memory_id: memoryId });
+        expect(result.count, memoryId).toBe(1);
+      }
+      expect(mockFetch.mock.calls.map((call) => call[0])).toEqual(
+        spellings.map((memoryId) => `http://localhost:8001/memory/${encodeURIComponent(memoryId)}`)
+      );
+    });
+
+    it('matches uuid.UUID() on the length check, which counts code points', () => {
+      expect(isUuidAcceptedByApi('a'.repeat(32))).toBe(true);
+      expect(isUuidAcceptedByApi('a'.repeat(31))).toBe(false);
+      expect(isUuidAcceptedByApi('a'.repeat(33))).toBe(false);
+      // An astral digit is one code point, as in Python, though two UTF-16 units.
+      expect(isUuidAcceptedByApi(`\u{1D7CE}${'a'.repeat(31)}`)).toBe(true);
     });
   });
 
@@ -1222,10 +1396,7 @@ describe('AutoMemClient', () => {
 
       await clientWithSlash.checkHealth();
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8001/health',
-        expect.any(Object)
-      );
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8001/health', expect.any(Object));
     });
   });
 
@@ -1242,5 +1413,140 @@ describe('AutoMemClient', () => {
       const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
       expect(headers.Authorization).toBeUndefined();
     });
+  });
+
+  describe('makeRequest — truncated JSON bodies', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('retries a 200 response whose body is truncated JSON, then succeeds', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new SyntaxError('Unexpected end of JSON input');
+          },
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ results: [], count: 0 }),
+        } as any);
+
+      const resultPromise = client.recallMemory({ query: 'sweep' });
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await resultPromise;
+
+      expect(result.count).toBe(0);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries invalid JSON on 503 then succeeds', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          json: async () => {
+            throw new SyntaxError('Unexpected token < in JSON');
+          },
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ results: [], count: 0 }),
+        } as any);
+
+      const resultPromise = client.recallMemory({ query: 'sweep' });
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await resultPromise;
+
+      expect(result.count).toBe(0);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry invalid JSON on 400', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (400)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not replay a truncated 201 from POST /memory', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => {
+          throw new SyntaxError('Unexpected end of JSON input');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (201)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not replay POST /memory when a 503 body is not JSON', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+      } as any);
+
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow(
+        'Invalid JSON response (503)'
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+describe('configurable timeout and retry budget', () => {
+  it('honors a configured maxRetries of 0', async () => {
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      throw new Error('boom');
+    }) as typeof fetch;
+    try {
+      const client = new AutoMemClient({ endpoint: 'http://x', maxRetries: 0 });
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow();
+      expect(calls).toBe(1); // no retries
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('still defaults to three retries when unconfigured', async () => {
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      throw new Error('boom');
+    }) as typeof fetch;
+    try {
+      const client = new AutoMemClient({ endpoint: 'http://x' });
+      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow();
+      expect(calls).toBe(4); // initial + 3
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

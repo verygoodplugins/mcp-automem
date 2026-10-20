@@ -27,10 +27,7 @@ describe('loadProfile', () => {
   it('lean profile returns exactly session-start and track-store hooks', () => {
     const profile = loadProfile('lean');
     expect(profile.name).toBe('lean');
-    expect(profile.hooks).toEqual([
-      'automem-session-start.json',
-      'automem-track-store.json',
-    ]);
+    expect(profile.hooks).toEqual(['automem-session-start.json', 'automem-track-store.json']);
     expect(profile.hooks).toHaveLength(2);
   });
 
@@ -98,14 +95,16 @@ describe('profile switching (T010)', () => {
     }
 
     // Verify 3 files exist
-    const before = fs.readdirSync(hooksDir).filter(f => f.startsWith('automem-'));
+    const before = fs.readdirSync(hooksDir).filter((f) => f.startsWith('automem-'));
     expect(before).toHaveLength(3);
 
     // Get lean profile hooks
     const leanProfile = loadProfile('lean');
 
     // Simulate remove-first: remove hooks not in lean
-    const existing = fs.readdirSync(hooksDir).filter(f => f.startsWith('automem-') && f.endsWith('.json'));
+    const existing = fs
+      .readdirSync(hooksDir)
+      .filter((f) => f.startsWith('automem-') && f.endsWith('.json'));
     for (const hookFile of existing) {
       if (!leanProfile.hooks.includes(hookFile)) {
         fs.unlinkSync(path.join(hooksDir, hookFile));
@@ -113,7 +112,7 @@ describe('profile switching (T010)', () => {
     }
 
     // Verify only lean hooks remain
-    const after = fs.readdirSync(hooksDir).filter(f => f.startsWith('automem-'));
+    const after = fs.readdirSync(hooksDir).filter((f) => f.startsWith('automem-'));
     expect(after).toHaveLength(2);
     expect(after).toContain('automem-session-start.json');
     expect(after).toContain('automem-track-store.json');

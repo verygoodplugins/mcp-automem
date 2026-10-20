@@ -76,11 +76,7 @@ describe('executeCloudIntent', () => {
       ui,
     });
 
-    expect(calls).toEqual([
-      'deploy:grow',
-      'waitUntilReady',
-      'fetchCredentials:pod-1',
-    ]);
+    expect(calls).toEqual(['deploy:grow', 'waitUntilReady', 'fetchCredentials:pod-1']);
     expect(result).toEqual({
       endpoint: 'https://pod-1.example',
       apiKey: 'am-key',
@@ -96,7 +92,10 @@ describe('executeCloudIntent', () => {
     const result = await executeCloudIntent({
       provider,
       session,
-      intent: { kind: 'reuse', deployment: { name: 'pod-existing', endpoint: 'https://pod-existing.example' } },
+      intent: {
+        kind: 'reuse',
+        deployment: { name: 'pod-existing', endpoint: 'https://pod-existing.example' },
+      },
       ui,
     });
 
@@ -165,7 +164,9 @@ describe('selectCloudIntent', () => {
   });
 
   it('consults the selector when deployments exist and honors a reuse choice', async () => {
-    const existing: CloudDeployment[] = [{ name: 'pod-existing', endpoint: 'https://pod-existing.example' }];
+    const existing: CloudDeployment[] = [
+      { name: 'pod-existing', endpoint: 'https://pod-existing.example' },
+    ];
     const { provider } = makeFakeProvider({
       listDeployments: async () => existing,
     });

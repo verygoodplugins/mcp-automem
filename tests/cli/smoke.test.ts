@@ -98,6 +98,56 @@ describe('CLI Smoke Tests', () => {
     });
   });
 
+  describe('clean output contract', () => {
+    // A help request prints a usage block and --quiet is documented as
+    // "suppress output"; the dotenv banner is exactly the noise both opt out
+    // of. Regression guard for `copilot` joining KNOWN_COMMANDS, which flipped
+    // the banner on for every copilot invocation.
+    //
+    // Only `copilot` is exercised with a subcommand flag here. Every other host
+    // handler still ignores --help and installs (see parseCommonFlags), so
+    // `claude-code --help` would rewrite the developer's real ~/.claude during
+    // `npm test`, and `cursor`/`codex --help` would write into the repo. Those
+    // commands get a case here once they short-circuit on help too.
+    const helpInvocations = [['help'], ['--help'], ['copilot', '--help'], ['copilot', '-h']];
+
+    for (const args of helpInvocations) {
+      it(`\`${args.join(' ')}\` prints no dotenv banner`, () => {
+        // Isolated even though these paths write nothing today: if the help
+        // short-circuit ever regresses, the blast radius stays in the temp dir.
+        const copilotHome = fs.mkdtempSync(path.join(tempDir, 'banner-home-'));
+
+        const result = runCli(args, { env: { COPILOT_HOME: copilotHome } });
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout + result.stderr).not.toContain('injected env');
+      });
+    }
+
+    it('`copilot --help` writes nothing to COPILOT_HOME', () => {
+      const copilotHome = fs.mkdtempSync(path.join(tempDir, 'copilot-home-'));
+
+      const result = runCli(['copilot', '--help'], { env: { COPILOT_HOME: copilotHome } });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('COPILOT SETUP:');
+      expect(fs.readdirSync(copilotHome)).toEqual([]);
+    });
+
+    it('`copilot --quiet` installs without emitting the dotenv banner', () => {
+      const copilotHome = fs.mkdtempSync(path.join(tempDir, 'copilot-quiet-home-'));
+
+      const result = runCli(['copilot', '--quiet', '--yes'], {
+        env: { COPILOT_HOME: copilotHome },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout + result.stderr).not.toContain('injected env');
+      // --quiet suppresses progress output but must not suppress the install.
+      expect(fs.existsSync(path.join(copilotHome, 'hooks'))).toBe(true);
+    });
+  });
+
   describe('config command', () => {
     it('should output config with MCP server snippet', () => {
       const output = runCliExpectSuccess(['config']);
@@ -195,7 +245,9 @@ describe('CLI Smoke Tests', () => {
         cwd: testProjectDir,
       });
 
-      expect((result.stdout + result.stderr).toLowerCase()).toMatch(/project|my-cool-project|cursor/i);
+      expect((result.stdout + result.stderr).toLowerCase()).toMatch(
+        /project|my-cool-project|cursor/i
+      );
     });
   });
 
@@ -217,19 +269,37 @@ describe('CLI Smoke Tests', () => {
   });
 
   describe('setup command', () => {
-    it('should show config with --yes flag (non-interactive)', () => {
-      // Sandbox cwd + HOME so `setup` writes its .env into the temp workspace,
-      // not the developer's real project-root .env (setup resolves .env against cwd).
+    it('is the guided installer, same as install', () => {
       const cwd = path.join(tempDir, 'setup-cwd');
       const homeDir = path.join(tempDir, 'setup-home');
       fs.mkdirSync(cwd, { recursive: true });
       fs.mkdirSync(homeDir, { recursive: true });
 
-      const result = runCli(['setup', '--yes', '--endpoint', 'http://test:8001'], {
+      const result = runCli(['setup', '--dry-run', '--target', 'existing', '--no-agent-install'], {
         cwd,
         env: { HOME: homeDir },
       });
-      expect((result.stdout + result.stderr).length).toBeGreaterThan(0);
+      const output = result.stdout + result.stderr;
+      expect(result.exitCode).toBe(0);
+      expect(output).toMatch(/Dry run only/);
+      expect(output).not.toMatch(/Saved AutoMem settings/);
+    });
+
+    it('rejects flags from the old .env wizard', () => {
+      const cwd = path.join(tempDir, 'setup-reject-cwd');
+      const homeDir = path.join(tempDir, 'setup-reject-home');
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.mkdirSync(homeDir, { recursive: true });
+
+      const result = runCli(['setup', '--claude-code'], {
+        cwd,
+        env: { HOME: homeDir },
+      });
+      const output = result.stdout + result.stderr;
+      expect(result.exitCode).not.toBe(0);
+      expect(output).toMatch(/guided installer/);
+      expect(output).toMatch(/--claude-code/);
+      expect(fs.existsSync(path.join(cwd, '.env'))).toBe(false);
     });
   });
 
@@ -306,14 +376,7 @@ describe('CLI Smoke Tests', () => {
       fs.mkdirSync(workspaceDir, { recursive: true });
 
       const output = runCliExpectSuccess(
-        [
-          'openclaw',
-          '--mode',
-          'skill',
-          '--workspace',
-          workspaceDir,
-          '--dry-run',
-        ],
+        ['openclaw', '--mode', 'skill', '--workspace', workspaceDir, '--dry-run'],
         { cwd: workspaceDir }
       );
 
@@ -328,15 +391,7 @@ describe('CLI Smoke Tests', () => {
       fs.mkdirSync(homeDir, { recursive: true });
 
       const result = runCli(
-        [
-          'openclaw',
-          '--mode',
-          'mcp',
-          '--workspace',
-          workspaceDir,
-          '--api-key',
-          'super-secret-key',
-        ],
+        ['openclaw', '--mode', 'mcp', '--workspace', workspaceDir, '--api-key', 'super-secret-key'],
         {
           cwd: workspaceDir,
           env: {
@@ -371,14 +426,7 @@ describe('CLI Smoke Tests', () => {
       fs.writeFileSync(path.join(workspaceSkillDir, 'SKILL.md'), '# old workspace skill');
 
       const output = runCliExpectSuccess(
-        [
-          'openclaw',
-          '--mode',
-          'plugin',
-          '--workspace',
-          workspaceDir,
-          '--dry-run',
-        ],
+        ['openclaw', '--mode', 'plugin', '--workspace', workspaceDir, '--dry-run'],
         {
           cwd: workspaceDir,
           env: {
@@ -392,6 +440,51 @@ describe('CLI Smoke Tests', () => {
     });
   });
 });
+
+const REPO_ROOT = path.resolve(__dirname, '../..');
+const TEMPLATE_FILE_RE = /\.(md|mdc|template)$/;
+
+/**
+ * Candidate marker-bearing files, mirroring scripts/sync-template-versions.mjs: prefer
+ * git-tracked paths, and fall back to a walk for source snapshots without git. Shared by
+ * the marker-drift test and the Release Please contract test so the two cannot disagree
+ * about which files are in scope.
+ */
+function listTemplateFiles(): string[] {
+  const FALLBACK_ROOTS = ['.'];
+  const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist', '.worktrees']);
+
+  function walkTemplateFiles(rootRel: string): string[] {
+    const rootAbs = path.join(REPO_ROOT, rootRel);
+    if (!fs.existsSync(rootAbs)) return [];
+    const files: string[] = [];
+    // Iterative depth-first traversal using an explicit stack to avoid recursion limits.
+    const stack = [rootRel];
+    while (stack.length > 0) {
+      const currentRel = stack.pop()!;
+      const currentAbs = path.join(REPO_ROOT, currentRel);
+      for (const entry of fs.readdirSync(currentAbs, { withFileTypes: true })) {
+        const entryRel = path.normalize(path.join(currentRel, entry.name));
+        if (entry.isDirectory()) {
+          if (!IGNORED_DIRS.has(entry.name)) stack.push(entryRel);
+          continue;
+        }
+        if (entry.isFile() && TEMPLATE_FILE_RE.test(entryRel)) files.push(entryRel);
+      }
+    }
+    return files;
+  }
+
+  try {
+    return execSync('git ls-files', { cwd: REPO_ROOT, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean)
+      .filter((f) => TEMPLATE_FILE_RE.test(f));
+  } catch {
+    // Fallback for environments without git (e.g. source snapshots or some CI caches).
+    return [...new Set(FALLBACK_ROOTS.flatMap((root) => walkTemplateFiles(root)))];
+  }
+}
 
 describe('Template Generation', () => {
   it('should have cursor template file', () => {
@@ -431,19 +524,35 @@ describe('Template Generation', () => {
   it('should have OpenClaw plugin and skill templates', () => {
     expect(fs.existsSync(path.resolve(__dirname, '../../openclaw.plugin.json'))).toBe(true);
     expect(fs.existsSync(path.resolve(__dirname, '../../skills/automem/SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-mcp/SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-legacy/SKILL.md'))).toBe(true);
+    expect(
+      fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-mcp/SKILL.md'))
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.resolve(__dirname, '../../templates/openclaw/skill-legacy/SKILL.md'))
+    ).toBe(true);
   });
 
   it('plugin-distributed Claude Code runtime assets should match the canonical templates', () => {
     const pairs: Array<[string, string]> = [
-      ['templates/claude-code/hooks/automem-session-start.sh', 'plugins/automem/scripts/session-start.sh'],
-      ['templates/claude-code/hooks/automem-stop-nudge.sh', 'plugins/automem/scripts/stop-nudge.sh'],
-      ['templates/claude-code/hooks/automem-track-store.sh', 'plugins/automem/scripts/track-store.sh'],
+      [
+        'templates/claude-code/hooks/automem-session-start.sh',
+        'plugins/automem/scripts/session-start.sh',
+      ],
+      [
+        'templates/claude-code/hooks/automem-stop-nudge.sh',
+        'plugins/automem/scripts/stop-nudge.sh',
+      ],
+      [
+        'templates/claude-code/hooks/automem-track-store.sh',
+        'plugins/automem/scripts/track-store.sh',
+      ],
     ];
 
     for (const [canonical, pluginCopy] of pairs) {
-      const canonicalContent = fs.readFileSync(path.resolve(__dirname, `../../${canonical}`), 'utf8');
+      const canonicalContent = fs.readFileSync(
+        path.resolve(__dirname, `../../${canonical}`),
+        'utf8'
+      );
       const pluginContent = fs.readFileSync(path.resolve(__dirname, `../../${pluginCopy}`), 'utf8');
       expect(pluginContent, `${pluginCopy} drifted from ${canonical}`).toBe(canonicalContent);
     }
@@ -454,42 +563,8 @@ describe('Template Generation', () => {
       fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8')
     ).version;
 
-    const repoRoot = path.resolve(__dirname, '../..');
-    const TEMPLATE_FILE_RE = /\.(md|mdc|template)$/;
-    const FALLBACK_ROOTS = ['templates', 'skills', 'plugins'];
-    const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist']);
-
-    function walkTemplateFiles(rootRel: string): string[] {
-      const rootAbs = path.join(repoRoot, rootRel);
-      if (!fs.existsSync(rootAbs)) return [];
-      const files: string[] = [];
-      // Iterative depth-first traversal using an explicit stack to avoid recursion limits.
-      const stack = [rootRel];
-      while (stack.length > 0) {
-        const currentRel = stack.pop()!;
-        const currentAbs = path.join(repoRoot, currentRel);
-        for (const entry of fs.readdirSync(currentAbs, { withFileTypes: true })) {
-          const entryRel = path.join(currentRel, entry.name);
-          if (entry.isDirectory()) {
-            if (!IGNORED_DIRS.has(entry.name)) stack.push(entryRel);
-            continue;
-          }
-          if (entry.isFile() && TEMPLATE_FILE_RE.test(entryRel)) files.push(entryRel);
-        }
-      }
-      return files;
-    }
-
-    let tracked: string[];
-    try {
-      tracked = execSync('git ls-files', { cwd: repoRoot, encoding: 'utf8' })
-        .split('\n')
-        .filter(Boolean)
-        .filter((f) => TEMPLATE_FILE_RE.test(f));
-    } catch {
-      // Fallback for environments without git (e.g. source snapshots or some CI caches).
-      tracked = FALLBACK_ROOTS.flatMap((root) => walkTemplateFiles(root));
-    }
+    const repoRoot = REPO_ROOT;
+    const tracked = listTemplateFiles();
 
     const marker = /<!--\s*automem-template-version:\s*([\d.]+)\s*-->/g;
     const drifted: string[] = [];
@@ -512,6 +587,84 @@ describe('Template Generation', () => {
     expect(
       drifted,
       `\nTemplate versions drifted from package.json (${pkgVersion}). Run \`npm run sync-versions\` (or \`npm run build\`) to fix:\n  ${drifted.join('\n  ')}`
+    ).toEqual([]);
+  });
+
+  // Release Please bumps package.json on the release PR, but nothing on that PR runs
+  // `prebuild`. Before #257 the markers silently lagged a release behind: CI masked it
+  // because the `test` job builds first, so `prebuild` repaired them in the runner while a
+  // clean developer checkout went dirty on `npm run build`. The fix is to let Release
+  // Please rewrite the markers itself, in the same commit as the version bump, via the
+  // `generic` updater — which only touches lines carrying an `x-release-please-version`
+  // annotation. This test is the contract: a new marker-bearing file that is not wired up
+  // fails here instead of on release day.
+  it('every version-marker file should be wired into release-please extra-files with the generic annotation', () => {
+    const marker =
+      /<!--\s*automem-(?:template|mdc)-version:\s*[\d.]+\s*-->(?<annotation>[ \t]*<!--\s*x-release-please-version\s*-->)?/g;
+
+    const config = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, 'release-please-config.json'), 'utf8')
+    );
+    const genericPaths = new Set<string>(
+      (config.packages?.['.']?.['extra-files'] ?? [])
+        .filter(
+          (entry: unknown): entry is { type: string; path: string } =>
+            typeof entry === 'object' &&
+            entry !== null &&
+            (entry as { type?: string }).type === 'generic'
+        )
+        .map((entry: { path: string }) => entry.path)
+    );
+
+    const missingAnnotation: string[] = [];
+    const missingFromConfig: string[] = [];
+    const strayAnnotation: string[] = [];
+    const markerFiles: string[] = [];
+
+    // The generic updater rewrites the first semver on ANY line carrying the annotation
+    // token, so a prose line that merely mentions it would have its version silently
+    // rewritten on release — and no build guard would notice, because `prebuild` never
+    // touches that line. Every occurrence in a listed file must be a real marker.
+    for (const rel of genericPaths) {
+      const abs = path.join(REPO_ROOT, rel);
+      if (!fs.existsSync(abs)) continue;
+      for (const line of fs.readFileSync(abs, 'utf8').split('\n')) {
+        if (!line.includes('x-release-please')) continue;
+        marker.lastIndex = 0;
+        const m = marker.exec(line);
+        if (!m?.groups?.annotation) strayAnnotation.push(`${rel}: ${line.trim()}`);
+      }
+    }
+
+    for (const rel of listTemplateFiles()) {
+      const abs = path.join(REPO_ROOT, rel);
+      if (!fs.existsSync(abs)) continue;
+      const content = fs.readFileSync(abs, 'utf8');
+      let hasMarker = false;
+      let m: RegExpExecArray | null;
+      marker.lastIndex = 0;
+      while ((m = marker.exec(content)) !== null) {
+        hasMarker = true;
+        if (!m.groups?.annotation) missingAnnotation.push(`${rel}: ${m[0]}`);
+      }
+      if (!hasMarker) continue;
+      markerFiles.push(rel);
+      // Posix separators: config paths are repo-relative and git-style.
+      if (!genericPaths.has(rel.split(path.sep).join('/'))) missingFromConfig.push(rel);
+    }
+
+    expect(markerFiles.length).toBeGreaterThan(0);
+    expect(
+      strayAnnotation,
+      `\nRelease Please annotation token outside a version marker. The generic updater would rewrite the first semver on these lines; keep the token out of prose:\n  ${strayAnnotation.join('\n  ')}`
+    ).toEqual([]);
+    expect(
+      missingAnnotation,
+      `\nVersion markers missing the Release Please annotation. Run \`npm run sync-versions\` (or \`npm run build\`):\n  ${missingAnnotation.join('\n  ')}`
+    ).toEqual([]);
+    expect(
+      missingFromConfig,
+      `\nMarker-bearing files absent from release-please-config.json \`extra-files\`. Add a { "type": "generic", "path": ... } entry for each, or the marker will lag the next release:\n  ${missingFromConfig.join('\n  ')}`
     ).toEqual([]);
   });
 
@@ -575,7 +728,9 @@ describe('Template Generation', () => {
     );
 
     // Keeps the cross-project preference-recall pattern.
-    expect(userRulesTemplate).toContain('personal coding preferences <project-name> collaboration style');
+    expect(userRulesTemplate).toContain(
+      'personal coding preferences <project-name> collaboration style'
+    );
 
     // 3.0.0 global-rule concepts that must be present.
     expect(userRulesTemplate).toContain('Corrections are gold');
@@ -645,7 +800,10 @@ describe('Template Generation', () => {
 
   it('Claude Code docs should prefer the plugin and keep the CLI installer as the settings-level alternative', () => {
     const readme = fs.readFileSync(path.resolve(__dirname, '../../README.md'), 'utf8');
-    const pluginReadme = fs.readFileSync(path.resolve(__dirname, '../../plugins/automem/README.md'), 'utf8');
+    const pluginReadme = fs.readFileSync(
+      path.resolve(__dirname, '../../plugins/automem/README.md'),
+      'utf8'
+    );
     const deprecations = fs.readFileSync(path.resolve(__dirname, '../../DEPRECATION.md'), 'utf8');
     const claudeCodeGuide = fs.readFileSync(
       path.resolve(__dirname, '../../templates/CLAUDE_CODE_INTEGRATION.md'),
@@ -687,9 +845,7 @@ describe('Template Generation', () => {
       permissions: { allow: string[]; deny?: unknown; ask?: unknown };
     };
     expect(parsedSettings.permissions.allow).toHaveLength(6);
-    expect(parsedSettings.permissions.allow.every((p) => p.startsWith('mcp__memory__'))).toBe(
-      true
-    );
+    expect(parsedSettings.permissions.allow.every((p) => p.startsWith('mcp__memory__'))).toBe(true);
     expect(parsedSettings.env).toBeUndefined();
     expect(parsedSettings.permissions.deny).toBeUndefined();
     expect(parsedSettings.permissions.ask).toBeUndefined();

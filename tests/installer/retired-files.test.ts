@@ -102,10 +102,9 @@ describe('installer retired-file cleanup', () => {
     );
 
     for (const rel of RETIRED) {
-      expect(
-        fs.existsSync(path.join(targetDir, rel)),
-        `${rel} must survive a failed merge`
-      ).toBe(true);
+      expect(fs.existsSync(path.join(targetDir, rel)), `${rel} must survive a failed merge`).toBe(
+        true
+      );
     }
   });
 
@@ -119,21 +118,19 @@ describe('installer retired-file cleanup', () => {
     expect(fs.existsSync(path.join(targetDir, 'scripts', 'memory-filters.json'))).toBe(false);
     expect(fs.existsSync(path.join(targetDir, 'scripts', 'smart-notify.sh'))).toBe(false);
 
-    const settings = JSON.parse(
-      fs.readFileSync(path.join(targetDir, 'settings.json'), 'utf8')
-    ) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
+    const settings = JSON.parse(fs.readFileSync(path.join(targetDir, 'settings.json'), 'utf8')) as {
+      hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
+    };
     expect(settings.hooks.Stop).toBeUndefined();
   });
 
   it('registers the Stop nudge only for the nudged profile', async () => {
     await applyClaudeCodeSetup({ targetDir, quiet: true, profile: 'nudged' });
 
-    const settings = JSON.parse(
-      fs.readFileSync(path.join(targetDir, 'settings.json'), 'utf8')
-    ) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
-    const stopCommands = settings.hooks.Stop.flatMap((entry) =>
-      entry.hooks.map((h) => h.command)
-    );
+    const settings = JSON.parse(fs.readFileSync(path.join(targetDir, 'settings.json'), 'utf8')) as {
+      hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
+    };
+    const stopCommands = settings.hooks.Stop.flatMap((entry) => entry.hooks.map((h) => h.command));
     expect(stopCommands).toEqual(['bash "$HOME/.claude/hooks/automem-stop-nudge.sh"']);
   });
 });

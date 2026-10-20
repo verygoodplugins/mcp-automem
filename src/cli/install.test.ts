@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
+import { parse as parseDotenvForTest } from 'dotenv';
 import os from 'os';
 import path from 'path';
 import {
@@ -7,20 +8,27 @@ import {
   DEFAULT_AGENT_CLIENTS,
   InstallError,
   buildInstallPlan,
+  pinLocalInstallOptions,
   claudePluginInstallArgs,
   claudePluginMarketplaceAddArgs,
   detectInstallEnvironment,
   formatEnvValue,
   formatInstallError,
+  localHealthTimeoutError,
+  localHealthRecoveryHint,
   installClaudeCodePlugin,
   manualFixHint,
   parseInstallArgs,
   prepareLocalServer,
   renderInstallPlan,
+  dryRunApplyHint,
+  equivalentInstallCommand,
+  localRetryHasExplicitApiKey,
   shouldUseNonInteractivePreview,
   validateInstallPrerequisites,
   verifyAutoMemEndpoint,
   waitForAutoMemEndpoint,
+  writeProjectEnv,
 } from './install.js';
 
 describe('guided install helpers', () => {
@@ -64,6 +72,8 @@ describe('guided install helpers', () => {
       dryRun: true,
       yes: true,
       noAgentInstall: true,
+      endpointFromFlag: true,
+      apiKeyFromFlag: true,
     });
   });
 
@@ -85,15 +95,53 @@ describe('guided install helpers', () => {
     ).toBe('flag-key');
   });
 
+  it('does not forward an environment key to a different --endpoint', () => {
+    // The per-host installers receive this as an *explicit* apiKey, which bypasses their
+    // own endpoint-pairing checks — so the pairing has to hold here. An inherited key
+    // belongs to the endpoint it was exported alongside.
+    const parsed = parseInstallArgs(['--endpoint', 'https://new.example'], {
+      AUTOMEM_API_URL: 'https://old.example',
+      AUTOMEM_API_KEY: 'env-secret',
+    });
+    expect(parsed.endpoint).toBe('https://new.example');
+    expect(parsed.apiKey).toBeUndefined();
+
+    // Same host spelled with a trailing slash is the same host; the key still applies.
+    expect(
+      parseInstallArgs(['--endpoint', 'https://old.example/'], {
+        AUTOMEM_API_URL: 'https://old.example',
+        AUTOMEM_API_KEY: 'env-secret',
+      }).apiKey
+    ).toBe('env-secret');
+
+    // An explicit --api-key is the operator naming the credential for this run.
+    expect(
+      parseInstallArgs(['--endpoint', 'https://new.example', '--api-key', 'flag-key'], {
+        AUTOMEM_API_URL: 'https://old.example',
+        AUTOMEM_API_KEY: 'env-secret',
+      }).apiKey
+    ).toBe('flag-key');
+
+    // No exported endpoint means the key is not bound to one — the curl|sh path.
+    expect(
+      parseInstallArgs(['--endpoint', 'https://new.example'], { AUTOMEM_API_KEY: 'env-secret' })
+        .apiKey
+    ).toBe('env-secret');
+  });
+
   it('rejects unknown install targets and clients', () => {
     expect(() => parseInstallArgs(['--target', 'serverless'])).toThrow(/invalid install target/i);
     expect(() => parseInstallArgs(['--clients', 'codex,nope'])).toThrow(/invalid AutoMem client/i);
-    expect(() => parseInstallArgs(['--hermes-mode', 'legacy'])).toThrow(/invalid Hermes install mode/i);
+    expect(() => parseInstallArgs(['--hermes-mode', 'legacy'])).toThrow(
+      /invalid Hermes install mode/i
+    );
   });
 
   it('parses the cloud provider from the flag and the environment', () => {
     expect(parseInstallArgs(['--cloud-provider', 'instapods']).cloudProvider).toBe('instapods');
-    expect(parseInstallArgs([], { AUTOMEM_CLOUD_PROVIDER: 'railway' }).cloudProvider).toBe('railway');
+    expect(parseInstallArgs([], { AUTOMEM_CLOUD_PROVIDER: 'railway' }).cloudProvider).toBe(
+      'railway'
+    );
     expect(parseInstallArgs(['--cloud-provider', 'other']).cloudProvider).toBe('other');
     expect(() => parseInstallArgs(['--cloud-provider', 'aws'])).toThrow(/invalid cloud provider/i);
   });
@@ -261,6 +309,21 @@ describe('guided install helpers', () => {
     expect(DEFAULT_AGENT_CLIENTS.filter((client) => detected.has(client))).not.toContain('hermes');
   });
 
+  it('pre-checks Grok when ~/.grok is detected (opt-in, not a blind --yes default)', () => {
+    const homeDir = '/Users/tester';
+    const environment = detectInstallEnvironment({
+      homeDir,
+      cwd: '/repo/project',
+      platform: 'darwin',
+      commandExists: () => true,
+      pathExists: (filePath) => filePath === path.join(homeDir, '.grok'),
+    });
+    const detected = new Set(environment.detectedClients.map((client) => client.client));
+    expect(detected.has('grok')).toBe(true);
+    expect(AGENT_CLIENTS.filter((client) => detected.has(client))).toContain('grok');
+    expect(DEFAULT_AGENT_CLIENTS.filter((client) => detected.has(client))).not.toContain('grok');
+  });
+
   it('quotes .env values only when they would break dotenv parsing', () => {
     // Plain url-safe values pass through unquoted.
     expect(formatEnvValue('https://automem.example')).toBe('https://automem.example');
@@ -277,7 +340,9 @@ describe('guided install helpers', () => {
       const hint = manualFixHint(client);
       expect(hint.length).toBeGreaterThan(0);
       // Each hint names a runnable recovery command.
-      expect(/openclaw plugins install|npx @verygoodplugins\/mcp-automem install/.test(hint)).toBe(true);
+      expect(/openclaw plugins install|npx @verygoodplugins\/mcp-automem install/.test(hint)).toBe(
+        true
+      );
     }
     expect(manualFixHint('openclaw')).toContain('openclaw plugins install');
   });
@@ -362,6 +427,296 @@ describe('guided install helpers', () => {
     expect(rendered).not.toContain('sk-test-secret');
   });
 
+  // A dry run renders the same path list as a real run, which reads like the
+  // installer is about to edit those files (it even advertised .bak backups).
+  // The review must say, at the point the paths are listed, that nothing is
+  // written — and how to actually apply.
+  it('marks a dry-run review as a preview that writes nothing', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'existing',
+        clients: ['grok'],
+        endpoint: 'https://memory.example',
+        hermesMode: 'mcp',
+        dryRun: true,
+        yes: false,
+        noAgentInstall: false,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => false,
+      }),
+    });
+
+    expect(plan.dryRun).toBe(true);
+
+    const rendered = renderInstallPlan(plan);
+
+    // The paths are still listed (the point of a preview) ...
+    expect(rendered).toContain('.grok/config.toml');
+    // ... but the note under them must not promise backups of "changed" files,
+    // because a dry run changes nothing.
+    expect(rendered).toContain('dry run');
+    expect(rendered).toContain('nothing is written');
+    expect(rendered).not.toContain('each changed file keeps a .bak copy');
+    // The plan render must stay flag-agnostic: which flag actually applies the
+    // plan depends on TTY state the renderer cannot see (a headless re-run also
+    // needs --yes). runGuidedInstall's closing status owns that instruction.
+    expect(rendered).not.toContain('--dry-run');
+    expect(rendered).not.toContain('--yes');
+  });
+
+  // The instruction that actually applies a previewed plan depends on TWO things
+  // the renderer cannot see: where dry-run came from (flag vs AUTOMEM_DRY_RUN —
+  // there is no flag to drop in the env case), and whether there is a TTY (a
+  // headless re-run also needs --yes, or shouldUseNonInteractivePreview bounces
+  // it straight back into preview).
+  describe('dryRunApplyHint', () => {
+    it('tells a TTY user with --dry-run to drop the flag', () => {
+      const hint = dryRunApplyHint({ interactive: true, args: ['install', '--dry-run'], env: {} });
+      expect(hint).toContain('--dry-run');
+      expect(hint).not.toContain('--yes');
+      expect(hint).not.toContain('AUTOMEM_DRY_RUN');
+    });
+
+    it('adds --yes for a headless run, which would otherwise re-enter preview', () => {
+      const hint = dryRunApplyHint({ interactive: false, args: ['install', '--dry-run'], env: {} });
+      expect(hint).toContain('--dry-run');
+      expect(hint).toContain('--yes');
+    });
+
+    it('tells an env-driven dry run to unset AUTOMEM_DRY_RUN, not to drop a flag', () => {
+      const hint = dryRunApplyHint({
+        interactive: true,
+        args: ['install'],
+        env: { AUTOMEM_DRY_RUN: '1' },
+      });
+      expect(hint).toContain('AUTOMEM_DRY_RUN');
+      // There is no --dry-run argument to remove in this case.
+      expect(hint).not.toContain('--dry-run');
+      // dotenv runs without `override`, so "unset it" alone would be wrong when
+      // the value lives in ./.env — the hint must cover that source too.
+      expect(hint).toContain('.env');
+      expect(hint).toContain('AUTOMEM_DRY_RUN=0');
+    });
+
+    it('names both sources when the flag and the env var are both set', () => {
+      const hint = dryRunApplyHint({
+        interactive: false,
+        args: ['install', '--dry-run'],
+        env: { AUTOMEM_DRY_RUN: '1' },
+      });
+      expect(hint).toContain('--dry-run');
+      expect(hint).toContain('AUTOMEM_DRY_RUN');
+      expect(hint).toContain('--yes');
+    });
+  });
+
+  // prepareLocalServer persists a reused-or-generated token to localDir/.env
+  // BEFORE verify runs. A local retry command must never echo a placeholder
+  // for that generated token — pasting it would overwrite the real persisted
+  // value. Only an explicit user-supplied key is safe to echo.
+  describe('localRetryHasExplicitApiKey', () => {
+    it('is true when the user explicitly supplied a key', () => {
+      expect(localRetryHasExplicitApiKey('sk-explicit')).toBe(true);
+    });
+
+    it('is false when no key was explicitly supplied (prepareLocalServer generates one)', () => {
+      expect(localRetryHasExplicitApiKey(undefined)).toBe(false);
+    });
+  });
+
+  it('a local retry command omits --api-key for a generated (non-explicit) key', () => {
+    const cmd = equivalentInstallCommand({
+      target: 'local',
+      clients: ['codex'],
+      hermesMode: 'mcp',
+      localDir: '/Users/tester/.automem/server',
+      apiKeyProvided: localRetryHasExplicitApiKey(undefined),
+    });
+    expect(cmd).not.toContain('--api-key');
+  });
+
+  it('a local retry command still echoes an explicit user-supplied key', () => {
+    const cmd = equivalentInstallCommand({
+      target: 'local',
+      clients: ['codex'],
+      hermesMode: 'mcp',
+      localDir: '/Users/tester/.automem/server',
+      apiKeyProvided: localRetryHasExplicitApiKey('sk-typed-by-user'),
+    });
+    expect(cmd).toContain('--api-key YOUR_KEY_HERE');
+  });
+
+  it('a local retry command omits --api-key when the key was inherited from the environment', () => {
+    // pinLocalInstallOptions can keep an env-provided key; the retry command
+    // must still omit --api-key so prepareLocalServer reuses localDir/.env
+    // instead of writing the placeholder literal.
+    const cmd = equivalentInstallCommand({
+      target: 'local',
+      clients: ['cursor'],
+      localDir: '/Users/tester/.automem/server',
+      yes: true,
+      apiKeyProvided: false,
+    });
+    expect(cmd).not.toContain('--api-key');
+  });
+
+  // Both cancel-style endings (declined confirm, failed verify) hand the user
+  // their answers back as a runnable command so six prompts of work never
+  // evaporates. The command must reconstruct flags from resolved options and
+  // must never echo a real API key.
+  describe('equivalentInstallCommand', () => {
+    it('reconstructs an existing-endpoint install with clients and modes', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: ['claude-code', 'grok'],
+        claudeCodeMode: 'plugin',
+        hermesMode: 'mcp',
+        apiKeyProvided: false,
+      });
+      expect(cmd).toBe(
+        'npx @verygoodplugins/mcp-automem install --target existing --endpoint https://memory.example --clients claude-code,grok --claude-code-mode plugin'
+      );
+    });
+
+    it('names the api key as a placeholder, never a value', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: [],
+        hermesMode: 'mcp',
+        apiKeyProvided: true,
+      });
+      // Shell-safe on purpose: '<your key>' would be parsed as redirections
+      // when the printed command is pasted verbatim.
+      expect(cmd).toContain('--api-key YOUR_KEY_HERE');
+      expect(cmd).not.toMatch(/--api-key\s+(?!YOUR_KEY_HERE)\S/);
+    });
+
+    it('omits the endpoint for local targets (which reject --endpoint)', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'local',
+        endpoint: 'http://127.0.0.1:8001',
+        clients: ['codex'],
+        hermesMode: 'mcp',
+        localDir: '/Users/tester/.automem/server',
+        apiKeyProvided: false,
+      });
+      expect(cmd).not.toContain('--endpoint');
+      expect(cmd).toContain('--local-dir /Users/tester/.automem/server');
+    });
+
+    it('preserves an explicitly empty client selection as --no-agent-install', () => {
+      // clients [] with noAgentInstall unset means the user CONFIRMED zero
+      // tools; omitting both flags would reopen the wizard (or restore the
+      // headless default set) on re-run.
+      const cmd = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: [],
+        hermesMode: 'mcp',
+        apiKeyProvided: false,
+      });
+      expect(cmd).toContain('--no-agent-install');
+      expect(cmd).not.toContain('--clients');
+    });
+
+    it('carries --yes so a headless retry actually applies instead of previewing', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: ['grok'],
+        hermesMode: 'mcp',
+        yes: true,
+        apiKeyProvided: false,
+      });
+      expect(cmd).toContain('--yes');
+      const interactive = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: ['grok'],
+        hermesMode: 'mcp',
+        yes: false,
+        apiKeyProvided: false,
+      });
+      expect(interactive).not.toContain('--yes');
+    });
+
+    it('shell-quotes dynamic values so the printed command survives a paste', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'local',
+        clients: [],
+        hermesMode: 'mcp',
+        localDir: '/Users/me/AutoMem Server',
+        apiKeyProvided: false,
+      });
+      expect(cmd).toContain("--local-dir '/Users/me/AutoMem Server'");
+
+      const urlCmd = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example/api?region=eu&tier=2',
+        clients: [],
+        hermesMode: 'mcp',
+        apiKeyProvided: false,
+      });
+      // & would background the command and ? globs — the URL must be quoted.
+      expect(urlCmd).toContain("--endpoint 'https://memory.example/api?region=eu&tier=2'");
+
+      // Plain values stay unquoted for readability.
+      const plain = equivalentInstallCommand({
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: [],
+        hermesMode: 'mcp',
+        apiKeyProvided: false,
+      });
+      expect(plain).toContain('--endpoint https://memory.example');
+      expect(plain).not.toContain("'");
+    });
+
+    it('carries hermes mode only when hermes is selected, and cloud provider for cloud', () => {
+      const cmd = equivalentInstallCommand({
+        target: 'cloud',
+        cloudProvider: 'railway',
+        clients: ['hermes'],
+        hermesMode: 'provider',
+        apiKeyProvided: false,
+      });
+      expect(cmd).toContain('--cloud-provider railway');
+      expect(cmd).toContain('--hermes-mode provider');
+      expect(cmd).not.toContain('--claude-code-mode');
+    });
+  });
+
+  it('keeps the backup note on a real (non-dry-run) review', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'existing',
+        clients: ['grok'],
+        endpoint: 'https://memory.example',
+        hermesMode: 'mcp',
+        dryRun: false,
+        yes: true,
+        noAgentInstall: false,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => false,
+      }),
+    });
+
+    expect(plan.dryRun).toBe(false);
+    const rendered = renderInstallPlan(plan);
+    expect(rendered).toContain('each changed file keeps a .bak copy');
+    expect(rendered).not.toContain('nothing is written');
+  });
+
   it('defaults to all known clients when AUTOMEM_CLIENTS is omitted', () => {
     expect(parseInstallArgs([], {}).clients).toEqual([...DEFAULT_AGENT_CLIENTS]);
     expect(parseInstallArgs([], {}).clients).not.toContain('hermes');
@@ -374,13 +729,52 @@ describe('guided install helpers', () => {
     expect(parseInstallArgs([], { AUTOMEM_CLIENTS: 'hermes' }).clients).toEqual(['hermes']);
   });
 
+  it('keeps Grok available only when explicitly requested', () => {
+    expect(AGENT_CLIENTS).toContain('grok');
+    expect(parseInstallArgs([], {}).clients).not.toContain('grok');
+    expect(parseInstallArgs(['--clients', 'grok'], {}).clients).toEqual(['grok']);
+    expect(parseInstallArgs([], { AUTOMEM_CLIENTS: 'grok' }).clients).toEqual(['grok']);
+  });
+
+  it('plans Grok write surfaces as ~/.grok/config.toml and AGENTS.md', () => {
+    const grokHome = '/tmp/grok-home';
+    const plan = buildInstallPlan({
+      options: {
+        target: 'existing',
+        clients: ['grok'],
+        endpoint: 'https://memory.example',
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        dryRun: true,
+        yes: false,
+        noAgentInstall: false,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        env: { GROK_HOME: grokHome },
+        pathExists: () => false,
+        commandExists: () => true,
+      }),
+    });
+    const grokAction = plan.actions.find((action) => action.client === 'grok');
+    expect(grokAction?.paths).toEqual([
+      path.join(grokHome, 'config.toml'),
+      path.join(grokHome, 'AGENTS.md'),
+    ]);
+  });
+
   it('defaults Claude Code to the plugin and parses the mode override', () => {
     expect(parseInstallArgs([], {}).claudeCodeMode).toBe('plugin');
-    expect(parseInstallArgs(['--claude-code-mode', 'settings'], {}).claudeCodeMode).toBe('settings');
+    expect(parseInstallArgs(['--claude-code-mode', 'settings'], {}).claudeCodeMode).toBe(
+      'settings'
+    );
     expect(parseInstallArgs([], { AUTOMEM_CLAUDE_CODE_MODE: 'settings' }).claudeCodeMode).toBe(
       'settings'
     );
-    expect(() => parseInstallArgs(['--claude-code-mode', 'nope'])).toThrow(/invalid Claude Code mode/i);
+    expect(() => parseInstallArgs(['--claude-code-mode', 'nope'])).toThrow(
+      /invalid Claude Code mode/i
+    );
   });
 
   it('plans Claude Code as a plugin manual step when claude is not on PATH (no settings write)', () => {
@@ -548,9 +942,15 @@ describe('guided install helpers', () => {
         dryRun: false,
       })
     ).toBe(true);
-    expect(shouldUseNonInteractivePreview({ interactive: true, yes: false, dryRun: false })).toBe(false);
-    expect(shouldUseNonInteractivePreview({ interactive: false, yes: true, dryRun: false })).toBe(false);
-    expect(shouldUseNonInteractivePreview({ interactive: false, yes: false, dryRun: true })).toBe(false);
+    expect(shouldUseNonInteractivePreview({ interactive: true, yes: false, dryRun: false })).toBe(
+      false
+    );
+    expect(shouldUseNonInteractivePreview({ interactive: false, yes: true, dryRun: false })).toBe(
+      false
+    );
+    expect(shouldUseNonInteractivePreview({ interactive: false, yes: false, dryRun: true })).toBe(
+      false
+    );
   });
 
   it('flags missing local prerequisites before applying the plan', () => {
@@ -669,6 +1069,32 @@ describe('guided install helpers', () => {
     if (!result.ok) expect(result.message).toContain('HTTP 500');
   });
 
+  it('accepts degraded /health by default but rejects it when requireHealthy is set', async () => {
+    const fetchFn = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: 'degraded',
+        falkordb: 'disconnected',
+        qdrant: 'disconnected',
+      }),
+    });
+    await expect(
+      verifyAutoMemEndpoint({ endpoint: 'http://127.0.0.1:8001', fetchFn })
+    ).resolves.toEqual({ ok: true });
+    const strict = await verifyAutoMemEndpoint({
+      endpoint: 'http://127.0.0.1:8001',
+      fetchFn,
+      requireHealthy: true,
+    });
+    expect(strict.ok).toBe(false);
+    if (!strict.ok) {
+      expect(strict.message).toContain('degraded');
+      expect(strict.message).toContain('FalkorDB disconnected');
+      expect(strict.message).toContain('Qdrant disconnected');
+    }
+  });
+
   it('fails fast with a clean message when the endpoint hangs (abort timeout)', async () => {
     // A fetch that never resolves on its own, but rejects when the abort fires.
     const hangingFetch = (_url: string, init?: { signal?: AbortSignal }) =>
@@ -687,6 +1113,120 @@ describe('guided install helpers', () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toContain('timed out');
+  });
+
+  it('times out when /health headers return but the JSON body never arrives', async () => {
+    vi.useFakeTimers();
+    try {
+      const stalledBodyFetch = async () => ({
+        ok: true,
+        status: 200,
+        json: () => new Promise<never>(() => {}),
+      });
+
+      const resultPromise = verifyAutoMemEndpoint({
+        endpoint: 'https://stalled-body.example',
+        fetchFn: stalledBodyFetch,
+        timeoutMs: 20,
+      });
+
+      await vi.advanceTimersByTimeAsync(20);
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('timed out after 0.02s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives the authenticated recall probe a fresh timeout after a slow health body', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchFn = async (url: string, init?: { signal?: AbortSignal }) => {
+        if (url.includes('/health')) {
+          return {
+            ok: true,
+            status: 200,
+            json: () =>
+              new Promise((resolve) => {
+                setTimeout(() => resolve({ status: 'healthy' }), 30);
+              }),
+          };
+        }
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve({ ok: true, status: 200, json: async () => ({}) }),
+            30
+          );
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      };
+
+      const resultPromise = verifyAutoMemEndpoint({
+        endpoint: 'https://slow-then-recall.example',
+        apiKey: 'sk-test',
+        fetchFn,
+        timeoutMs: 40,
+      });
+
+      await vi.advanceTimersByTimeAsync(30);
+      await vi.advanceTimersByTimeAsync(30);
+      await expect(resultPromise).resolves.toEqual({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let recall overrun an absolute deadline after a slow health body', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    try {
+      const fetchFn = async (url: string, init?: { signal?: AbortSignal }) => {
+        if (url.includes('/health')) {
+          return {
+            ok: true,
+            status: 200,
+            json: () =>
+              new Promise((resolve) => {
+                setTimeout(() => resolve({ status: 'healthy' }), 40);
+              }),
+          };
+        }
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve({ ok: true, status: 200, json: async () => ({}) }),
+            40
+          );
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      };
+
+      const resultPromise = verifyAutoMemEndpoint({
+        endpoint: 'https://deadline-overrun.example',
+        apiKey: 'sk-test',
+        fetchFn,
+        timeoutMs: 100,
+        deadlineAt: 50,
+      });
+
+      await vi.advanceTimersByTimeAsync(40);
+      await vi.advanceTimersByTimeAsync(40);
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('timed out');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('waits for a local endpoint to become healthy before continuing', async () => {
@@ -709,6 +1249,29 @@ describe('guided install helpers', () => {
       })
     ).resolves.toEqual({ ok: true });
     expect(attempts).toBe(3);
+  });
+
+  it('waitForAutoMemEndpoint reports each attempt to onAttempt', async () => {
+    const seen: Array<[number, number]> = [];
+    const fetchFn = async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ status: 'unhealthy' }),
+    });
+
+    await waitForAutoMemEndpoint({
+      endpoint: 'http://127.0.0.1:8001',
+      fetchFn,
+      attempts: 3,
+      intervalMs: 1,
+      onAttempt: (attempt, attempts) => seen.push([attempt, attempts]),
+    });
+
+    expect(seen).toEqual([
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
   });
 
   it('passes a custom timeout through every wait probe', async () => {
@@ -743,6 +1306,39 @@ describe('guided install helpers', () => {
     }
   });
 
+  it('waitForAutoMemEndpoint deadlineMs stops a hung /health before attempts * default timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const hangingFetch = (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise<never>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+
+      const resultPromise = waitForAutoMemEndpoint({
+        endpoint: 'https://stalled.example',
+        fetchFn: hangingFetch,
+        attempts: 60,
+        timeoutMs: 10_000,
+        intervalMs: 1_000,
+        deadlineMs: 50,
+      });
+
+      await vi.advanceTimersByTimeAsync(50);
+      const result = await resultPromise;
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.message).toMatch(/after 1 attempts/);
+        expect(result.message).not.toMatch(/after 60 attempts/);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('waitForAutoMemEndpoint with stableChecks requires consecutive successes (a flicker resets the streak)', async () => {
     let recallCalls = 0;
     const fetchFn = async (url: string) => {
@@ -767,6 +1363,33 @@ describe('guided install helpers', () => {
     ).resolves.toEqual({ ok: true });
     // 1:ok(streak=1) 2:404(reset) 3:ok(streak=1) 4:ok(streak=2 → ready) = 4 recall probes.
     expect(recallCalls).toBe(4);
+  });
+
+  it('waitForAutoMemEndpoint with requireHealthy keeps waiting through degraded /health', async () => {
+    let attempts = 0;
+    const fetchFn = async () => {
+      attempts += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: attempts === 3 ? 'healthy' : 'degraded',
+          falkordb: attempts === 3 ? 'connected' : 'disconnected',
+          qdrant: attempts === 3 ? 'connected' : 'disconnected',
+        }),
+      };
+    };
+
+    await expect(
+      waitForAutoMemEndpoint({
+        endpoint: 'http://127.0.0.1:8001',
+        fetchFn,
+        attempts: 3,
+        intervalMs: 1,
+        requireHealthy: true,
+      })
+    ).resolves.toEqual({ ok: true });
+    expect(attempts).toBe(3);
   });
 
   it('turns a docker compose failure into a clean InstallError with a port hint', async () => {
@@ -818,7 +1441,10 @@ describe('guided install helpers', () => {
 
   it('formatInstallError renders a clean themed line with the hint and no stack trace', () => {
     const out = formatInstallError(
-      new InstallError("Local AutoMem server didn't start (docker compose).", 'A port is in use — :3000.'),
+      new InstallError(
+        "Local AutoMem server didn't start (docker compose).",
+        'A port is in use — :3000.'
+      ),
       process.stderr
     );
     expect(out).toContain("Local AutoMem server didn't start");
@@ -833,11 +1459,129 @@ describe('guided install helpers', () => {
     expect(out).toContain('AutoMem install failed');
   });
 
+  it('formatInstallError keeps URLs plain on a non-TTY stream', () => {
+    const notty = {
+      isTTY: false,
+      write: () => true,
+    } as unknown as NodeJS.WriteStream;
+    const out = formatInstallError(
+      new InstallError(
+        'AutoMem deployed, but https://fresh.example is not responding yet.',
+        'Finish with --endpoint https://fresh.example'
+      ),
+      notty
+    );
+    expect(out).toContain('https://fresh.example');
+    expect(out).not.toContain('\x1b]8;');
+  });
+
+  it('formatInstallError strips trailing prose punctuation from linked URLs', () => {
+    const prevTerm = process.env.TERM;
+    const prevNoColor = process.env.NO_COLOR;
+    process.env.TERM = 'xterm-256color';
+    delete process.env.NO_COLOR;
+    try {
+      const tty = { isTTY: true, write: () => true } as unknown as NodeJS.WriteStream;
+      const out = formatInstallError(
+        new InstallError('Could not reach http://127.0.0.1:8001: still starting.', ''),
+        tty
+      );
+      expect(out).toContain('\x1b]8;;http://127.0.0.1:8001');
+      expect(out).not.toContain('\x1b]8;;http://127.0.0.1:8001:');
+    } finally {
+      if (prevTerm === undefined) delete process.env.TERM;
+      else process.env.TERM = prevTerm;
+      if (prevNoColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = prevNoColor;
+    }
+  });
+
+  it('localHealthRecoveryHint explains a fetch-failed wait and lists recovery commands', () => {
+    const hint = localHealthRecoveryHint({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/Users/me/.automem/server',
+      waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: fetch failed',
+      retryCommand:
+        'npx @verygoodplugins/mcp-automem install --target local --local-dir ~/.automem/server --clients cursor --yes',
+      inspect: {
+        composePs: 'flask-api   Restarting (1) 0 seconds ago',
+        apiLogs: 'Authorization: Bearer super-secret-token\nValueError: boom',
+      },
+    });
+    expect(hint).toMatch(/Nothing accepted the connection/);
+    expect(hint).toContain('What to try:');
+    expect(hint).toContain('docker compose ps');
+    expect(hint).toContain('docker compose logs flask-api');
+    expect(hint).toContain('lsof -iTCP:8001');
+    expect(hint).toContain('--target local');
+    expect(hint).toContain('Hosted Cloud');
+    expect(hint).toContain('flask-api   Restarting');
+    expect(hint).toContain('ValueError: boom');
+    expect(hint).not.toContain('super-secret-token');
+    expect(hint).toContain('Bearer ***');
+  });
+
+  it('localHealthRecoveryHint quotes localDir so a path with spaces pastes as one argument', () => {
+    const hint = localHealthRecoveryHint({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/tmp/AutoMem Server',
+      waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: fetch failed',
+      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      inspect: {},
+    });
+    expect(hint).toContain("cd '/tmp/AutoMem Server' && docker compose ps");
+    expect(hint).not.toContain('cd /tmp/AutoMem Server &&');
+  });
+
+  it('localHealthRecoveryHint treats a timed-out probe as a slow boot, not a refused connection', () => {
+    const hint = localHealthRecoveryHint({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/tmp/automem-server',
+      waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: timed out after 2s',
+      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      inspect: {},
+    });
+    expect(hint).toMatch(/health check timed out/i);
+    expect(hint).not.toMatch(/Nothing accepted the connection/);
+  });
+
+  it('localHealthTimeoutError is a recovery-styled InstallError, not the raw wait string', () => {
+    const err = localHealthTimeoutError({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/tmp/automem-server',
+      waitMessage: 'AutoMem endpoint did not become healthy after 30 attempts: fetch failed',
+      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      inspect: {},
+    });
+    expect(err).toBeInstanceOf(InstallError);
+    expect(err.message).toMatch(/never answered at http:\/\/127\.0\.0\.1:8001/);
+    expect(err.message).not.toMatch(/30 attempts/);
+    const out = formatInstallError(err, process.stderr);
+    expect(out).toContain('What to try:');
+    expect(out).toContain('docker compose ps');
+    expect(out).not.toMatch(/\n\s+at\s/);
+  });
+
+  it('localHealthRecoveryHint tells you to recreate the stack when stores are disconnected', () => {
+    const hint = localHealthRecoveryHint({
+      endpoint: 'http://127.0.0.1:8001',
+      localDir: '/Users/me/.automem/server',
+      waitMessage: 'AutoMem is degraded (FalkorDB disconnected, Qdrant disconnected).',
+      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      inspect: {
+        apiLogs:
+          'redis.exceptions.ConnectionError: Error -2 connecting to falkordb:6379. Name or service not known.',
+      },
+    });
+    expect(hint).toMatch(/FalkorDB or Qdrant is not connected/);
+    expect(hint).toContain('docker compose down && docker compose up -d --build');
+  });
+
   it('rejects a custom --endpoint with target local so the plan matches what is written', () => {
     const environment = detectInstallEnvironment();
     expect(() =>
       buildInstallPlan({
-        options: { ...parseInstallArgs([], {}), target: 'local', endpoint: 'http://custom:9000' },
+        options: { ...parseInstallArgs(['--endpoint', 'http://custom:9000'], {}), target: 'local' },
         environment,
       })
     ).toThrow(/not supported with --target local/);
@@ -850,6 +1594,48 @@ describe('guided install helpers', () => {
       environment,
     });
     expect(plan.endpoint).toBe('http://127.0.0.1:8001');
+  });
+
+  it('does not treat an inherited AUTOMEM_API_URL as --endpoint for a local install', () => {
+    const environment = detectInstallEnvironment();
+    const parsed = parseInstallArgs([], { AUTOMEM_API_URL: 'https://env.example' });
+    expect(parsed.endpointFromFlag).toBe(false);
+    const plan = buildInstallPlan({
+      options: { ...parsed, target: 'local' },
+      environment,
+    });
+    expect(plan.endpoint).toBe('http://127.0.0.1:8001');
+  });
+
+  it('drops an inherited key paired to a foreign URL when pinning local Docker', () => {
+    const pinned = pinLocalInstallOptions({
+      ...parseInstallArgs([], {
+        AUTOMEM_API_URL: 'https://env.example',
+        AUTOMEM_API_KEY: 'env-secret',
+      }),
+      target: 'local',
+    });
+    expect(pinned.endpoint).toBe('http://127.0.0.1:8001');
+    expect(pinned.apiKey).toBeUndefined();
+  });
+
+  it('keeps an inherited key when AUTOMEM_API_URL is already the local bind', () => {
+    const pinned = pinLocalInstallOptions({
+      ...parseInstallArgs([], {
+        AUTOMEM_API_URL: 'http://127.0.0.1:8001',
+        AUTOMEM_API_KEY: 'local-secret',
+      }),
+      target: 'local',
+    });
+    expect(pinned.apiKey).toBe('local-secret');
+  });
+
+  it('keeps an explicit --api-key when pinning away from an inherited URL', () => {
+    const pinned = pinLocalInstallOptions({
+      ...parseInstallArgs(['--api-key', 'flag-key'], { AUTOMEM_API_URL: 'https://env.example' }),
+      target: 'local',
+    });
+    expect(pinned.apiKey).toBe('flag-key');
   });
 
   it('reuses the existing local .env token on re-run instead of rotating it', async () => {
@@ -909,7 +1695,9 @@ describe('claude plugin auto-install', () => {
     ]);
   });
 
-  function recordingRunner(responder: (args: string[]) => { code: number; stdout?: string; stderr?: string }) {
+  function recordingRunner(
+    responder: (args: string[]) => { code: number; stdout?: string; stderr?: string }
+  ) {
     const calls: string[][] = [];
     const run = (_cmd: string, args: string[]) => {
       calls.push(args);
@@ -985,7 +1773,12 @@ describe('claude plugin auto-install', () => {
   it('runs nothing on dry-run', async () => {
     const { run, calls } = recordingRunner(() => ({ code: 0 }));
     await expect(
-      installClaudeCodePlugin({ endpoint: 'http://x', apiKey: 'sk-1', dryRun: true, runCommand: run })
+      installClaudeCodePlugin({
+        endpoint: 'http://x',
+        apiKey: 'sk-1',
+        dryRun: true,
+        runCommand: run,
+      })
     ).resolves.toEqual({ needsManualApiKey: false });
     expect(calls).toEqual([]);
   });
@@ -1013,5 +1806,202 @@ describe('claude plugin auto-install', () => {
     });
     const action = plan.actions.find((a) => a.client === 'claude-code');
     expect(action?.kind).toBe('manual-step');
+  });
+});
+
+// The stdio server loads the project .env at startup, so a credential left behind
+// there is live regardless of what the installer resolved in memory. These assert the
+// file contents for exactly that reason.
+describe('writeProjectEnv credential pairing', () => {
+  let tmpDir: string;
+  let envPath: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-project-env-'));
+    envPath = path.join(tmpDir, '.env');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('removes a persisted key when the endpoint changes and no new key was resolved', () => {
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_API_URL=https://old.example.test\nAUTOMEM_API_KEY=sk-old\nOTHER=keep\n'
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    const written = fs.readFileSync(envPath, 'utf8');
+    expect(written).not.toContain('sk-old');
+    expect(written).not.toMatch(/^AUTOMEM_API_KEY=/m);
+    expect(written).toContain('AUTOMEM_API_URL=https://new.example.test');
+    expect(written).toContain('OTHER=keep');
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    expect(result.previousEndpoint).toBe('https://old.example.test');
+  });
+
+  it('removes the deprecated AUTOMEM_API_TOKEN alias too', () => {
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_API_URL=https://old.example.test\nAUTOMEM_API_TOKEN=sk-legacy\n'
+    );
+
+    writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    const written = fs.readFileSync(envPath, 'utf8');
+    expect(written).not.toContain('sk-legacy');
+    expect(written).not.toMatch(/^AUTOMEM_API_TOKEN=/m);
+  });
+
+  it('removes both alias spellings when the file carries both', () => {
+    fs.writeFileSync(
+      envPath,
+      [
+        'AUTOMEM_API_URL=https://old.example.test',
+        'AUTOMEM_API_KEY=sk-old',
+        'AUTOMEM_API_TOKEN=sk-old',
+        '',
+      ].join('\n')
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(fs.readFileSync(envPath, 'utf8')).not.toContain('sk-old');
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY', 'AUTOMEM_API_TOKEN']);
+  });
+
+  // The common re-run. Dropping the key here would break every unflagged re-install.
+  it('keeps the persisted key when the endpoint is unchanged', () => {
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_API_URL=https://same.example.test\nAUTOMEM_API_KEY=sk-keep\n'
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://same.example.test' });
+
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('AUTOMEM_API_KEY=sk-keep');
+    expect(result.removedKeys).toEqual([]);
+  });
+
+  it('treats a trailing slash as the same endpoint', () => {
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_API_URL=https://same.example.test/\nAUTOMEM_API_KEY=sk-keep\n'
+    );
+
+    writeProjectEnv({ envPath, endpoint: 'https://same.example.test' });
+
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('AUTOMEM_API_KEY=sk-keep');
+  });
+
+  it('overwrites rather than removes when a new key was resolved for the new endpoint', () => {
+    fs.writeFileSync(envPath, 'AUTOMEM_API_URL=https://old.example.test\nAUTOMEM_API_KEY=sk-old\n');
+
+    const result = writeProjectEnv({
+      envPath,
+      endpoint: 'https://new.example.test',
+      apiKey: 'sk-new',
+    });
+
+    const written = fs.readFileSync(envPath, 'utf8');
+    expect(written).toContain('AUTOMEM_API_KEY=sk-new');
+    expect(written).not.toContain('sk-old');
+    expect(result.removedKeys).toEqual([]);
+  });
+
+  // A .env naming a key but no URL is not evidence of a mismatch, so it is left alone
+  // rather than guessed at.
+  it('leaves a key alone when the file has no endpoint to compare against', () => {
+    fs.writeFileSync(envPath, 'AUTOMEM_API_KEY=sk-unbound\n');
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('AUTOMEM_API_KEY=sk-unbound');
+    expect(result.removedKeys).toEqual([]);
+  });
+
+  // Every one of these is valid dotenv syntax naming the SAME endpoint. A hand-rolled
+  // reader that unwrapped only double quotes and ignored comments compared the raw text
+  // and removed a still-valid key, leaving the project unauthenticated.
+  it.each([
+    ['single quotes', "AUTOMEM_API_URL='https://same.example.test'"],
+    ['double quotes', 'AUTOMEM_API_URL="https://same.example.test"'],
+    ['a trailing comment', 'AUTOMEM_API_URL=https://same.example.test # production'],
+    ['an export prefix', 'export AUTOMEM_API_URL=https://same.example.test'],
+    ['surrounding whitespace', 'AUTOMEM_API_URL=   https://same.example.test   '],
+  ])('keeps the key when the endpoint is written with %s', (_label, line) => {
+    fs.writeFileSync(envPath, `${line}\nAUTOMEM_API_KEY=sk-keep\n`);
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://same.example.test' });
+
+    expect(result.previousEndpoint).toBe('https://same.example.test');
+    expect(result.removedKeys).toEqual([]);
+    expect(fs.readFileSync(envPath, 'utf8')).toContain('sk-keep');
+  });
+
+  // The reader (dotenv) accepts `export KEY=value`; the remover did not. So the key was
+  // correctly identified as stale, removal was requested, and the line survived —
+  // leaving the old credential live against the new endpoint.
+  it('removes an export-prefixed key when the endpoint changes', () => {
+    fs.writeFileSync(
+      envPath,
+      'export AUTOMEM_API_URL=https://old.example.test\nexport AUTOMEM_API_KEY=sk-old\n'
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    // Asserted through the parser that actually loads this file, not against raw text.
+    const effective = parseDotenvForTest(fs.readFileSync(envPath, 'utf8'));
+    expect(effective.AUTOMEM_API_KEY).toBeUndefined();
+    expect(effective.AUTOMEM_API_URL).toBe('https://new.example.test');
+  });
+
+  it('still removes the key when a quoted endpoint genuinely differs', () => {
+    fs.writeFileSync(
+      envPath,
+      "AUTOMEM_API_URL='https://old.example.test'\nAUTOMEM_API_KEY=sk-old\n"
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    expect(fs.readFileSync(envPath, 'utf8')).not.toContain('sk-old');
+  });
+
+  // dotenv applies the LAST assignment, and dotenv is what loads this file at server
+  // startup. Reading the first one reported a stale endpoint, so a key issued for the
+  // effective endpoint looked paired with the earlier line and survived a real change.
+  it('uses the last endpoint assignment when .env has duplicates', () => {
+    fs.writeFileSync(
+      envPath,
+      [
+        'AUTOMEM_API_URL=https://first.example.test',
+        'AUTOMEM_API_URL=https://effective.example.test',
+        'AUTOMEM_API_KEY=sk-effective',
+        '',
+      ].join('\n')
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://first.example.test' });
+
+    const written = fs.readFileSync(envPath, 'utf8');
+    expect(result.previousEndpoint).toBe('https://effective.example.test');
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+    expect(written).not.toContain('sk-effective');
+  });
+
+  it('compares against the deprecated AUTOMEM_ENDPOINT spelling as well', () => {
+    fs.writeFileSync(
+      envPath,
+      'AUTOMEM_ENDPOINT=https://old.example.test\nAUTOMEM_API_KEY=sk-old\n'
+    );
+
+    const result = writeProjectEnv({ envPath, endpoint: 'https://new.example.test' });
+
+    expect(fs.readFileSync(envPath, 'utf8')).not.toContain('sk-old');
+    expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
   });
 });

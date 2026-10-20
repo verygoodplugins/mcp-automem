@@ -25,12 +25,23 @@ function installFakeHooks(dir: string) {
   const scriptsDir = path.join(dir, 'scripts');
 
   // Hook JSON files
-  for (const hook of ['automem-session-start.json', 'automem-session-end.json', 'automem-build.json']) {
+  for (const hook of [
+    'automem-session-start.json',
+    'automem-session-end.json',
+    'automem-build.json',
+  ]) {
     fs.writeFileSync(path.join(hooksDir, hook), '{"version":1,"hooks":{}}', 'utf8');
   }
 
   // Support scripts
-  for (const script of ['capture-build-result.sh', 'capture-build-result.ps1', 'session-memory.sh', 'session-memory.ps1', 'python-command.sh', 'python-command.ps1']) {
+  for (const script of [
+    'capture-build-result.sh',
+    'capture-build-result.ps1',
+    'session-memory.sh',
+    'session-memory.ps1',
+    'python-command.sh',
+    'python-command.ps1',
+  ]) {
     fs.writeFileSync(path.join(scriptsDir, script), '# test', 'utf8');
   }
 
@@ -38,7 +49,10 @@ function installFakeHooks(dir: string) {
   fs.writeFileSync(path.join(scriptsDir, 'memory-queue.jsonl'), '', 'utf8');
 }
 
-function runCli(args: string[], env?: NodeJS.ProcessEnv): { stdout: string; stderr: string; exitCode: number } {
+function runCli(
+  args: string[],
+  env?: NodeJS.ProcessEnv
+): { stdout: string; stderr: string; exitCode: number } {
   try {
     const stdout = execFileSync(process.execPath, [CLI_PATH, ...args], {
       encoding: 'utf8',
@@ -60,7 +74,11 @@ describe('uninstall copilot', () => {
   });
 
   afterEach(() => {
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   // T025: uninstall removes all automem-*.json from hooks directory
@@ -69,8 +87,9 @@ describe('uninstall copilot', () => {
     const result = runCli(['uninstall', 'copilot', '--dir', tempDir, '--yes', '--quiet']);
     expect(result.exitCode).toBe(0);
 
-    const remaining = fs.readdirSync(path.join(tempDir, 'hooks'))
-      .filter(f => f.startsWith('automem-') && f.endsWith('.json') && !f.includes('.removed.'));
+    const remaining = fs
+      .readdirSync(path.join(tempDir, 'hooks'))
+      .filter((f) => f.startsWith('automem-') && f.endsWith('.json') && !f.includes('.removed.'));
     expect(remaining).toHaveLength(0);
   });
 
@@ -80,11 +99,10 @@ describe('uninstall copilot', () => {
     const result = runCli(['uninstall', 'copilot', '--dir', tempDir, '--yes', '--quiet']);
     expect(result.exitCode).toBe(0);
 
-    const remaining = fs.readdirSync(path.join(tempDir, 'scripts'))
-      .filter(f => {
-        if (f.includes('.removed.')) return false;
-        return f.includes('capture-') || f.includes('session-memory') || f.includes('python-command');
-      });
+    const remaining = fs.readdirSync(path.join(tempDir, 'scripts')).filter((f) => {
+      if (f.includes('.removed.')) return false;
+      return f.includes('capture-') || f.includes('session-memory') || f.includes('python-command');
+    });
     expect(remaining).toHaveLength(0);
   });
 
@@ -93,14 +111,30 @@ describe('uninstall copilot', () => {
     installFakeHooks(tempDir);
     // Create a fake mcp-config.json
     const configPath = path.join(tempDir, 'mcp-config.json');
-    fs.writeFileSync(configPath, JSON.stringify({
-      mcpServers: {
-        memory: { command: 'npx', args: ['mcp-automem'] },
-        other: { command: 'other-server' },
-      },
-    }, null, 2), 'utf8');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            memory: { command: 'npx', args: ['mcp-automem'] },
+            other: { command: 'other-server' },
+          },
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
 
-    const result = runCli(['uninstall', 'copilot', '--dir', tempDir, '--clean-all', '--yes', '--quiet']);
+    const result = runCli([
+      'uninstall',
+      'copilot',
+      '--dir',
+      tempDir,
+      '--clean-all',
+      '--yes',
+      '--quiet',
+    ]);
     expect(result.exitCode).toBe(0);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -110,14 +144,30 @@ describe('uninstall copilot', () => {
 
   it('--clean-all preserves a non-AutoMem server named memory', () => {
     const configPath = path.join(tempDir, 'mcp-config.json');
-    fs.writeFileSync(configPath, JSON.stringify({
-      mcpServers: {
-        memory: { command: 'npx', args: ['other-memory-server'] },
-        automem: { command: 'npx', args: ['@verygoodplugins/mcp-automem'] },
-      },
-    }, null, 2), 'utf8');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            memory: { command: 'npx', args: ['other-memory-server'] },
+            automem: { command: 'npx', args: ['@verygoodplugins/mcp-automem'] },
+          },
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
 
-    const result = runCli(['uninstall', 'copilot', '--dir', tempDir, '--clean-all', '--yes', '--quiet']);
+    const result = runCli([
+      'uninstall',
+      'copilot',
+      '--dir',
+      tempDir,
+      '--clean-all',
+      '--yes',
+      '--quiet',
+    ]);
     expect(result.exitCode).toBe(0);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));

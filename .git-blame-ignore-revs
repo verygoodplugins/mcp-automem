@@ -1,0 +1,14 @@
+# Revisions to skip in `git blame`. Mechanical, no-behavior-change commits only.
+#
+# Enable locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub applies this file automatically in its blame view.)
+#
+# This repo squash-merges, so a commit's branch SHA is not the SHA that lands on
+# main — listing one here would silently do nothing. Add the entry after merging,
+# using the squashed commit:
+#
+#   git log --oneline -1 main    # copy the full SHA of the squashed reformat
+#
+# Pending: the repo-wide prettier reformat from "chore: adopt prettier repo-wide
+# and enforce it in CI". Add its post-merge SHA below.

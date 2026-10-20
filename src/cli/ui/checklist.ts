@@ -10,6 +10,9 @@ type Status = 'pending' | 'running' | 'done' | 'fail';
 
 export type Checklist = {
   start(key: string): void;
+  // Refresh a running step's label in place (e.g. a retry counter) without
+  // changing its status.
+  update(key: string, label: string): void;
   done(key: string, label?: string): void;
   fail(key: string, label?: string): void;
   // Clean up the animation + restore the cursor (call before printing an error,
@@ -106,6 +109,7 @@ export function startChecklist(
 
   return {
     start: (key) => set(key, 'running'),
+    update: (key, label) => set(key, 'running', label),
     done: (key, label) => set(key, 'done', label),
     fail: (key, label) => set(key, 'fail', label),
     stop,

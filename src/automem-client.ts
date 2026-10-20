@@ -3,6 +3,7 @@ import type {
   BatchMemoryInput,
   MemoryRecord,
   RecallResult,
+  StoredMemory,
   HealthStatus,
   StoreMemoryArgs,
   StoreMemoryResult,
@@ -21,7 +22,6 @@ const BATCH_TOP_LEVEL_SINGLE_FIELDS = [
   'content',
   'type',
   'confidence',
-  'id',
   'tags',
   'importance',
   'embedding',
@@ -62,16 +62,11 @@ const ASSOCIATION_OPTIONAL_PROP_FIELDS = [
   'transformation',
   'role',
 ] as const;
-const SUPERSEDE_RELATIONS: readonly SupersedeRelationType[] = [
-  'INVALIDATED_BY',
-  'EVOLVED_INTO',
-];
+const SUPERSEDE_RELATIONS: readonly SupersedeRelationType[] = ['INVALIDATED_BY', 'EVOLVED_INTO'];
 
 function nonEmptyTags(tags: unknown): string[] {
   if (!Array.isArray(tags)) return [];
-  return tags
-    .map((t) => (typeof t === 'string' ? t.trim() : ''))
-    .filter((t) => t.length > 0);
+  return tags.map((t) => (typeof t === 'string' ? t.trim() : '')).filter((t) => t.length > 0);
 }
 
 function errorMessage(error: unknown): string {
@@ -101,6 +96,61 @@ function explainBatchAssociateRejection(error: unknown, itemCount: number): unkn
   return explained;
 }
 
+// The API's own message and rule (automem/api/memory.py _validate_memory_id).
+const INVALID_MEMORY_ID_MESSAGE = 'memory_id must be a valid UUID';
+
+// What Python's int(s, 16) parses: optional whitespace on either end, a "+", a
+// "0x" prefix, then hex digits with single underscores between them. int() reads
+// any Unicode decimal digit as its ASCII value first, so every one counts as a
+// digit, and a Unicode zero can start the prefix ("٠x"). The prefix's digit is
+// captured so the caller can check that it is a zero.
+const PY_SPACE = '[\\t-\\r \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*';
+const PY_HEX_DIGIT = '(?:[a-fA-F]|\\p{Nd})';
+const PY_HEX_INT_RE = new RegExp(
+  `^${PY_SPACE}\\+?(?:(\\p{Nd})[xX]_?)?${PY_HEX_DIGIT}(?:_?${PY_HEX_DIGIT})*${PY_SPACE}$`,
+  'u'
+);
+const DECIMAL_DIGIT_RE = /^\p{Nd}$/u;
+
+// Unicode encodes each decimal digit set as one contiguous run from 0 to 9, so a
+// digit's value is its distance from the start of its run of digits, mod 10.
+function isDecimalZero(digit: string): boolean {
+  const codePoint = digit.codePointAt(0)!;
+  let runStart = codePoint;
+  while (runStart > 0 && DECIMAL_DIGIT_RE.test(String.fromCodePoint(runStart - 1))) {
+    runStart -= 1;
+  }
+  return (codePoint - runStart) % 10 === 0;
+}
+
+/**
+ * True when Python's uuid.UUID(), which the API validates ids with, accepts `value`:
+ * it drops "urn:" and "uuid:", strips braces from both ends and removes every hyphen,
+ * then needs 32 characters that int(s, 16) parses. Nothing it accepts contains "/" or
+ * ".", so an accepted id cannot reach another route under /memory/.
+ */
+export function isUuidAcceptedByApi(value: string): boolean {
+  const hex = value
+    .replaceAll('urn:', '')
+    .replaceAll('uuid:', '')
+    .replace(/^[{}]+|[{}]+$/g, '')
+    .replaceAll('-', '');
+  if ([...hex].length !== 32) return false;
+  const match = PY_HEX_INT_RE.exec(hex);
+  const prefixDigit = match?.[1];
+  return match !== null && (prefixDigit === undefined || isDecimalZero(prefixDigit));
+}
+
+// An id goes into the URL path, where one the API would reject can reach a different
+// route first: "by-tag" hits GET/DELETE /memory/by-tag, and ".." normalizes to "/".
+// Refuse those with the API's own message before any request.
+function memoryPath(memoryId: string): string {
+  if (!isUuidAcceptedByApi(memoryId)) {
+    throw new Error(INVALID_MEMORY_ID_MESSAGE);
+  }
+  return `memory/${encodeURIComponent(memoryId)}`;
+}
+
 function mapStoredMemory(raw: any) {
   return {
     memory_id: raw?.id || raw?.memory_id || '',
@@ -114,6 +164,18 @@ function mapStoredMemory(raw: any) {
     type: raw?.type,
     confidence: raw?.confidence,
     last_accessed: raw?.last_accessed,
+    ...memoryStateFields(raw),
+  };
+}
+
+// t_valid, t_invalid and archived explain why a current_only: false or history recall
+// returned a memory. Kept only when the API sent a real value, so a null never reaches
+// a client that validates structuredContent against the outputSchema.
+function memoryStateFields(raw: any): Pick<StoredMemory, 't_valid' | 't_invalid' | 'archived'> {
+  return {
+    ...(typeof raw?.t_valid === 'string' ? { t_valid: raw.t_valid } : {}),
+    ...(typeof raw?.t_invalid === 'string' ? { t_invalid: raw.t_invalid } : {}),
+    ...(typeof raw?.archived === 'boolean' ? { archived: raw.archived } : {}),
   };
 }
 
@@ -133,10 +195,8 @@ function sanitizeAssociationInput(
   association: Partial<AssociationInput>,
   indexLabel: string
 ): AssociationInput {
-  const memory1Id =
-    typeof association.memory1_id === 'string' ? association.memory1_id.trim() : '';
-  const memory2Id =
-    typeof association.memory2_id === 'string' ? association.memory2_id.trim() : '';
+  const memory1Id = typeof association.memory1_id === 'string' ? association.memory1_id.trim() : '';
+  const memory2Id = typeof association.memory2_id === 'string' ? association.memory2_id.trim() : '';
   const type = association.type;
   const strength = association.strength;
 
@@ -170,6 +230,12 @@ function sanitizeAssociationInput(
   };
 }
 
+/** Per-call overrides for a single request, e.g. a health probe that must not retry. */
+export interface RequestOverrides {
+  timeoutMs?: number;
+  maxRetries?: number;
+}
+
 export class AutoMemClient {
   private config: AutoMemConfig;
 
@@ -181,7 +247,8 @@ export class AutoMemClient {
     method: string,
     path: string,
     body?: any,
-    retryCount = 0
+    retryCount = 0,
+    overrides?: RequestOverrides
   ): Promise<any> {
     const url = `${this.config.endpoint.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
 
@@ -194,7 +261,8 @@ export class AutoMemClient {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25_000);
+    const timeoutMs = overrides?.timeoutMs ?? this.config.timeoutMs ?? 25_000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const options: RequestInit = {
       method,
@@ -206,61 +274,75 @@ export class AutoMemClient {
       options.body = JSON.stringify(body);
     }
 
-    const maxRetries = 3;
+    const maxRetries = overrides?.maxRetries ?? this.config.maxRetries ?? 3;
     const baseDelay = 500; // 500ms base delay
 
-    // Network errors (fetch) should be retried; HTTP errors handled below
-    let response;
+    const retryAfter = async (reason: string): Promise<any> => {
+      const delay = baseDelay * Math.pow(2, retryCount);
+      console.error(
+        `[AutoMem] ${reason}, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return this.makeRequest(method, path, body, retryCount + 1, overrides);
+    };
+
     try {
-      response = await fetch(url, options);
-    } catch (error) {
+      // Network errors (fetch) should be retried; HTTP errors handled below
+      let response;
+      try {
+        response = await fetch(url, options);
+      } catch (error) {
+        if (error instanceof Error && retryCount < maxRetries) {
+          return retryAfter('Network error');
+        }
+
+        console.error(`AutoMem API error (${method} ${url}):`, error);
+        throw error;
+      }
+
+      let data: any;
+      try {
+        // Truncated HTTP/2 bodies arrive as 2xx/5xx with invalid JSON. Retry
+        // GET (recall/health) like a dropped connection. Never replay POST,
+        // PATCH, or DELETE after a parse failure: a committed store whose 201
+        // or gateway 5xx body was cut would mint a second UUID. 5xx responses
+        // that parse as JSON still retry for every method, as before.
+        data = await response.json();
+      } catch {
+        const isRetryableParse =
+          method === 'GET' && (response.ok || (response.status >= 500 && response.status < 600));
+        if (isRetryableParse && retryCount < maxRetries) {
+          return retryAfter(`Invalid JSON response (${response.status})`);
+        }
+        throw new Error(`Invalid JSON response (${response.status})`);
+      }
+
+      if (!response.ok) {
+        // Retry on 5xx only
+        const isRetryable = response.status >= 500 && response.status < 600;
+
+        if (isRetryable && retryCount < maxRetries) {
+          return retryAfter(`HTTP ${response.status}`);
+        }
+
+        const baseMessage =
+          (data as any)?.message || (data as any)?.detail || `HTTP ${response.status}`;
+
+        const hint =
+          response.status === 401 || response.status === 403
+            ? ' (check AUTOMEM_API_KEY or AUTOMEM_API_TOKEN is set for the MCP server process)'
+            : '';
+
+        const error = new Error(`${baseMessage}${hint}`) as Error & { status?: number };
+        error.status = response.status;
+        console.error(`AutoMem API error (${method} ${url}):`, error);
+        throw error;
+      }
+
+      return data;
+    } finally {
       clearTimeout(timeoutId);
-      if (error instanceof Error && retryCount < maxRetries) {
-        const delay = baseDelay * Math.pow(2, retryCount);
-        console.error(`[AutoMem] Network error, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return this.makeRequest(method, path, body, retryCount + 1);
-      }
-
-      console.error(`AutoMem API error (${method} ${url}):`, error);
-      throw error;
     }
-    clearTimeout(timeoutId);
-
-    let data: any;
-    try {
-      // Some error responses may not be JSON; treat parse errors as non-retryable
-      data = await response.json();
-    } catch {
-      throw new Error(`Invalid JSON response (${response.status})`);
-    }
-
-    if (!response.ok) {
-      // Retry on 5xx only
-      const isRetryable = response.status >= 500 && response.status < 600;
-
-      if (isRetryable && retryCount < maxRetries) {
-        const delay = baseDelay * Math.pow(2, retryCount); // 500ms, 1s, 2s
-        console.error(`[AutoMem] Retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return this.makeRequest(method, path, body, retryCount + 1);
-      }
-
-      const baseMessage =
-        (data as any)?.message || (data as any)?.detail || `HTTP ${response.status}`;
-
-      const hint =
-        response.status === 401 || response.status === 403
-          ? ' (check AUTOMEM_API_KEY or AUTOMEM_API_TOKEN is set for the MCP server process)'
-          : '';
-
-      const error = new Error(`${baseMessage}${hint}`) as Error & { status?: number };
-      error.status = response.status;
-      console.error(`AutoMem API error (${method} ${url}):`, error);
-      throw error;
-    }
-
-    return data;
   }
 
   async storeMemory(args: StoreMemoryArgs): Promise<StoreMemoryResult> {
@@ -281,14 +363,9 @@ export class AutoMemClient {
     }
 
     const supersedesMemoryId =
-      typeof args.supersedes_memory_id === 'string'
-        ? args.supersedes_memory_id.trim()
-        : '';
+      typeof args.supersedes_memory_id === 'string' ? args.supersedes_memory_id.trim() : '';
     const supersedeRelation = args.supersede_relation || 'INVALIDATED_BY';
-    if (
-      supersedesMemoryId &&
-      !SUPERSEDE_RELATIONS.includes(supersedeRelation)
-    ) {
+    if (supersedesMemoryId && !SUPERSEDE_RELATIONS.includes(supersedeRelation)) {
       throw new Error(
         `store_memory: supersede_relation must be one of ${SUPERSEDE_RELATIONS.join(', ')}`
       );
@@ -298,7 +375,6 @@ export class AutoMemClient {
       content: args.content,
       ...(args.type && { type: args.type }),
       ...(args.confidence !== undefined && { confidence: args.confidence }),
-      ...(args.id && { id: args.id }),
       tags: args.tags || [],
       importance: args.importance,
       embedding: args.embedding,
@@ -320,10 +396,7 @@ export class AutoMemClient {
     }
 
     const response = await this.makeRequest('POST', 'memory', body);
-    const memoryId =
-      response.memory_id ??
-      response.id ??
-      response.response?.memory_id;
+    const memoryId = response.memory_id ?? response.id ?? response.response?.memory_id;
 
     if (!supersedesMemoryId) {
       return {
@@ -426,8 +499,7 @@ export class AutoMemClient {
 
     const response = await this.makeRequest('POST', 'memory/batch', { memories: sanitized });
     const memoryIds: string[] = Array.isArray(response.memory_ids) ? response.memory_ids : [];
-    const stored: number =
-      typeof response.stored === 'number' ? response.stored : memoryIds.length;
+    const stored: number = typeof response.stored === 'number' ? response.stored : memoryIds.length;
     return {
       memory_ids: memoryIds,
       stored,
@@ -453,9 +525,7 @@ export class AutoMemClient {
     if (args.exhaustive === true) {
       const cleanTags = nonEmptyTags(args.tags);
       if (cleanTags.length === 0) {
-        throw new Error(
-          'recall_memory: `exhaustive: true` requires non-empty `tags`'
-        );
+        throw new Error('recall_memory: `exhaustive: true` requires non-empty `tags`');
       }
       if (args.tag_match && args.tag_match !== 'exact') {
         throw new Error(
@@ -494,6 +564,13 @@ export class AutoMemClient {
         'min_score',
         'adaptive_floor',
         'sort',
+        'context',
+        'language',
+        'active_path',
+        'context_tags',
+        'context_types',
+        'priority_ids',
+        'per_query_limit',
       ];
       const conflicting = rankedOnlyParams.filter((key) => {
         const v = (args as Record<string, unknown>)[key];
@@ -510,6 +587,14 @@ export class AutoMemClient {
     }
 
     // Mode 3: ranked retrieval — existing /recall path.
+    // /recall never reads `offset` (only GET /memory/by-tag pages), so forwarding it
+    // would quietly return the first page again.
+    if (args.offset !== undefined && args.offset > 0) {
+      throw new Error(
+        'recall_memory: `offset` only pages enumeration mode (`exhaustive: true` with `tags`); ranked recall has no offset. Remove `offset`, or raise `limit` for more ranked results.'
+      );
+    }
+
     const params = new URLSearchParams();
 
     // Support single query OR multiple queries
@@ -518,7 +603,7 @@ export class AutoMemClient {
     }
 
     if (Array.isArray(args.queries) && args.queries.length > 0) {
-      args.queries.filter(q => q && q.trim()).forEach((q) => params.append('queries', q));
+      args.queries.filter((q) => q && q.trim()).forEach((q) => params.append('queries', q));
     }
 
     if (args.limit) {
@@ -657,10 +742,6 @@ export class AutoMemClient {
       params.set('format', args.format);
     }
 
-    if (args.offset !== undefined && args.offset > 0) {
-      params.set('offset', String(args.offset));
-    }
-
     const queryString = params.toString();
     const path = queryString ? `recall?${queryString}` : 'recall';
 
@@ -694,6 +775,7 @@ export class AutoMemClient {
           type: result.memory?.type,
           confidence: result.memory?.confidence,
           last_accessed: result.memory?.last_accessed,
+          ...memoryStateFields(result.memory),
         },
       })),
       count: response.count || (response.results ? response.results.length : 0),
@@ -725,8 +807,9 @@ export class AutoMemClient {
   }
 
   private async fetchMemoryById(memoryId: string): Promise<any | null> {
+    const path = memoryPath(memoryId);
     try {
-      const response = await this.makeRequest('GET', `memory/${encodeURIComponent(memoryId)}`);
+      const response = await this.makeRequest('GET', path);
       return response?.memory ?? response ?? null;
     } catch (error) {
       // A missing ID should yield an empty result, not an exception. recallMemory's
@@ -738,11 +821,7 @@ export class AutoMemClient {
     }
   }
 
-  private async listByTag(
-    tags: string[],
-    limit?: number,
-    offset?: number
-  ): Promise<RecallResult> {
+  private async listByTag(tags: string[], limit?: number, offset?: number): Promise<RecallResult> {
     const params = new URLSearchParams();
     tags.forEach((tag) => params.append('tags', tag));
     if (typeof limit === 'number' && limit > 0) {
@@ -778,7 +857,9 @@ export class AutoMemClient {
         throw new Error('associate_memories: `associations` must contain at least one item');
       }
       if (args.associations.length > BATCH_MAX_ITEMS) {
-        throw new Error(`associate_memories: \`associations\` exceeds max ${BATCH_MAX_ITEMS} items`);
+        throw new Error(
+          `associate_memories: \`associations\` exceeds max ${BATCH_MAX_ITEMS} items`
+        );
       }
 
       const associations = args.associations.map((association, index) =>
@@ -829,13 +910,11 @@ export class AutoMemClient {
     };
   }
 
-  async checkHealth(): Promise<HealthStatus> {
+  async checkHealth(overrides?: RequestOverrides): Promise<HealthStatus> {
     try {
-      const response = await this.makeRequest('GET', 'health');
+      const response = await this.makeRequest('GET', 'health', undefined, 0, overrides);
       const serviceStatus =
-        response.status === 'healthy' || response.status === 'degraded'
-          ? response.status
-          : 'error';
+        response.status === 'healthy' || response.status === 'degraded' ? response.status : 'error';
 
       return {
         status: serviceStatus,
@@ -870,7 +949,7 @@ export class AutoMemClient {
       throw new Error('memory_id is required');
     }
 
-    const response = await this.makeRequest('PATCH', `memory/${encodeURIComponent(memoryId)}`, updates);
+    const response = await this.makeRequest('PATCH', memoryPath(memoryId), updates);
     return {
       memory_id: response.memory_id || memoryId,
       message: response.message || 'Memory updated successfully',
@@ -897,7 +976,7 @@ export class AutoMemClient {
     }
 
     const memoryId = args.memory_id!.trim();
-    const response = await this.makeRequest('DELETE', `memory/${encodeURIComponent(memoryId)}`);
+    const response = await this.makeRequest('DELETE', memoryPath(memoryId));
     return {
       memory_id: response.memory_id || memoryId,
       message: response.message || 'Memory deleted successfully',

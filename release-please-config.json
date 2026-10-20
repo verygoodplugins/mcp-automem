@@ -24,6 +24,58 @@
           "type": "json",
           "path": ".claude-plugin/marketplace.json",
           "jsonpath": "$.plugins[0].version"
+        },
+        {
+          "type": "generic",
+          "path": "AGENTS.md"
+        },
+        {
+          "type": "generic",
+          "path": "skills/automem/SKILL.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/CLAUDE_DESKTOP_INSTRUCTIONS.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/CLAUDE_MD_MEMORY_RULES.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/codex/memory-rules.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/cursor/automem.mdc.template"
+        },
+        {
+          "type": "generic",
+          "path": "templates/cursor/rule-evals.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/cursor/user-rules.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/grok/memory-rules.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/hermes/memory-rules.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/openclaw/skill-legacy/SKILL.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/openclaw/skill-mcp/SKILL.md"
         }
       ]
     }

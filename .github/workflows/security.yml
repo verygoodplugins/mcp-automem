@@ -2,11 +2,11 @@ name: Security
 
 on:
   schedule:
-    - cron: "0 0 * * 0" # Weekly on Sunday
+    - cron: '0 0 * * 0' # Weekly on Sunday
   push:
     branches: [main]
+  # Unfiltered for the same reason as ci.yml: the base-branch filter skipped stacked PRs.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -39,8 +39,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
-          cache: "npm"
+          node-version: '24'
+          cache: 'npm'
 
       - run: npm ci
 

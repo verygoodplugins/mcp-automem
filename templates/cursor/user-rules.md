@@ -1,4 +1,4 @@
-<!-- automem-template-version: 0.15.0 -->
+<!-- automem-template-version: 0.16.0 --> <!-- x-release-please-version -->
 
 # Cursor Global User Rules (AutoMem)
 

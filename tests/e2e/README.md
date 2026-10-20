@@ -49,7 +49,7 @@ node tests/e2e/interactive.mjs claude   # filter by name substring
 ```
 
 Routes covered: `existing-cursor`, `existing-claude-plugin`, `existing-claude-settings`,
-`cloud`, `local`. It self-heals node-pty's `spawn-helper` executable bit (a common
+`cloud`, `local`, `existing-grok`. It self-heals node-pty's `spawn-helper` executable bit (a common
 post-install quirk that otherwise throws `posix_spawnp failed`). PTY allocation may be
 unavailable in some CI sandboxes, so this stays a local/dev gate, not a CI gate.
 
@@ -87,13 +87,15 @@ Machine-generated evidence is written to
 | `AUTOMEM_INSTALL_SH` | `automem-website/public/install.sh` under the workspace root (two levels up — this repo lives under `<workspace>/mcp-servers/`) | The website bootstrap script. If absent, the `website-bootstrap-install-sh` scenario is **skipped** (not failed) and the rest of the matrix still runs. |
 | `AUTOMEM_PACKAGE_SPEC` | `file:<staged tarball>` | The `npx` package spec under test. |
 
-## Scenarios (12)
+## Scenarios (14)
 
 | Scenario | What it pins |
 |---|---|
 | `codex-existing-headless` | Headless existing-target install for Codex against a healthy endpoint. |
+| `grok-existing-headless` | Grok Build install — opt-in via `--clients` (grok is absent from `DEFAULT_AGENT_CLIENTS`); asserts the `config.toml` MCP registration, the marked rules block, and that the global rules stay project-agnostic. |
 | `claude-existing-headless` | Sibling client (Claude Code) — proves the symmetric writer exists. |
-| `claude-plugin-default` | Claude Code defaults to the plugin install (recommended) — the plan shows the `/plugin` commands, not settings-file writes. |
+| `claude-plugin-fallback` | Claude Code defaults to the plugin install (recommended) — with no `claude` on PATH the plan shows the `/plugin` commands, not settings-file writes. |
+| `claude-plugin-autoinstall` | With `claude` on PATH, the plugin install is driven automatically instead of printed as a manual step. |
 | `dry-run-no-writes` | `--dry-run` produces a plan and changes nothing. |
 | `no-agent-install` | `--no-agent-install` writes only `.env`, no client integration files. |
 | `non-tty-no-yes-preview` | Non-interactive **without** `--yes`/`--dry-run` previews only — writes nothing. |
