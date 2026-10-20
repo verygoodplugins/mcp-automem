@@ -39,6 +39,19 @@ sync on every build — formatting them would fight the generator. Markdown is e
 `tests/docs/integration-coverage.test.ts` asserts against README/INSTALLATION prose and table
 sections, so reflowing them risks silent coverage breakage.
 
+Four JSON files are checked with Prettier's `json-stringify` parser instead of its default
+`json` parser, through an `overrides` block in `.prettierrc`: `manifest.json`, `server.json`,
+`.claude-plugin/marketplace.json` and `.release-please-manifest.json`. Release Please rewrites
+all four on a release PR, and each of its JSON updaters ends in `jsonStringify` —
+`JSON.stringify(parsed, replacer, detectIndent(content).indent)` — which puts every array
+element on its own line. The default parser collapses any array that fits `printWidth`, so the
+two tools disagree permanently and `format:check`, which the `test` job runs *before* Build,
+fails the release PR. That cost a hand-fix commit on the 0.16.0 release. `json-stringify`
+prints what `JSON.stringify` prints, which is why `package.json` was never affected — Prettier
+infers that parser for it by default. Keeping these four on it means Prettier still validates
+them and the release PR's diff stays at the version line. Add any new `json`-type `extra-files`
+entry to that `overrides` block as well.
+
 ### Template version markers
 
 Every memory-policy artifact carries a `<!-- automem-template-version: x.y.z -->` comment
@@ -52,12 +65,22 @@ Three things keep it that way, and all three are load-bearing:
   repaired the markers in the runner and the drift assertion in `tests/cli/smoke.test.ts`
   passed on a tree that was stale in git. The breakage only showed up as a dirty
   `git status` on a developer machine.
-- Release Please rewrites the markers on the release PR. Each marker line ends with a
-  trailing Release Please annotation comment, and `release-please-config.json` lists all 13
-  marker-bearing files under `extra-files` with the `generic` updater, so the markers move in
-  the same commit as the `package.json` bump. Before that wiring the markers lagged a whole
-  release behind (0.16.0 shipped with 0.15.0 markers; #257 fixed it by hand), and the CI
-  guard above would have failed every release PR.
+- Release Please rewrites the markers on the release PR it creates. Each marker line ends
+  with a trailing Release Please annotation comment, and `release-please-config.json` lists
+  all 13 marker-bearing files under `extra-files` with the `generic` updater, so the markers
+  move in the same commit as the `package.json` bump. Before that wiring the markers lagged a
+  whole release behind (0.16.0 shipped with 0.15.0 markers; #257 fixed it by hand), and the
+  CI guard above would have failed every release PR.
+
+  That holds for a release PR Release Please creates or updates — not for one that is
+  **already open when a new `extra-files` entry lands**. `maybeUpdateExistingPullRequest` in
+  release-please compares the rendered PR body and, when it is byte-identical, logs
+  `remained the same` and returns without pushing *any* of the file updates. A `chore:` or
+  `docs:` merge adds no changelog line, so the body does not change and the open release PR
+  never gains the new paths. That is exactly what happened when #258 merged while #248 was
+  open. After adding an `extra-files` entry, check `gh pr view <n> --json files` on any open
+  release PR; if the new paths are absent, close it and delete its branch so Release Please
+  cuts a fresh one from current main.
 
 Never hand-edit a marker — change the generator and re-run `npm run build`. A new
 marker-bearing file needs a `generic` `extra-files` entry as well; `tests/cli/smoke.test.ts`
