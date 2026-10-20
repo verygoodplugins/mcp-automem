@@ -9,7 +9,7 @@ user-invocable: true
 metadata: {"openclaw":{"skillKey":"automem","primaryEnv":"AUTOMEM_API_KEY","requires":{"env":["AUTOMEM_API_URL"]}}}
 ---
 
-<!-- automem-template-version: 0.16.0 --> <!-- x-release-please-version -->
+<!-- automem-template-version: 0.16.1 --> <!-- x-release-please-version -->
 
 # AutoMem Legacy Skill
 
