@@ -841,7 +841,7 @@ describe('guided install helpers', () => {
     expect(claudeAction?.commands).toBeUndefined();
   });
 
-  it('plans Cursor as a rule-file-only write (mcp.json is advice-only, never written)', () => {
+  it('plans every Cursor configuration write', () => {
     const homeDir = '/Users/tester';
     const cwd = '/repo/project';
     const plan = buildInstallPlan({
@@ -864,10 +864,12 @@ describe('guided install helpers', () => {
     });
 
     const cursorPaths = plan.actions.find((action) => action.client === 'cursor')?.paths;
-    // applyCursorSetup only writes the project rule file; ~/.cursor/mcp.json is
-    // advice-only, so the plan must not promise to write it.
-    expect(cursorPaths).toEqual([path.join(cwd, '.cursor', 'rules', 'automem.mdc')]);
-    expect(cursorPaths).not.toContain(path.join(homeDir, '.cursor', 'mcp.json'));
+    expect(cursorPaths).toEqual([
+      path.join(homeDir, '.cursor', 'mcp.json'),
+      path.join(cwd, '.cursor', 'rules', 'automem.mdc'),
+      path.join(cwd, '.cursor', 'hooks.json'),
+      path.join(cwd, '.cursor', 'hooks', 'automem-session-start.mjs'),
+    ]);
   });
 
   it('renders Hermes plan paths from HERMES_HOME when explicitly selected', () => {

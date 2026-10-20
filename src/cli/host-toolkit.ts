@@ -23,6 +23,15 @@ export function log(message: string, quiet?: boolean): void {
  * pairing depends on it — a key must never follow a "changed" endpoint that is only
  * spelled differently, and must never ride along to one that genuinely differs.
  */
+/**
+ * A plain JSON object — not null, not an array. The predicate every host config
+ * reader needs before indexing into parsed JSON, kept here so the hosts share one
+ * definition rather than each carrying a private copy.
+ */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 export function normalizeEndpoint(value: string): string {
   return value.trim().replace(/\/+$/, '');
 }
@@ -152,8 +161,8 @@ const AUTOMEM_ENV_KEYS: readonly string[] = [
 ];
 
 export function isAutoMemServerEntry(entry: unknown): boolean {
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
-  const record = entry as Record<string, unknown>;
+  if (!isRecord(entry)) return false;
+  const record = entry;
 
   const candidates: string[] = [];
   if (typeof record.command === 'string') candidates.push(record.command);
@@ -165,10 +174,8 @@ export function isAutoMemServerEntry(entry: unknown): boolean {
   if (candidates.some((value) => AUTOMEM_PACKAGE_SEGMENT.test(value))) return true;
 
   const env = record.env;
-  if (env && typeof env === 'object' && !Array.isArray(env)) {
-    return AUTOMEM_ENV_KEYS.some((name) =>
-      Object.prototype.hasOwnProperty.call(env as Record<string, unknown>, name)
-    );
+  if (isRecord(env)) {
+    return AUTOMEM_ENV_KEYS.some((name) => Object.prototype.hasOwnProperty.call(env, name));
   }
   return false;
 }

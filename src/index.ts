@@ -155,11 +155,16 @@ COMMANDS:
           Options:
             --name <name>           Project name (auto-detected if not provided)
             --dir <path>            Target directory for .cursor/rules (default: .cursor/rules)
+            --endpoint <url>        AutoMem service URL
+            --api-key <key>         AutoMem API key for the selected endpoint
             --dry-run              Show what would be changed without modifying files
             --quiet                Suppress output
+            --yes, -y              Skip confirmation prompts
 
-          This command installs the automem.mdc rule file and checks for MCP server configuration.
-          For global behavior across all projects, add memory rules to Cursor Settings > Rules for AI.
+          Configures ~/.cursor/mcp.json, project memory rules, and a sessionStart recall hook.
+          The uninstall command removes all three, including the shared ~/.cursor/mcp.json entry.
+          Hooks provide recall guidance; the model decides when to store memories.
+          For guided endpoint and credential setup, run the install command from your project.
 
 CLAUDE CODE SETUP:
   npx @verygoodplugins/mcp-automem claude-code [options]
@@ -194,8 +199,8 @@ UNINSTALL:
 
   Options:
     --dir <path>          Project / hermes-home / grok-home directory
-    --rules <path>        Rules file to strip (default: codex <project>/AGENTS.md, hermes/grok <home>/AGENTS.md)
-    --clean-all          Also remove MCP server config (Cursor/Claude Desktop)
+    --rules <path>        Rule file to remove (Cursor) or strip (default: codex <project>/AGENTS.md, hermes/grok <home>/AGENTS.md)
+    --clean-all          Also clean other hosts' MCP config (e.g. Claude Desktop)
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation
 
@@ -208,7 +213,7 @@ RECALL:
     --limit <number>      Maximum results (default: 5)
 
         EXAMPLES:
-          # Set up Cursor in current project (installs automem.mdc rule)
+          # Set up Cursor MCP server, project rules, and session-start hook
           npx @verygoodplugins/mcp-automem cursor
 
           # Set up with custom project name

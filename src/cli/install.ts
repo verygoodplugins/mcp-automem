@@ -866,12 +866,12 @@ function agentPaths(
         path.join(environment.homeDir, '.claude', 'scripts'),
       ];
     case 'cursor':
-      // Only the project rule file is written. ~/.cursor/mcp.json is advice-only
-      // (cursor.ts reads it to detect the memory server and logs a pointer when
-      // it's missing — it never writes the file), so listing it here would make
-      // the plan over-promise a write the executor never performs (same rule as
-      // codex's config.toml above).
-      return [path.join(environment.cwd, '.cursor', 'rules', 'automem.mdc')];
+      return [
+        path.join(environment.homeDir, '.cursor', 'mcp.json'),
+        path.join(environment.cwd, '.cursor', 'rules', 'automem.mdc'),
+        path.join(environment.cwd, '.cursor', 'hooks.json'),
+        path.join(environment.cwd, '.cursor', 'hooks', 'automem-session-start.mjs'),
+      ];
     case 'openclaw':
       return [path.join(environment.clientRoots.openclaw, 'openclaw.json')];
     case 'hermes':
@@ -1991,7 +1991,13 @@ async function applyAgentInstall(
       await applyClaudeCodeSetup({ dryRun: params.dryRun, quiet: true, yes: true });
       break;
     case 'cursor':
-      await applyCursorSetup({ dryRun: params.dryRun, quiet: true, skipPrompts: true });
+      await applyCursorSetup({
+        endpoint: params.endpoint,
+        apiKey: params.apiKey,
+        dryRun: params.dryRun,
+        quiet: true,
+        skipPrompts: true,
+      });
       break;
     case 'openclaw':
       await applyOpenClawSetup({

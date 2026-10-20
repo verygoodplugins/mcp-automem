@@ -76,6 +76,14 @@
         {
           "type": "generic",
           "path": "templates/openclaw/skill-mcp/SKILL.md"
+        },
+        {
+          "type": "generic",
+          "path": "templates/cursor/session-start.mjs.template"
+        },
+        {
+          "type": "generic",
+          "path": "templates/cursor/session-start-context.md"
         }
       ]
     }

@@ -14,6 +14,8 @@ import {
   renderClaudeMdMemoryRules,
   renderCodexMemoryRules,
   renderCursorProjectRule,
+  renderCursorSessionStartContext,
+  renderCursorSessionStartScript,
   renderGrokMemoryRules,
   renderClaudeCodeSessionStartPrompt,
   renderCopilotSessionStartPrompt,
@@ -309,6 +311,19 @@ describe('shared AutoMem memory policy', () => {
       })
     );
     expectFileEquals(
+      'templates/cursor/session-start.mjs.template',
+      renderCursorSessionStartScript({ templateVersion })
+    );
+    expectFileEquals(
+      'templates/cursor/session-start-context.md',
+      renderCursorSessionStartContext({
+        projectName: '{{PROJECT_NAME}}',
+        mcpServerName: '{{MCP_SERVER_NAME}}',
+        mcpToolPrefix: '{{MCP_TOOL_PREFIX}}',
+        templateVersion,
+      })
+    );
+    expectFileEquals(
       'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',
       renderClaudeDesktopInstructions({ templateVersion })
     );
@@ -434,6 +449,8 @@ describe('shared AutoMem memory policy', () => {
       'plugins/automem/scripts/track-store.sh',
       'templates/codex/memory-rules.md',
       'templates/cursor/automem.mdc.template',
+      'templates/cursor/session-start.mjs.template',
+      'templates/cursor/session-start-context.md',
       'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',
       'templates/CLAUDE_MD_MEMORY_RULES.md',
       'templates/hermes/memory-rules.md',

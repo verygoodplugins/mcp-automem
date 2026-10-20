@@ -10,6 +10,8 @@ import {
   renderClaudeMdMemoryRules,
   renderCodexMemoryRules,
   renderCursorProjectRule,
+  renderCursorSessionStartContext,
+  renderCursorSessionStartScript,
   renderGrokMemoryRules,
   renderHermesMemoryRules,
   renderHermesProviderPolicyPython,
@@ -53,6 +55,19 @@ const files: Array<[string, string]> = [
   [
     'templates/cursor/automem.mdc.template',
     renderCursorProjectRule({
+      projectName: '{{PROJECT_NAME}}',
+      mcpServerName: '{{MCP_SERVER_NAME}}',
+      mcpToolPrefix: '{{MCP_TOOL_PREFIX}}',
+      templateVersion,
+    }),
+  ],
+  [
+    'templates/cursor/session-start.mjs.template',
+    renderCursorSessionStartScript({ templateVersion }),
+  ],
+  [
+    'templates/cursor/session-start-context.md',
+    renderCursorSessionStartContext({
       projectName: '{{PROJECT_NAME}}',
       mcpServerName: '{{MCP_SERVER_NAME}}',
       mcpToolPrefix: '{{MCP_TOOL_PREFIX}}',
