@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyCursorSetup } from '../../src/cli/cursor.js';
+import { HOST_SMOKE_SPECS } from '../helpers/host-specs.js';
 import { fakeMemoryId, startFakeAutoMemApi, StdioMcpClient } from '../helpers/host-smoke.js';
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -14,14 +15,7 @@ const hasCursorAgent =
     encoding: 'utf8',
     timeout: 5_000,
   }).status === 0;
-const TOOL_NAMES = [
-  'store_memory',
-  'recall_memory',
-  'associate_memories',
-  'update_memory',
-  'delete_memory',
-  'check_database_health',
-];
+const TOOL_NAMES = HOST_SMOKE_SPECS.find((spec) => spec.host === 'cursor')!.expectedToolNames;
 
 describe('Cursor MCP host boundary', () => {
   let root: string;
@@ -79,7 +73,7 @@ describe('Cursor MCP host boundary', () => {
       await client.initialize();
       const listed = (await client.request('tools/list')) as { tools: Array<{ name: string }> };
       const names = listed.tools.map((tool) => tool.name);
-      expect(names).toEqual(TOOL_NAMES);
+      expect([...names].sort()).toEqual([...TOOL_NAMES].sort());
       expect(new Set(names).size).toBe(6);
       const health = (await client.request('tools/call', {
         name: 'check_database_health',

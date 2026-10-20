@@ -846,7 +846,7 @@ export function renderCursorProjectRule(params: CursorProjectRuleOptions): strin
     '',
     `Use AutoMem proactively to maintain persistent context across sessions for ${params.projectName}. Preserve host/platform instructions; this rule adds project-level memory behavior.`,
     '',
-    `Tools are \`${params.mcpToolPrefix}*\` (e.g. \`${params.mcpToolPrefix}recall_memory\`). Cursor MCP server: \`${params.mcpServerName}\`.`,
+    `Cursor MCP server: \`${params.mcpServerName}\`. Discover its tools before the first call and use the live tool inventory. Cursor may expose server-local tool names through its MCP dispatcher or direct callable names. The examples below use the direct spelling \`${params.mcpToolPrefix}*\` (e.g. \`${params.mcpToolPrefix}recall_memory\`); when a dispatcher is available, target this server and the corresponding unprefixed tool name instead.`,
     '',
     renderToolBehaviorSection(style),
     '',

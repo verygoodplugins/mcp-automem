@@ -21,11 +21,7 @@ import { CODEX_RULES_END, CODEX_RULES_START } from './codex.js';
 import { COPILOT_RULES_END, COPILOT_RULES_START } from './copilot.js';
 import { HERMES_RULES_END, HERMES_RULES_START } from './hermes.js';
 import { isAutoMemServerEntry } from './host-toolkit.js';
-import {
-  readCursorDocument,
-  removeCursorHook,
-  removeCursorMemoryServers,
-} from './cursor-config.js';
+import { planCursorHooks, removeCursorHook, removeCursorMemoryServers } from './cursor-config.js';
 import { UNINSTALL_PLATFORMS, type UninstallPlatform } from './clients.js';
 
 interface UninstallOptions {
@@ -219,7 +215,7 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
   log('\n🗑️  Uninstalling Cursor AutoMem...', options.quiet);
 
   // Preflight both shared documents before disconnecting the global server.
-  readCursorDocument(path.join(projectDir, '.cursor', 'hooks.json'), 'hooks');
+  planCursorHooks(path.join(projectDir, '.cursor', 'hooks.json'));
   removeCursorMemoryServers(options);
   removeCursorHook(path.join(projectDir, '.cursor', 'hooks.json'), options);
   removeFileWithBackup(automemRuleFile, options.dryRun ?? false, options.quiet);

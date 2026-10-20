@@ -70,8 +70,10 @@ export const HOST_SMOKE_SPECS: HostSmokeSpec[] = [
     client: 'cursor',
     configPath: '~/.cursor/mcp.json',
     installCommand: ['mcp-automem', 'cursor'],
-    expectedToolNames: RAW_AUTOMEM_TOOLS.map((name) => `mcp_memory_${name}`).sort(),
-    realHostSmoke: 'config-and-mcp-contract',
+    // Current Cursor discovery reports server-local names; the IDE can defer them through its MCP dispatcher.
+    expectedToolNames: [...RAW_AUTOMEM_TOOLS].sort(),
+    validationCommand: ['cursor-agent', 'mcp', 'list-tools', 'memory'],
+    realHostSmoke: 'required-when-installed',
   },
   {
     host: 'claude-code',

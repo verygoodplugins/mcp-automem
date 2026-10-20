@@ -371,7 +371,11 @@ Choose your existing AutoMem service, or follow the local/cloud setup prompts. T
 
 The session-start hook supplies recall guidance through Cursor's `additional_context` response. The model calls AutoMem, decides what is durable, and stores, verifies, and associates memories during work. The rule provides a fallback when hooks are unavailable; initial recalls run once per conversation. There is no Stop hook or automatic memory storage. This setup targets the local Cursor IDE; Cursor cloud agents do not currently run `sessionStart` hooks.
 
-Reload Cursor after installation. In Cursor's MCP settings, confirm that the AutoMem server is enabled and exposes six tools. Start a new Agent conversation and ask it to check database health, then recall context relevant to your project. If the service is unavailable, restore its connection and retry; memory access should not block normal project work.
+Reload Cursor after installation, then create a new Agent conversation so the session-start hook can run. In Cursor's MCP settings, confirm that the AutoMem server is enabled and exposes six tools. Ask it to check database health, then recall context relevant to your project. Current Cursor versions can discover the tools through an MCP dispatcher; the rule also includes direct tool-name examples for older versions. If the service is unavailable, restore its connection and retry; memory access should not block normal project work.
+
+![Cursor Customize shows an isolated AutoMem server with six tools enabled](screenshots/cursor-setup.png)
+
+_An isolated test workspace connected to a disposable AutoMem API. The default server name is `memory`; this example uses `automem-demo`._
 
 ### 2. Existing Service and One-Click Setup
 
@@ -393,7 +397,7 @@ npx @verygoodplugins/mcp-automem cursor --dry-run
 # Custom rule directory (normally <project>/.cursor/rules)
 npx @verygoodplugins/mcp-automem cursor --dir .cursor/rules
 
-# Skip confirmation prompts
+# Noninteractive setup
 npx @verygoodplugins/mcp-automem cursor --yes
 ```
 
@@ -1572,6 +1576,9 @@ npx @verygoodplugins/mcp-automem uninstall grok
 
 # Also clean Claude Desktop config
 npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
+
+# Remove a rule installed into a custom directory
+npx @verygoodplugins/mcp-automem uninstall cursor --rules custom/rules/automem.mdc
 
 # Preview what would be removed
 npx @verygoodplugins/mcp-automem uninstall cursor --dry-run

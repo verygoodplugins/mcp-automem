@@ -9,7 +9,7 @@ alwaysApply: true
 
 Use AutoMem proactively to maintain persistent context across sessions for {{PROJECT_NAME}}. Preserve host/platform instructions; this rule adds project-level memory behavior.
 
-Tools are `{{MCP_TOOL_PREFIX}}*` (e.g. `{{MCP_TOOL_PREFIX}}recall_memory`). Cursor MCP server: `{{MCP_SERVER_NAME}}`.
+Cursor MCP server: `{{MCP_SERVER_NAME}}`. Discover its tools before the first call and use the live tool inventory. Cursor may expose server-local tool names through its MCP dispatcher or direct callable names. The examples below use the direct spelling `{{MCP_TOOL_PREFIX}}*` (e.g. `{{MCP_TOOL_PREFIX}}recall_memory`); when a dispatcher is available, target this server and the corresponding unprefixed tool name instead.
 
 ## Tool's real behavior (validated against production corpus)
 
