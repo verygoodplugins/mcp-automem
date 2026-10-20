@@ -20,6 +20,17 @@
 # npm Publishing:
 #   Uses Trusted Publishing (OIDC) - no secrets needed!
 #   Configure at: https://www.npmjs.com/package/@verygoodplugins/mcp-{name}/access
+#
+# Release PR token:
+#   GitHub does not start workflow runs from events caused by GITHUB_TOKEN, so a
+#   release PR opened with the default token lands with its checks in
+#   `action_required` and has to be approved by hand before the required `test` and
+#   `semantic-pr-title` checks can report. Three release PRs in a row stalled on
+#   that. RELEASE_PLEASE_TOKEN (an org secret, visible to this repo) is used instead
+#   so the PR's checks run on their own. It needs contents:write and
+#   pull-requests:write. If the secret is ever absent or expired the expression
+#   falls back to github.token, which still opens the PR correctly - it just needs
+#   the manual approval again, rather than failing the release outright.
 
 name: Release Please
 
@@ -42,6 +53,9 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
+          # See "Release PR token" above: the default github.token would open a
+          # release PR whose checks need manual approval.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
