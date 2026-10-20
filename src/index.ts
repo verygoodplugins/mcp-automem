@@ -198,7 +198,7 @@ UNINSTALL:
 
   Options:
     --dir <path>          Project / hermes-home / grok-home directory
-    --rules <path>        Rules file to strip (default: codex <project>/AGENTS.md, hermes/grok <home>/AGENTS.md)
+    --rules <path>        Rule file to remove (Cursor) or strip (default: codex <project>/AGENTS.md, hermes/grok <home>/AGENTS.md)
     --clean-all          Also check legacy MCP config (including Claude Desktop)
     --dry-run           Show what would be removed
     --yes, -y           Skip confirmation

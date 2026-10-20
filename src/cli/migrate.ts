@@ -147,6 +147,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   // Perform migration
   if (options.to === 'cursor') {
     await applyCursorSetup({
+      projectDir,
       targetDir: path.join(projectDir, '.cursor', 'rules'),
       dryRun: options.dryRun,
       quiet: options.quiet,

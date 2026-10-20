@@ -77,6 +77,8 @@ Escalate only when the task-context recall comes back too broad or empty:
 - **Sparse under a tag gate** - drop the gate and rely on the semantic query alone; older memories use `project/<slug>` prefixes, so gated queries can miss historical content.
 - **Need graph traversal** - use `expand_relations: true`; add `expand_respect_tags: true` when traversal must stay inside the tag gate, or leave it false/drop tags when broader graph context is useful.
 
+The session-start hook may also provide these instructions. Perform the initial recalls only once per conversation, whether prompted by the hook or this rule.
+
 ## Storage Discipline
 
 Store only durable decisions, corrections, explicit preferences, bug-fix root causes, and articulated reusable patterns. Never store secrets, credentials, tokens, PII, session summaries, progress reports, confirmations, speculative context, or attentiveness notes.
