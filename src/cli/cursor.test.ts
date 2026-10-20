@@ -191,6 +191,23 @@ describe('Cursor setup', () => {
     expect(fs.readdirSync(project)).toEqual([]);
   });
 
+  it('serializes hostile project names as context without evaluating injected JavaScript', async () => {
+    const projectName = 'demo"; process.stdout.write("INJECTED"); //\n` ${process.exit(99)} $&';
+    await setup({ projectName });
+    const script = path.join(project, '.cursor', 'hooks', 'automem-session-start.mjs');
+    const run = spawnSync(process.execPath, [script], {
+      input: '{}',
+      encoding: 'utf8',
+      cwd: project,
+      timeout: 5_000,
+    });
+    expect(run.status, run.stderr).toBe(0);
+    const output = JSON.parse(run.stdout);
+    expect(Object.keys(output)).toEqual(['additional_context']);
+    expect(output.additional_context).toContain(projectName);
+    expect(output.additional_context).toContain('mcp_memory_recall_memory');
+  });
+
   it('runs the portable session-start script with JSON output and harmless malformed input', async () => {
     await setup();
     const script = path.join(project, '.cursor', 'hooks', 'automem-session-start.mjs');

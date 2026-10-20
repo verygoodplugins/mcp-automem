@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { removeManagedHookEntries } from './claude-code.js';
+import { applyCursorSetup } from './cursor.js';
 import { parseUninstallArgs, runUninstall } from './uninstall.js';
 
 describe('uninstall --clean-all preserves foreign Claude Desktop mcpServers', () => {
@@ -72,6 +73,41 @@ describe('uninstall --clean-all preserves foreign Claude Desktop mcpServers', ()
       .readdirSync(cfgDir)
       .filter((f) => f.startsWith('claude_desktop_config.json.backup.'));
     expect(backups).toHaveLength(1);
+  });
+
+  it('preserves foreign conventional names while removing verified custom entries with secure backup', async () => {
+    const foreign = {
+      memory: { command: 'foreign-memory', args: ['--read-only'] },
+      automem: { command: 'foreign-automem' },
+    };
+    const owned = {
+      command: 'npx',
+      args: ['-y', '@verygoodplugins/mcp-automem'],
+      env: { AUTOMEM_API_KEY: 'fake-backup-key' },
+    };
+    const cfgPath = seedConfig({ mcpServers: { ...foreign, customMemory: owned } });
+    const original = fs.readFileSync(cfgPath, 'utf8');
+    fs.chmodSync(cfgPath, 0o644);
+
+    await runUninstall({
+      platform: 'codex',
+      projectDir: home,
+      cleanAll: true,
+      yes: true,
+      quiet: true,
+    });
+
+    const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    expect(after.mcpServers).toEqual(foreign);
+    expect(after.globalShortcut).toBe('Cmd+Shift+Space');
+    const backups = fs
+      .readdirSync(path.dirname(cfgPath))
+      .filter((name) => name.includes('.backup.'));
+    expect(backups).toHaveLength(1);
+    const backupPath = path.join(path.dirname(cfgPath), backups[0]);
+    expect(fs.readFileSync(backupPath, 'utf8')).toBe(original);
+    expect(fs.statSync(backupPath).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(cfgPath).mode & 0o777).toBe(0o600);
   });
 
   it('dry-run leaves the config byte-for-byte unchanged', async () => {
@@ -719,5 +755,128 @@ describe('uninstall grok', () => {
 
     expect(fs.readFileSync(path.join(tmpDir, 'config.toml'), 'utf8')).toBe(beforeConfig);
     expect(fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8')).toBe(beforeAgents);
+  });
+});
+
+describe('Cursor uninstall round trip', () => {
+  let root: string;
+  let home: string;
+  let project: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-cursor-uninstall-'));
+    home = path.join(root, 'home');
+    project = path.join(root, 'project');
+    fs.mkdirSync(project, { recursive: true });
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    for (const key of Object.keys(process.env)) {
+      if (/^(AUTOMEM_|CLAUDE_PLUGIN_OPTION_)/.test(key)) vi.stubEnv(key, undefined);
+    }
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  it('removes installed artifacts and custom-name MCP entries, preserves foreign entries and hooks', async () => {
+    await applyCursorSetup({
+      projectDir: project,
+      endpoint: 'https://example.test',
+      apiKey: 'fake-test-key',
+      quiet: true,
+    });
+    const configPath = path.join(home, '.cursor', 'mcp.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    config.mcpServers.custom = config.mcpServers.memory;
+    config.mcpServers.memory = { command: 'foreign-memory' };
+    config.mcpServers.automem = { command: 'foreign-automem' };
+    config.userSetting = true;
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    const hookPath = path.join(project, '.cursor', 'hooks.json');
+    const hooks = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+    hooks.hooks.sessionStart.push({ command: 'user-script' });
+    hooks.hooks.stop = [{ command: 'user-stop' }];
+    fs.writeFileSync(hookPath, JSON.stringify(hooks));
+    await runUninstall({ platform: 'cursor', projectDir: project, yes: true, quiet: true });
+    expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({
+      userSetting: true,
+      mcpServers: {
+        memory: { command: 'foreign-memory' },
+        automem: { command: 'foreign-automem' },
+      },
+    });
+    expect(JSON.parse(fs.readFileSync(hookPath, 'utf8')).hooks).toEqual({
+      sessionStart: [{ command: 'user-script' }],
+      stop: [{ command: 'user-stop' }],
+    });
+    expect(fs.existsSync(path.join(project, '.cursor', 'rules', 'automem.mdc'))).toBe(false);
+    expect(fs.existsSync(path.join(project, '.cursor', 'hooks', 'automem-session-start.mjs'))).toBe(
+      false
+    );
+    const backup = fs.readdirSync(path.dirname(configPath)).find((name) => name.endsWith('.bak'))!;
+    expect(fs.statSync(path.join(path.dirname(configPath), backup)).mode & 0o777).toBe(0o600);
+  });
+  it.each(['{invalid', '[]', '{"version":1,"hooks":[]}'])(
+    'rejects malformed hooks (%s) before removing global config or rules',
+    async (malformed) => {
+      await applyCursorSetup({ projectDir: project, quiet: true });
+      const configPath = path.join(home, '.cursor', 'mcp.json');
+      const hooksPath = path.join(project, '.cursor', 'hooks.json');
+      const rulePath = path.join(project, '.cursor', 'rules', 'automem.mdc');
+      const scriptPath = path.join(project, '.cursor', 'hooks', 'automem-session-start.mjs');
+      const configBefore = fs.readFileSync(configPath, 'utf8');
+      const ruleBefore = fs.readFileSync(rulePath, 'utf8');
+      fs.writeFileSync(hooksPath, malformed);
+
+      await expect(
+        runUninstall({ platform: 'cursor', projectDir: project, yes: true, quiet: true })
+      ).rejects.toThrow();
+
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(configBefore);
+      expect(fs.readFileSync(hooksPath, 'utf8')).toBe(malformed);
+      expect(fs.readFileSync(rulePath, 'utf8')).toBe(ruleBefore);
+      expect(fs.existsSync(scriptPath)).toBe(true);
+      expect(fs.readdirSync(path.dirname(configPath))).toEqual(['mcp.json']);
+    }
+  );
+
+  it('removes the custom rule selected by --rules along with project hooks and global registration', async () => {
+    const targetDir = path.join(project, 'custom rules');
+    const customRule = path.join(targetDir, 'automem.mdc');
+    await applyCursorSetup({ projectDir: project, targetDir, quiet: true });
+    const defaultRule = path.join(project, '.cursor', 'rules', 'automem.mdc');
+    fs.mkdirSync(path.dirname(defaultRule), { recursive: true });
+    fs.writeFileSync(defaultRule, 'unrelated rule');
+
+    await runUninstall({
+      platform: 'cursor',
+      projectDir: project,
+      rulesPath: customRule,
+      yes: true,
+      quiet: true,
+    });
+
+    expect(fs.existsSync(customRule)).toBe(false);
+    expect(fs.readFileSync(defaultRule, 'utf8')).toBe('unrelated rule');
+    expect(fs.existsSync(path.join(project, '.cursor', 'hooks', 'automem-session-start.mjs'))).toBe(
+      false
+    );
+    const config = JSON.parse(fs.readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8'));
+    expect(config.mcpServers).toEqual({});
+    const hooks = JSON.parse(fs.readFileSync(path.join(project, '.cursor', 'hooks.json'), 'utf8'));
+    expect(hooks.hooks.sessionStart ?? []).toEqual([]);
+  });
+
+  it('uninstall preview changes no files and makes no backups', async () => {
+    await applyCursorSetup({ projectDir: project, quiet: true });
+    const files = [
+      path.join(home, '.cursor', 'mcp.json'),
+      path.join(project, '.cursor', 'hooks.json'),
+      path.join(project, '.cursor', 'rules', 'automem.mdc'),
+      path.join(project, '.cursor', 'hooks', 'automem-session-start.mjs'),
+    ];
+    const before = files.map((file) => fs.readFileSync(file, 'utf8'));
+    await runUninstall({ platform: 'cursor', projectDir: project, dryRun: true, quiet: true });
+    expect(files.map((file) => fs.readFileSync(file, 'utf8'))).toEqual(before);
+    expect(fs.readdirSync(path.join(home, '.cursor'))).toEqual(['mcp.json']);
   });
 });
