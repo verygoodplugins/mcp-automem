@@ -4,8 +4,9 @@
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-automem"],
       "env": {
-        "AUTOMEM_API_URL": "https://your-automem-instance.railway.app",
-        "AUTOMEM_API_KEY": "your-api-key-if-required"
+        "AUTOMEM_API_URL": "http://127.0.0.1:8001",
+        "AUTOMEM_API_KEY": "",
+        "AUTOMEM_API_TOKEN": ""
       }
     }
   }

@@ -76,7 +76,7 @@ _Claude automatically recalls memories using the Personal Preferences template_
 ### Cursor IDE with Memory Rules
 
 ![Cursor with Memory](screenshots/cursor-2.jpg)
-_Cursor uses automem.mdc rule to automatically recall and store memories_
+_Cursor uses AutoMem project rules to recall context and save durable memories during work_
 
 ### Claude Code with Session Memory
 
@@ -159,12 +159,17 @@ On Windows, the hook payload assumes a POSIX shell environment such as Git Bash,
 
 **For Cursor IDE:**
 
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=memory&config=eyJlbnYiOnsiQVVUT01FTV9BUElfVVJMIjoiaHR0cDovLzEyNy4wLjAuMTo4MDAxIiwiQVVUT01FTV9BUElfS0VZIjoieW91ci1hcGkta2V5LWlmLXJlcXVpcmVkIn0sImNvbW1hbmQiOiJucHggLXkgQHZlcnlnb29kcGx1Z2lucy9tY3AtYXV0b21lbSJ9)
+Run the guided installer from your project and select Cursor:
 
 ```bash
-# Or use CLI to install automem.mdc rule file
-npx @verygoodplugins/mcp-automem cursor
+npx @verygoodplugins/mcp-automem install
 ```
+
+This connects Cursor to your AutoMem service, installs project memory rules, and registers a session-start recall hook. Already have an endpoint? Use `npx @verygoodplugins/mcp-automem cursor --endpoint https://your-automem.example`.
+
+The one-click button configures only the MCP server for a local AutoMem instance. Update its endpoint/key in Cursor if needed, then run the CLI above to add project rules and the hook:
+
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=memory&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkB2ZXJ5Z29vZHBsdWdpbnMvbWNwLWF1dG9tZW0iXSwiZW52Ijp7IkFVVE9NRU1fQVBJX1VSTCI6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMSIsIkFVVE9NRU1fQVBJX0tFWSI6IiIsIkFVVE9NRU1fQVBJX1RPS0VOIjoiIn19)
 
 **Other platforms** — Claude Desktop (one-click `.mcpb` above, plus the [Personal Preferences template](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md)), [OpenAI Codex](INSTALLATION.md#openai-codex), [Hermes Agent](INSTALLATION.md#hermes-agent), [Grok Build](INSTALLATION.md#grok-build), [OpenClaw](INSTALLATION.md#openclaw), [Google Antigravity](INSTALLATION.md#google-antigravity), and [GitHub Copilot](INSTALLATION.md#github-copilot-coding-agent-githubcom):
 
@@ -260,11 +265,11 @@ mcp__memory__recall_memory({
 
 #### Cursor IDE
 
-- ✅ **Memory-first rule file** (`automem.mdc` in `.cursor/rules/`)
-- ✅ **Automatic memory recall** at conversation start
+- ✅ **Guided setup** configures the global MCP server with your endpoint and API key
+- ✅ **Project memory rules** in `.cursor/rules/automem.mdc`
+- ✅ **Session-start hook** prompts recall, with rules as a fallback
+- ✅ **Model-judged storage** during work; hooks never write memories
 - ✅ **Auto-detects project context** (package.json, git remote)
-- ✅ **Global user rules option** for all projects
-- ✅ **Simple setup** via CLI or one-click install
 
 #### Claude Code
 
@@ -314,7 +319,7 @@ mcp__memory__recall_memory({
 
 - 📦 **[Installation Guide](INSTALLATION.md)** - MCP client setup for all platforms
 - 🌐 **[Remote MCP via HTTP](INSTALLATION.md#remote-mcp-via-http-sidecar)** - Connect ChatGPT, Claude Web/Mobile, ElevenLabs
-- 🎯 **[Cursor Setup](INSTALLATION.md#cursor-ide)** - IDE integration with rules
+- 🎯 **[Cursor Setup](INSTALLATION.md#cursor-ide)** - IDE integration with rules and a session-start hook
 - 🤖 **[Claude Code Setup](templates/CLAUDE_CODE_INTEGRATION.md)** - Plugin install, hooks, and memory rules
 - ⚠️ **[Deprecations](DEPRECATION.md)** - History of the plugin deprecation and its reversal
 - 🚀 **[OpenAI Codex Setup](INSTALLATION.md#openai-codex)** - Codex CLI/IDE/Cloud integration

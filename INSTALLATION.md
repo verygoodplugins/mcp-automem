@@ -354,49 +354,54 @@ _Claude Desktop using AutoMem from Personal Preferences_
 
 ## Cursor IDE
 
-### 1. One-Click Install (Fastest)
+### 1. Guided Install (Recommended)
 
-Click to install AutoMem MCP server in Cursor:
-
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=memory&config=eyJlbnYiOnsiQVVUT01FTV9FTkRQT0lOVCI6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMSIsIkFVVE9NRU1fQVBJX0tFWSI6InlvdXItYXBpLWtleS1pZi1yZXF1aXJlZCJ9LCJjb21tYW5kIjoibnB4IC15IEB2ZXJ5Z29vZHBsdWdpbnMvbWNwLWF1dG9tZW0ifQ%3D%3D)
-
-**What this does:**
-
-- Automatically adds AutoMem MCP server to Cursor's configuration
-- No manual JSON editing required!
-
-**After installation:**
-
-- Update `AUTOMEM_API_URL` with your AutoMem instance URL in `~/.cursor/mcp.json`
-- Optionally set `AUTOMEM_API_KEY` if using authentication
-- Restart Cursor to load the server
-
-### 2. Add Memory Rule (Recommended)
-
-Install the `automem.mdc` rule file to teach Cursor how to use memory:
+From your project directory, run the installer and select Cursor:
 
 ```bash
-npx @verygoodplugins/mcp-automem cursor
+npx @verygoodplugins/mcp-automem install
 ```
 
-This will:
+Choose your existing AutoMem service, or follow the local/cloud setup prompts. The installer passes the selected endpoint and API key into Cursor setup, which:
 
-- Auto-detect your project name and description
-- Create `.cursor/rules/automem.mdc` with memory-first instructions
-- Check for MCP server configuration and provide setup guidance if missing
+- Merges an AutoMem server into `~/.cursor/mcp.json`, preserving unrelated servers and settings.
+- Creates the always-on project rule `.cursor/rules/automem.mdc`.
+- Merges a `sessionStart` registration into `.cursor/hooks.json` and installs `.cursor/hooks/automem-session-start.mjs`.
+- Backs up changed configuration and restricts permissions on the file containing credentials.
 
-**Options:**
+The session-start hook supplies recall guidance through Cursor's `additional_context` response. The model calls AutoMem, decides what is durable, and stores, verifies, and associates memories during work. The rule provides a fallback when hooks are unavailable; initial recalls run once per conversation. There is no Stop hook or automatic memory storage. This setup targets the local Cursor IDE; Cursor cloud agents do not currently run `sessionStart` hooks.
+
+Reload Cursor after installation. In Cursor's MCP settings, confirm that the AutoMem server is enabled and exposes six tools. Start a new Agent conversation and ask it to check database health, then recall context relevant to your project. If the service is unavailable, restore its connection and retry; memory access should not block normal project work.
+
+### 2. Existing Service and One-Click Setup
+
+To configure Cursor directly against an existing service:
 
 ```bash
-# Specify project details manually
-npx @verygoodplugins/mcp-automem cursor --name my-project --desc "My awesome project"
+npx @verygoodplugins/mcp-automem cursor --endpoint https://your-automem.example
+```
 
-# Preview changes without modifying files
+Use `--api-key` for an authenticated service, or let the installer resolve credentials. Endpoint changes do not reuse credentials belonging to a different endpoint. An existing verified AutoMem server registration is reused; conflicting names, ambiguous registrations, malformed configuration, and project overrides are reported before setup writes files.
+
+```bash
+# Specify the project name used in memory guidance
+npx @verygoodplugins/mcp-automem cursor --name my-project
+
+# Preview global MCP, project rule, and hook changes without writing files
 npx @verygoodplugins/mcp-automem cursor --dry-run
 
-# Custom target directory
+# Custom rule directory (normally <project>/.cursor/rules)
 npx @verygoodplugins/mcp-automem cursor --dir .cursor/rules
+
+# Skip confirmation prompts
+npx @verygoodplugins/mcp-automem cursor --yes
 ```
+
+The one-click button adds only the global MCP server, using `npx` with a separate argument list and a local endpoint. It does not install rules or hooks:
+
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=memory&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkB2ZXJ5Z29vZHBsdWdpbnMvbWNwLWF1dG9tZW0iXSwiZW52Ijp7IkFVVE9NRU1fQVBJX1VSTCI6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMSIsIkFVVE9NRU1fQVBJX0tFWSI6IiIsIkFVVE9NRU1fQVBJX1RPS0VOIjoiIn19)
+
+The button targets `http://127.0.0.1:8001` with blank `AUTOMEM_API_KEY` and legacy `AUTOMEM_API_TOKEN` values. For a hosted or authenticated service, update the endpoint and key in Cursor's MCP settings or `~/.cursor/mcp.json`. Then run the `cursor` command to install project rules and the session-start hook. See [Cursor's MCP documentation](https://cursor.com/docs/mcp) and [hook contract](https://cursor.com/docs/hooks) for host behavior.
 
 ### 3. How Cursor Loads Instructions
 
@@ -428,7 +433,7 @@ For cross-project preference recall and a stable collaboration baseline, copy th
 
 </details>
 
-Keep this global layer short. Project rules should continue to own recall/store/update/associate behavior, tagging, and the GPT-5.4 project overlay. For full operational memory behavior, use project-level installation.
+Keep this global layer short. Project rules should continue to own recall/store/update/associate behavior and tagging. For full operational memory behavior, use project-level installation.
 
 ---
 
@@ -1553,7 +1558,7 @@ Check the health of the AutoMem service
 Remove AutoMem configuration:
 
 ```bash
-# Uninstall Cursor setup
+# Remove project rules/hooks and the verified global AutoMem MCP registration
 npx @verygoodplugins/mcp-automem uninstall cursor
 
 # Uninstall Claude Code setup
@@ -1571,6 +1576,8 @@ npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
 # Preview what would be removed
 npx @verygoodplugins/mcp-automem uninstall cursor --dry-run
 ```
+
+Cursor uninstall preserves unrelated rules, hooks, and MCP servers. Its global MCP registration is shared across projects: removing it also disconnects AutoMem in other Cursor projects until setup is run again. `--clean-all` additionally checks supported legacy locations such as Claude Desktop; unrelated registrations remain untouched.
 
 ### Help
 
