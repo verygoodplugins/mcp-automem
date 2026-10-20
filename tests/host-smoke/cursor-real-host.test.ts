@@ -43,6 +43,58 @@ describe('Cursor MCP host boundary', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
+  it('guided install forwards the selected endpoint and key into Cursor configuration', async () => {
+    const api = await startFakeAutoMemApi();
+    try {
+      const result = await runFile(
+        process.execPath,
+        [
+          '--import',
+          import.meta.resolve('tsx'),
+          path.join(REPO_ROOT, 'src/index.ts'),
+          'install',
+          '--target',
+          'existing',
+          '--endpoint',
+          api.url,
+          '--api-key',
+          'guided-cursor-test-key',
+          '--clients',
+          'cursor',
+          '--yes',
+        ],
+        {
+          cwd: project,
+          env: {
+            PATH: process.env.PATH,
+            HOME: home,
+            USERPROFILE: home,
+            NO_COLOR: '1',
+            TERM: 'dumb',
+          },
+          timeout: 20_000,
+        }
+      );
+      const entry = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.memory;
+      expect(entry.env.AUTOMEM_API_URL).toBe(api.url);
+      expect(entry.env.AUTOMEM_API_KEY).toBe('guided-cursor-test-key');
+      expect(
+        fs.existsSync(path.join(project, '.cursor', 'hooks', 'automem-session-start.mjs'))
+      ).toBe(true);
+      expect(fs.existsSync(path.join(project, '.cursor', 'rules', 'automem.mdc'))).toBe(true);
+      expect(result.stdout + result.stderr).not.toContain('guided-cursor-test-key');
+      expect(
+        api.requests.some(
+          (request) =>
+            request.path.startsWith('/recall') &&
+            request.authorization === 'Bearer guided-cursor-test-key'
+        )
+      ).toBe(true);
+    } finally {
+      await api.close();
+    }
+  }, 25_000);
+
   it('starts the configured stdio process and forwards selected credentials to AutoMem', async () => {
     const api = await startFakeAutoMemApi();
     let client: StdioMcpClient | undefined;
