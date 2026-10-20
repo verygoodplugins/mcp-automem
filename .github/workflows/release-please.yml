@@ -20,6 +20,20 @@
 # npm Publishing:
 #   Uses Trusted Publishing (OIDC) - no secrets needed!
 #   Configure at: https://www.npmjs.com/package/@verygoodplugins/mcp-{name}/access
+#
+# Release PR token:
+#   GitHub does not start workflow runs from events caused by GITHUB_TOKEN, so a
+#   release PR opened with the default token lands with its checks in
+#   `action_required` and has to be approved by hand before the required `test` and
+#   `semantic-pr-title` checks can report. Three release PRs in a row stalled on
+#   that. RELEASE_PLEASE_TOKEN (an org secret, visible to this repo) is used instead
+#   so the PR's checks run on their own. It needs contents:write and
+#   pull-requests:write. The workflow does not try to predict whether the token is
+#   usable - an expired, revoked, or under-scoped token is still a non-empty string,
+#   and a fine-grained token's scopes cannot be introspected. It attempts the
+#   release with the token and retries with github.token if that fails, so any
+#   unusable secret degrades to the old manual-approval behaviour instead of
+#   blocking the release, and emits a warning telling you to repair it.
 
 name: Release Please
 
@@ -36,14 +50,43 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      # Whichever attempt ran: the retry's outputs are empty unless it executed.
+      release_created: ${{ steps.release.outputs.release_created || steps.release_retry.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name || steps.release_retry.outputs.tag_name }}
     steps:
+      # Attempt with RELEASE_PLEASE_TOKEN so the release PR's checks run without
+      # manual approval. `||` covers an unset secret (GitHub gives an empty string);
+      # every other way a token can be unusable - expired, revoked, or scoped
+      # without contents:write / pull-requests:write - still yields a non-empty,
+      # truthy string, and no endpoint reliably reports a fine-grained token's
+      # scopes. So this does not try to predict usability: it lets the attempt fail
+      # and retries below. release-please is idempotent and reconciles existing
+      # state, so a retry is safe.
       - uses: googleapis/release-please-action@v4
         id: release
+        continue-on-error: true
         with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # Fallback: the release still goes out on the built-in token. Its PR arrives
+      # with checks in `action_required` and needs a manual approval, which is the
+      # behaviour this workflow had before RELEASE_PLEASE_TOKEN - degraded, not
+      # broken. The warning is what tells you to repair the secret.
+      - name: Retry the release with GITHUB_TOKEN
+        id: release_retry
+        if: steps.release.outcome == 'failure'
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Warn that the release token needs repair
+        if: steps.release.outcome == 'failure'
+        run: |
+          echo "::warning::RELEASE_PLEASE_TOKEN could not run release-please (expired, revoked, or missing contents:write / pull-requests:write). Fell back to GITHUB_TOKEN, so this release PR's checks need manual approval until the secret is repaired."
 
   docs-dispatch:
     needs: release-please

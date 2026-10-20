@@ -471,14 +471,35 @@ Documentation changes are part of the integration contract. Any new host mode or
 
 ## Publishing Workflow
 
-1. Update version in `package.json`
-2. Update `CHANGELOG.md` with changes
-3. Build: `npm run build`
-4. Test: `npm test`
-5. Publish: `npm publish` (requires npm login)
+Releases are automated — do **not** hand-bump the version or run `npm publish`.
+Both fight the pipeline: Release Please owns every version field (see
+`release-please-config.json`), and publishing uses npm Trusted Publishing (OIDC)
+from `.github/workflows/release-please.yml`, which has no token to run locally.
 
-**Pre-publish checks:**
-- `npm run build` succeeds
+1. Land conventional-commit work on `main`. `feat:` is a minor bump, `fix:` a
+   patch, `feat!:` a major; `chore:`/`docs:` do not bump.
+2. Release Please opens or updates a release PR. It carries every version field
+   and the template version markers, which are pegged to the release so they move
+   with the bump (see the memory-policy notes above).
+3. Merge the release PR. That tags the release, publishes the GitHub Release,
+   publishes to npm with provenance, uploads the `.mcpb` extension, and asks
+   automem-website to document the release.
+
+Release PRs are opened with `RELEASE_PLEASE_TOKEN` rather than `GITHUB_TOKEN`, so
+their checks start without manual approval. It needs `contents: write` and
+`pull-requests: write`. If that attempt fails for any reason — expired, revoked, or
+under-scoped — the workflow retries with `GITHUB_TOKEN` and warns, so an unusable
+secret costs the manual approval again rather than blocking the release.
+
+**Verifying a release:** npm serves a new version a minute or two after the job
+reports success, so an immediate `npm view` can still show the old one — that is
+propagation, not a failed publish. npm's local packument cache can also return
+`notarget` for a version that is already live; `npm install --prefer-online` or
+`npm pack <pkg>@<version>` gets the truth. Confirm the tag, the GitHub Release,
+and `npm view <pkg> version` before calling a release done.
+
+**Pre-publish checks** (what CI enforces on the release PR):
+- `npm run build` succeeds and leaves the tree clean (the drift guard in `ci.yml`)
 - `dist/` contains compiled JS + declarations + maps
 - `package.json` main/bin/types point to correct dist files
 - Templates directory included in published package
