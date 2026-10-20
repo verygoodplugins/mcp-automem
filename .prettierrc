@@ -3,5 +3,18 @@
   "singleQuote": true,
   "tabWidth": 2,
   "trailingComma": "es5",
-  "printWidth": 100
+  "printWidth": 100,
+  "overrides": [
+    {
+      "files": [
+        "manifest.json",
+        "server.json",
+        ".claude-plugin/marketplace.json",
+        ".release-please-manifest.json"
+      ],
+      "options": {
+        "parser": "json-stringify"
+      }
+    }
+  ]
 }
