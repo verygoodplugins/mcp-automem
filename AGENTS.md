@@ -486,8 +486,9 @@ from `.github/workflows/release-please.yml`, which has no token to run locally.
    automem-website to document the release.
 
 Release PRs are opened with `RELEASE_PLEASE_TOKEN` rather than `GITHUB_TOKEN`, so
-their checks start without manual approval. The workflow probes that token first and
-falls back to `GITHUB_TOKEN` unless it authenticates — a missing, expired, or revoked
+their checks start without manual approval. It needs `contents: write` and
+`pull-requests: write`. If that attempt fails for any reason — expired, revoked, or
+under-scoped — the workflow retries with `GITHUB_TOKEN` and warns, so an unusable
 secret costs the manual approval again rather than blocking the release.
 
 **Verifying a release:** npm serves a new version a minute or two after the job
