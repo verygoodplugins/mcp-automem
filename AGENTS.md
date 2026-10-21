@@ -512,9 +512,9 @@ and `npm view <pkg> version` before calling a release done.
 
 **Storage Timestamp and Tagging Guidelines:**
 - When queuing/storing a memory from hooks or tools, set a single top‑level `timestamp` (ISO 8601 UTC). Do not set `metadata.timestamp` and do not add date‑derived tags.
-- Prefer precise, namespace‑style tags (e.g., `slack/channel-ops`) instead of free‑form text tags.
+- Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.
 - For recall, prefer `recall_memory` with `tags` and optionally a `query`:
-  - Defaults (server‑side): `tag_mode=any`, `tag_match=prefix` (prefix supports namespaces like `slack:*`).
+  - Defaults (server‑side): `tag_mode=any`, `tag_match=prefix`. Prefix matching follows child tag boundaries at `:` or `/`, including legacy stored tags; it does not interpret wildcards or match across hyphens.
   - You can specify `tag_mode=all` to require all tags, or `tag_match=exact` for strict matches.
 
 **Hook Script Patterns:**
@@ -567,7 +567,7 @@ AutoMem is wired as the `memory` MCP server (see `~/.codex/config.toml`). Tools 
 - **`limit` caps at 50.** Routine recall should use enough budget to be useful.
 - **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id })`.
 - **`store_memory` can silently fail.** Verify important stores by recalling a distinctive phrase; retry once if missing.
-- **Bare tag convention** - use `automem`, not `project/automem`; no `lang/` prefixes, platform tags, or date-stamped tags. `entity:*:*` tags are server-injected.
+- **Bare tag convention** - Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid. Use `automem`, not `project/automem`. `entity:*:*` tags are server-injected.
 
 ### Slug-collision rule
 
@@ -626,6 +626,8 @@ Escalate only when the task-context recall comes back too broad or empty:
 - **Need graph traversal** - use `expand_relations: true`; add `expand_respect_tags: true` when traversal must stay inside the tag gate, or leave it false/drop tags when broader graph context is useful.
 
 ## Storage Discipline
+
+Bug fixes: Insight, importance 0.75, confidence 0.85. Articulated patterns: Pattern, importance 0.8. User corrections: Preference, importance 0.9, confidence 0.95.
 
 Store only durable decisions, corrections, explicit preferences, bug-fix root causes, and articulated reusable patterns. Never store secrets, credentials, tokens, PII, session summaries, progress reports, confirmations, speculative context, or attentiveness notes.
 

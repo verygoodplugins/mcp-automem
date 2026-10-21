@@ -12,6 +12,7 @@ const read = (file: string) => readFileSync(new URL(`../${file}`, import.meta.ur
 
 describe('shipped memory policy consistency', () => {
   const rules = [
+    'AGENTS.md',
     'templates/codex/memory-rules.md',
     'templates/cursor/automem.mdc.template',
     'templates/cursor/user-rules.md',
@@ -37,6 +38,7 @@ describe('shipped memory policy consistency', () => {
   });
 
   it.each([
+    'AGENTS.md',
     'plugins/automem/skills/memory-management/SKILL.md',
     'plugins/automem/commands/memory-store.md',
     'plugins/automem/README.md',
@@ -49,6 +51,15 @@ describe('shipped memory policy consistency', () => {
     expect(text).toContain('User corrections: Preference, importance 0.9, confidence 0.95.');
     expect(text).not.toMatch(/\|\s*\*?\*?Insight\*?\*?\s*\|\s*0\.8\s*\|/);
     expect(text).not.toMatch(/\|\s*\*?\*?Pattern\*?\*?\s*\|\s*0\.7\s*\|/);
+  });
+
+  it('live repository storage guidance follows the bare-tag policy', () => {
+    const storageGuidelines = read('AGENTS.md')
+      .split('**Storage Timestamp and Tagging Guidelines:**')[1]
+      .split('**Hook Script Patterns:**')[0];
+    expect(storageGuidelines).toContain(AUTOMEM_BARE_TAG_GUIDANCE);
+    expect(storageGuidelines).not.toMatch(/prefer[^\n]*namespace.style tags/i);
+    expect(storageGuidelines).not.toContain('slack:*');
   });
 
   it('legacy OpenClaw skill includes canonical namespace and date tag prohibitions', () => {
