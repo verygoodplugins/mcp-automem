@@ -116,6 +116,86 @@ jobs:
           AUTOMEM_REQUIRE_INSTALL_SH: '1'
         run: npm run test:e2e
 
+  service-integration:
+    name: AutoMem service integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      falkordb:
+        image: falkordb/falkordb:latest
+        ports:
+          - 16389:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+      qdrant:
+        image: qdrant/qdrant:v1.11.3
+        ports:
+          - 16339:6333
+    env:
+      AUTOMEM_TEST_API_URL: http://127.0.0.1:18011
+      AUTOMEM_TEST_API_KEY: integration-test-token
+      AUTOMEM_REQUIRE_SERVICE: '1'
+      AUTOMEM_TEST_VECTOR_SIZE: '1024'
+      AUTOMEM_API_TOKEN: integration-test-token
+      ADMIN_API_TOKEN: integration-admin-token
+      FALKORDB_HOST: 127.0.0.1
+      FALKORDB_PORT: '16389'
+      FALKORDB_GRAPH: mcp_integration
+      QDRANT_URL: http://127.0.0.1:16339
+      QDRANT_COLLECTION: mcp_integration
+      VECTOR_SIZE: '1024'
+      EMBEDDING_PROVIDER: placeholder
+      JIT_ENRICHMENT_ENABLED: 'false'
+      ENRICHMENT_ENABLE_SUMMARIES: 'false'
+      PORT: '18011'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install client dependencies
+        run: npm ci
+      - name: Check out the service fixture
+        uses: actions/checkout@v4
+        with:
+          repository: verygoodplugins/automem
+          # Pin the service contract; update deliberately when integration requirements change.
+          ref: 01a17aa38e678924c07a51015ef705b8474e2193
+          path: service-fixture
+      - name: Install service dependencies
+        run: python -m pip install -r service-fixture/requirements.txt
+      - name: Start isolated AutoMem service
+        working-directory: service-fixture
+        run: |
+          python app.py > "$RUNNER_TEMP/automem-integration.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/automem-integration.pid"
+          for attempt in $(seq 1 60); do
+            if curl -fsS "$AUTOMEM_TEST_API_URL/health" | python -c 'import json,sys; sys.exit(json.load(sys.stdin)["status"] != "healthy")'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/automem-integration.log"
+          exit 1
+      - name: Require service integration tests without skips
+        run: npm run test:integration
+      - name: Show service log on failure
+        if: failure()
+        run: cat "$RUNNER_TEMP/automem-integration.log" || true
+      - name: Stop service fixture
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/automem-integration.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/automem-integration.pid")" || true
+          fi
+
   hooks-windows:
     name: Hook commands (windows-latest)
     runs-on: windows-latest

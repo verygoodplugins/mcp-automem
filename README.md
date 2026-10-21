@@ -364,6 +364,23 @@ We welcome contributions! Please:
 4. Submit a pull request with a Conventional Commit title such as `fix:`, `feat:`, `docs:`, or `chore:`
 5. Do not prefix the PR title with labels like `[codex]` or `[wip]` because the squash-merge commit is taken from the PR title
 
+Run `npm test` for the local unit and mock-host suites. For real service checks, start an
+isolated AutoMem test instance, then run:
+
+```bash
+AUTOMEM_TEST_API_URL=http://127.0.0.1:18011 \
+AUTOMEM_TEST_API_KEY=test-token \
+AUTOMEM_REQUIRE_SERVICE=1 npm run test:integration
+```
+
+The integration suite creates and deletes synthetic memories, so use a disposable test
+database. It probes health before collecting tests, reads vector dimensions from health
+(or `AUTOMEM_TEST_VECTOR_SIZE`), and waits for indexing instead of using fixed sleeps.
+Without `AUTOMEM_REQUIRE_SERVICE=1`, an unavailable service skips the optional local
+suite. Required mode, also enabled by `CI=true`, fails on an unavailable service, zero
+tests, or any skipped tests. The `AutoMem service integration` CI job runs required mode
+against isolated FalkorDB/Qdrant services and a pinned AutoMem service checkout.
+
 ## License
 
 MIT - Because great memory should be free.
