@@ -1265,6 +1265,7 @@ npx @verygoodplugins/mcp-automem openclaw --mode skill --workspace ~/clawd
 - **Shared memory-policy parity**: OpenClaw now follows the same validated AutoMem policy as Claude Desktop, Claude Code, and Cursor
 - **Targeted recall instead of every-turn recall**: preference recall on the first substantive turn (`limit 20`), semantic task recall on that turn (`limit 30`, `last 90 days`), then bugfix recall only for active debugging
 - **Semantic-first recall**: OpenClaw only uses installer `defaultTags` as an unambiguous project gate for first-turn task recall instead of hard-gating every turn
+- **Update tags explicitly**: `defaultTags` are added when storing memories. Updates preserve tags when omitted; supplied tags replace the full list, and `tags: []` clears it without adding defaults back.
 - **Optional full replacement mode**: `--replace-memory` disables `memory-core`, disables the bundled `session-memory` hook, and turns off dreaming so AutoMem becomes the only memory system
 - **Complementary memory layers**: `memory-core` remains useful for local file memory; AutoMem is the semantic graph layer
 
