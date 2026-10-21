@@ -167,10 +167,12 @@ describe('shared AutoMem memory policy', () => {
       During work - store durable memories when triggers fire:
       - Do not wait for a Stop hook or session end. When a durable correction, stabilized decision, articulated pattern, or root-cause insight appears, run recall -> store -> verify -> associate in that same turn.
       - Use type, importance, confidence, and bare tags on every store; verify by recalling a distinctive phrase; associate when a plausible related memory exists.
+      - Bug fixes: Insight, importance 0.75, confidence 0.85. Articulated patterns: Pattern, importance 0.8. User corrections: Preference, importance 0.9, confidence 0.95.
       - Skip storage for session summaries, progress notes, confirmations, temporary output, and speculative context.
 
       Notes:
-      - Tags are a HARD GATE - they filter before scoring. Use only the tag sets above; never invent topic tags. Bare tags only - no namespace prefixes (\`project/*\`, \`lang/*\`).
+      - Tags are a HARD GATE - they filter before scoring. Use only the tag sets above; never invent topic tags.
+      - Use bare tags only. No namespace prefixes (\`project/*\`, \`lang/*\`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.
       - Debugging recall is ON-DEMAND: when the user reports an error symptom, recall with the symptom as a semantic query and NO tags (a tag gate hides cross-corpus fixes), limit 20.
       - Phase 2 uses ONE targeted query, not \`queries[]\` + \`auto_decompose\`. Sub-queries converge and dedup drops results; reserve \`queries[]\` for genuinely multi-topic questions.
       - If the project slug collides with a common topic word (for example \`video\` or \`test\`), drop the Phase 2 tag gate and rely on semantic \`query\` alone.

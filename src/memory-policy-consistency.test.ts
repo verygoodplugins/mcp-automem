@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { AUTOMEM_IMPORTANCE_GUIDANCE } from './memory-policy/shared.js';
+import {
+  AUTOMEM_BARE_TAG_GUIDANCE,
+  AUTOMEM_IMPORTANCE_GUIDANCE,
+  renderClaudeCodeSessionStartPrompt,
+} from './memory-policy/shared.js';
 
 const read = (file: string) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
 
@@ -16,6 +20,7 @@ describe('shipped memory policy consistency', () => {
     'templates/hermes/memory-rules.md',
     'templates/grok/memory-rules.md',
     'templates/openclaw/skill-mcp/SKILL.md',
+    'templates/openclaw/skill-legacy/SKILL.md',
     'templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md',
     'templates/copilot/automem.instructions.md',
     'plugins/automem/skills/memory-management/SKILL.md',
@@ -43,6 +48,27 @@ describe('shipped memory policy consistency', () => {
     expect(text).toContain('User corrections: Preference, importance 0.9, confidence 0.95.');
     expect(text).not.toMatch(/\|\s*\*?\*?Insight\*?\*?\s*\|\s*0\.8\s*\|/);
     expect(text).not.toMatch(/\|\s*\*?\*?Pattern\*?\*?\s*\|\s*0\.7\s*\|/);
+  });
+
+  it('legacy OpenClaw skill includes canonical namespace and date tag prohibitions', () => {
+    expect(read('templates/openclaw/skill-legacy/SKILL.md')).toContain(AUTOMEM_BARE_TAG_GUIDANCE);
+  });
+
+  it('Claude Code session-start prompt includes canonical tag and importance guidance', () => {
+    const prompt = renderClaudeCodeSessionStartPrompt('project-slug');
+    expect(prompt).toContain(AUTOMEM_BARE_TAG_GUIDANCE);
+    expect(prompt).toContain(AUTOMEM_IMPORTANCE_GUIDANCE);
+  });
+
+  it.each([
+    'templates/claude-code/hooks/automem-session-start.sh',
+    'plugins/automem/scripts/session-start.sh',
+  ])('%s injects canonical guidance without interpreting Markdown as shell code', (file) => {
+    const hook = fileURLToPath(new URL(`../${file}`, import.meta.url));
+    const emittedPrompt = execFileSync('bash', [hook], { encoding: 'utf8', input: '' });
+    expect(emittedPrompt).toContain(AUTOMEM_BARE_TAG_GUIDANCE);
+    expect(emittedPrompt).toContain(AUTOMEM_IMPORTANCE_GUIDANCE);
+    expect(emittedPrompt).toContain('`project/*`, `lang/*`');
   });
 
   it.each([
