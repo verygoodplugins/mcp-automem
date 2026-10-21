@@ -29,8 +29,9 @@ describe('shipped memory policy consistency', () => {
     'plugins/automem/README.md',
   ];
 
-  it.each(rules)('%s forbids platform and date tags', (file) => {
+  it.each(rules)('%s forbids namespace prefixes, platform and date tags', (file) => {
     const text = read(file);
+    expect(text).toMatch(/no namespace prefixes/i);
     expect(text).toMatch(/(?:no|do not (?:add|use)|avoid)[^\n.]*platform tags/i);
     expect(text).toMatch(/(?:no|do not (?:add|use)|avoid)[^\n.]*date[- ](?:stamped )?tags/i);
   });

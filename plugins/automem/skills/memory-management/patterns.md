@@ -97,7 +97,7 @@ Always prefer:
 3. **Component / domain** - auth, api, frontend, deployment
 4. **Language or domain** - only if it improves recall
 
-Use bare tags only. Do not use platform tags or date tags.
+Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.
 
 ## Importance Scoring
 

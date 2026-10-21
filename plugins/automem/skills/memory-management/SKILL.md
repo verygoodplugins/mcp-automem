@@ -141,16 +141,18 @@ store_memory({
 })
 ```
 
-**User Preference:**
+**User Correction:**
 ```javascript
 store_memory({
-  content: "User prefers early returns over nested conditionals in validation code.",
+  content: "User corrected the previous nesting preference: use early returns over nested conditionals in validation code.",
   type: "Preference",
   tags: ["preference", "correction", "code-style"],
   importance: 0.9,
   confidence: 0.95
 })
 ```
+
+Recall the prior preference and invalidate it with `INVALIDATED_BY` when it exists.
 
 ### After Storing: Create Associations
 
