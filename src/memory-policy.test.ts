@@ -208,7 +208,7 @@ describe('shared AutoMem memory policy', () => {
       Tag discipline for tool calls (tags are a hard gate, not a hint):
       - Valid tag sets for automem_recall_memory: ["preference"] or the project slug (e.g. ["mcp-automem"]). Otherwise drop tags and rely on the query.
       - Never invent topic-word tags from the prompt (e.g. ["voiceink", "autohub"]). Put those nouns in query, not tags.
-      - Bare strings only. No namespace prefixes (project/*, lang/*), no platform tags (cursor, claude-code), no date-stamped tags.
+      - Use bare tags only. No namespace prefixes (\`project/*\`, \`lang/*\`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.
 
       Mid-conversation stores fire the atomic ritual on exactly these three triggers. Listen for the trigger phrases; do not queue stores for session-end.
 

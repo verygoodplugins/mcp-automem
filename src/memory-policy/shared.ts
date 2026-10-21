@@ -1,5 +1,11 @@
 import { AUTHORABLE_RELATION_TYPES } from '../types.js';
 
+export const AUTOMEM_BARE_TAG_GUIDANCE =
+  'Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.';
+
+export const AUTOMEM_IMPORTANCE_GUIDANCE =
+  'Bug fixes: Insight, importance 0.75, confidence 0.85. Articulated patterns: Pattern, importance 0.8. User corrections: Preference, importance 0.9, confidence 0.95.';
+
 export const AUTOMEM_POLICY_PROFILES = {
   rules: {
     preferenceRecallLimit: 20,
@@ -516,7 +522,7 @@ function renderToolBehaviorSection(style: ToolCallStyle): string {
     '- **`limit` caps at 50.** Routine recall should use enough budget to be useful.',
     `- **Default \`text\` format shows content previews with created/updated timestamps and importance.** \`detailed\` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with \`${idFetch}\`.`,
     '- **`store_memory` can silently fail.** Verify important stores by recalling a distinctive phrase; retry once if missing.',
-    '- **Bare tag convention** - use `automem`, not `project/automem`; no `lang/` prefixes, platform tags, or date-stamped tags. `entity:*:*` tags are server-injected.',
+    `- **Bare tag convention** - ${AUTOMEM_BARE_TAG_GUIDANCE} Use \`automem\`, not \`project/automem\`. \`entity:*:*\` tags are server-injected.`,
     '',
     '### Slug-collision rule',
     '',
@@ -665,6 +671,8 @@ function renderStorageRulesSection(style: ToolCallStyle, projectName: string): s
 
   return [
     '## Storage Discipline',
+    '',
+    AUTOMEM_IMPORTANCE_GUIDANCE,
     '',
     'Store only durable decisions, corrections, explicit preferences, bug-fix root causes, and articulated reusable patterns. Never store secrets, credentials, tokens, PII, session summaries, progress reports, confirmations, speculative context, or attentiveness notes.',
     '',
@@ -995,7 +1003,8 @@ export function renderHermesMemoryRules(
     '- Store decisions when the user settles a direction that affects future work.',
     '- Store articulated patterns when the user says they always do something or wants a recurring behavior preserved.',
     '- Do not store secrets, credentials, tokens, PII, session summaries, progress reports, or attentiveness notes.',
-    '- Use bare tags such as `automem`, `hermes`, `typescript`, `bugfix`, `decision`, and `preference`.',
+    `- ${AUTOMEM_BARE_TAG_GUIDANCE}`,
+    '- Use bare tags such as `automem`, `typescript`, `bugfix`, `decision`, and `preference`.',
     '- Prefer current repository evidence over recalled memory when they conflict.',
     '<!-- END AUTOMEM HERMES RULES -->',
     '',
@@ -1087,7 +1096,7 @@ export function renderOpenClawPolicyContext(params: {
     'Tag discipline for tool calls (tags are a hard gate, not a hint):',
     `- Valid tag sets for ${tools.recall}: ["preference"] or the project slug (e.g. [${projectSlugHint}]). Otherwise drop tags and rely on the query.`,
     '- Never invent topic-word tags from the prompt (e.g. ["voiceink", "autohub"]). Put those nouns in query, not tags.',
-    '- Bare strings only. No namespace prefixes (project/*, lang/*), no platform tags (cursor, claude-code), no date-stamped tags.',
+    `- ${AUTOMEM_BARE_TAG_GUIDANCE}`,
     '',
     'Mid-conversation stores fire the atomic ritual on exactly these three triggers. Listen for the trigger phrases; do not queue stores for session-end.',
     '',
@@ -1163,7 +1172,7 @@ export function renderClaudeMdMemoryRules(params: PolicyTemplateOptions): string
     '- **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id: "<id>" })`.',
     '- **Graph expansion can respect tag scope.** Use `expand_respect_tags: true` when `expand_relations: true` should stay inside the tag gate; leave it false or drop tags when you intentionally want broader graph context.',
     "- **`store_memory` can silently fail** (returns success, doesn't persist). After storing anything you care about, recall it back with a distinctive phrase to verify. Retry if gone.",
-    "- **Bare tag convention** — `automem`, not `project/automem`. Older memories use `project/<slug>` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. `entity:people:*`-style tags are server-injected — don't author them.",
+    `- **Bare tag convention** — ${AUTOMEM_BARE_TAG_GUIDANCE} Use \`automem\`, not \`project/automem\`. Older memories use \`project/<slug>\` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. \`entity:people:*\`-style tags are server-injected — don't author them.`,
     '',
     '### Slug-collision rule',
     '',

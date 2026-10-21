@@ -72,12 +72,14 @@ pre-approve, add the `mcp__plugin_automem_memory__*` names to
 
 ## Memory Types
 
+Bug fixes: Insight, importance 0.75, confidence 0.85. Articulated patterns: Pattern, importance 0.8. User corrections: Preference, importance 0.9, confidence 0.95.
+
 | Type | Importance | Use For |
 |------|------------|---------|
 | Decision | 0.9 | Architecture, library, pattern choices |
-| Insight | 0.8 | Bug fixes, root causes, learnings |
-| Pattern | 0.7 | Reusable approaches, best practices |
-| Preference | 0.6-0.8 | User preferences, style choices |
+| Insight | 0.75 | Bug fixes, root causes, learnings |
+| Pattern | 0.8 | Reusable approaches, best practices |
+| Preference | 0.9 for corrections | User preferences, style choices |
 | Context | 0.5-0.7 | Feature summaries, notes |
 
 ## Tagging Convention
@@ -88,7 +90,7 @@ Use bare tags only:
 2. **Category tags** like `decision`, `bugfix`, `deployment`, `test`
 3. **Language tags** only when they add recall value
 
-Do not use platform tags or date tags.
+Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.
 
 Example: `["mcp-automem", "bugfix", "typescript"]`
 
