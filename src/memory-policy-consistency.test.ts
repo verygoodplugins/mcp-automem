@@ -19,6 +19,7 @@ describe('shipped memory policy consistency', () => {
     'templates/COPILOT_INSTRUCTIONS_MEMORY_RULES.md',
     'templates/copilot/automem.instructions.md',
     'plugins/automem/skills/memory-management/SKILL.md',
+    'plugins/automem/skills/memory-management/patterns.md',
     'plugins/automem/commands/memory-store.md',
     'plugins/automem/README.md',
   ];
@@ -42,6 +43,27 @@ describe('shipped memory policy consistency', () => {
     expect(text).toContain('User corrections: Preference, importance 0.9, confidence 0.95.');
     expect(text).not.toMatch(/\|\s*\*?\*?Insight\*?\*?\s*\|\s*0\.8\s*\|/);
     expect(text).not.toMatch(/\|\s*\*?\*?Pattern\*?\*?\s*\|\s*0\.7\s*\|/);
+  });
+
+  it.each([
+    ['Insight', 0.75],
+    ['Pattern', 0.8],
+    ['Preference', 0.9],
+  ])('plugin companion examples use %s importance %s', (type, expectedImportance) => {
+    const text = read('plugins/automem/skills/memory-management/patterns.md');
+    const examples = [...text.matchAll(/```javascript\s*([\s\S]*?)```/g)].map((match) =>
+      match[1].trim()
+    );
+    const typedExamples = examples.filter((example) =>
+      new RegExp(`type:\\s*["']${type}["']`).test(example)
+    );
+    expect(typedExamples).not.toHaveLength(0);
+    for (const example of typedExamples) {
+      const importance = example.match(/importance:\s*([0-9.]+)/);
+      expect(importance, example).not.toBeNull();
+      expect(Number(importance![1])).toBe(expectedImportance);
+      if (type === 'Preference') expect(example).toContain('"correction"');
+    }
   });
 
   it('Hermes captures source in metadata without adding a platform tag', () => {
