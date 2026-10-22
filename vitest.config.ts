@@ -10,6 +10,7 @@ export default defineConfig({
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
+      'tests/extension/**', // Built release bundles have their own explicit test command.
       // Agent worktrees under .claude/worktrees/ are full checkouts of this repo. Without
       // this, `npm test` from the main checkout globs every suite twice — once from the
       // real tree and once from each worktree's (stale) copy — and reports failures for

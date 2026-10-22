@@ -265,7 +265,17 @@ For deeper details, see the AutoMem service docs linked above.
 
 ### 1. Install MCP Server
 
-Add AutoMem to your Claude Desktop configuration:
+#### Desktop Extension (Recommended)
+
+Download the [latest AutoMem Claude Desktop extension (`.mcpb`)](https://github.com/verygoodplugins/mcp-automem/releases/latest/download/mcp-automem.mcpb). In Claude Desktop, open **Settings → Extensions → Advanced settings → Install Extension**, select the downloaded file, and follow the prompts. Set **AutoMem API URL** to your running AutoMem backend and enter its **API Key** when authentication is enabled. Claude Desktop supplies the Node.js runtime.
+
+The extension connects to an existing AutoMem backend, either local or hosted. It does not install or update that backend.
+
+If migrating from manual JSON configuration, back up `claude_desktop_config.json` first. Remove only the old AutoMem entry under `mcpServers` for the same endpoint to avoid duplicate tools, preserving other servers and settings. Restart Claude Desktop after changing the config.
+
+#### Manual JSON Configuration
+
+Use this alternative for multiple endpoints or a custom server command. Add AutoMem to your Claude Desktop configuration:
 
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`  
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`  
@@ -315,6 +325,17 @@ Check the health of the AutoMem service
 ```
 
 You should see connection status for FalkorDB and Qdrant.
+
+### Updating the Desktop Extension
+
+A GitHub `.mcpb` download contains a fixed version of the MCP server. **Install newer bundles manually**; restarting Claude Desktop or updating a global npm package does not replace an installed extension. Anthropic's directory-installed extensions update automatically by default, but that does not apply to this GitHub download. See [Anthropic's extension guide](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
+
+1. Open **Settings → Extensions → AutoMem** and check the installed extension's version against the [latest GitHub Release](https://github.com/verygoodplugins/mcp-automem/releases/latest).
+2. Download that release's `mcp-automem.mcpb`, then install it through **Settings → Extensions → Advanced settings → Install Extension**.
+3. Review the API URL/key in the extension's settings, restart Claude Desktop, and check the installed version again.
+4. Ask Claude to check AutoMem health, then recall a memory to verify authentication. `/health` is unauthenticated, so health alone does not validate the API key.
+
+This updates the MCP bridge. Existing memories stay in the configured backend; backend upgrades follow that service's release process.
 
 ### 4. Add Personal Preferences (Optional but Recommended)
 
