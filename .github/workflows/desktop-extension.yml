@@ -1,0 +1,95 @@
+name: Claude Desktop Extension
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: 'Existing release tag to build and attach the extension to.'
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing release tag to repair (bundle assets only; does not publish npm).'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# A recovery run and a release run must never overwrite the same assets concurrently.
+concurrency:
+  group: desktop-extension-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Verify release tag and package version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync } from 'node:fs';
+
+          const tag = process.env.RELEASE_TAG;
+          if (!/^mcp-automem-v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)) {
+            throw new Error('Expected a release tag such as mcp-automem-v0.17.0');
+          }
+          const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
+          if (tag !== `mcp-automem-v${version}`) {
+            throw new Error(`Release tag ${tag} does not match package version ${version}`);
+          }
+          const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+          if (git('rev-parse', `refs/tags/${tag}^{commit}`) !== git('rev-parse', 'HEAD')) {
+            throw new Error('Checkout does not match the release tag commit');
+          }
+          NODE
+
+      # Never create a new release as a side effect of a bundle-only recovery.
+      - name: Verify GitHub release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName
+
+      - run: npm ci
+      - run: npm run build:extension
+      - run: npm run test:extension
+
+      - name: Upload extension and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          test -s artifacts/mcp-automem.mcpb
+          test -s artifacts/mcp-automem.mcpb.sha256
+          (cd artifacts && sha256sum --check mcp-automem.mcpb.sha256)
+          gh release upload "$RELEASE_TAG" \
+            artifacts/mcp-automem.mcpb artifacts/mcp-automem.mcpb.sha256 \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Verify published extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          download_dir="$(mktemp -d)"
+          trap 'rm -rf "$download_dir"' EXIT
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern mcp-automem.mcpb --pattern mcp-automem.mcpb.sha256 \
+            --dir "$download_dir"
+          cmp artifacts/mcp-automem.mcpb.sha256 "$download_dir/mcp-automem.mcpb.sha256"
+          (cd "$download_dir" && sha256sum --check mcp-automem.mcpb.sha256)

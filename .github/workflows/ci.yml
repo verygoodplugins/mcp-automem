@@ -87,6 +87,12 @@ jobs:
           fi
           echo "Tree clean after build."
 
+      - name: Build Claude Desktop extension
+        run: npm run build:extension
+
+      - name: Verify Claude Desktop extension
+        run: npm run test:extension
+
       - name: Test
         run: npm test
 

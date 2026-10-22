@@ -89,7 +89,7 @@ jobs:
           echo "::warning::RELEASE_PLEASE_TOKEN could not run release-please (expired, revoked, or missing contents:write / pull-requests:write). Fell back to GITHUB_TOKEN, so this release PR's checks need manual approval until the secret is repaired."
 
   docs-dispatch:
-    needs: release-please
+    needs: [release-please, npm-publish, build-extension]
     if: ${{ needs.release-please.outputs.release_created }}
     uses: ./.github/workflows/docs-dispatch.yml
     with:
@@ -106,6 +106,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - uses: actions/setup-node@v4
         with:
@@ -119,30 +121,12 @@ jobs:
       # Trusted Publishing: No NPM_TOKEN needed!
       - run: npm publish --access public --provenance
 
-  # Build and upload Claude Desktop Extension (.mcpb) to release
+  # Publish the same tested bundle path used by CI; callable independently for recovery.
   build-extension:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/desktop-extension.yml
+    with:
+      release_tag: ${{ needs.release-please.outputs.tag_name }}
     permissions:
       contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - run: npm ci
-      - run: npm run build
-
-      # Build the .mcpb Claude Desktop Extension
-      - name: Build Claude Desktop Extension
-        run: npx @anthropic-ai/mcpb pack
-
-      # Upload .mcpb to the GitHub release
-      - name: Upload Extension to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
-          files: '*.mcpb'

@@ -43,6 +43,8 @@ web_modules/
 
 # Build output (CI rebuilds before publish)
 dist/
+artifacts/
+*.mcpb
 
 # TypeScript cache
 *.tsbuildinfo

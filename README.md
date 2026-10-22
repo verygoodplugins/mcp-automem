@@ -115,14 +115,16 @@ One-click deploy with $5 free credits. Typical cost: ~$0.50-1/month after trial.
 
 #### Claude Desktop - One-Click Install
 
-Download and double-click to install AutoMem in Claude Desktop:
+Download the extension, then open **Settings → Extensions → Advanced settings → Install Extension** in Claude Desktop and select the file:
 
 **[⬇️ Download AutoMem for Claude Desktop (.mcpb)](https://github.com/verygoodplugins/mcp-automem/releases/latest/download/mcp-automem.mcpb)**
 
 After installing:
-1. Claude Desktop will prompt you for your **AutoMem Endpoint** (`http://127.0.0.1:8001` for local)
+1. Claude Desktop will prompt you for your **AutoMem API URL** (`http://127.0.0.1:8001` for local)
 2. Optionally enter your **API Key** (required for Railway, skip for local)
 3. Click Enable
+
+The bundle includes a fixed version of the MCP server. **To update, download and install the latest `.mcpb` again**; restarting Claude or updating the npm package does not upgrade an installed bundle. See [updating Claude Desktop](INSTALLATION.md#updating-the-desktop-extension) for version checks and migration from JSON configuration. The AutoMem backend runs separately.
 
 Then add the paste-ready Personal Preferences starter from [`templates/CLAUDE_DESKTOP_INSTRUCTIONS.md`](templates/CLAUDE_DESKTOP_INSTRUCTIONS.md). That's it: Claude now has persistent memory and knows when to use it.
 

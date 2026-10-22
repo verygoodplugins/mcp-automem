@@ -34,7 +34,8 @@
     "test:all": "vitest run && vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm run test",
-    "build:extension": "npm run build && npx @anthropic-ai/mcpb pack"
+    "build:extension": "npm run build && node scripts/build-desktop-extension.mjs",
+    "test:extension": "vitest run --config vitest.extension.config.ts"
   },
   "keywords": [
     "mcp",
@@ -74,6 +75,7 @@
     "@types/node": "^26.0.0",
     "@vitest/coverage-v8": "^4.1.5",
     "eslint": "^10.2.1",
+    "fflate": "0.8.3",
     "husky": "^9.1.7",
     "node-pty": "^1.0.0",
     "prettier": "3.9.10",

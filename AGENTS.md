@@ -482,8 +482,8 @@ from `.github/workflows/release-please.yml`, which has no token to run locally.
    and the template version markers, which are pegged to the release so they move
    with the bump (see the memory-policy notes above).
 3. Merge the release PR. That tags the release, publishes the GitHub Release,
-   publishes to npm with provenance, uploads the `.mcpb` extension, and asks
-   automem-website to document the release.
+   publishes to npm with provenance, and builds the `.mcpb` extension from the
+   release tag. Docs dispatch waits for npm and verified extension publication.
 
 Release PRs are opened with `RELEASE_PLEASE_TOKEN` rather than `GITHUB_TOKEN`, so
 their checks start without manual approval. It needs `contents: write` and
@@ -497,6 +497,34 @@ propagation, not a failed publish. npm's local packument cache can also return
 `notarget` for a version that is already live; `npm install --prefer-online` or
 `npm pack <pkg>@<version>` gets the truth. Confirm the tag, the GitHub Release,
 and `npm view <pkg> version` before calling a release done.
+
+### Claude Desktop extension maintenance
+
+`npm run build:extension` builds the application and packages a clean staging
+folder with locked production dependencies using the pinned MCPB CLI. Outputs
+are `artifacts/mcp-automem.mcpb` and `artifacts/mcp-automem.mcpb.sha256`.
+Generated bundles are ignored; never commit a `.mcpb` or pack the whole checkout.
+`npm run test:extension` extracts the actual bundle outside the repository,
+checks its contents and version agreement, and exercises its stdio MCP server
+against the fake AutoMem API. The required CI `test` job runs these checks.
+This is a bundle/protocol smoke test, not a Claude Desktop UI test.
+
+`.github/workflows/desktop-extension.yml` is reused by the release workflow and
+also accepts a `workflow_dispatch` `release_tag` for bundle-only recovery. It
+checks out that exact tag, builds and tests the bundle, uploads the two explicit
+asset paths, then downloads them to verify the published checksum. If extension
+publication fails after npm succeeds, rerun the failed release job or dispatch
+this workflow for the affected tag; do not republish npm or bump versions by hand.
+The selected tag must contain the packaging scripts. For older tags, rerun their
+original extension job instead; do not move an existing release tag.
+
+Before calling a release complete, verify both assets on the GitHub Release and
+the extension job's download/checksum result. The canonical user download is
+`https://github.com/verygoodplugins/mcp-automem/releases/latest/download/mcp-automem.mcpb`.
+GitHub-installed extensions need manual upgrades; keep that procedure in
+`INSTALLATION.md` and the website's Claude Desktop guide. Changes to the manifest,
+packaging scripts, or release workflows must map to `platforms/claude-desktop`
+and `development/releases` in automem-website's `scripts/file-doc-map.json`.
 
 **Pre-publish checks** (what CI enforces on the release PR):
 - `npm run build` succeeds and leaves the tree clean (the drift guard in `ci.yml`)
