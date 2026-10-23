@@ -19,13 +19,18 @@ interface RegisteredTool {
   execute: (toolCallId: string, params: unknown) => Promise<unknown>;
 }
 
-function registerPlugin(endpoint: string, apiKey?: string): RegisteredTool[] {
+function registerPlugin(
+  endpoint: string,
+  apiKey?: string,
+  defaultTags?: string[]
+): RegisteredTool[] {
   const tools: RegisteredTool[] = [];
   openClawPlugin.register({
     pluginConfig: {
       endpoint,
       ...(apiKey ? { apiKey } : {}),
       autoRecall: false,
+      defaultTags,
     },
     logger: { warn: () => {} },
     registerTool: (tool) => {
@@ -55,7 +60,7 @@ describe('OpenClaw plugin boundary', () => {
   it('drives every AutoMem operation through the registered tools', async () => {
     const fakeApi = await startFakeAutoMemApi();
     try {
-      const tools = registerPlugin(fakeApi.url, 'openclaw-smoke-key');
+      const tools = registerPlugin(fakeApi.url, 'openclaw-smoke-key', ['acme-api']);
       const call = async (name: string, params: unknown) => {
         const tool = tools.find((candidate) => candidate.name === name);
         expect(tool, `plugin did not register ${name}`).toBeDefined();
@@ -72,6 +77,8 @@ describe('OpenClaw plugin boundary', () => {
         importance: 0.6,
       });
       await call('automem_update_memory', { memory_id: fakeMemoryId(1), importance: 0.8 });
+      await call('automem_update_memory', { memory_id: fakeMemoryId(1), tags: ['replacement'] });
+      await call('automem_update_memory', { memory_id: fakeMemoryId(1), tags: [] });
       await call('automem_associate_memories', {
         memory1_id: fakeMemoryId(1),
         memory2_id: fakeMemoryId(2),
@@ -97,13 +104,15 @@ describe('OpenClaw plugin boundary', () => {
 
       expect(find('POST', (p) => p === '/memory').body).toMatchObject({
         content: 'openclaw host smoke memory',
-        tags: ['openclaw-smoke'],
+        tags: ['acme-api', 'openclaw-smoke'],
         importance: 0.6,
       });
 
-      expect(find('PATCH', (p) => p === `/memory/${fakeMemoryId(1)}`).body).toMatchObject({
-        importance: 0.8,
-      });
+      expect(
+        fakeApi.requests
+          .filter((request) => request.method === 'PATCH')
+          .map((request) => request.body)
+      ).toEqual([{ importance: 0.8 }, { tags: ['replacement'] }, { tags: [] }]);
 
       expect(find('POST', (p) => p === '/associate').body).toMatchObject({
         memory1_id: fakeMemoryId(1),

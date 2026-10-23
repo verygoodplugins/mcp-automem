@@ -132,6 +132,28 @@ describe('openclaw AutoMem plugin', () => {
       ]);
     });
 
+    it.each([
+      ['omitted', undefined],
+      ['explicit', ['bugfix', 'postgres']],
+      ['empty', []],
+    ])('preserves %s update tags without injecting defaults', async (_label, tags) => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ status: 'success' }));
+      const tools = captureRegisteredTools({ defaultTags: ['acme-api'] });
+      const update = tools.find((tool) => tool.name === 'automem_update_memory')!;
+
+      await update.execute('update-tags', {
+        memory_id: '67c0f41f-3818-48fd-8dac-af659cbb2a4f',
+        importance: 0.9,
+        ...(tags === undefined ? {} : { tags }),
+      });
+
+      expect(mockFetch.mock.calls[0][1]?.method).toBe('PATCH');
+      expect(JSON.parse(mockFetch.mock.calls[0][1]?.body as string)).toEqual({
+        importance: 0.9,
+        ...(tags === undefined ? {} : { tags }),
+      });
+    });
+
     it('applies mergeTags per item in batch store mode', async () => {
       mockFetch.mockResolvedValueOnce(
         jsonResponse({ stored: 2, memory_ids: ['m1', 'm2'], status: 'success' })
