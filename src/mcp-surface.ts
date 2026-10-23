@@ -150,7 +150,7 @@ export const tools: Tool[] = [
           type: 'array',
           items: { type: 'string' },
           description:
-            'Single-memory mode. Tags to categorize the memory (e.g., ["project-name", "bug-fix", "auth"])',
+            'Single-memory mode. Tags to categorize the memory (e.g., ["bugfix", "auth", "<project-slug>"])',
         },
         importance: {
           type: 'number',
@@ -368,7 +368,7 @@ export const tools: Tool[] = [
           type: 'string',
           enum: ['exact', 'prefix'],
           description:
-            '"prefix" (ranked default) matches tags that start with the value, so `tags: ["automem"]` also matches `automem-evals`; "exact" matches whole tags only. Enumeration mode is always exact.',
+            '"prefix" (ranked default) also matches child tags split at ":" or "/", so `tags: ["auth"]` matches `auth:login`; it does not match across hyphens (`automem` does not match `automem-evals`). "exact" matches whole tags only. Enumeration mode is always exact.',
         },
         expand_entities: {
           type: 'boolean',
@@ -860,7 +860,8 @@ ${Object.entries(RELATION_TYPE_METADATA)
         },
         metadata: {
           type: 'object',
-          description: 'New metadata (merged with existing)',
+          description:
+            'Replaces the stored metadata object. To change one key, fetch the memory first and send the full object. Omit metadata to preserve it.',
         },
         timestamp: {
           type: 'string',
