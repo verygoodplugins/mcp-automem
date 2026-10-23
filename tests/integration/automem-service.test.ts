@@ -7,33 +7,54 @@
  * AUTOMEM_TEST_ENDPOINT is the deprecated alias and is still read as a fallback.
  */
 
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { describe, it, expect, afterEach } from 'vitest';
 import { AutoMemClient } from '../../src/automem-client.js';
 import { AUTHORABLE_RELATION_TYPES } from '../../src/types.js';
 
 const AUTOMEM_TEST_API_URL =
   process.env.AUTOMEM_TEST_API_URL || process.env.AUTOMEM_TEST_ENDPOINT || 'http://localhost:8001';
-const TEST_TAG = `test-${Date.now()}`;
-
-let client: AutoMemClient;
-let serviceAvailable = false;
+const TEST_TAG = `integration-${randomUUID()}`;
+const client = new AutoMemClient({
+  endpoint: AUTOMEM_TEST_API_URL,
+  apiKey: process.env.AUTOMEM_TEST_API_KEY || process.env.AUTOMEM_TEST_API_TOKEN,
+  maxRetries: 0,
+  timeoutMs: 5000,
+});
+// Collection-time gating must finish before describe.skipIf is evaluated.
+const health = await client.checkHealth({ timeoutMs: 5000, maxRetries: 0 });
+const serviceAvailable = health.status === 'healthy';
+const required = process.env.AUTOMEM_REQUIRE_SERVICE === '1' || process.env.CI === 'true';
+if (!serviceAvailable) {
+  const message = `AutoMem integration service unavailable or unhealthy at ${AUTOMEM_TEST_API_URL}`;
+  if (required) throw new Error(message);
+  console.warn(`${message}; skipping optional local integration suite`);
+}
+const vectorSize = Number(
+  process.env.AUTOMEM_TEST_VECTOR_SIZE ||
+    health.statistics.vector_dimensions?.collection ||
+    health.statistics.vector_dimensions?.effective ||
+    health.statistics.vector_dimensions?.configured ||
+    1024
+);
+if (!Number.isInteger(vectorSize) || vectorSize <= 0) {
+  throw new Error('AUTOMEM_TEST_VECTOR_SIZE must be a positive integer');
+}
 const createdMemoryIds: string[] = [];
 
-// Check if service is available before running tests
-beforeAll(async () => {
-  client = new AutoMemClient({ endpoint: AUTOMEM_TEST_API_URL });
-
-  try {
-    const health = await client.checkHealth();
-    serviceAvailable = health.status === 'healthy';
-    if (!serviceAvailable) {
-      console.warn(`AutoMem service not healthy: ${JSON.stringify(health)}`);
-    }
-  } catch (error) {
-    console.warn(`AutoMem service not available at ${AUTOMEM_TEST_API_URL}: ${error}`);
-    serviceAvailable = false;
+async function recallContaining(
+  memoryId: string,
+  args: Parameters<AutoMemClient['recallMemory']>[0]
+) {
+  let result = await client.recallMemory(args);
+  const deadline = Date.now() + 10_000;
+  while (!result.results.some((memory) => memory.id === memoryId) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    result = await client.recallMemory(args);
   }
-});
+  expect(result.results.map((memory) => memory.id)).toContain(memoryId);
+  return result;
+}
 
 // Clean up test memories after each test
 afterEach(async () => {
@@ -61,8 +82,8 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
     it('should report database connections', async () => {
       const health = await client.checkHealth();
 
-      // The health response should include database status
-      expect(health.status).toBe('healthy');
+      expect(health.statistics.falkordb).toBe('connected');
+      expect(health.statistics.qdrant).toBe('connected');
     });
   });
 
@@ -79,11 +100,9 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
       expect(storeResult.memory_id).toBeDefined();
       createdMemoryIds.push(storeResult.memory_id);
 
-      // Wait for indexing
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
       // Recall by query
-      const recallResult = await client.recallMemory({
+      const recallResult = await recallContaining(storeResult.memory_id, {
+        tags: [TEST_TAG],
         query: 'TypeScript error handling patterns',
         limit: 10,
       });
@@ -106,11 +125,8 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
 
       createdMemoryIds.push(storeResult.memory_id);
 
-      // Wait for indexing
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
       // Recall by tag
-      const recallResult = await client.recallMemory({
+      const recallResult = await recallContaining(storeResult.memory_id, {
         tags: [uniqueTag],
         limit: 10,
       });
@@ -130,18 +146,16 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
 
       createdMemoryIds.push(storeResult.memory_id);
 
-      // Wait for indexing
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
       // Recall with time query
-      const recallResult = await client.recallMemory({
+      const recallResult = await recallContaining(storeResult.memory_id, {
+        tags: [TEST_TAG],
         query: 'time query test',
         time_query: 'today',
         limit: 10,
       });
 
       // Should find the recently stored memory
-      expect(recallResult.count).toBeGreaterThanOrEqual(0);
+      expect(recallResult.results.some((memory) => memory.id === storeResult.memory_id)).toBe(true);
     });
   });
 
@@ -172,17 +186,18 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
 
       expect(assocResult.success).toBe(true);
 
-      // Wait for graph update
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
       // Recall with relation expansion
-      const recallResult = await client.recallMemory({
-        query: 'login special characters bug',
+      const recallResult = await recallContaining(memory1.memory_id, {
+        tags: [TEST_TAG],
+        query: 'Login fails with special characters in password',
         expand_relations: true,
         limit: 10,
       });
 
-      expect(recallResult.count).toBeGreaterThan(0);
+      expect(recallResult.results.flatMap((memory) => memory.relations || [])).toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'LEADS_TO' })])
+      );
+      expect(recallResult.results.map((memory) => memory.id)).toContain(memory2.memory_id);
     });
 
     it('should support all relationship types', async () => {
@@ -229,6 +244,19 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
       });
       createdMemoryIds.push(storeResult.memory_id);
 
+      // Keep this CRUD check separate from concurrent enrichment/PATCH semantics.
+      // A background enrichment job reads the original tags and can still write them back.
+      await expect
+        .poll(
+          async () => {
+            const current = await client.checkHealth();
+            const enrichment = current.statistics.enrichment;
+            return (enrichment?.pending || 0) + (enrichment?.inflight || 0);
+          },
+          { timeout: 10_000, interval: 100 }
+        )
+        .toBe(0);
+
       // Update
       const updateResult = await client.updateMemory({
         memory_id: storeResult.memory_id,
@@ -238,17 +266,16 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
 
       expect(updateResult.memory_id).toBe(storeResult.memory_id);
 
-      // Wait for update
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
       // Verify by recall
-      const recallResult = await client.recallMemory({
+      const recallResult = await recallContaining(storeResult.memory_id, {
         tags: [TEST_TAG, 'updated'],
+        tag_mode: 'all',
         limit: 10,
       });
 
       const found = recallResult.results.find((r) => r.id === storeResult.memory_id);
-      expect(found).toBeDefined();
+      expect(found?.memory.importance).toBe(0.9);
+      expect(found?.memory.tags).toEqual(expect.arrayContaining([TEST_TAG, 'updated']));
     });
 
     it('should delete memory', async () => {
@@ -266,6 +293,9 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
 
       expect(deleteResult.memory_id).toBe(storeResult.memory_id);
 
+      const recalled = await client.recallMemory({ memory_id: storeResult.memory_id });
+      expect(recalled.results).toHaveLength(0);
+
       // Don't add to cleanup since already deleted
     });
   });
@@ -281,7 +311,7 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
       createdMemoryIds.push(storeResult.memory_id);
 
       // Recall with just tags, no query
-      const recallResult = await client.recallMemory({
+      const recallResult = await recallContaining(storeResult.memory_id, {
         tags: [TEST_TAG],
         limit: 5,
       });
@@ -307,8 +337,8 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
     });
 
     it('should handle memories with embeddings', async () => {
-      // Create a simple 768-dim embedding (AutoMem uses OpenAI ada-002 format)
-      const embedding = new Array(768).fill(0).map(() => Math.random() * 0.1);
+      // Use the test service's collection dimension, rather than a historical default.
+      const embedding = new Array(vectorSize).fill(1 / Math.sqrt(vectorSize));
 
       const storeResult = await client.storeMemory({
         content: 'Memory with pre-computed embedding',
@@ -332,7 +362,8 @@ describe.skipIf(!serviceAvailable)('AutoMem Service Integration', () => {
       createdMemoryIds.push(storeResult.memory_id);
 
       // Verify recall works
-      const recallResult = await client.recallMemory({
+      const recallResult = await recallContaining(storeResult.memory_id, {
+        tags: [TEST_TAG],
         query: 'special chars quotes brackets',
         limit: 5,
       });
