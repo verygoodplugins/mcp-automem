@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.17.1](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.17.0...mcp-automem-v0.17.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **desktop:** verify clean bundles throughout releases ([#279](https://github.com/verygoodplugins/mcp-automem/issues/279)) ([5472c09](https://github.com/verygoodplugins/mcp-automem/commit/5472c0982606937b8a715dd91caa5052fef12c3f))
+
 ## [0.17.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.16.0...mcp-automem-v0.17.0) (2026-10-20)
 
 
