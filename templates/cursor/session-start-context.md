@@ -1,4 +1,4 @@
-<!-- automem-template-version: 0.17.0 --> <!-- x-release-please-version -->
+<!-- automem-template-version: 0.17.1 --> <!-- x-release-please-version -->
 
 AutoMem session context for {{PROJECT_NAME}}.
 Perform the initial preference and task-context recalls once per conversation, when the first user request is available. If the project rule already prompted these recalls, do not repeat them. Use the tool names actually exposed by Cursor for the configured AutoMem server.
