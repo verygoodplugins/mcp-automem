@@ -54,7 +54,7 @@ TOOL NAMING:
 - **`format: "detailed"`** gives timestamps, confidence, importance, and relations inline. Default `text` hides all of it. Use detailed when you need to judge staleness.
 - **`expand_relations: true` breaks under tag gates** - server re-applies the filter to expansion targets. If you want graph traversal, drop the tag.
 - **`store_memory` can silently fail** (returns success, doesn't persist). After storing anything you care about, recall it back with a distinctive phrase to verify. Retry if gone.
-- **Bare tag convention** - `automem`, not `project/automem`. Older memories use `project/<slug>` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. `entity:people:*`-style tags are server-injected - don't author them.
+- **Bare tag convention** - Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid. `automem`, not `project/automem`. Older memories use `project/<slug>` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. `entity:people:*`-style tags are server-injected - don't author them.
 
 ### Slug-collision rule
 

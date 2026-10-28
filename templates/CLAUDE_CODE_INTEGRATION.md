@@ -124,11 +124,13 @@ Claude automatically recalls:
 
 ### During Work
 
+Bug fixes: Insight, importance 0.75, confidence 0.85. Articulated patterns: Pattern, importance 0.8. User corrections: Preference, importance 0.9, confidence 0.95.
+
 Claude stores significant events as they stabilize (per the memory rules):
 
 - Architecture decisions (importance: 0.9)
-- Bug fixes with root cause (importance: 0.8)
-- Patterns and insights (importance: 0.7)
+- Bug fixes with root cause (importance: 0.75, confidence: 0.85)
+- Articulated patterns (importance: 0.8)
 
 ### Session End
 

@@ -88,12 +88,14 @@ recall_memory({
 
 ### What to Store with Importance Levels
 
+Bug fixes: Insight, importance 0.75, confidence 0.85. Articulated patterns: Pattern, importance 0.8. User corrections: Preference, importance 0.9, confidence 0.95.
+
 | Type | Importance | When to Store |
 |------|------------|---------------|
 | **Decision** | 0.9 | Architecture, library choices, pattern decisions |
-| **Insight** | 0.8 | Root cause discoveries, key learnings, bug fixes |
-| **Pattern** | 0.7 | Reusable approaches, best practices |
-| **Preference** | 0.6-0.8 | User config choices, style preferences |
+| **Insight** | 0.75 | Root cause discoveries, key learnings, bug fixes |
+| **Pattern** | 0.8 | Reusable approaches, best practices |
+| **Preference** | 0.9 for corrections | User config choices, style preferences |
 | **Context** | 0.5-0.7 | Feature summaries, refactoring notes |
 
 ### Storage Format
@@ -104,7 +106,7 @@ Tags: [category, project-slug, language]
 Type: Decision | Pattern | Insight | Preference | Style | Habit | Context
 ```
 
-Use bare tags only. Do not add platform tags or date tags.
+Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.
 
 ### Storage Examples
 
@@ -129,7 +131,7 @@ store_memory({
   content: "Auth timeout on slow connections. Root: Missing retry logic. Solution: Added exponential backoff with 3 retries.",
   type: "Insight",
   tags: ["bugfix", "solution", "myapp", "auth"],
-  importance: 0.8,
+  importance: 0.75,
   confidence: 0.85,
   metadata: {
     error_signature: "TimeoutError: Authentication request timed out",
@@ -139,16 +141,18 @@ store_memory({
 })
 ```
 
-**User Preference:**
+**User Correction:**
 ```javascript
 store_memory({
-  content: "User prefers early returns over nested conditionals in validation code.",
+  content: "User corrected the previous nesting preference: use early returns over nested conditionals in validation code.",
   type: "Preference",
-  tags: ["preference", "code-style"],
-  importance: 0.8,
+  tags: ["preference", "correction", "code-style"],
+  importance: 0.9,
   confidence: 0.95
 })
 ```
+
+Recall the prior preference and invalidate it with `INVALIDATED_BY` when it exists.
 
 ### After Storing: Create Associations
 

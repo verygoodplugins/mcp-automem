@@ -488,7 +488,7 @@ class AutoMemMemoryProvider(MemoryProvider):
                 self._client.store(
                     {
                         "content": f"[role: user]\n{clean_user}\n\n[role: assistant]\n{clean_assistant}",
-                        "tags": ["hermes", "conversation-turn"],
+                        "tags": ["conversation-turn"],
                         "metadata": {"source": "hermes_provider", "session_id": session_id},
                     }
                 )
