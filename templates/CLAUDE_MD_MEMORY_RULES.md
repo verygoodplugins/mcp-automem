@@ -271,7 +271,7 @@ update_memory({
 | Bug fix | `type: Insight`, importance 0.75 | Link to bug report → `LEADS_TO` |
 | Pattern discovered | `type: Pattern`, importance 0.8 | Link to abstract concept → `EXEMPLIFIES` |
 | Knowledge evolved | `update_memory` old + store new | `EVOLVED_INTO` (old → new) |
-| Deprecated info | `update_memory` (importance 0.1, `metadata.deprecated: true`) | `INVALIDATED_BY` (old ← new) |
+| Deprecated info | `update_memory` (importance 0.1; fetch the full metadata object before adding `deprecated: true`) | `INVALIDATED_BY` (old ← new) |
 
 Skip the association only if the related-memory search returns nothing plausible.
 
@@ -334,7 +334,7 @@ store_memory({
 ## Lifecycle: Update > Duplicate
 
 - Before storing a new memory on a topic, do a recall. If a related memory exists, prefer `update_memory` or association over a new node.
-- `update_memory` on an old memory: bump `importance`, add to `content` ("Updated: …"), or mark deprecated via `metadata.deprecated: true` + low importance.
+- `update_memory` on an old memory: bump `importance`, add to `content` ("Updated: …"), or mark deprecated by fetching the full metadata object, adding `deprecated: true`, and sending that complete object + low importance. Metadata updates replace the entire object.
 - `delete_memory` only for true duplicates or credentials accidentally stored.
 
 ### Known server quirk (workaround)
