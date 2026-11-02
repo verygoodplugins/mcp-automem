@@ -97,3 +97,38 @@ describe('tool errors', () => {
     }
   });
 });
+
+describe('published tool descriptions', () => {
+  it('documents the tag and metadata contracts seen by MCP clients', async () => {
+    const server = createAutoMemMcpServer({
+      client: new AutoMemClient({ endpoint: 'http://127.0.0.1:8001' }),
+      name: 'description-contract',
+      version: 'test',
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'description-reader', version: 'test' });
+    await client.connect(clientTransport);
+    try {
+      const listed = await client.listTools();
+      const fieldDescription = (toolName: string, field: string) => {
+        const tool = listed.tools.find((candidate) => candidate.name === toolName)!;
+        return (tool.inputSchema.properties as Record<string, { description: string }>)[field]
+          .description;
+      };
+      const tagMatch = fieldDescription('recall_memory', 'tag_match');
+      expect(tagMatch).toContain('child tags');
+      expect(tagMatch).toContain('does not match across hyphens');
+      expect(tagMatch).toContain('Enumeration mode is always exact');
+      const metadata = fieldDescription('update_memory', 'metadata');
+      expect(metadata).toContain('Replaces the stored metadata object');
+      expect(metadata).toContain('fetch the memory first and send the full object');
+      expect(metadata).not.toContain('merged with existing');
+      const tags = fieldDescription('store_memory', 'tags');
+      expect(tags).toContain('"bugfix"');
+      expect(tags).not.toContain('"bug-fix"');
+    } finally {
+      await client.close();
+    }
+  });
+});
