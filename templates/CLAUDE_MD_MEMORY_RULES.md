@@ -36,7 +36,7 @@ TOOL NAMING:
 - **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id: "<id>" })`.
 - **Graph expansion can respect tag scope.** Use `expand_respect_tags: true` when `expand_relations: true` should stay inside the tag gate; leave it false or drop tags when you intentionally want broader graph context.
 - **`store_memory` can silently fail** (returns success, doesn't persist). After storing anything you care about, recall it back with a distinctive phrase to verify. Retry if gone.
-- **Bare tag convention** — `automem`, not `project/automem`. Older memories use `project/<slug>` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. `entity:people:*`-style tags are server-injected — don't author them.
+- **Bare tag convention** — Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid. Use `automem`, not `project/automem`. Older memories use `project/<slug>` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. `entity:people:*`-style tags are server-injected — don't author them.
 
 ### Slug-collision rule
 

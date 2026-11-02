@@ -6,11 +6,13 @@ description: Store an insight, decision, or pattern to memory
 
 Store important information for future recall:
 
+Bug fixes: Insight, importance 0.75, confidence 0.85. Articulated patterns: Pattern, importance 0.8. User corrections: Preference, importance 0.9, confidence 0.95.
+
 1. **Identify Memory Type**:
    - **Decision** (0.9): Architecture, library, pattern choices
-   - **Insight** (0.8): Bug fixes, root causes, learnings
-   - **Pattern** (0.7): Reusable approaches, best practices
-   - **Preference** (0.6-0.8): User preferences, style choices
+   - **Insight** (0.75): Bug fixes, root causes, learnings
+   - **Pattern** (0.8): Reusable approaches, best practices
+   - **Preference** (0.9 for corrections): User preferences, style choices
    - **Context** (0.5-0.7): Feature summaries, notes
 
 2. **Format Content**:
@@ -33,7 +35,7 @@ Store important information for future recall:
    })
    ```
 
-   Use bare tags only. Do not add platform tags or date tags.
+   Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.
 
 4. **Create Associations** (if related memories exist):
    ```javascript

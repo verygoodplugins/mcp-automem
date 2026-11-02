@@ -60,7 +60,7 @@ curl -s -X DELETE "$AUTOMEM_API_URL/memory/MEMORY_ID" \
 
 - Recall preferences first with `tags=preference`, then task context with one semantic query built from the user's actual nouns.
 - For debugging, recall with the error symptom as the semantic query and no `tags=` parameters — bugfix/solution tagging is incomplete, and a tag gate hides cross-corpus fixes.
-- Tags are a hard gate. Use bare tags only, and avoid platform tags like `openclaw`.
+- Tags are a hard gate. Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid. For example, avoid platform tags like `openclaw`.
 - Store durable outcomes only.
 - Default project tags belong on stores, not on every recall.
 - If delete targets are ambiguous, recall likely matches first and ask for confirmation before deleting.
