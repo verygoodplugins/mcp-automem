@@ -1290,6 +1290,25 @@ describe('AutoMemClient', () => {
   });
 
   describe('checkHealth', () => {
+    it('reports the remote MCP sidecar as an error instead of a false green', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'healthy',
+          transports: ['streamable-http', 'sse'],
+          endpoints: { streamableHttp: '/mcp', sse: '/mcp/sse' },
+          upstream: 'https://automem.example',
+        }),
+      } as any);
+
+      const result = await client.checkHealth();
+
+      expect(result.status).toBe('error');
+      expect(result.error).toContain('MCP sidecar');
+      expect(result.error).toContain('AutoMem API base URL');
+    });
+
     it('should return healthy status', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -1498,6 +1517,90 @@ describe('AutoMemClient', () => {
         'Invalid JSON response (201)'
       );
       expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    // The sidecar answers unknown REST routes with Express's HTML 404.
+    it('adds the MCP sidecar hint to a non-JSON 404', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+      } as any);
+
+      const error = await client.recallMemory({ query: 'sweep' }).catch((e: Error) => e);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('Invalid JSON response (404)');
+      expect((error as Error).message).toContain('MCP sidecar');
+      expect((error as Error).message).toContain('AutoMem API base URL');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails health with the sidecar hint when AUTOMEM_API_URL ends in /mcp', async () => {
+      const sidecarClient = new AutoMemClient({ endpoint: 'https://mcp.example/mcp' });
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+      } as any);
+
+      const result = await sidecarClient.checkHealth();
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(result.status).toBe('error');
+      expect(result.error).toContain('MCP sidecar');
+      expect(result.error).toContain('AutoMem API base URL');
+    });
+
+    // `?api_key=` is a sidecar auth mode, so the URL users copy carries it and
+    // `${endpoint}/health` lands on the sidecar's /mcp handler, which answers
+    // with JSON rather than an HTML 404.
+    it('fails health for an /mcp URL whatever the sidecar answers', async () => {
+      const sidecarClient = new AutoMemClient({ endpoint: 'https://mcp.example/mcp?api_key=k' });
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: 'Missing API token' }),
+      } as any);
+
+      const result = await sidecarClient.checkHealth();
+
+      expect(result.status).toBe('error');
+      expect(result.error).toContain('MCP sidecar');
+      expect(result.error).toContain('AutoMem API base URL');
+      expect(result.error).not.toContain('api_key');
+    });
+
+    it('adds the sidecar hint to JSON errors when AUTOMEM_API_URL ends in /mcp', async () => {
+      const sidecarClient = new AutoMemClient({ endpoint: 'https://mcp.example/mcp' });
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 406,
+        json: async () => ({ message: 'Not Acceptable' }),
+      } as any);
+
+      const error = await sidecarClient.recallMemory({ query: 'sweep' }).catch((e: Error) => e);
+
+      expect((error as Error).message).toContain('Not Acceptable');
+      expect((error as Error).message).toContain('MCP sidecar');
+    });
+
+    it('does not add the sidecar hint to other non-JSON statuses', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+      } as any);
+
+      const error = await client.storeMemory({ content: 'x' }).catch((e: Error) => e);
+
+      expect((error as Error).message).toBe('Invalid JSON response (400)');
     });
 
     it('does not replay POST /memory when a 503 body is not JSON', async () => {

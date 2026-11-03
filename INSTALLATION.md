@@ -1628,6 +1628,15 @@ npx @verygoodplugins/mcp-automem help
 - Check if AutoMem service is running (`/health` endpoint should return 200)
 - Ensure no firewall blocking the connection
 
+#### "remote MCP sidecar" or `Invalid JSON response (404)`
+
+`AUTOMEM_API_URL` points at the remote MCP sidecar (the service that serves `/mcp`) instead of
+the AutoMem API. The sidecar answers `/health`, so the URL looks reachable, but it has no
+`/recall` or `/memory` routes. The stdio server and the installer both detect this from the
+sidecar's `/health` payload or from a URL ending in `/mcp`. Set `AUTOMEM_API_URL` to the AutoMem API base URL, with no `/mcp`
+suffix. The sidecar's `/mcp` URL is only for clients that cannot run a local process, such as
+Claude on the web or ChatGPT.
+
 #### Authentication errors
 
 - Check if `AUTOMEM_API_KEY` is required and properly set

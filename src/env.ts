@@ -50,3 +50,31 @@ export function resolveAutoMemApiUrl(env: NodeJS.ProcessEnv = process.env): {
   }
   return { url: DEFAULT_AUTOMEM_API_URL, source: 'default' };
 }
+
+// The remote MCP sidecar (automem/mcp-sse-server) is a separate service from
+// the REST API this server talks to, and only process-less clients need it.
+// Its /health answers 200 with a `status`, so a sidecar URL pasted into
+// AUTOMEM_API_URL passes a naive health check and then every REST call 404s.
+// The payload is the reliable signal: the sidecar advertises `transports` and
+// `endpoints`, which the REST API's /health never returns. A bare sidecar
+// host has no /mcp suffix, so the path check is only a second signal.
+export const MCP_SIDECAR_FIX =
+  "use the AutoMem API base URL instead; the sidecar's /mcp URL is for remote MCP clients only";
+
+// A body with `falkordb` or `qdrant` is the REST API's own /health, so a later
+// REST release that advertises the MCP URL under `endpoints` is not flagged.
+export function isMcpSidecarHealth(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return false;
+  if ('falkordb' in body || 'qdrant' in body) return false;
+  return 'endpoints' in body || 'transports' in body;
+}
+
+export function hasMcpSidecarPath(url: string): boolean {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return false;
+  }
+  return /\/mcp(\/sse)?\/?$/i.test(pathname);
+}

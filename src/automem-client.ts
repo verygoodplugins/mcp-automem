@@ -16,6 +16,7 @@ import type {
   DeleteMemoryResult,
   SupersedeRelationType,
 } from './types.js';
+import { MCP_SIDECAR_FIX, hasMcpSidecarPath, isMcpSidecarHealth } from './env.js';
 
 const BATCH_DISALLOWED_FIELDS = ['id', 'embedding', 't_valid', 't_invalid'] as const;
 const BATCH_TOP_LEVEL_SINGLE_FIELDS = [
@@ -243,6 +244,13 @@ export class AutoMemClient {
     this.config = config;
   }
 
+  /** Error suffix for an AUTOMEM_API_URL that ends in a sidecar /mcp path. */
+  private sidecarPathHint(): string {
+    return hasMcpSidecarPath(this.config.endpoint)
+      ? `. AUTOMEM_API_URL ends in /mcp, which is the remote MCP sidecar: ${MCP_SIDECAR_FIX}`
+      : '';
+  }
+
   private async makeRequest(
     method: string,
     path: string,
@@ -314,7 +322,13 @@ export class AutoMemClient {
         if (isRetryableParse && retryCount < maxRetries) {
           return retryAfter(`Invalid JSON response (${response.status})`);
         }
-        throw new Error(`Invalid JSON response (${response.status})`);
+        // The remote MCP sidecar answers REST routes it lacks with an HTML 404.
+        const sidecarHint =
+          this.sidecarPathHint() ||
+          (response.status === 404
+            ? `. If AUTOMEM_API_URL is the remote MCP sidecar, ${MCP_SIDECAR_FIX}`
+            : '');
+        throw new Error(`Invalid JSON response (${response.status})${sidecarHint}`);
       }
 
       if (!response.ok) {
@@ -333,7 +347,9 @@ export class AutoMemClient {
             ? ' (check AUTOMEM_API_KEY or AUTOMEM_API_TOKEN is set for the MCP server process)'
             : '';
 
-        const error = new Error(`${baseMessage}${hint}`) as Error & { status?: number };
+        const error = new Error(`${baseMessage}${hint}${this.sidecarPathHint()}`) as Error & {
+          status?: number;
+        };
         error.status = response.status;
         console.error(`AutoMem API error (${method} ${url}):`, error);
         throw error;
@@ -911,8 +927,19 @@ export class AutoMemClient {
   }
 
   async checkHealth(overrides?: RequestOverrides): Promise<HealthStatus> {
+    const sidecarError = {
+      status: 'error' as const,
+      backend: 'automem',
+      statistics: {},
+      error: `AUTOMEM_API_URL is the remote MCP sidecar, not the AutoMem API: ${MCP_SIDECAR_FIX}`,
+    };
+    // No probe for an /mcp URL: `${endpoint}/health` lands on the sidecar's
+    // /mcp handler (an `?api_key=` query swallows the path), which answers
+    // with JSON or a stream rather than anything that names the mistake.
+    if (hasMcpSidecarPath(this.config.endpoint)) return sidecarError;
     try {
       const response = await this.makeRequest('GET', 'health', undefined, 0, overrides);
+      if (isMcpSidecarHealth(response)) return sidecarError;
       const serviceStatus =
         response.status === 'healthy' || response.status === 'degraded' ? response.status : 'error';
 
