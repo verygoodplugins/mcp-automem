@@ -9,6 +9,7 @@ import {
   renderClaudeDesktopInstructions,
   renderClaudeMdMemoryRules,
   renderCodexMemoryRules,
+  renderCursorPluginSessionStartScript,
   renderCursorProjectRule,
   renderCursorSessionStartContext,
   renderCursorSessionStartScript,
@@ -73,6 +74,22 @@ const files: Array<[string, string]> = [
       mcpToolPrefix: '{{MCP_TOOL_PREFIX}}',
       templateVersion,
     }),
+  ],
+  // Cursor/Grok Bot plugin overlay: the rule applies to every workspace, and the hook
+  // derives the slug at runtime, so neither takes the installer's {{PROJECT_NAME}}.
+  [
+    'plugins/automem/rules/automem.mdc',
+    renderCursorProjectRule({
+      projectName: '<workspace-folder-slug>',
+      mcpServerName: 'memory',
+      mcpToolPrefix: 'mcp_memory_',
+      templateVersion,
+      scope: 'plugin',
+    }),
+  ],
+  [
+    'plugins/automem/cursor/session-start.mjs',
+    renderCursorPluginSessionStartScript({ mcpServerName: 'memory', mcpToolPrefix: 'mcp_memory_' }),
   ],
   [
     'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',

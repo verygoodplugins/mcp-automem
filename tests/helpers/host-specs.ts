@@ -14,6 +14,7 @@ export interface HostSmokeSpec {
     | 'copilot-cli'
     | 'vscode-copilot'
     | 'grok'
+    | 'grok-bot'
     | 'openclaw';
   /**
    * The installer client this surface belongs to, or 'copilot' for the standalone
@@ -37,6 +38,11 @@ const RAW_AUTOMEM_TOOLS = [
   'check_database_health',
 ];
 const HERMES_AUTOMEM_TOOLS = RAW_AUTOMEM_TOOLS.filter((name) => name !== 'delete_memory');
+/**
+ * The Cursor/Grok Bot plugin manifest hides `delete_memory` via `enabledTools`: a Bot that
+ * reads mail and web pages is prompt-injectable, and delete-by-tag has no dry-run.
+ */
+const PLUGIN_ENABLED_TOOLS = RAW_AUTOMEM_TOOLS.filter((name) => name !== 'delete_memory');
 /**
  * OpenClaw registers its tools in-process from src/openclaw-plugin.ts rather than over
  * stdio MCP, and shortens one of them: `check_database_health` is exposed as
@@ -106,6 +112,16 @@ export const HOST_SMOKE_SPECS: HostSmokeSpec[] = [
     configPath: '~/.grok/config.toml',
     installCommand: ['mcp-automem', 'grok'],
     expectedToolNames: RAW_AUTOMEM_TOOLS.map((name) => `memory__${name}`).sort(),
+    realHostSmoke: 'config-and-mcp-contract',
+  },
+  {
+    host: 'grok-bot',
+    client: 'grok',
+    configPath: 'plugins/automem/.cursor-plugin/plugin.json',
+    // This surface is installed through a catalog UI, not the Grok Build CLI.
+    installCommand: ['Grok Bot', 'Connect apps', 'AutoMem'],
+    // Server-local names; Grok Bot owns the provider-facing connector aliases.
+    expectedToolNames: [...PLUGIN_ENABLED_TOOLS].sort(),
     realHostSmoke: 'config-and-mcp-contract',
   },
   {

@@ -22,6 +22,11 @@
         },
         {
           "type": "json",
+          "path": "plugins/automem/.cursor-plugin/plugin.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
           "path": ".claude-plugin/marketplace.json",
           "jsonpath": "$.plugins[0].version"
         },
@@ -84,6 +89,10 @@
         {
           "type": "generic",
           "path": "templates/cursor/session-start-context.md"
+        },
+        {
+          "type": "generic",
+          "path": "plugins/automem/rules/automem.mdc"
         }
       ]
     }

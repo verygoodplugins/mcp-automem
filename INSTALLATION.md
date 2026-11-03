@@ -156,6 +156,7 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [OpenAI Codex](#openai-codex) - CLI, IDE, and cloud agent
 - [Hermes Agent](#hermes-agent) - Nous Research terminal agent with MCP and native memory provider support
 - [Grok Build](#grok-build) - xAI Grok CLI with native `~/.grok/config.toml` MCP registration
+- [Grok Bot](#grok-bot) - Desktop and mobile Bots with a configurable AutoMem plugin
 - [Google Antigravity](#google-antigravity) - Desktop editor with MCP Store and raw config
 - [OpenClaw](#openclaw) - Personal AI assistant with multi-platform messaging (WhatsApp, Telegram, Slack, Discord, etc.)
 
@@ -393,10 +394,6 @@ Choose your existing AutoMem service, or follow the local/cloud setup prompts. T
 The session-start hook supplies recall guidance through Cursor's `additional_context` response. The model calls AutoMem, decides what is durable, and stores, verifies, and associates memories during work. The rule provides a fallback when hooks are unavailable; initial recalls run once per conversation. There is no Stop hook or automatic memory storage. This setup targets the local Cursor IDE; Cursor cloud agents do not currently run `sessionStart` hooks.
 
 Reload Cursor after installation, then create a new Agent conversation so the session-start hook can run. In Cursor's MCP settings, confirm that the AutoMem server is enabled and exposes six tools. Ask it to check database health, then recall context relevant to your project. Current Cursor versions can discover the tools through an MCP dispatcher; the rule also includes direct tool-name examples for older versions. If the service is unavailable, restore its connection and retry; memory access should not block normal project work.
-
-![Cursor Customize shows an isolated AutoMem server with six tools enabled](screenshots/cursor-setup.png)
-
-_An isolated test workspace connected to a disposable AutoMem API. The default server name is `memory`; this example uses `automem-demo`._
 
 ### 2. Existing Service and One-Click Setup
 
@@ -1042,6 +1039,32 @@ AUTOMEM_HERMES_DEBUG=true hermes
 Then check the Hermes logs for AutoMem prefetch diagnostics. The debug path reports counts and endpoint status only; it does not dump memory content or secrets.
 
 ---
+
+## Grok Bot
+
+Grok Bot is separate from the Grok Build CLI. Its desktop and mobile apps share account-level connections and one cloud Bot computer. A command-based MCP server runs on that computer, not on your phone or your Mac, so the plugin's `npx` server already gives you memory on the go. `localhost` on the Bot computer is not your machine: use an HTTPS AutoMem URL reachable from the cloud, such as your Railway deployment.
+
+The AutoMem plugin ships a Grok Bot/Cursor manifest at `plugins/automem/.cursor-plugin/plugin.json` next to the Claude Code one. It declares the **AutoMem** display name and logo, a `variables` configuration form, an always-on memory rule (`rules/automem.mdc`), and a Cursor-native `sessionStart` hook that derives the project slug from the workspace folder. The MCP server id stays `memory`, with the same two inputs as every other host: `AUTOMEM_API_URL` and `AUTOMEM_API_KEY`. The plugin exposes every AutoMem tool except `delete_memory`, because a Bot that reads mail and web pages is prompt-injectable and delete-by-tag has no dry run; corrections go through `update_memory` instead. Claude Code keeps using `.claude-plugin/plugin.json` and its `userConfig` fields.
+
+### Install and configure
+
+1. Open **Settings → Plugins** on desktop or mobile (the Marketplace opens on the Plugins tab), search for **AutoMem**, and choose **Add**. The plugin is installed account-wide.
+2. In its configuration form enter **AutoMem API URL** and, if your service requires one, **AutoMem API key**. The URL is your AutoMem REST API base URL (for example `https://your-app.railway.app`), not the remote MCP `/mcp` URL.
+3. In a new conversation, ask the Bot to check AutoMem database health and recall a memory. An installed badge alone does not prove that the endpoint and key work.
+
+If AutoMem is absent from your catalog, ask the Bot to add it as a custom MCP server:
+
+> Add AutoMem as a command-based MCP server on your Bot computer using `npx -y @verygoodplugins/mcp-automem`. Ask me for the service URL and API key using the secure configuration/secret form, pass them to the process as `AUTOMEM_API_URL` and `AUTOMEM_API_KEY`, and check database health. Do not ask me to paste the key into chat.
+
+This connects the memory tools; installing the plugin additionally supplies its memory-management skill, rule, and session-start hook. The Bot computer needs Node.js for the command-based server. If you have deployed the AutoMem remote MCP sidecar, you can instead connect it by its `/mcp` URL as a remote server. The REST API URL is not a remote MCP endpoint, and the `/mcp` URL is not a REST API base URL; each field takes one of them. See [Remote MCP via HTTP (Sidecar)](#remote-mcp-via-http-sidecar).
+
+### Older imported plugins and updates
+
+An entry saying **Deprecated Claude Code plugin** contains older plugin metadata. The deprecation was removed before 0.17.0, but Grok Bot may retain an imported catalog snapshot. Its configuration form comes from `variables`, so Claude's `userConfig` declaration alone does not create the Grok Bot form.
+
+The updated manifest must first be published and picked up by the marketplace or import source. Reinstalling the same stale snapshot will not update the description, logo, or form. A general mobile control for refreshing an arbitrary GitHub plugin source is not documented; use a catalog refresh or update if your app offers one, or reconnect from the updated catalog once it is available. Remove the plugin through **Your plugins → AutoMem → … → Uninstall** before replacing it with a custom MCP connection, so the same server is not registered twice. Uninstalling a plugin removes its connection, not the memories stored in your AutoMem service.
+
+Host reference checked 2026-11-03: [Grok Bot](https://cursor.com/docs/grok-bot) and [Grok Bot mobile](https://docs.x.ai/grok-bot/mobile), the [Cursor plugin reference](https://cursor.com/docs/reference/plugins), and [Cursor hooks](https://cursor.com/docs/agent/hooks). Recheck these when the host changes; the mobile configuration screen still requires verification in a signed-in account.
 
 ## Grok Build
 

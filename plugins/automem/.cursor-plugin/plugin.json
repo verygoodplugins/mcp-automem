@@ -1,0 +1,64 @@
+{
+  "name": "automem",
+  "version": "0.17.0",
+  "description": "Persistent memory across conversations. Remember preferences, decisions, and project context with AutoMem.",
+  "author": {
+    "name": "Very Good Plugins",
+    "email": "info@verygoodplugins.com",
+    "url": "https://github.com/verygoodplugins"
+  },
+  "homepage": "https://automem.ai",
+  "repository": "https://github.com/verygoodplugins/mcp-automem",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "context",
+    "automem",
+    "mcp",
+    "persistence",
+    "knowledge-graph"
+  ],
+  "displayName": "AutoMem",
+  "logo": "assets/icon.svg",
+  "hooks": "./cursor/hooks.json",
+  "variables": {
+    "type": "object",
+    "properties": {
+      "AUTOMEM_API_URL": {
+        "type": "string",
+        "title": "AutoMem API URL",
+        "description": "Base URL of your AutoMem REST API (for example https://your-app.railway.app), not the remote MCP /mcp URL. It must be reachable from the computer that runs the plugin; on Grok Bot that is the cloud Bot computer, so localhost will not work.",
+        "minLength": 1
+      },
+      "AUTOMEM_API_KEY": {
+        "type": "string",
+        "title": "AutoMem API key",
+        "description": "API key for your AutoMem service. Leave empty only if your service does not require authentication.",
+        "default": ""
+      }
+    },
+    "required": [
+      "AUTOMEM_API_URL"
+    ]
+  },
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@verygoodplugins/mcp-automem@latest"
+      ],
+      "env": {
+        "AUTOMEM_API_URL": "${AUTOMEM_API_URL}",
+        "AUTOMEM_API_KEY": "${AUTOMEM_API_KEY:-}"
+      },
+      "enabledTools": [
+        "recall_memory",
+        "store_memory",
+        "associate_memories",
+        "update_memory",
+        "check_database_health"
+      ]
+    }
+  }
+}

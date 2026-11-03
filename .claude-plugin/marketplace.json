@@ -5,7 +5,7 @@
     "email": "info@verygoodplugins.com",
     "url": "https://github.com/verygoodplugins"
   },
-  "description": "AutoMem plugin for Claude Code: persistent memory via the AutoMem MCP server.",
+  "description": "AutoMem plugin: persistent memory for AI assistants.",
   "metadata": {
     "description": "Marketplace catalog for the AutoMem Claude Code plugin. Install with /plugin install automem@verygoodplugins-mcp-automem."
   },
@@ -13,11 +13,13 @@
     {
       "name": "automem",
       "source": "./plugins/automem",
-      "description": "Persistent memory for Claude Code: silent session-start recall, in-turn storage guidance, and the AutoMem MCP memory tools.",
+      "description": "Persistent memory across conversations. Remember preferences, decisions, and project context with AutoMem.",
       "version": "0.17.0",
       "author": {
         "name": "Very Good Plugins"
-      }
+      },
+      "displayName": "AutoMem",
+      "logo": "assets/icon.svg"
     }
   ]
 }

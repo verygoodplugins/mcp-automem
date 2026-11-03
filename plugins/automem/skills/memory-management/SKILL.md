@@ -1,7 +1,7 @@
 ---
 name: memory-management
 description: |
-  Persistent memory management for Claude Code via AutoMem. Use this skill when:
+  Persistent memory management for AI assistants via AutoMem. Use this skill when:
   - Starting a session (recall project context, decisions, patterns)
   - Making architectural decisions or library choices
   - Fixing bugs (store root cause and solution)
@@ -26,11 +26,13 @@ allowed-tools:
 
 # Memory Management Skill
 
-Use AutoMem to maintain persistent context across Claude Code sessions.
+Use AutoMem to maintain persistent context across conversations and coding sessions.
 
 Tool examples below use short names (`recall_memory`, `store_memory`); call
 them on whichever AutoMem MCP server is wired in (plugin installs namespace
 them as `mcp__plugin_automem_memory__*`, user-level servers as `mcp__memory__*`).
+Other hosts, including Grok Bot, assign their own connector/tool names; discover
+the available AutoMem tools and use the names exposed by that host.
 
 This skill teaches the current AutoMem playbook: **Recall early, store durable outcomes, avoid session-summary noise.**
 

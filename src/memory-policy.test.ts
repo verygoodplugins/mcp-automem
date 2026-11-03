@@ -13,6 +13,7 @@ import {
   renderClaudeDesktopInstructions,
   renderClaudeMdMemoryRules,
   renderCodexMemoryRules,
+  renderCursorPluginSessionStartScript,
   renderCursorProjectRule,
   renderCursorSessionStartContext,
   renderCursorSessionStartScript,
@@ -324,6 +325,23 @@ describe('shared AutoMem memory policy', () => {
       })
     );
     expectFileEquals(
+      'plugins/automem/rules/automem.mdc',
+      renderCursorProjectRule({
+        projectName: '<workspace-folder-slug>',
+        mcpServerName: 'memory',
+        mcpToolPrefix: 'mcp_memory_',
+        templateVersion,
+        scope: 'plugin',
+      })
+    );
+    expectFileEquals(
+      'plugins/automem/cursor/session-start.mjs',
+      renderCursorPluginSessionStartScript({
+        mcpServerName: 'memory',
+        mcpToolPrefix: 'mcp_memory_',
+      })
+    );
+    expectFileEquals(
       'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',
       renderClaudeDesktopInstructions({ templateVersion })
     );
@@ -451,6 +469,8 @@ describe('shared AutoMem memory policy', () => {
       'templates/cursor/automem.mdc.template',
       'templates/cursor/session-start.mjs.template',
       'templates/cursor/session-start-context.md',
+      'plugins/automem/rules/automem.mdc',
+      'plugins/automem/cursor/session-start.mjs',
       'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',
       'templates/CLAUDE_MD_MEMORY_RULES.md',
       'templates/hermes/memory-rules.md',
