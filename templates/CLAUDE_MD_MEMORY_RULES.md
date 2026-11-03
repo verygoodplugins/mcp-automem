@@ -36,7 +36,7 @@ TOOL NAMING:
 - **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `recall_memory({ memory_id: "<id>" })`.
 - **Graph expansion can respect tag scope.** Use `expand_respect_tags: true` when `expand_relations: true` should stay inside the tag gate; leave it false or drop tags when you intentionally want broader graph context.
 - **`store_memory` can silently fail** (returns success, doesn't persist). After storing anything you care about, recall it back with a distinctive phrase to verify. Retry if gone.
-- **Bare tag convention** — `automem`, not `project/automem`. Older memories use `project/<slug>` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. `entity:people:*`-style tags are server-injected — don't author them.
+- **Bare tag convention** — Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid. Use `automem`, not `project/automem`. Older memories use `project/<slug>` prefixes, so tag-gated queries on slugs can miss historical content. When a gate returns sparse, retry without it. `entity:people:*`-style tags are server-injected — don't author them.
 
 ### Slug-collision rule
 
@@ -271,7 +271,7 @@ update_memory({
 | Bug fix | `type: Insight`, importance 0.75 | Link to bug report → `LEADS_TO` |
 | Pattern discovered | `type: Pattern`, importance 0.8 | Link to abstract concept → `EXEMPLIFIES` |
 | Knowledge evolved | `update_memory` old + store new | `EVOLVED_INTO` (old → new) |
-| Deprecated info | `update_memory` (importance 0.1, `metadata.deprecated: true`) | `INVALIDATED_BY` (old ← new) |
+| Deprecated info | `update_memory` (importance 0.1; fetch the full metadata object before adding `deprecated: true`) | `INVALIDATED_BY` (old ← new) |
 
 Skip the association only if the related-memory search returns nothing plausible.
 
@@ -334,7 +334,7 @@ store_memory({
 ## Lifecycle: Update > Duplicate
 
 - Before storing a new memory on a topic, do a recall. If a related memory exists, prefer `update_memory` or association over a new node.
-- `update_memory` on an old memory: bump `importance`, add to `content` ("Updated: …"), or mark deprecated via `metadata.deprecated: true` + low importance.
+- `update_memory` on an old memory: bump `importance`, add to `content` ("Updated: …"), or mark deprecated by fetching the full metadata object, adding `deprecated: true`, and sending that complete object + low importance. Metadata updates replace the entire object.
 - `delete_memory` only for true duplicates or credentials accidentally stored.
 
 ### Known server quirk (workaround)

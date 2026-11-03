@@ -28,7 +28,7 @@ When root causes are discovered and fixed:
 store_memory({
   content: "[SYMPTOM]. Root: [CAUSE]. Solution: [FIX].",
   type: "Insight",
-  importance: 0.8,
+  importance: 0.75,
   confidence: 0.85,
   tags: ["bugfix", "solution", "project", "component"],
   metadata: {
@@ -39,29 +39,29 @@ store_memory({
 })
 ```
 
-## User Preference Pattern
+## User Correction Pattern
 
-When learning user preferences or style:
+When the user corrects a prior preference or overrides behavior:
 
 ```javascript
 store_memory({
   content: "User prefers [PREFERENCE] in [CONTEXT].",
   type: "Preference",
-  importance: 0.8,
+  importance: 0.9,
   confidence: 0.95,
-  tags: ["preference", "domain"]
+  tags: ["preference", "correction", "domain"]
 })
 ```
 
 ## Code Pattern
 
-When discovering reusable patterns:
+When the user articulates a recurring pattern:
 
 ```javascript
 store_memory({
   content: "Using [PATTERN]. [BENEFIT]. Applied in [SCOPE].",
   type: "Pattern",
-  importance: 0.7,
+  importance: 0.8,
   confidence: 0.8,
   tags: ["pattern", "project", "domain"],
   metadata: {
@@ -97,7 +97,7 @@ Always prefer:
 3. **Component / domain** - auth, api, frontend, deployment
 4. **Language or domain** - only if it improves recall
 
-Use bare tags only. Do not use platform tags or date tags.
+Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.
 
 ## Importance Scoring
 

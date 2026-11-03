@@ -12,7 +12,7 @@ AutoMem is wired as the `memory` MCP server in `~/.grok/config.toml` (native con
 - **`limit` caps at 50.** Routine recall should use enough budget to be useful.
 - **Default `text` format shows content previews with created/updated timestamps and importance.** `detailed` adds type/confidence/metadata summary. Responses are budget-capped; fetch a full record with `use_tool({ tool_name: "memory__recall_memory", tool_input: { memory_id: "<id>" } })`.
 - **`store_memory` can silently fail.** Verify important stores by recalling a distinctive phrase; retry once if missing.
-- **Bare tag convention** - use `automem`, not `project/automem`; no `lang/` prefixes, platform tags, or date-stamped tags. `entity:*:*` tags are server-injected.
+- **Bare tag convention** - Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid. Use `automem`, not `project/automem`. `entity:*:*` tags are server-injected.
 
 ### Slug-collision rule
 
@@ -84,6 +84,8 @@ Escalate only when the task-context recall comes back too broad or empty:
 - **Need graph traversal** - use `expand_relations: true`; add `expand_respect_tags: true` when traversal must stay inside the tag gate, or leave it false/drop tags when broader graph context is useful.
 
 ## Storage Discipline
+
+Bug fixes: Insight, importance 0.75, confidence 0.85. Articulated patterns: Pattern, importance 0.8. User corrections: Preference, importance 0.9, confidence 0.95.
 
 Store only durable decisions, corrections, explicit preferences, bug-fix root causes, and articulated reusable patterns. Never store secrets, credentials, tokens, PII, session summaries, progress reports, confirmations, speculative context, or attentiveness notes.
 

@@ -624,10 +624,9 @@ const openClawPlugin = {
       parameters: updateMemorySchema,
       async execute(_toolCallId, params) {
         const request = params as UpdateMemoryArgs;
-        const result = await client.updateMemory({
-          ...request,
-          tags: mergeTags(config.defaultTags, request.tags),
-        });
+        // Defaults belong on creation. PATCH must preserve omitted tags and allow
+        // an explicit replacement (including an empty array to clear tags).
+        const result = await client.updateMemory(request);
         return jsonResult(result);
       },
     });
