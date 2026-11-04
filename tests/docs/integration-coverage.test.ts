@@ -87,3 +87,28 @@ describe('integration docs coverage', () => {
     ).toBe(true);
   });
 });
+
+describe('Cursor install modes docs', () => {
+  const installation = repoFile('INSTALLATION.md');
+  // The whole `## Cursor IDE` chapter, including its `###` subsections.
+  const cursorStart = installation.indexOf('\n## Cursor IDE\n');
+  const cursorEnd = installation.indexOf('\n## ', cursorStart + 1);
+  const cursorSection = cursorStart === -1 ? '' : installation.slice(cursorStart, cursorEnd);
+
+  it('documents the --cursor-mode flag next to the other installer flags', () => {
+    expect(installation).toContain('--cursor-mode <plugin|files>');
+  });
+
+  it('documents plugin mode, its configure step, and the files fallback in the Cursor section', () => {
+    expect(cursorSection).toContain('~/.cursor/plugins/local/automem');
+    expect(cursorSection).toContain('Customize → Automem → Configure');
+    expect(cursorSection).toContain('--cursor-mode files');
+    expect(cursorSection).toContain('uninstall cursor');
+  });
+
+  it('documents that Cursor uninstall removes the local plugin', () => {
+    expect(installation).toContain(
+      'Cursor uninstall also removes the local plugin at `~/.cursor/plugins/local/automem`'
+    );
+  });
+});

@@ -27,6 +27,7 @@ import {
   removeCursorMemoryServers,
 } from './cursor-config.js';
 import { UNINSTALL_PLATFORMS, type UninstallPlatform } from './clients.js';
+import { CURSOR_PLUGIN_NAME, cursorLocalPluginDir, readCursorPluginName } from './cursor-plugin.js';
 
 interface UninstallOptions {
   platform: UninstallPlatform;
@@ -211,13 +212,21 @@ function removeClaudeDesktopMemoryServer(dryRun: boolean, quiet?: boolean): bool
   }
 }
 
-async function uninstallCursor(options: UninstallOptions): Promise<void> {
+/**
+ * Remove a file-mode Cursor install: the AutoMem entry in the shared ~/.cursor/mcp.json,
+ * the project sessionStart hook entry and script, and the project rule. Shared by
+ * `uninstall cursor` and the guided installer's plugin mode, which offers to remove a
+ * file install so AutoMem is not registered twice.
+ */
+export function removeCursorFileInstall(options: {
+  projectDir?: string;
+  rulesPath?: string;
+  dryRun?: boolean;
+  quiet?: boolean;
+}): void {
   const projectDir = options.projectDir ?? process.cwd();
-  const cursorRulesDir = path.join(projectDir, '.cursor', 'rules');
-  const automemRuleFile = options.rulesPath ?? path.join(cursorRulesDir, 'automem.mdc');
-
-  log('\n🗑️  Uninstalling Cursor AutoMem...', options.quiet);
-
+  const automemRuleFile =
+    options.rulesPath ?? path.join(projectDir, '.cursor', 'rules', 'automem.mdc');
   const hooksFile = path.join(projectDir, '.cursor', 'hooks.json');
   // Preflight both shared documents before disconnecting the global server.
   assertCursorHooksRemovable(hooksFile);
@@ -235,6 +244,39 @@ async function uninstallCursor(options: UninstallOptions): Promise<void> {
     options.dryRun ?? false,
     options.quiet
   );
+}
+
+/**
+ * Remove ~/.cursor/plugins/local/automem, but only when it is a real directory whose
+ * .cursor-plugin/plugin.json names `automem`. A symlink (a developer checkout) or a
+ * foreign plugin in that folder is left alone.
+ */
+function removeCursorLocalPlugin(options: UninstallOptions): void {
+  const pluginDir = cursorLocalPluginDir();
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(pluginDir);
+  } catch {
+    return;
+  }
+  if (stat.isSymbolicLink()) {
+    log(
+      `Leaving ${pluginDir} in place: it is a symlink the installer did not create.`,
+      options.quiet
+    );
+    return;
+  }
+  if (readCursorPluginName(pluginDir) !== CURSOR_PLUGIN_NAME) {
+    log(`Leaving ${pluginDir} in place: it is not the AutoMem plugin.`, options.quiet);
+    return;
+  }
+  removeDirectory(pluginDir, options.dryRun ?? false, options.quiet);
+}
+
+async function uninstallCursor(options: UninstallOptions): Promise<void> {
+  log('\n🗑️  Uninstalling Cursor AutoMem...', options.quiet);
+  removeCursorFileInstall(options);
+  removeCursorLocalPlugin(options);
   log('Cursor AutoMem configuration removed.', options.quiet);
 }
 

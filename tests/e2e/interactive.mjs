@@ -79,9 +79,41 @@ const SCENARIOS = [
       { send: KEY.down }, // claude-code → cursor
       { send: KEY.space }, // check cursor
       { send: KEY.enter },
+      { waitFor: /integrate with Cursor/, send: KEY.enter }, // plugin (default)
     ],
-    expect: [/Install review/, /Cursor integration/, /Dry run only/],
+    expect: [
+      /Install review/,
+      /Install the Cursor plugin/,
+      /plugins\/local\/automem/,
+      /Customize → Automem → Configure/,
+      /Dry run only/,
+    ],
     notExpect: [/mcp\.json/, /AutoMem install canceled/],
+  },
+  {
+    name: 'existing-cursor-files',
+    description: 'existing + Cursor → files sub-prompt (mcp.json + project rule and hook)',
+    steps: [
+      { waitFor: /Where should AutoMem run/, send: KEY.down },
+      { send: KEY.down },
+      { send: KEY.enter },
+      { waitFor: /AutoMem API URL/, send: ENDPOINT },
+      { send: KEY.enter },
+      { waitFor: /AutoMem API key/, send: KEY.enter },
+      { waitFor: /which AI tools/, send: KEY.down }, // codex → claude-code
+      { send: KEY.down }, // claude-code → cursor
+      { send: KEY.space }, // check cursor
+      { send: KEY.enter },
+      { waitFor: /integrate with Cursor/, send: KEY.down }, // plugin → files
+      { send: KEY.enter },
+    ],
+    expect: [
+      /Install review/,
+      /Cursor integration/,
+      /\.cursor\/rules\/automem\.mdc/,
+      /Dry run only/,
+    ],
+    notExpect: [/plugins\/local\/automem/, /AutoMem install canceled/],
   },
   {
     name: 'existing-claude-plugin',

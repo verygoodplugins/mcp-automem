@@ -5,6 +5,7 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { removeManagedHookEntries } from './claude-code.js';
 import { applyCursorSetup } from './cursor.js';
+import { cursorLocalPluginDir, installCursorPlugin } from './cursor-plugin.js';
 import { parseUninstallArgs, runUninstall } from './uninstall.js';
 
 describe('uninstall --clean-all preserves foreign Claude Desktop mcpServers', () => {
@@ -902,6 +903,54 @@ describe('Cursor uninstall round trip', () => {
     expect(config.mcpServers).toEqual({});
     const hooks = JSON.parse(fs.readFileSync(path.join(project, '.cursor', 'hooks.json'), 'utf8'));
     expect(hooks.hooks.sessionStart ?? []).toEqual([]);
+  });
+
+  it('removes the local Cursor plugin directory, including when only the plugin is installed', async () => {
+    installCursorPlugin({ homeDir: home, quiet: true });
+    const pluginDir = cursorLocalPluginDir(home);
+    expect(fs.existsSync(pluginDir)).toBe(true);
+
+    await runUninstall({ platform: 'cursor', projectDir: project, yes: true, quiet: true });
+
+    expect(fs.existsSync(pluginDir)).toBe(false);
+  });
+
+  it('keeps a local plugin directory that is not AutoMem', async () => {
+    const pluginDir = cursorLocalPluginDir(home);
+    fs.mkdirSync(path.join(pluginDir, '.cursor-plugin'), { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginDir, '.cursor-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'someone-else' })
+    );
+
+    await runUninstall({ platform: 'cursor', projectDir: project, yes: true, quiet: true });
+
+    expect(fs.existsSync(path.join(pluginDir, '.cursor-plugin', 'plugin.json'))).toBe(true);
+  });
+
+  it('leaves a symlinked plugin directory and its target alone', async () => {
+    const target = path.join(root, 'dev-plugin');
+    fs.mkdirSync(path.join(target, '.cursor-plugin'), { recursive: true });
+    fs.writeFileSync(
+      path.join(target, '.cursor-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'automem' })
+    );
+    const pluginDir = cursorLocalPluginDir(home);
+    fs.mkdirSync(path.dirname(pluginDir), { recursive: true });
+    fs.symlinkSync(target, pluginDir, 'dir');
+
+    await runUninstall({ platform: 'cursor', projectDir: project, yes: true, quiet: true });
+
+    expect(fs.lstatSync(pluginDir).isSymbolicLink()).toBe(true);
+    expect(fs.existsSync(path.join(target, '.cursor-plugin', 'plugin.json'))).toBe(true);
+  });
+
+  it('previews the plugin directory removal without deleting it', async () => {
+    installCursorPlugin({ homeDir: home, quiet: true });
+
+    await runUninstall({ platform: 'cursor', projectDir: project, dryRun: true, quiet: true });
+
+    expect(fs.existsSync(cursorLocalPluginDir(home))).toBe(true);
   });
 
   it('uninstall preview changes no files and makes no backups', async () => {

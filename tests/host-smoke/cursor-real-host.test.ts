@@ -16,6 +16,9 @@ const hasCursorAgent =
     timeout: 5_000,
   }).status === 0;
 const TOOL_NAMES = HOST_SMOKE_SPECS.find((spec) => spec.host === 'cursor')!.expectedToolNames;
+const PLUGIN_TOOL_NAMES = HOST_SMOKE_SPECS.find(
+  (spec) => spec.host === 'cursor-plugin'
+)!.expectedToolNames;
 
 describe('Cursor MCP host boundary', () => {
   let root: string;
@@ -61,6 +64,8 @@ describe('Cursor MCP host boundary', () => {
           'guided-cursor-test-key',
           '--clients',
           'cursor',
+          '--cursor-mode',
+          'files',
           '--yes',
         ],
         {
@@ -90,6 +95,77 @@ describe('Cursor MCP host boundary', () => {
             request.authorization === 'Bearer guided-cursor-test-key'
         )
       ).toBe(true);
+    } finally {
+      await api.close();
+    }
+  }, 25_000);
+
+  it('plugin-mode guided install copies the local plugin and leaves mcp.json untouched', async () => {
+    const api = await startFakeAutoMemApi();
+    try {
+      // A pre-existing file install (AutoMem entry) next to a foreign server.
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      const seeded = `${JSON.stringify(
+        {
+          mcpServers: {
+            memory: {
+              command: 'npx',
+              args: ['-y', '@verygoodplugins/mcp-automem'],
+              env: { AUTOMEM_API_URL: 'http://old.example' },
+            },
+            other: { command: 'other-mcp' },
+          },
+        },
+        null,
+        2
+      )}\n`;
+      fs.writeFileSync(configPath, seeded);
+      const result = await runFile(
+        process.execPath,
+        [
+          '--import',
+          import.meta.resolve('tsx'),
+          path.join(REPO_ROOT, 'src/index.ts'),
+          'install',
+          '--target',
+          'existing',
+          '--endpoint',
+          api.url,
+          '--clients',
+          'cursor',
+          '--cursor-mode',
+          'plugin',
+          '--yes',
+        ],
+        {
+          cwd: project,
+          env: {
+            PATH: process.env.PATH,
+            HOME: home,
+            USERPROFILE: home,
+            NO_COLOR: '1',
+            TERM: 'dumb',
+          },
+          timeout: 20_000,
+        }
+      );
+      const output = result.stdout + result.stderr;
+      const pluginDir = path.join(home, '.cursor', 'plugins', 'local', 'automem');
+      expect(fs.lstatSync(pluginDir).isDirectory()).toBe(true);
+      expect(fs.lstatSync(pluginDir).isSymbolicLink()).toBe(false);
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(pluginDir, '.cursor-plugin', 'plugin.json'), 'utf8')
+      );
+      expect(manifest.name).toBe('automem');
+      expect([...manifest.mcpServers.memory.enabledTools].sort()).toEqual(PLUGIN_TOOL_NAMES);
+      // --yes never removes the file install; it warns with the uninstall command.
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(seeded);
+      expect(output).toMatch(/twice/i);
+      expect(output).toContain('npx @verygoodplugins/mcp-automem uninstall cursor');
+      expect(output).toContain('Customize → Automem → Configure');
+      // No project-level file-mode artifacts.
+      expect(fs.existsSync(path.join(project, '.cursor', 'rules'))).toBe(false);
+      expect(fs.existsSync(path.join(project, '.cursor', 'hooks.json'))).toBe(false);
     } finally {
       await api.close();
     }

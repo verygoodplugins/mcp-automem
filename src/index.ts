@@ -162,7 +162,8 @@ COMMANDS:
             --yes, -y              Skip confirmation prompts
 
           Configures ~/.cursor/mcp.json, project memory rules, and a sessionStart recall hook.
-          The uninstall command removes all three, including the shared ~/.cursor/mcp.json entry.
+          The uninstall command removes all three, including the shared ~/.cursor/mcp.json entry,
+          plus the local plugin at ~/.cursor/plugins/local/automem when present.
           Hooks provide recall guidance; the model decides when to store memories.
           For guided endpoint and credential setup, run the install command from your project.
 
@@ -292,6 +293,9 @@ GUIDED INSTALL:
   Walks you through where AutoMem runs (Hosted Cloud / Local Docker / Existing
   Endpoint), verifies the endpoint, writes .env, and configures your agents.
   For Claude Code it offers the plugin (recommended) or a settings-level install.
+  For Cursor it copies the AutoMem plugin into ~/.cursor/plugins/local/automem
+  (recommended; then Cursor → Customize → Automem → Configure) or writes
+  ~/.cursor/mcp.json plus project rule and hook files.
 
   Options:
     --target <local|cloud|existing>  Where AutoMem runs
@@ -299,6 +303,8 @@ GUIDED INSTALL:
     --endpoint <url>                 Existing or hosted AutoMem endpoint
     --api-key <key>                  API key for authenticated endpoints
     --local-dir <path>               Local server directory (default: ~/.automem/server)
+    --claude-code-mode <plugin|settings>  Claude Code: plugin (default) or settings-level files
+    --cursor-mode <plugin|files>     Cursor: local plugin (default) or mcp.json + project files
     --dry-run                        Show the review plan without writing files
     --yes, -y                        Apply without confirmation
     --no-agent-install               Configure endpoint only; skip agent writes

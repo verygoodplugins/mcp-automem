@@ -167,7 +167,7 @@ Run the guided installer from your project and select Cursor:
 npx @verygoodplugins/mcp-automem install
 ```
 
-This connects Cursor to your AutoMem service, installs project memory rules, and registers a session-start recall hook. Already have an endpoint? Use `npx @verygoodplugins/mcp-automem cursor --endpoint https://your-automem.example`.
+By default this installs the AutoMem Cursor plugin into `~/.cursor/plugins/local/automem` (MCP server, session-start recall hook, and always-on rule); then open Cursor → Customize → Automem → Configure and enter your endpoint and key. `--cursor-mode files` instead writes `~/.cursor/mcp.json` plus project memory rules and a session-start hook. Already have an endpoint? Use `npx @verygoodplugins/mcp-automem cursor --endpoint https://your-automem.example`.
 
 The one-click button configures only the MCP server for a local AutoMem instance. Update its endpoint/key in Cursor if needed, then run the CLI above to add project rules and the hook:
 
