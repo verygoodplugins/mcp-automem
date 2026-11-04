@@ -161,6 +161,8 @@ Now that your AutoMem service is running, install and configure the MCP client t
 - [Google Antigravity](#google-antigravity) - Desktop editor with MCP Store and raw config
 - [OpenClaw](#openclaw) - Personal AI assistant with multi-platform messaging (WhatsApp, Telegram, Slack, Discord, etc.)
 
+Every `npx` launch command below uses `@verygoodplugins/mcp-automem@latest`, and hand-written configs should keep the `@latest` tag. npm treats an unpinned name, a version range, or an exact version as the local project whenever the current folder's `package.json` already satisfies it. Inside a clone of this repo, npx then fails with `sh: mcp-automem: not found`, or silently runs a global install instead. npm never resolves a dist-tag like `@latest` locally. Re-running an installer moves an existing unpinned entry to `@latest` in place.
+
 ---
 
 ## Remote MCP via HTTP (Sidecar)
@@ -288,7 +290,7 @@ Use this alternative for multiple endpoints or a custom server command. Add Auto
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "env": {
         "AUTOMEM_API_URL": "https://your-automem-instance.railway.app",
         "AUTOMEM_API_KEY": "your-api-key-if-required"
@@ -305,7 +307,7 @@ Use this alternative for multiple endpoints or a custom server command. Add Auto
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "env": {
         "AUTOMEM_API_URL": "http://127.0.0.1:8001"
       }
@@ -506,7 +508,7 @@ Add AutoMem to `~/.claude.json`:
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "env": {
         "AUTOMEM_API_URL": "http://127.0.0.1:8001",
         "AUTOMEM_API_KEY": "your-api-key-if-required"
@@ -582,7 +584,7 @@ On older Claude Code versions, you can load the whole server upfront instead by 
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "alwaysLoad": true
     }
   }
@@ -623,7 +625,7 @@ In your GitHub repository: **Settings → Copilot → Coding agent → MCP confi
       "type": "local",
       "tools": ["*"],
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "env": {
         "AUTOMEM_API_URL": "https://xxxx.up.railway.app",
         "AUTOMEM_API_KEY": "COPILOT_MCP_AUTOMEM_API_KEY"
@@ -683,7 +685,7 @@ The MCP server config lives in different places for CLI vs VS Code:
     "automem": {
       "type": "local",
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "env": {
         "AUTOMEM_API_URL": "http://127.0.0.1:8001",
         "AUTOMEM_API_KEY": "your-api-key-if-required"
@@ -708,7 +710,7 @@ The MCP server config lives in different places for CLI vs VS Code:
     "automem": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "env": {
         "AUTOMEM_API_URL": "http://127.0.0.1:8001",
         "AUTOMEM_API_KEY": "your-api-key-if-required"
@@ -798,7 +800,7 @@ Add the following to your `config.toml`:
 ```toml
 [mcp_servers.memory]
 command = "npx"
-args = ["-y", "@verygoodplugins/mcp-automem"]
+args = ["-y", "@verygoodplugins/mcp-automem@latest"]
 
 [mcp_servers.memory.env]
 AUTOMEM_API_URL = "https://your-automem-instance.railway.app"
@@ -810,7 +812,7 @@ AUTOMEM_API_KEY = "your-api-key-if-required"
 ```toml
 [mcp_servers.memory]
 command = "npx"
-args = ["-y", "@verygoodplugins/mcp-automem"]
+args = ["-y", "@verygoodplugins/mcp-automem@latest"]
 
 [mcp_servers.memory.env]
 AUTOMEM_API_URL = "http://127.0.0.1:8001"
@@ -1061,7 +1063,7 @@ The AutoMem plugin ships a Grok Bot/Cursor manifest at `plugins/automem/.cursor-
 
 If AutoMem is absent from your catalog, ask the Bot to add it as a custom MCP server:
 
-> Add AutoMem as a command-based MCP server on your Bot computer using `npx -y @verygoodplugins/mcp-automem`. Ask me for the service URL and API key using the secure configuration/secret form, pass them to the process as `AUTOMEM_API_URL` and `AUTOMEM_API_KEY`, and check database health. Do not ask me to paste the key into chat.
+> Add AutoMem as a command-based MCP server on your Bot computer using `npx -y @verygoodplugins/mcp-automem@latest`. Ask me for the service URL and API key using the secure configuration/secret form, pass them to the process as `AUTOMEM_API_URL` and `AUTOMEM_API_KEY`, and check database health. Do not ask me to paste the key into chat.
 
 This connects the memory tools; installing the plugin additionally supplies its memory-management skill, rule, and session-start hook. The Bot computer needs Node.js for the command-based server. If you have deployed the AutoMem remote MCP sidecar, you can instead connect it by its `/mcp` URL as a remote server. The REST API URL is not a remote MCP endpoint, and the `/mcp` URL is not a REST API base URL; each field takes one of them. See [Remote MCP via HTTP (Sidecar)](#remote-mcp-via-http-sidecar).
 
@@ -1075,7 +1077,7 @@ Host reference checked 2026-11-03: [Grok Bot](https://cursor.com/docs/grok-bot) 
 
 ## Grok Build
 
-Grok Build (xAI CLI) loads MCP from `~/.grok/config.toml`, then Claude/Cursor compat sources. **Native config is required for AutoMem.** If AutoMem is only present via Claude/Cursor imports, Grok can start `npx @verygoodplugins/mcp-automem` without `AUTOMEM_*` env — the server then defaults to `http://127.0.0.1:8001` and every session fails with `Mcp error: -32603: fetch failed`. Edits in the `/mcps` UI are session-scoped unless written to `config.toml`.
+Grok Build (xAI CLI) loads MCP from `~/.grok/config.toml`, then Claude/Cursor compat sources. **Native config is required for AutoMem.** If AutoMem is only present via Claude/Cursor imports, Grok can start `npx -y @verygoodplugins/mcp-automem@latest` without `AUTOMEM_*` env — the server then defaults to `http://127.0.0.1:8001` and every session fails with `Mcp error: -32603: fetch failed`. Edits in the `/mcps` UI are session-scoped unless written to `config.toml`.
 
 ### Install
 
@@ -1091,7 +1093,7 @@ npx @verygoodplugins/mcp-automem grok \
 
 This writes:
 
-- `~/.grok/config.toml` → `[mcp_servers.memory]` with `npx -y @verygoodplugins/mcp-automem` and `AUTOMEM_API_URL` / `AUTOMEM_API_KEY` / `AUTOMEM_PROCESS_TAG=grok:memory`
+- `~/.grok/config.toml` → `[mcp_servers.memory]` with `npx -y @verygoodplugins/mcp-automem@latest` and `AUTOMEM_API_URL` / `AUTOMEM_API_KEY` / `AUTOMEM_PROCESS_TAG=grok:memory`
 - `~/.grok/AGENTS.md` → marked AutoMem rules block (Grok injects this every session)
 
 Override the Grok home with `$GROK_HOME` or `--dir`.
@@ -1109,7 +1111,7 @@ writing anything. To wire it up by hand instead, copy
 
 ```bash
 grok mcp list
-# → memory: npx -y @verygoodplugins/mcp-automem
+# → memory: npx -y @verygoodplugins/mcp-automem@latest
 
 # Start a *new* Grok session (existing sessions keep the old MCP child), then recall
 ```
@@ -1161,7 +1163,7 @@ You can also copy it directly from [templates/antigravity/mcp_config.json](templ
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "env": {
         "AUTOMEM_API_URL": "https://your-automem-instance.railway.app",
         "AUTOMEM_API_KEY": "your-api-key-if-required"
@@ -1178,7 +1180,7 @@ You can also copy it directly from [templates/antigravity/mcp_config.json](templ
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "env": {
         "AUTOMEM_API_URL": "http://127.0.0.1:8001"
       }
@@ -1218,10 +1220,10 @@ No installation required:
 ```bash
 # For Claude Desktop (in config)
 "command": "npx",
-"args": ["-y", "@verygoodplugins/mcp-automem"]
+"args": ["-y", "@verygoodplugins/mcp-automem@latest"]
 
 # For Claude Code
-claude mcp add memory "npx -y @verygoodplugins/mcp-automem"
+claude mcp add memory "npx -y @verygoodplugins/mcp-automem@latest"
 ```
 
 ### Option 2: Global Installation

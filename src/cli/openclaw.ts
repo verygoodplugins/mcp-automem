@@ -641,7 +641,10 @@ export function buildMcporterConfig(params: {
 }): Record<string, unknown> {
   const existing = isRecord(params.existing) ? params.existing : {};
   const existingServers = isRecord(existing.mcpServers) ? existing.mcpServers : {};
-  const serverPackage = params.serverPackage || readCurrentPackageName();
+  // Default to the dist-tag: an unpinned name is one npm resolves to the local
+  // project inside a clone of this repo (see AUTOMEM_NPX_PACKAGE). An explicit
+  // serverPackage is the caller's spec and is used as given.
+  const serverPackage = params.serverPackage || `${readCurrentPackageName()}@latest`;
 
   return {
     ...existing,

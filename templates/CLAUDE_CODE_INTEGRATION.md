@@ -51,7 +51,7 @@ Add to `~/.claude.json`:
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "env": {
         "AUTOMEM_API_URL": "http://127.0.0.1:8001",
         "AUTOMEM_API_KEY": "your-api-key-if-required"

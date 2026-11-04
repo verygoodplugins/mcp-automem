@@ -31,43 +31,42 @@ import type {
 const ASSOCIATION_PROPERTY_SCHEMAS = {
   context: {
     type: 'string',
-    description: 'Relation-specific context for PREFERS_OVER or PART_OF associations.',
+    description: 'PREFERS_OVER or PART_OF only.',
   },
   reason: {
     type: 'string',
-    description:
-      'Relation-specific reason for PREFERS_OVER, CONTRADICTS, INVALIDATED_BY, or EVOLVED_INTO associations.',
+    description: 'PREFERS_OVER, CONTRADICTS, INVALIDATED_BY or EVOLVED_INTO only.',
   },
   pattern_type: {
     type: 'string',
-    description: 'Relation-specific pattern label for EXEMPLIFIES associations.',
+    description: 'EXEMPLIFIES only: pattern label.',
   },
   confidence: {
     type: 'number',
     minimum: 0,
     maximum: 1,
-    description: 'Relation-specific confidence for EXEMPLIFIES, EVOLVED_INTO, or DERIVED_FROM.',
+    description: 'EXEMPLIFIES, EVOLVED_INTO or DERIVED_FROM only.',
   },
   resolution: {
     type: 'string',
-    description: 'Relation-specific resolution for CONTRADICTS associations.',
+    description: 'CONTRADICTS only.',
   },
   observations: {
     type: 'array',
     items: { type: 'string' },
-    description: 'Relation-specific observations for REINFORCES associations.',
+    description: 'REINFORCES only.',
   },
   timestamp: {
     type: 'string',
-    description: 'Relation-specific timestamp for INVALIDATED_BY associations.',
+    description: 'INVALIDATED_BY only.',
   },
   transformation: {
     type: 'string',
-    description: 'Relation-specific transformation note for DERIVED_FROM associations.',
+    description: 'DERIVED_FROM only.',
   },
   role: {
     type: 'string',
-    description: 'Relation-specific role for PART_OF associations.',
+    description: 'PART_OF only.',
   },
 } as const;
 
@@ -125,13 +124,13 @@ export const tools: Tool[] = [
         content: {
           type: 'string',
           description:
-            'Single-memory mode (XOR with `memories`). The memory content to store. Be specific: include context, reasoning, and outcome.',
+            'Single mode (XOR with `memories`). Include context, reasoning, and outcome.',
         },
         memories: {
           type: 'array',
           maxItems: 500,
           description:
-            'Batch mode (XOR with `content`). Up to 500 memory objects to store in one call. Each item supports content (required), tags, importance, timestamp, type, confidence, metadata. Batch mode does NOT support `embedding`, `t_valid`, or `t_invalid` per-item — use single-memory mode for those.',
+            'Batch mode (XOR with `content`). Other top-level fields apply to single mode only; items take no `embedding`, `t_valid` or `t_invalid`.',
           items: {
             type: 'object',
             required: ['content'],
@@ -149,77 +148,60 @@ export const tools: Tool[] = [
         tags: {
           type: 'array',
           items: { type: 'string' },
-          description:
-            'Single-memory mode. Tags to categorize the memory (e.g., ["bugfix", "auth", "<project-slug>"])',
+          description: 'e.g. ["bugfix", "auth", "<project-slug>"]',
         },
         importance: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description:
-            'Single-memory mode. Importance: 0.9+ critical decisions, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes',
+          description: '0.9+ critical decisions, 0.7-0.9 patterns/bugs, 0.5-0.7 minor notes',
         },
         embedding: {
           type: 'array',
           items: { type: 'number' },
-          description:
-            'Single-memory mode only. Optional embedding vector for semantic search (auto-generated if omitted). Not supported in batch mode.',
+          description: 'Auto-generated if omitted. Not in batch mode.',
         },
         metadata: {
           type: 'object',
-          description:
-            'Single-memory mode. Optional structured metadata (e.g., { files_modified: ["auth.ts"], error_type: "timeout" })',
+          description: 'Structured details, e.g. { files_modified: ["auth.ts"] }',
         },
         timestamp: {
           type: 'string',
-          description: 'Single-memory mode. Optional ISO timestamp (defaults to now)',
+          description: 'ISO 8601; defaults to now.',
         },
         type: {
           type: 'string',
           enum: [...MEMORY_TYPES],
-          description: 'Single-memory mode. Memory type for classification',
         },
         confidence: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description:
-            'Single-memory mode. Classification confidence (0-1, default 0.9 when type provided)',
+          description: 'Type confidence; defaults to 0.9 when `type` is set.',
         },
         t_valid: {
           type: 'string',
-          description:
-            'Single-memory mode only. ISO 8601 timestamp when the memory becomes valid. Not supported in batch mode.',
+          description: 'ISO 8601 start of validity. Not in batch mode.',
         },
         t_invalid: {
           type: 'string',
-          description:
-            'Single-memory mode only. ISO 8601 timestamp when the memory expires. Not supported in batch mode.',
+          description: 'ISO 8601 expiry. Not in batch mode.',
         },
-        updated_at: {
-          type: 'string',
-          description: 'Single-memory mode. ISO 8601 last-updated timestamp',
-        },
-        last_accessed: {
-          type: 'string',
-          description: 'Single-memory mode. ISO 8601 last-accessed timestamp',
-        },
+        updated_at: { type: 'string', description: 'ISO 8601' },
+        last_accessed: { type: 'string', description: 'ISO 8601' },
         supersedes_memory_id: {
           type: 'string',
-          description:
-            'Single-memory supersede mode. Existing memory ID that this new memory replaces or corrects.',
+          description: 'Supersede mode: ID of the memory this one replaces or corrects.',
         },
         supersede_relation: {
           type: 'string',
           enum: ['INVALIDATED_BY', 'EVOLVED_INTO'],
           default: 'INVALIDATED_BY',
-          description:
-            'Single-memory supersede mode. Relationship to create from old memory to new memory.',
+          description: 'Supersede mode: relation from old to new.',
         },
         supersede_reason: {
           type: 'string',
-          description:
-            "Single-memory supersede mode. Optional reason stored on the old memory's metadata.",
+          description: "Supersede mode: reason stored on the old memory's metadata.",
         },
       },
     },
@@ -228,41 +210,38 @@ export const tools: Tool[] = [
       properties: {
         memory_id: {
           type: 'string',
-          description: 'Single-mode result: unique ID of the stored memory (use for associations)',
+          description: 'Single mode: ID of the stored memory.',
         },
         memory_ids: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Batch-mode result: IDs of the stored memories.',
+          description: 'Batch mode.',
         },
         superseded_memory_id: {
           type: 'string',
-          description: 'Supersede-mode result: ID of the old memory marked invalid.',
+          description: 'Supersede mode: the old memory, now invalid.',
         },
         association_created: {
           type: 'boolean',
-          description: 'Supersede-mode result: whether old → new association was created.',
+          description: 'Supersede mode.',
         },
         stored: {
           type: 'integer',
-          description: 'Batch-mode result: number of memories stored.',
+          description: 'Batch mode.',
         },
         qdrant: {
           type: 'string',
-          description: 'Batch-mode result: Qdrant indexing summary from the server.',
+          description: 'Batch mode.',
         },
         enrichment: {
           type: 'string',
-          description: 'Batch-mode result: enrichment status from the server.',
+          description: 'Batch mode.',
         },
         query_time_ms: {
           type: 'number',
-          description: 'Batch-mode result: server-reported execution time in milliseconds.',
+          description: 'Batch mode.',
         },
-        message: {
-          type: 'string',
-          description: 'Confirmation message',
-        },
+        message: { type: 'string' },
       },
       required: ['message'],
     },
@@ -305,307 +284,253 @@ export const tools: Tool[] = [
       properties: {
         memory_id: {
           type: 'string',
-          description:
-            'MODE: ID fetch. When set, fetches the single memory by ID and IGNORES all other params. Routes to GET /memory/{id}; updates last_accessed.',
+          description: 'ID fetch mode: returns this one memory and ignores every other param.',
         },
         exhaustive: {
           type: 'boolean',
           description:
-            'MODE: tag enumeration. When true, requires non-empty `tags`. Routes to GET /memory/by-tag for paginated exact-match listing — NOT ranked retrieval. Use for cleanup/audit workflows where ranked recall undercounts. `limit` is clamped to 200. `tag_match: "prefix"` and `tag_mode: "all"` are rejected in this mode.',
+            'Tag enumeration mode: requires `tags`; exact any-of match, `limit` ≤200, pages with `offset`. Rejects `tag_match: "prefix"` and `tag_mode: "all"`.',
         },
         exclude_tags: {
           type: 'array',
           items: { type: 'string' },
-          description:
-            'Ranked-mode only. Tags to exclude from results (any match excludes). Independent of `tag_match` — supports both exact and prefix matching internally on the server.',
+          description: 'Ranked-mode only. Any match excludes.',
         },
         query: {
           type: 'string',
-          description:
-            "Semantic search query (natural language). Describe what you're looking for.",
+          description: 'Natural-language search query.',
         },
         queries: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Multiple queries for broader recall. Results are deduplicated server-side.',
+          description: 'Several queries; results are deduplicated.',
         },
         embedding: {
           type: 'array',
           items: { type: 'number' },
-          description: 'Optional embedding vector for direct similarity search',
+          description: 'Vector for direct similarity search.',
         },
         limit: {
           type: 'integer',
           minimum: 1,
           maximum: 200,
           description:
-            'Max memories to return. Schema allows 1–200; in enumeration mode (`exhaustive: true`) the server honors up to 200, while ranked mode is typically clamped server-side to ~50. When omitted, the server defaults to 5 in ranked mode and 20 in enumeration mode.',
+            'Defaults to 5 in ranked mode and 20 in enumeration mode. Ranked is clamped to ~50 server-side.',
         },
         time_query: {
           type: 'string',
-          description:
-            'Natural language time filter: "today", "yesterday", "last week", "last 30 days"',
+          description: 'e.g. "today", "last week", "last 30 days"',
         },
         start: {
           type: 'string',
-          description: 'ISO timestamp lower bound (alternative to time_query)',
+          description: 'ISO lower bound (alternative to time_query)',
         },
         end: {
           type: 'string',
-          description: 'ISO timestamp upper bound',
+          description: 'ISO upper bound',
         },
         tags: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Filter by tags. Use project name as first tag for scoping.',
+          description: 'Filter by tags, e.g. the project slug.',
         },
         tag_mode: {
           type: 'string',
           enum: ['any', 'all'],
-          description: '"any" matches memories with any tag (default), "all" requires all tags',
+          description: 'Default "any".',
         },
         tag_match: {
           type: 'string',
           enum: ['exact', 'prefix'],
           description:
-            '"prefix" (ranked default) also matches child tags split at ":" or "/", so `tags: ["auth"]` matches `auth:login`; it does not match across hyphens (`automem` does not match `automem-evals`). "exact" matches whole tags only. Enumeration mode is always exact.',
+            '"prefix" (ranked default) also matches child tags split at ":" or "/" (`auth` matches `auth:login`); it does not match across hyphens. "exact" matches whole tags. Enumeration mode is always exact.',
         },
         expand_entities: {
           type: 'boolean',
-          description:
-            'Enable multi-hop reasoning via entity expansion. Finds memories about people/places mentioned in seed results. Use for "What is X\'s sister\'s job?" type questions.',
+          description: 'Multi-hop: also recall memories about entities in the seed results.',
         },
         expand_relations: {
           type: 'boolean',
-          description: 'Follow graph relationships from seed results to find related memories.',
+          description: 'Follow graph relations from seed results.',
         },
         expand_respect_tags: {
           type: 'boolean',
-          description:
-            'Ranked-mode only. When true, graph/entity expansion stays within the original tag scope; when false, expansion may include related context outside the tags.',
+          description: 'Ranked-mode only. Keep graph/entity expansion inside the tag scope.',
         },
         auto_decompose: {
           type: 'boolean',
-          description:
-            'Auto-extract entities and topics from query to generate supplementary searches.',
+          description: 'Add searches for entities and topics extracted from the query.',
         },
         expansion_limit: {
           type: 'integer',
           minimum: 1,
           maximum: 500,
           default: 25,
-          description: 'Max total expanded memories (default: 25)',
+          description: 'Max expanded memories in total.',
         },
         relation_limit: {
           type: 'integer',
           minimum: 1,
           maximum: 200,
           default: 5,
-          description: 'Max relations to follow per seed memory (default: 5)',
+          description: 'Max relations followed per seed.',
         },
         expand_min_importance: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description:
-            'Minimum importance score for expanded results. Filters out low-relevance memories during graph/entity expansion. Recommended: 0.3-0.5 for broad context, 0.6-0.8 for focused results. Seed results are never filtered, only expanded ones.',
+          description: 'Drop expanded results below this importance; seeds are never filtered.',
         },
         expand_min_strength: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description:
-            'Minimum relation strength to follow during graph expansion. Only traverses edges above this threshold. Recommended: 0.3 for exploratory, 0.6+ for high-confidence connections only. Does not affect entity expansion.',
+          description: 'Follow only relations at least this strong. Not used by entity expansion.',
         },
         current_only: {
           type: 'boolean',
           default: true,
           description:
-            'Ranked-mode only. When true, server suppresses archived, not-yet-valid, expired, invalidated, or superseded memories from active context.',
+            'Ranked-mode only. Hide archived, not-yet-valid, expired, invalidated or superseded memories.',
         },
         state_debug: {
           type: 'boolean',
           default: false,
-          description:
-            'Ranked-mode only. Include state-filter suppression/replacement IDs and reasons when current_only is true.',
+          description: 'Ranked-mode only. Add suppression IDs and reasons to `state_filter`.',
         },
         state_mode: {
           type: 'string',
           enum: ['current', 'history'],
           description:
-            'Ranked-mode only. `current` returns active memories; `history` allows superseded/invalidated memories for audit timelines. Prefer this over current_only for new clients.',
+            'Ranked-mode only. "history" includes superseded/invalidated memories. Prefer over current_only.',
         },
         recency_bias: {
           type: 'string',
           enum: ['auto', 'on', 'off'],
-          description:
-            'Ranked-mode only. Controls service recency boosting: auto lets the service infer, on forces boosting, off disables it.',
+          description: 'Ranked-mode only. "auto" lets the service decide.',
         },
         scope_fallback: {
           type: 'boolean',
           description:
-            'Ranked-mode only. Allow fallback outside the requested tag scope when scoped recall has weak evidence; diagnostics report tag_scope and outside_tag_scope.',
+            'Ranked-mode only. Fill from outside the tag scope when scoped evidence is weak.',
         },
         min_score: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description:
-            'Ranked-mode only. Minimum final score threshold before results are returned.',
+          description: 'Ranked-mode only. Minimum final score.',
         },
         adaptive_floor: {
           type: 'boolean',
-          description:
-            "Ranked-mode only. Enable the service's adaptive score floor when filtering weak matches.",
+          description: "Ranked-mode only. Apply the service's adaptive score floor.",
         },
         context: {
           type: 'string',
-          description:
-            'Context label (e.g., "coding-style", "architecture"). Boosts matching preferences.',
+          description: 'Context label; boosts matching preferences.',
         },
         language: {
           type: 'string',
-          description:
-            'Programming language hint (e.g., "python", "typescript"). Prioritizes language-specific memories.',
+          description: 'Programming language; boosts language-specific memories.',
         },
         active_path: {
           type: 'string',
-          description: 'Current file path for language auto-detection (e.g., "src/auth.ts")',
+          description: 'Current file path, for language detection.',
         },
         context_tags: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Priority tags to boost in results (e.g., ["coding-style", "preferences"])',
+          description: 'Tags to boost.',
         },
         context_types: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Priority memory types to boost (e.g., ["Style", "Preference"])',
+          description: 'Memory types to boost.',
         },
         priority_ids: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Specific memory IDs to ensure are included in results',
+          description: 'Memory IDs to always include.',
         },
         per_query_limit: {
           type: 'integer',
           minimum: 1,
           maximum: 50,
-          description: 'Per-query result limit when using queries[] (default: 5)',
+          description: 'Per-query limit with `queries` (default 5).',
         },
         sort: {
           type: 'string',
           enum: ['score', 'time_desc', 'time_asc', 'updated_desc', 'updated_asc'],
-          description: 'Result ordering (use time_* for chronological recaps)',
+          description: 'time_* for chronological recaps',
         },
         format: {
           type: 'string',
           enum: ['text', 'items', 'detailed', 'json'],
           default: 'text',
           description:
-            'Output format: text (default), items (one block per memory, in `results` order, then one bracketed trailing block when there are notes or budget cuts), detailed (adds type/confidence/metadata keys/relation stubs), json (raw per-memory fields incl. full content/metadata/relations; whole-response token budget still applies). text/items/detailed show a content preview (default 400 chars) and keep any stored summary as an additive field — fetch a full record via memory_id.',
+            'text, items (one block per memory) and detailed (adds type, confidence, metadata keys, relation stubs) show a 400-char content preview; fetch the full record by memory_id. json returns full fields. Every format stays within the response token budget.',
         },
         offset: {
           type: 'integer',
           minimum: 0,
           description:
-            'Enumeration mode only (`exhaustive: true`): records to skip, for paging. Ranked recall has no offset and rejects one; raise `limit` instead.',
+            'Enumeration mode only (`exhaustive: true`). Ranked recall rejects it; raise `limit` instead.',
         },
       },
     },
     outputSchema: {
       type: 'object',
       properties: {
-        count: {
-          type: 'integer',
-          description: 'Number of memories returned',
-        },
-        mode: {
-          type: 'string',
-          enum: ['ranked', 'enumeration', 'id_fetch'],
-          description: 'Mode that produced the result.',
-        },
+        count: { type: 'integer' },
+        mode: { type: 'string', enum: ['ranked', 'enumeration', 'id_fetch'] },
         has_more: {
           type: 'boolean',
-          description:
-            'Enumeration mode only: true if more records exist past this page. Continue at `next_offset`.',
+          description: 'Enumeration: more records exist; continue at `next_offset`.',
         },
         limit: {
           type: 'integer',
           description:
-            'Enumeration mode only: page size of this response. When the response budget trims a page, `count` and `limit` shrink to the results returned, so `offset + limit` still starts the next page.',
+            'Enumeration: page size. A budget-trimmed page shrinks `count` and `limit` to what was returned, so `offset + limit` still starts the next page.',
         },
-        offset: {
-          type: 'integer',
-          description: 'Enumeration mode only: offset used for this response.',
-        },
+        offset: { type: 'integer', description: 'Enumeration.' },
         next_offset: {
           type: 'integer',
-          description:
-            'Enumeration mode only, when `has_more` is true: the `offset` for the next page (this offset plus the results returned).',
+          description: 'Enumeration, while `has_more`: the next page offset.',
         },
         results: {
           type: 'array',
-          description: 'Array of matching memories with scores',
           items: {
             type: 'object',
             properties: {
               memory_id: { type: 'string' },
-              summary: {
-                type: 'string',
-                description:
-                  'Stored 1-2 sentence summary when the server provides one. Additive in budgeted formats; does not replace content.',
-              },
-              content: {
-                type: 'string',
-                description: 'Memory content (preview-capped in budgeted formats).',
-              },
+              summary: { type: 'string', description: 'Stored summary; additive to content.' },
+              content: { type: 'string', description: 'A preview outside json and ID fetch.' },
               content_truncated: {
                 type: 'boolean',
-                description:
-                  'True when content is a preview; fetch the full record via recall_memory({ memory_id }).',
+                description: 'Content is a preview; fetch the full record by memory_id.',
               },
-              content_chars: {
-                type: 'integer',
-                description: 'Original content length when content was previewed.',
-              },
+              content_chars: { type: 'integer', description: 'Full length when previewed.' },
               tags: { type: 'array', items: { type: 'string' } },
               importance: { type: 'number' },
               final_score: { type: 'number' },
               match_type: { type: 'string' },
               created_at: { type: 'string' },
               updated_at: { type: 'string' },
-              t_valid: {
-                type: 'string',
-                description: 'json and ID fetch only: when the memory became valid.',
-              },
+              t_valid: { type: 'string', description: 'json and ID fetch only.' },
               t_invalid: {
                 type: 'string',
-                description:
-                  'json and ID fetch only: when the memory stopped being valid (set when superseded). Absent while current.',
+                description: 'json and ID fetch only; set when superseded.',
               },
-              archived: {
-                type: 'boolean',
-                description: 'json and ID fetch only: true when the memory is archived.',
-              },
+              archived: { type: 'boolean', description: 'json and ID fetch only.' },
               deduped_from: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Result IDs merged into this result during multi-query deduplication.',
+                description: 'IDs merged into this result by multi-query dedup.',
               },
-              outside_tag_scope: {
-                type: 'boolean',
-                description:
-                  'True when scope_fallback admitted this result outside the requested tag scope.',
-              },
-              jit_enriched: {
-                type: 'boolean',
-                description: 'True when the service enriched the memory during recall.',
-              },
+              outside_tag_scope: { type: 'boolean', description: 'Admitted by scope_fallback.' },
+              jit_enriched: { type: 'boolean' },
               state_replaces: {
                 type: 'string',
-                description:
-                  'ID of the suppressed memory this result replaced during current-state filtering.',
+                description: 'ID of the suppressed memory this result replaced.',
               },
             },
           },
@@ -613,75 +538,26 @@ export const tools: Tool[] = [
         truncation: {
           type: 'object',
           description:
-            'Present when the response budget cut anything: { applied, omitted_results, reason }, plus `omitted_fields` (diagnostics dropped because they did not fit even without results) and `compacted_results` (a json result shown in compact form because it did not fit whole).',
+            'Present when the response budget cut anything: applied, omitted_results, reason, omitted_fields (diagnostics dropped), compacted_results (json results shown compact).',
         },
-        dedup_removed: {
-          type: 'integer',
-          description: 'Number of duplicate results removed (when using multiple queries)',
-        },
-        query: {
-          type: 'string',
-          description: 'Query text executed by ranked recall.',
-        },
-        sort: {
-          type: 'string',
-          description: 'Sort mode applied by the service.',
-        },
-        exclude_tags: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Tags excluded from ranked recall.',
-        },
+        dedup_removed: { type: 'integer' },
+        query: { type: 'string' },
+        sort: { type: 'string' },
+        exclude_tags: { type: 'array', items: { type: 'string' } },
         state_filter: {
           type: 'object',
-          description:
-            'Current-state filtering diagnostics. Includes aggregate counts by default and detailed IDs/reasons only when state_debug=true.',
+          description: 'Counts; IDs and reasons only with state_debug.',
         },
-        state_mode: {
-          type: 'string',
-          enum: ['current', 'history'],
-          description: 'State mode applied by ranked recall.',
-        },
-        tag_scope: {
-          type: 'object',
-          description: 'Tag-scope diagnostics including whether scoped evidence was strong enough.',
-        },
-        scope_fallback: {
-          type: 'boolean',
-          description: 'True when recall allowed outside-scope fallback results.',
-        },
-        recency_bias: {
-          type: 'string',
-          enum: ['auto', 'on', 'off'],
-          description: 'Recency bias mode applied by the service.',
-        },
-        score_filter: {
-          type: 'object',
-          description:
-            'Score filtering diagnostics such as min_score, adaptive_floor, and filtered_count.',
-        },
-        queries: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Query variants executed by the service.',
-        },
-        vector_search: {
-          type: 'object',
-          description: 'Vector-search diagnostics from the service.',
-        },
-        jit_enriched_count: {
-          type: 'integer',
-          description: 'Number of memories enriched inline during recall.',
-        },
-        query_time_ms: {
-          type: 'number',
-          description: 'Service recall latency in milliseconds.',
-        },
-        entities: {
-          type: 'array',
-          items: { type: 'object' },
-          description: 'Entity identity diagnostics injected by the service.',
-        },
+        state_mode: { type: 'string', enum: ['current', 'history'] },
+        tag_scope: { type: 'object' },
+        scope_fallback: { type: 'boolean' },
+        recency_bias: { type: 'string', enum: ['auto', 'on', 'off'] },
+        score_filter: { type: 'object' },
+        queries: { type: 'array', items: { type: 'string' } },
+        vector_search: { type: 'object' },
+        jit_enriched_count: { type: 'integer' },
+        query_time_ms: { type: 'number' },
+        entities: { type: 'array', items: { type: 'object' } },
       },
       required: ['count', 'results'],
     },
@@ -722,23 +598,21 @@ ${Object.entries(RELATION_TYPE_METADATA)
       properties: {
         memory1_id: {
           type: 'string',
-          description: 'ID of the source memory (from store_memory response or recall results)',
+          description: 'Source memory ID',
         },
         memory2_id: {
           type: 'string',
-          description: 'ID of the target memory to link to',
+          description: 'Target memory ID',
         },
         type: {
           type: 'string',
           enum: [...AUTHORABLE_RELATION_TYPES],
-          description: 'Relationship type between the two memories',
         },
         strength: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description:
-            'Relationship strength: 0.9+ direct causation, 0.7-0.9 strong relation, 0.5-0.7 moderate',
+          description: '0.9+ direct causation, 0.7-0.9 strong, 0.5-0.7 moderate',
         },
         ...ASSOCIATION_PROPERTY_SCHEMAS,
         associations: {
@@ -746,29 +620,14 @@ ${Object.entries(RELATION_TYPE_METADATA)
           minItems: 1,
           maxItems: 500,
           description:
-            'Batch mode. Up to 500 associations. Do not combine with top-level memory1_id/memory2_id/type/strength.',
+            'Batch mode. Do not combine with top-level memory1_id/memory2_id/type/strength.',
           items: {
             type: 'object',
             properties: {
-              memory1_id: {
-                type: 'string',
-                description: 'ID of the source memory',
-              },
-              memory2_id: {
-                type: 'string',
-                description: 'ID of the target memory',
-              },
-              type: {
-                type: 'string',
-                enum: [...AUTHORABLE_RELATION_TYPES],
-                description: 'Relationship type between the two memories',
-              },
-              strength: {
-                type: 'number',
-                minimum: 0,
-                maximum: 1,
-                description: 'Relationship strength from 0 to 1',
-              },
+              memory1_id: { type: 'string' },
+              memory2_id: { type: 'string' },
+              type: { type: 'string', enum: [...AUTHORABLE_RELATION_TYPES] },
+              strength: { type: 'number', minimum: 0, maximum: 1 },
               ...ASSOCIATION_PROPERTY_SCHEMAS,
             },
             required: ['memory1_id', 'memory2_id', 'type', 'strength'],
@@ -781,34 +640,30 @@ ${Object.entries(RELATION_TYPE_METADATA)
       properties: {
         success: {
           type: 'boolean',
-          description:
-            'Whether every requested association was created. False for partial batch responses.',
+          description: 'False when any batch item failed.',
         },
-        message: {
-          type: 'string',
-          description: 'Confirmation message',
-        },
+        message: { type: 'string' },
         created_count: {
           type: 'integer',
-          description: 'Batch mode: number of associations created.',
+          description: 'Batch mode.',
         },
         failed_count: {
           type: 'integer',
-          description: 'Batch mode: number of associations that failed.',
+          description: 'Batch mode.',
         },
         succeeded: {
           type: 'array',
-          description: 'Batch mode: successful association records.',
+          description: 'Batch mode.',
           items: { type: 'object' },
         },
         failed: {
           type: 'array',
-          description: 'Batch mode: failed association records with errors.',
+          description: 'Batch mode.',
           items: { type: 'object' },
         },
         summary: {
           type: 'string',
-          description: 'Batch mode: service summary.',
+          description: 'Batch mode.',
         },
       },
       required: ['success', 'message'],
@@ -841,22 +696,21 @@ ${Object.entries(RELATION_TYPE_METADATA)
       properties: {
         memory_id: {
           type: 'string',
-          description: 'ID of the memory to update (from store_memory or recall results)',
+          description: 'ID of the memory to update',
         },
         content: {
           type: 'string',
-          description: 'New content (replaces existing)',
+          description: 'Replaces existing',
         },
         tags: {
           type: 'array',
           items: { type: 'string' },
-          description: 'New tags (replaces existing)',
+          description: 'Replaces existing',
         },
         importance: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description: 'New importance score',
         },
         metadata: {
           type: 'object',
@@ -865,34 +719,26 @@ ${Object.entries(RELATION_TYPE_METADATA)
         },
         timestamp: {
           type: 'string',
-          description: 'Override creation timestamp',
+          description: 'Overrides creation time',
         },
         t_valid: {
           type: 'string',
-          description: 'ISO 8601 timestamp when the memory becomes valid',
+          description: 'ISO 8601 start of validity',
         },
         t_invalid: {
           type: 'string',
-          description: 'ISO 8601 timestamp when the memory expires or was superseded',
+          description: 'ISO 8601 expiry or supersede time',
         },
-        updated_at: {
-          type: 'string',
-          description: 'Explicit update timestamp',
-        },
-        last_accessed: {
-          type: 'string',
-          description: 'Last access timestamp',
-        },
+        updated_at: { type: 'string', description: 'ISO 8601' },
+        last_accessed: { type: 'string', description: 'ISO 8601' },
         type: {
           type: 'string',
           enum: [...MEMORY_TYPES],
-          description: 'Memory type classification',
         },
         confidence: {
           type: 'number',
           minimum: 0,
           maximum: 1,
-          description: 'Confidence score for the memory',
         },
       },
       required: ['memory_id'],
@@ -900,14 +746,8 @@ ${Object.entries(RELATION_TYPE_METADATA)
     outputSchema: {
       type: 'object',
       properties: {
-        memory_id: {
-          type: 'string',
-          description: 'ID of the updated memory',
-        },
-        message: {
-          type: 'string',
-          description: 'Confirmation message',
-        },
+        memory_id: { type: 'string' },
+        message: { type: 'string' },
       },
       required: ['memory_id', 'message'],
     },
@@ -942,14 +782,13 @@ ${Object.entries(RELATION_TYPE_METADATA)
       properties: {
         memory_id: {
           type: 'string',
-          description:
-            'Single-delete mode (XOR with `tags`). ID of the memory to delete (from store_memory or recall results).',
+          description: 'Single mode (XOR with `tags`).',
         },
         tags: {
           type: 'array',
           items: { type: 'string' },
           description:
-            'Bulk-delete mode (XOR with `memory_id`). Bulk-deletes ALL memories tagged with ANY of these tags. Exact match, case-insensitive. No dry-run.',
+            'Bulk mode (XOR with `memory_id`): deletes ALL memories with ANY of these tags. Exact, case-insensitive. No dry-run.',
         },
       },
     },
@@ -958,21 +797,18 @@ ${Object.entries(RELATION_TYPE_METADATA)
       properties: {
         memory_id: {
           type: 'string',
-          description: 'Single-delete result: ID of the deleted memory.',
+          description: 'Single mode.',
         },
         deleted_count: {
           type: 'integer',
-          description: 'Bulk-delete result: number of memories deleted.',
+          description: 'Bulk mode.',
         },
         tags: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Bulk-delete result: tags that were used for the bulk delete.',
+          description: 'Bulk mode.',
         },
-        message: {
-          type: 'string',
-          description: 'Confirmation message',
-        },
+        message: { type: 'string' },
       },
       required: ['message'],
     },
@@ -1006,21 +842,17 @@ ${Object.entries(RELATION_TYPE_METADATA)
         status: {
           type: 'string',
           enum: ['healthy', 'degraded', 'error'],
-          description:
-            'Overall health status. degraded means the service is reachable but a backend or sync check needs attention.',
+          description: 'degraded: reachable, but a backend or sync check needs attention.',
         },
-        backend: {
-          type: 'string',
-          description: 'Backend type (automem)',
-        },
+        backend: { type: 'string' },
         statistics: {
           type: 'object',
           description:
-            'Database statistics and diagnostics, including memory/vector counts, sync_status, vector_dimensions, and enrichment state when provided.',
+            'Memory/vector counts, sync_status, vector_dimensions and enrichment state, when provided.',
         },
         error: {
           type: 'string',
-          description: 'Error message if status is error',
+          description: 'Set when status is error',
         },
       },
       required: ['status', 'backend'],

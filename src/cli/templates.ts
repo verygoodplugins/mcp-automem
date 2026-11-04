@@ -2,6 +2,21 @@ import os from 'os';
 
 export const DEFAULT_AUTOMEM_API_URL = 'http://127.0.0.1:8001';
 
+/**
+ * The npx spec every launch command we write or print uses. It has to name a dist-tag:
+ * npm treats any spec the current folder's package already satisfies (unpinned, a
+ * range, or the exact version) as the local project and runs its bin from PATH. Inside
+ * a clone of this repo that fails with `sh: mcp-automem: not found`, or silently runs
+ * a global install instead. A dist-tag is never satisfied locally. Pinning the release
+ * version is not an alternative: it collides on every release-tagged clone.
+ */
+export const AUTOMEM_NPX_PACKAGE = '@verygoodplugins/mcp-automem@latest';
+
+/** Fresh `npx` args for an AutoMem server entry; a new array so callers never share one. */
+export function automemNpxArgs(): string[] {
+  return ['-y', AUTOMEM_NPX_PACKAGE];
+}
+
 export function buildClaudeDesktopSnippet(
   endpointVar = '${AUTOMEM_API_URL}',
   apiKeyVar = '${AUTOMEM_API_KEY}'
@@ -10,7 +25,7 @@ export function buildClaudeDesktopSnippet(
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "${AUTOMEM_NPX_PACKAGE}"],
       "env": {
         "AUTOMEM_API_URL": "${endpointVar}",
         "AUTOMEM_API_KEY": "${apiKeyVar}"
@@ -25,7 +40,7 @@ export function buildClaudeCodeExport(
   apiKey = 'your-auto-mem-api-key'
 ) {
   return [
-    'claude mcp add memory "npx -y @verygoodplugins/mcp-automem"',
+    `claude mcp add memory "npx -y ${AUTOMEM_NPX_PACKAGE}"`,
     `export AUTOMEM_API_URL="${endpoint}"`,
     `export AUTOMEM_API_KEY="${apiKey}"`,
   ].join(os.EOL);
@@ -38,7 +53,7 @@ export function buildHermesSnippet(endpoint = '${AUTOMEM_API_URL}', apiKey = '${
     command: npx
     args:
       - -y
-      - "@verygoodplugins/mcp-automem"
+      - "${AUTOMEM_NPX_PACKAGE}"
     env:
       AUTOMEM_API_URL: "${endpoint}"
       AUTOMEM_API_KEY: "${apiKey}"
@@ -60,7 +75,7 @@ export function buildMcpConfigJson(endpoint: string, apiKey: string) {
     mcpServers: {
       memory: {
         command: 'npx',
-        args: ['@verygoodplugins/mcp-automem'],
+        args: automemNpxArgs(),
         env: {
           AUTOMEM_API_URL: endpoint,
           AUTOMEM_API_KEY: apiKey,

@@ -54,7 +54,7 @@ describe('hermes-config', () => {
       const entry = buildAutoMemServerEntry('https://api.example.com', 'sk-test');
       expect(entry).toEqual({
         command: 'npx',
-        args: ['-y', '@verygoodplugins/mcp-automem'],
+        args: ['-y', '@verygoodplugins/mcp-automem@latest'],
         env: {
           AUTOMEM_API_URL: 'https://api.example.com',
           AUTOMEM_API_KEY: 'sk-test',
@@ -152,6 +152,42 @@ describe('hermes-config', () => {
 
       const second = await upsertMcpServer(paths, 'automem', entry, { quiet: true });
       expect(second.changed).toBe(false);
+    });
+
+    // An unpinned spec is one npm treats as the local project inside a clone of this
+    // repo, so npx fails with `mcp-automem: not found`. A re-run has to move an
+    // existing entry onto the dist-tag in place.
+    it('moves an existing unpinned entry to @latest in place', async () => {
+      const configPath = path.join(tmpDir, 'config.yaml');
+      fs.writeFileSync(
+        configPath,
+        [
+          'mcp_servers:',
+          '  automem:',
+          '    command: npx',
+          '    args:',
+          '      - -y',
+          '      - "@verygoodplugins/mcp-automem"',
+          '',
+        ].join('\n')
+      );
+
+      const result = await upsertMcpServer(
+        { home: tmpDir, configPath, agentsPath: path.join(tmpDir, 'AGENTS.md') },
+        'automem',
+        buildAutoMemServerEntry('http://127.0.0.1:8001'),
+        { quiet: true }
+      );
+
+      expect(result.changed).toBe(true);
+      const parsed = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
+        mcp_servers: Record<string, { args: string[] }>;
+      };
+      expect(Object.keys(parsed.mcp_servers)).toEqual(['automem']);
+      expect(parsed.mcp_servers.automem.args).toEqual([
+        '-y',
+        '@verygoodplugins/mcp-automem@latest',
+      ]);
     });
 
     it('reports dry-run without writing', async () => {

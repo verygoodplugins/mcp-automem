@@ -141,7 +141,7 @@ export function resolveInheritedApiKey(inputs: InheritedApiKeyInputs): string | 
  * ours and could be overwritten by setup or deleted by uninstall.
  *
  * Two things count as identity:
- *  - the package in `command`/`args` — `npx -y @verygoodplugins/mcp-automem`, what we
+ *  - the package in `command`/`args` — `npx -y @verygoodplugins/mcp-automem@latest`, what we
  *    write, and `node /path/to/mcp-automem/dist/index.js`, what a linked dev checkout
  *    looks like. Matched as a whole path segment, so `mcp-automem.internal` does not
  *    qualify. An npm version or dist-tag suffix is part of the spec npm documents

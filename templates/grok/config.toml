@@ -11,7 +11,7 @@
 
 [mcp_servers.memory]
 command = "npx"
-args = ["-y", "@verygoodplugins/mcp-automem"]
+args = ["-y", "@verygoodplugins/mcp-automem@latest"]
 enabled = true
 
 [mcp_servers.memory.env]
