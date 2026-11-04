@@ -393,7 +393,7 @@ Choose your existing AutoMem service, or follow the local/cloud setup prompts. T
 
 If the installer finds a file-mode install as well (an AutoMem entry in `~/.cursor/mcp.json` or the marked `.cursor/rules/automem.mdc` in this project), AutoMem would load twice. An interactive run offers to remove the file install. A `--yes` run never removes it; it prints a warning with `npx @verygoodplugins/mcp-automem uninstall cursor`, which removes both the file install and the plugin, so re-run the install afterwards. An AutoMem server in this project's own `.cursor/mcp.json` also loads twice; no installer writes that file and uninstall does not remove it, so the installer tells you to remove that entry by hand.
 
-**Project files (`--cursor-mode files`).** The installer passes the selected endpoint and API key into Cursor setup, the same as `mcp-automem cursor`, which:
+**Project files (`--cursor-mode files`).** If the AutoMem plugin is already installed, an interactive run offers to remove it so AutoMem loads once; a `--yes` run leaves it and warns. The installer passes the selected endpoint and API key into Cursor setup, the same as `mcp-automem cursor`, which:
 
 - Merges an AutoMem server into `~/.cursor/mcp.json`, preserving unrelated servers and settings.
 - Creates the always-on project rule `.cursor/rules/automem.mdc`.
@@ -1638,7 +1638,7 @@ npx @verygoodplugins/mcp-automem uninstall cursor --rules custom/rules/automem.m
 npx @verygoodplugins/mcp-automem uninstall cursor --dry-run
 ```
 
-Cursor uninstall also removes the local plugin at `~/.cursor/plugins/local/automem`, but only when it is a real directory whose `.cursor-plugin/plugin.json` is named `automem`; a symlinked or foreign plugin folder is left alone. It preserves unrelated rules, hooks, and MCP servers. Its global MCP registration is shared across projects: removing it also disconnects AutoMem in other Cursor projects until setup is run again. `--clean-all` additionally checks supported legacy locations such as Claude Desktop; unrelated registrations remain untouched.
+Cursor uninstall also removes the local plugin at `~/.cursor/plugins/local/automem`, but only when it is a real directory whose `.cursor-plugin/plugin.json` is named `automem`; a symlinked or foreign plugin folder is left alone. A malformed `hooks.json` or `mcp.json` stops the file-mode teardown but does not block removing the plugin. It preserves unrelated rules, hooks, and MCP servers. Its global MCP registration is shared across projects: removing it also disconnects AutoMem in other Cursor projects until setup is run again. `--clean-all` additionally checks supported legacy locations such as Claude Desktop; unrelated registrations remain untouched.
 
 ### Help
 

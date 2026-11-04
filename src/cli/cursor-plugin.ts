@@ -160,6 +160,37 @@ export function installCursorPlugin(
   return { pluginDir, version, replaced: Boolean(existing), dryRun: false };
 }
 
+/**
+ * Remove `~/.cursor/plugins/local/automem`, but only when it is a real directory whose
+ * manifest names `automem`. A symlink (a developer checkout) or a foreign plugin is left
+ * alone. Returns true when the plugin was (or, in dry-run mode, would be) removed.
+ */
+export function removeCursorLocalPlugin(
+  options: { homeDir?: string; dryRun?: boolean; quiet?: boolean } = {}
+): boolean {
+  const pluginDir = cursorLocalPluginDir(options.homeDir);
+  const stat = lstatOrUndefined(pluginDir);
+  if (!stat) return false;
+  if (stat.isSymbolicLink()) {
+    log(
+      `Leaving ${pluginDir} in place: it is a symlink the installer did not create.`,
+      options.quiet
+    );
+    return false;
+  }
+  if (readCursorPluginName(pluginDir) !== CURSOR_PLUGIN_NAME) {
+    log(`Leaving ${pluginDir} in place: it is not the AutoMem plugin.`, options.quiet);
+    return false;
+  }
+  if (options.dryRun) {
+    log(`[DRY RUN] Would remove directory: ${pluginDir}`, options.quiet);
+    return true;
+  }
+  fs.rmSync(pluginDir, { recursive: true, force: true });
+  log(`🗑️  Removed directory: ${pluginDir}`, options.quiet);
+  return true;
+}
+
 export interface CursorFileInstall {
   /** Files that register AutoMem through the file-mode installer. */
   paths: string[];

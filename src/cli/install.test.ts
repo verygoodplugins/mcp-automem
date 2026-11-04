@@ -989,6 +989,46 @@ describe('guided install helpers', () => {
       ]);
     });
 
+    it('in files mode, warns about an installed plugin without removing it', () => {
+      const plan = buildInstallPlan({
+        options: options({ cursorMode: 'files', yes: true, dryRun: false }),
+        environment: environment(),
+        cursorLocalPlugin: { path: pluginDir, remove: false },
+      });
+      const cursorActions = plan.actions.filter((action) => action.client === 'cursor');
+
+      expect(cursorActions[0].title).toBe('Install Cursor integration');
+      const warning = cursorActions.find((action) => action.kind === 'manual-step');
+      expect(warning?.title).toMatch(/twice/i);
+      expect(warning?.detail).toContain('Customize');
+      expect(plan.actions.flatMap((action) => action.paths)).not.toContain(pluginDir);
+    });
+
+    it('in files mode, plans the plugin removal when the user agreed', () => {
+      const plan = buildInstallPlan({
+        options: options({ cursorMode: 'files', dryRun: false }),
+        environment: environment(),
+        cursorLocalPlugin: { path: pluginDir, remove: true },
+      });
+      const removal = plan.actions.find(
+        (action) => action.client === 'cursor' && /Remove the Cursor plugin/.test(action.title)
+      );
+
+      expect(removal?.kind).toBe('install-agent');
+      expect(removal?.paths).toEqual([pluginDir]);
+    });
+
+    it('ignores the plugin-presence signal in plugin mode (it is replaced in place)', () => {
+      const withSignal = buildInstallPlan({
+        options: options(),
+        environment: environment(),
+        cursorLocalPlugin: { path: pluginDir, remove: false },
+      });
+      expect(withSignal).toEqual(
+        buildInstallPlan({ options: options(), environment: environment() })
+      );
+    });
+
     it('leaves files mode unchanged even when a file install is detected', () => {
       const withDetection = buildInstallPlan({
         options: options({ cursorMode: 'files' }),

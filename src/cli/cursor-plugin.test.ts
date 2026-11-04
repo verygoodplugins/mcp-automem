@@ -10,6 +10,7 @@ import {
   detectCursorFileInstall,
   installCursorPlugin,
   readCursorPluginName,
+  removeCursorLocalPlugin,
 } from './cursor-plugin.js';
 
 describe('Cursor local plugin install', () => {
@@ -127,6 +128,25 @@ describe('Cursor local plugin install', () => {
     const result = installCursorPlugin({ homeDir: home, dryRun: true, quiet: true });
     expect(result.dryRun).toBe(true);
     expect(fs.existsSync(path.join(home, '.cursor'))).toBe(false);
+  });
+
+  it('removes only our own plugin directory, and nothing in dry-run mode', () => {
+    expect(removeCursorLocalPlugin({ homeDir: home, quiet: true })).toBe(false);
+    installCursorPlugin({ homeDir: home, quiet: true });
+    const dest = cursorLocalPluginDir(home);
+
+    expect(removeCursorLocalPlugin({ homeDir: home, dryRun: true, quiet: true })).toBe(true);
+    expect(fs.existsSync(dest)).toBe(true);
+    expect(removeCursorLocalPlugin({ homeDir: home, quiet: true })).toBe(true);
+    expect(fs.existsSync(dest)).toBe(false);
+
+    fs.mkdirSync(path.join(dest, '.cursor-plugin'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dest, '.cursor-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'someone-else' })
+    );
+    expect(removeCursorLocalPlugin({ homeDir: home, quiet: true })).toBe(false);
+    expect(fs.existsSync(dest)).toBe(true);
   });
 
   it('reads no plugin name from a symlink, a missing manifest, or invalid JSON', () => {

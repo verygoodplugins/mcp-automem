@@ -4,12 +4,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRequire } from 'node:module';
 import { applyCursorSetup } from '../../src/cli/cursor.js';
+import { installCursorPlugin } from '../../src/cli/cursor-plugin.js';
 import { HOST_SMOKE_SPECS } from '../helpers/host-specs.js';
 import { fakeMemoryId, startFakeAutoMemApi, StdioMcpClient } from '../helpers/host-smoke.js';
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const runFile = promisify(execFile);
+// Cursor's own plugin loader (the parser Grok Bot bundles). The cursor-agent CLI does not
+// load ~/.cursor/plugins/local (verified on 2026.04.15: it reports no MCP servers for a
+// plugin-only install), so this is the host boundary available outside the IDE.
+const CURSOR_PLUGIN_LOADER =
+  '/Applications/Cursor.app/Contents/Resources/app/molten/dist/engine/plugins-loader.cjs';
 const hasCursorAgent =
   spawnSync('cursor-agent', ['--version'], {
     encoding: 'utf8',
@@ -231,6 +238,57 @@ describe('Cursor MCP host boundary', () => {
       await api.close();
     }
   }, 20_000);
+
+  it.runIf(fs.existsSync(CURSOR_PLUGIN_LOADER))(
+    'loads the installer-copied plugin through Cursor and exposes only the enabled tools',
+    async () => {
+      const api = await startFakeAutoMemApi();
+      let client: StdioMcpClient | undefined;
+      try {
+        installCursorPlugin({ homeDir: home, quiet: true });
+        // What Cursor → Customize → Automem → Configure supplies to the variables form.
+        vi.stubEnv('AUTOMEM_API_URL', api.url);
+        vi.stubEnv('AUTOMEM_API_KEY', 'cursor-plugin-key');
+        const { loadPlugins } = createRequire(import.meta.url)(CURSOR_PLUGIN_LOADER);
+        const loaded = await loadPlugins({ roots: [], home, backend: null, userLocal: true });
+        expect(loaded.failures).toEqual([]);
+        expect(loaded.plugins).toHaveLength(1);
+        const servers = loaded.plugins[0].mcpConfig.mcpServers;
+        expect(Object.keys(servers)).toEqual(['memory']);
+        const server = servers.memory;
+        expect(server.command).toBe('npx');
+        expect(server.args).toEqual(['-y', '@verygoodplugins/mcp-automem@latest']);
+        expect(server.env).toEqual({
+          AUTOMEM_API_URL: api.url,
+          AUTOMEM_API_KEY: 'cursor-plugin-key',
+        });
+        // Substitute only the published launcher with this checkout's entry point.
+        client = new StdioMcpClient(
+          process.execPath,
+          ['--import', import.meta.resolve('tsx'), path.join(REPO_ROOT, 'src/index.ts')],
+          { PATH: process.env.PATH, HOME: home, ...server.env, DOTENV_CONFIG_QUIET: 'true' },
+          project
+        );
+        await client.initialize();
+        const listed = (await client.request('tools/list')) as { tools: Array<{ name: string }> };
+        const enabled = new Set<string>(server.enabledTools);
+        // The provider payload is the server's tools filtered by the host's enabledTools.
+        const visible = listed.tools.map((tool) => tool.name).filter((name) => enabled.has(name));
+        expect([...visible].sort()).toEqual(PLUGIN_TOOL_NAMES);
+        expect(new Set(visible).size).toBe(visible.length);
+        expect(visible).not.toContain('delete_memory');
+        await client.request('tools/call', { name: 'check_database_health', arguments: {} });
+        expect(
+          api.requests.every((request) => request.authorization === 'Bearer cursor-plugin-key')
+        ).toBe(true);
+        expect(client.invalidStdoutLines).toEqual([]);
+      } finally {
+        await client?.close();
+        await api.close();
+      }
+    },
+    30_000
+  );
 
   it.runIf(hasCursorAgent)(
     'discovers all six tools through the installed cursor-agent CLI in an isolated home',

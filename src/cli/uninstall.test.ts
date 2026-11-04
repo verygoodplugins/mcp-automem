@@ -915,6 +915,26 @@ describe('Cursor uninstall round trip', () => {
     expect(fs.existsSync(pluginDir)).toBe(false);
   });
 
+  it.each([
+    ['hooks.json', (project: string) => path.join(project, '.cursor', 'hooks.json')],
+    ['mcp.json', (_project: string) => path.join(os.homedir(), '.cursor', 'mcp.json')],
+  ])(
+    'still removes the plugin when the file-mode %s is malformed, then reports the error',
+    async (_name, target) => {
+      installCursorPlugin({ homeDir: home, quiet: true });
+      const malformedPath = target(project);
+      fs.mkdirSync(path.dirname(malformedPath), { recursive: true });
+      fs.writeFileSync(malformedPath, '{invalid');
+
+      await expect(
+        runUninstall({ platform: 'cursor', projectDir: project, yes: true, quiet: true })
+      ).rejects.toThrow();
+
+      expect(fs.existsSync(cursorLocalPluginDir(home))).toBe(false);
+      expect(fs.readFileSync(malformedPath, 'utf8')).toBe('{invalid');
+    }
+  );
+
   it('keeps a local plugin directory that is not AutoMem', async () => {
     const pluginDir = cursorLocalPluginDir(home);
     fs.mkdirSync(path.join(pluginDir, '.cursor-plugin'), { recursive: true });

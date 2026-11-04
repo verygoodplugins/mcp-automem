@@ -27,7 +27,7 @@ import {
   removeCursorMemoryServers,
 } from './cursor-config.js';
 import { UNINSTALL_PLATFORMS, type UninstallPlatform } from './clients.js';
-import { CURSOR_PLUGIN_NAME, cursorLocalPluginDir, readCursorPluginName } from './cursor-plugin.js';
+import { removeCursorLocalPlugin } from './cursor-plugin.js';
 
 interface UninstallOptions {
   platform: UninstallPlatform;
@@ -246,37 +246,19 @@ export function removeCursorFileInstall(options: {
   );
 }
 
-/**
- * Remove ~/.cursor/plugins/local/automem, but only when it is a real directory whose
- * .cursor-plugin/plugin.json names `automem`. A symlink (a developer checkout) or a
- * foreign plugin in that folder is left alone.
- */
-function removeCursorLocalPlugin(options: UninstallOptions): void {
-  const pluginDir = cursorLocalPluginDir();
-  let stat: fs.Stats;
-  try {
-    stat = fs.lstatSync(pluginDir);
-  } catch {
-    return;
-  }
-  if (stat.isSymbolicLink()) {
-    log(
-      `Leaving ${pluginDir} in place: it is a symlink the installer did not create.`,
-      options.quiet
-    );
-    return;
-  }
-  if (readCursorPluginName(pluginDir) !== CURSOR_PLUGIN_NAME) {
-    log(`Leaving ${pluginDir} in place: it is not the AutoMem plugin.`, options.quiet);
-    return;
-  }
-  removeDirectory(pluginDir, options.dryRun ?? false, options.quiet);
-}
-
 async function uninstallCursor(options: UninstallOptions): Promise<void> {
   log('\n🗑️  Uninstalling Cursor AutoMem...', options.quiet);
-  removeCursorFileInstall(options);
-  removeCursorLocalPlugin(options);
+  // The plugin is owned independently of the file-mode documents: a malformed
+  // hooks.json or mcp.json must stop the file-mode teardown (which preflights them),
+  // not strand a plugin-only install that never wrote either file.
+  let fileModeError: unknown;
+  try {
+    removeCursorFileInstall(options);
+  } catch (error) {
+    fileModeError = error;
+  }
+  removeCursorLocalPlugin({ dryRun: options.dryRun, quiet: options.quiet });
+  if (fileModeError) throw fileModeError;
   log('Cursor AutoMem configuration removed.', options.quiet);
 }
 
