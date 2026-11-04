@@ -98,6 +98,49 @@ describe('tool errors', () => {
   });
 });
 
+describe('tools/list size budget', () => {
+  // Every byte of tools/list loads into the agent's context on every turn, on both
+  // transports (the remote sidecar serves this same array). Each ceiling sits just
+  // above the measured size, so growth is a deliberate edit here rather than drift.
+  // Sizes are UTF-8 bytes of the compact JSON a client receives.
+  const CEILINGS: Record<string, number> = {
+    store_memory: 5_250,
+    recall_memory: 10_100,
+    associate_memories: 5_250,
+    update_memory: 2_200,
+    delete_memory: 2_000,
+    check_database_health: 1_150,
+  };
+  const TOTAL_CEILING = 25_500;
+
+  it('keeps every tool and the whole list under its byte ceiling', async () => {
+    const server = createAutoMemMcpServer({
+      client: new AutoMemClient({ endpoint: 'http://127.0.0.1:8001' }),
+      name: 'size-budget',
+      version: 'test',
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'size-reader', version: 'test' });
+    await client.connect(clientTransport);
+    try {
+      const { tools: listed } = await client.listTools();
+      const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), 'utf8');
+      const sizes = Object.fromEntries(listed.map((tool) => [tool.name, bytes(tool)]));
+      const total = bytes(listed);
+      const report = `measured ${JSON.stringify({ ...sizes, total })}`;
+
+      expect(Object.keys(sizes).sort(), report).toEqual(Object.keys(CEILINGS).sort());
+      for (const [name, size] of Object.entries(sizes)) {
+        expect(size, `${name}: ${report}`).toBeLessThanOrEqual(CEILINGS[name]);
+      }
+      expect(total, `total: ${report}`).toBeLessThanOrEqual(TOTAL_CEILING);
+    } finally {
+      await client.close();
+    }
+  });
+});
+
 describe('published tool descriptions', () => {
   it('documents the tag and metadata contracts seen by MCP clients', async () => {
     const server = createAutoMemMcpServer({
