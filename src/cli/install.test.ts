@@ -967,6 +967,28 @@ describe('guided install helpers', () => {
       expect(plan.actions.some((action) => action.commands?.length)).toBe(false);
     });
 
+    it('tells the user to remove a project-level MCP registration by hand', () => {
+      const projectMcp = path.join(cwd, '.cursor', 'mcp.json');
+      const plan = buildInstallPlan({
+        options: options({ dryRun: false }),
+        environment: environment(),
+        cursorFileInstall: { paths: [], remove: false, projectRegistrations: [projectMcp] },
+      });
+      const step = plan.actions.find(
+        (action) => action.client === 'cursor' && /project/i.test(action.title)
+      );
+
+      expect(step?.kind).toBe('manual-step');
+      expect(step?.detail).toContain(projectMcp);
+      expect(step?.detail).toMatch(/by hand/);
+      // The uninstall command does not touch project MCP files, so it is not offered here.
+      expect(plan.actions.some((action) => action.commands?.length)).toBe(false);
+      expect(plan.actions.flatMap((action) => action.paths)).toEqual([
+        path.join(cwd, '.env'),
+        pluginDir,
+      ]);
+    });
+
     it('leaves files mode unchanged even when a file install is detected', () => {
       const withDetection = buildInstallPlan({
         options: options({ cursorMode: 'files' }),

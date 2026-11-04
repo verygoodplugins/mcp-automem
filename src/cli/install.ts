@@ -144,7 +144,13 @@ export type ClaudeCodeMode = 'plugin' | 'settings';
 export type CursorMode = 'plugin' | 'files';
 
 /** A file-mode Cursor install found next to a plugin-mode run, and whether to remove it. */
-export type CursorFileInstallPlan = { paths: string[]; remove: boolean };
+export type CursorFileInstallPlan = {
+  /** File-mode artifacts; removable with the user's consent. */
+  paths: string[];
+  remove: boolean;
+  /** Project .cursor/mcp.json files registering AutoMem; only ever removed by hand. */
+  projectRegistrations?: string[];
+};
 
 export const CURSOR_UNINSTALL_COMMAND = 'npx @verygoodplugins/mcp-automem uninstall cursor';
 const CURSOR_PLUGIN_CONFIGURE_STEP =
@@ -1109,7 +1115,9 @@ function detectCursorFileInstallPlan(
       'warn'
     );
   }
-  return found.paths.length > 0 ? { paths: found.paths, remove } : undefined;
+  return found.paths.length > 0 || found.projectRegistrations.length > 0
+    ? { paths: found.paths, remove, projectRegistrations: found.projectRegistrations }
+    : undefined;
 }
 
 function cursorPluginActions(
@@ -1150,6 +1158,16 @@ function cursorPluginActions(
         ],
       });
     }
+  }
+  const projectRegistrations = fileInstall?.projectRegistrations ?? [];
+  if (projectRegistrations.length > 0) {
+    actions.push({
+      kind: 'manual-step',
+      title: 'Project MCP registration found: AutoMem would load twice',
+      detail: `Remove the AutoMem server from ${projectRegistrations.join(', ')} by hand. The installer never writes project MCP files, and uninstall does not remove them.`,
+      client: 'cursor',
+      paths: [],
+    });
   }
   actions.push({
     kind: 'manual-step',
@@ -2322,7 +2340,13 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     // interactive, applying run may remove it, and only after asking; --yes and dry
     // runs list it in the plan with the uninstall command and never remove silently.
     const cursorFileInstall = detectCursorFileInstallPlan(resolved, environment, false);
-    if (cursorFileInstall && interactive && !resolved.yes && !resolved.dryRun) {
+    if (
+      cursorFileInstall &&
+      cursorFileInstall.paths.length > 0 &&
+      interactive &&
+      !resolved.yes &&
+      !resolved.dryRun
+    ) {
       cursorFileInstall.remove = await cancelable(
         promptConfirm({
           message:
@@ -2341,11 +2365,21 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       structuralBeatMs: 72,
     });
 
-    const cursorDoubleRegistration = Boolean(cursorFileInstall && !cursorFileInstall.remove);
+    const cursorDoubleRegistration = Boolean(
+      cursorFileInstall && cursorFileInstall.paths.length > 0 && !cursorFileInstall.remove
+    );
+    const cursorProjectRegistrations = cursorFileInstall?.projectRegistrations ?? [];
     if (cursorDoubleRegistration) {
       writeStatus(
         `WARNING: a file-based Cursor install of AutoMem is still registered, so Cursor will load AutoMem twice. ` +
           `It was not removed. Run  ${CURSOR_UNINSTALL_COMMAND}  then re-run this install.`,
+        'warn'
+      );
+    }
+    if (cursorProjectRegistrations.length > 0) {
+      writeStatus(
+        `WARNING: ${cursorProjectRegistrations.map((p) => tildify(p)).join(', ')} also registers AutoMem, so Cursor will load it twice. ` +
+          'Remove that server entry by hand; uninstall does not touch project MCP files.',
         'warn'
       );
     }
@@ -2684,6 +2718,11 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     }
     if (cursorPluginSelected(resolved) && installedClients.includes('cursor')) {
       nextSteps.push(`Cursor plugin: ${CURSOR_PLUGIN_CONFIGURE_STEP}`);
+    }
+    if (cursorProjectRegistrations.length > 0) {
+      nextSteps.push(
+        `Cursor: remove the AutoMem server from ${cursorProjectRegistrations.map((p) => tildify(p)).join(', ')} by hand (loads twice).`
+      );
     }
     if (cursorDoubleRegistration) {
       nextSteps.push(

@@ -120,6 +120,13 @@ export function installCursorPlugin(
   if (existing && !existing.isDirectory()) {
     throw new Error(`${pluginDir} exists and is not a directory. Remove it and re-run.`);
   }
+  // Only ever replace our own copy: a foreign plugin or user folder at this path
+  // would otherwise be renamed aside and deleted with no backup.
+  if (existing && readCursorPluginName(pluginDir) !== CURSOR_PLUGIN_NAME) {
+    throw new Error(
+      `${pluginDir} exists but is not the AutoMem plugin (no .cursor-plugin/plugin.json named "${CURSOR_PLUGIN_NAME}"). Move it aside and re-run.`
+    );
+  }
 
   if (options.dryRun) {
     log(`[DRY RUN] Would copy the AutoMem Cursor plugin to ${pluginDir}`, options.quiet);
@@ -156,15 +163,28 @@ export function installCursorPlugin(
 export interface CursorFileInstall {
   /** Files that register AutoMem through the file-mode installer. */
   paths: string[];
+  /**
+   * Project `.cursor/mcp.json` files with an AutoMem server. No installer writes these
+   * (file mode refuses them) and `uninstall cursor` does not remove them, so they are
+   * reported for removal by hand.
+   */
+  projectRegistrations: string[];
   /** Files that could not be parsed, so their state is unknown. */
   unreadable: string[];
+}
+
+function hasAutoMemServer(mcpPath: string): boolean {
+  const doc = readCursorDocument(mcpPath, 'mcpServers');
+  const servers = (doc.mcpServers ?? {}) as Record<string, unknown>;
+  return Object.values(servers).some((entry) => isAutoMemServerEntry(entry));
 }
 
 /**
  * Detect a file-mode Cursor install (`mcp-automem cursor` / `--cursor-mode files`):
  * an AutoMem server in `~/.cursor/mcp.json`, or the marked project rule at
  * `<projectDir>/.cursor/rules/automem.mdc`. Running it next to the plugin would
- * register AutoMem twice. Never throws: an unparseable mcp.json is reported as
+ * register AutoMem twice. A project `.cursor/mcp.json` AutoMem server is reported
+ * separately in `projectRegistrations`. Never throws: an unparseable mcp.json is reported as
  * unreadable, since plugin mode never needs to write it.
  */
 export function detectCursorFileInstall(params: {
@@ -172,15 +192,24 @@ export function detectCursorFileInstall(params: {
   projectDir: string;
 }): CursorFileInstall {
   const paths: string[] = [];
+  const projectRegistrations: string[] = [];
   const unreadable: string[] = [];
 
   const mcpPath = path.join(params.homeDir, '.cursor', 'mcp.json');
   try {
-    const doc = readCursorDocument(mcpPath, 'mcpServers');
-    const servers = (doc.mcpServers ?? {}) as Record<string, unknown>;
-    if (Object.values(servers).some((entry) => isAutoMemServerEntry(entry))) paths.push(mcpPath);
+    if (hasAutoMemServer(mcpPath)) paths.push(mcpPath);
   } catch {
     unreadable.push(mcpPath);
+  }
+
+  const projectMcpPath = path.join(params.projectDir, '.cursor', 'mcp.json');
+  // When the project is the home directory this is the global file, already checked.
+  if (path.resolve(projectMcpPath) !== path.resolve(mcpPath)) {
+    try {
+      if (hasAutoMemServer(projectMcpPath)) projectRegistrations.push(projectMcpPath);
+    } catch {
+      unreadable.push(projectMcpPath);
+    }
   }
 
   const rulePath = path.join(params.projectDir, '.cursor', 'rules', 'automem.mdc');
@@ -190,5 +219,5 @@ export function detectCursorFileInstall(params: {
     // Missing rule: nothing to report.
   }
 
-  return { paths, unreadable };
+  return { paths, projectRegistrations, unreadable };
 }

@@ -97,6 +97,32 @@ describe('Cursor local plugin install', () => {
     expect(fs.readFileSync(path.join(target, 'keep.txt'), 'utf8')).toBe('mine');
   });
 
+  it('refuses to replace a directory that is not the AutoMem plugin and keeps its files', () => {
+    const dest = cursorLocalPluginDir(home);
+    fs.mkdirSync(path.join(dest, '.cursor-plugin'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dest, '.cursor-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'someone-else' })
+    );
+    fs.writeFileSync(path.join(dest, 'keep.txt'), 'mine');
+
+    expect(() => installCursorPlugin({ homeDir: home, quiet: true })).toThrow(/not the AutoMem/);
+    expect(() => installCursorPlugin({ homeDir: home, dryRun: true, quiet: true })).toThrow(
+      /not the AutoMem/
+    );
+    expect(fs.readFileSync(path.join(dest, 'keep.txt'), 'utf8')).toBe('mine');
+    expect(readCursorPluginName(dest)).toBe('someone-else');
+  });
+
+  it('refuses to replace a directory with no plugin manifest', () => {
+    const dest = cursorLocalPluginDir(home);
+    fs.mkdirSync(dest, { recursive: true });
+    fs.writeFileSync(path.join(dest, 'notes.md'), 'mine');
+
+    expect(() => installCursorPlugin({ homeDir: home, quiet: true })).toThrow(/not the AutoMem/);
+    expect(fs.readFileSync(path.join(dest, 'notes.md'), 'utf8')).toBe('mine');
+  });
+
   it('writes nothing in dry-run mode, not even the plugins folder', () => {
     const result = installCursorPlugin({ homeDir: home, dryRun: true, quiet: true });
     expect(result.dryRun).toBe(true);
@@ -142,6 +168,7 @@ describe('Cursor double-registration detection', () => {
   it('finds nothing on a clean machine', () => {
     expect(detectCursorFileInstall({ homeDir: home, projectDir: project })).toEqual({
       paths: [],
+      projectRegistrations: [],
       unreadable: [],
     });
   });
@@ -168,6 +195,32 @@ describe('Cursor double-registration detection', () => {
     fs.writeFileSync(path.join(project, '.cursor', 'rules', 'automem.mdc'), '# my own rule\n');
 
     expect(detectCursorFileInstall({ homeDir: home, projectDir: project }).paths).toEqual([]);
+  });
+
+  it('reports a project-level AutoMem MCP registration separately from the file install', () => {
+    const projectMcp = path.join(project, '.cursor', 'mcp.json');
+    fs.mkdirSync(path.dirname(projectMcp), { recursive: true });
+    fs.writeFileSync(
+      projectMcp,
+      JSON.stringify({
+        mcpServers: { mine: { command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem'] } },
+      })
+    );
+
+    const found = detectCursorFileInstall({ homeDir: home, projectDir: project });
+
+    expect(found.paths).toEqual([]);
+    expect(found.projectRegistrations).toEqual([projectMcp]);
+  });
+
+  it('reports an unparseable project mcp.json as unreadable', () => {
+    const projectMcp = path.join(project, '.cursor', 'mcp.json');
+    fs.mkdirSync(path.dirname(projectMcp), { recursive: true });
+    fs.writeFileSync(projectMcp, '{broken');
+
+    expect(detectCursorFileInstall({ homeDir: home, projectDir: project }).unreadable).toEqual([
+      projectMcp,
+    ]);
   });
 
   it('reports an unparseable mcp.json as unreadable instead of throwing', () => {
