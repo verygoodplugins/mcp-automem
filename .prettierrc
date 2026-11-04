@@ -10,7 +10,8 @@
         "manifest.json",
         "server.json",
         ".claude-plugin/marketplace.json",
-        ".release-please-manifest.json"
+        ".release-please-manifest.json",
+        "plugins/automem/.cursor-plugin/plugin.json"
       ],
       "options": {
         "parser": "json-stringify"

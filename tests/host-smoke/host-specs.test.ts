@@ -10,6 +10,7 @@ describe('host smoke specs', () => {
       'copilot-cli',
       'cursor',
       'grok',
+      'grok-bot',
       'hermes',
       'openclaw',
       'vscode-copilot',

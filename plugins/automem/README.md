@@ -1,9 +1,9 @@
-# AutoMem Plugin for Claude Code
+# AutoMem Plugin
 
-Persistent memory for Claude Code via the AutoMem MCP server. This plugin is
-the recommended way to install AutoMem in Claude Code: install and updates are
-handled by Claude Code itself, configuration is prompted at enable time, and
-uninstall is atomic.
+Persistent memory via the AutoMem MCP server, packaged once for Claude Code,
+Cursor, and Grok Bot. In Claude Code this plugin is the recommended install:
+install and updates are handled by Claude Code itself, configuration is
+prompted at enable time, and uninstall is atomic.
 
 ## Installation
 
@@ -49,6 +49,19 @@ Then install the plugin as above.
    default, so AutoMem does not add end-of-session feedback to the chat stream
 
 The hooks are pure bash+sed+grep — no Python or jq required.
+
+### Cursor and Grok Bot
+
+The same directory carries `.cursor-plugin/plugin.json`, which Cursor and Grok
+Bot read before the Claude manifest. It adds the configuration form
+(`AUTOMEM_API_URL`, `AUTOMEM_API_KEY`), an always-on rule
+(`rules/automem.mdc`), a Cursor-native `sessionStart` hook (`cursor/hooks.json`
+and `cursor/session-start.mjs`) that derives the project slug from the
+workspace folder, and hides `delete_memory` through `enabledTools`. Claude
+Code ignores those files; Cursor ignores `hooks/hooks.json` because the
+manifest declares its own hooks. To try it locally, copy this directory to
+`~/.cursor/plugins/local/automem`, reload Cursor, then open Customize →
+Automem → Configure.
 
 ### Slash Commands
 
