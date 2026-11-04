@@ -14,7 +14,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { readAutoMemApiKeyFromEnv, resolveAutoMemApiUrl } from './env.js';
+import {
+  hasMcpSidecarPath,
+  isMcpSidecarHealth,
+  readAutoMemApiKeyFromEnv,
+  resolveAutoMemApiUrl,
+} from './env.js';
 
 describe('resolveAutoMemApiUrl', () => {
   it('prefers AUTOMEM_API_URL over everything', () => {
@@ -97,5 +102,65 @@ describe('readAutoMemApiKeyFromEnv', () => {
       })
     ).toBe('plugin-key');
     expect(readAutoMemApiKeyFromEnv({})).toBeUndefined();
+  });
+});
+
+// The remote MCP sidecar (automem/mcp-sse-server) answers /health with a 200
+// and a `status`, so a sidecar URL pasted into AUTOMEM_API_URL looks healthy
+// until the first recall 404s. Its payload carries `transports` and
+// `endpoints`, which the REST API's /health never returns.
+describe('isMcpSidecarHealth', () => {
+  it('recognizes the sidecar /health payload', () => {
+    expect(
+      isMcpSidecarHealth({
+        status: 'healthy',
+        transports: ['streamable-http', 'sse'],
+        endpoints: { streamableHttp: '/mcp', sse: '/mcp/sse' },
+        upstream: 'https://automem.example',
+      })
+    ).toBe(true);
+    expect(isMcpSidecarHealth({ status: 'healthy', endpoints: {} })).toBe(true);
+    expect(isMcpSidecarHealth({ status: 'healthy', transports: [] })).toBe(true);
+  });
+
+  it('does not flag the REST API /health payload', () => {
+    expect(
+      isMcpSidecarHealth({
+        status: 'healthy',
+        falkordb: 'connected',
+        qdrant: 'connected',
+        memory_count: 12,
+      })
+    ).toBe(false);
+    // A future REST /health that advertises the MCP URL must not trip this.
+    expect(
+      isMcpSidecarHealth({
+        status: 'healthy',
+        falkordb: 'connected',
+        qdrant: 'connected',
+        endpoints: { mcp: 'https://mcp.example/mcp' },
+      })
+    ).toBe(false);
+    expect(isMcpSidecarHealth(null)).toBe(false);
+    expect(isMcpSidecarHealth('healthy')).toBe(false);
+    expect(isMcpSidecarHealth(undefined)).toBe(false);
+  });
+});
+
+describe('hasMcpSidecarPath', () => {
+  it('matches the sidecar transport paths, ignoring query and trailing slash', () => {
+    expect(hasMcpSidecarPath('https://mcp.example/mcp')).toBe(true);
+    expect(hasMcpSidecarPath('https://mcp.example/mcp/')).toBe(true);
+    expect(hasMcpSidecarPath('https://mcp.example/mcp/sse')).toBe(true);
+    expect(hasMcpSidecarPath('https://mcp.example/mcp?api_key=abc')).toBe(true);
+    expect(hasMcpSidecarPath('https://mcp.example/MCP')).toBe(true);
+  });
+
+  it('leaves REST API base URLs alone', () => {
+    expect(hasMcpSidecarPath('https://automem.example')).toBe(false);
+    expect(hasMcpSidecarPath('http://127.0.0.1:8001/')).toBe(false);
+    expect(hasMcpSidecarPath('https://mcp-automem.example')).toBe(false);
+    expect(hasMcpSidecarPath('https://example.com/mcpx')).toBe(false);
+    expect(hasMcpSidecarPath('not a url')).toBe(false);
   });
 });

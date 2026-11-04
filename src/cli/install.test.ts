@@ -1071,6 +1071,54 @@ describe('guided install helpers', () => {
     if (!result.ok) expect(result.message).toContain('HTTP 500');
   });
 
+  it('rejects the remote MCP sidecar even though its /health is a 200 with a status', async () => {
+    const requests: string[] = [];
+    const fetchFn = async (url: string) => {
+      requests.push(url);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'healthy',
+          transports: ['streamable-http', 'sse'],
+          endpoints: { streamableHttp: '/mcp', sse: '/mcp/sse' },
+        }),
+      };
+    };
+    const result = await verifyAutoMemEndpoint({
+      endpoint: 'https://mcp.example',
+      apiKey: 'sk-test',
+      fetchFn,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain('MCP sidecar');
+      expect(result.message).toContain('AutoMem API base URL');
+    }
+    // No authenticated recall probe against the sidecar.
+    expect(requests).toEqual(['https://mcp.example/health']);
+  });
+
+  it('rejects an /mcp URL without probing it', async () => {
+    // GET /mcp can stream or hang on the sidecar, so a probe would only
+    // replace the hint with a timeout.
+    let calls = 0;
+    const fetchFn = async () => {
+      calls += 1;
+      return { ok: true, status: 200, json: async () => ({ status: 'healthy' }) };
+    };
+    for (const endpoint of ['https://mcp.example/mcp/', 'https://mcp.example/mcp?api_key=k']) {
+      const result = await verifyAutoMemEndpoint({ endpoint, apiKey: 'sk-test', fetchFn });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.message).toContain('MCP sidecar');
+        expect(result.message).toContain('AutoMem API base URL');
+        expect(result.message).not.toContain('api_key');
+      }
+    }
+    expect(calls).toBe(0);
+  });
+
   it('accepts degraded /health by default but rejects it when requireHealthy is set', async () => {
     const fetchFn = async () => ({
       ok: true,

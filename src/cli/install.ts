@@ -12,6 +12,7 @@ import { applyGrokSetup } from './grok.js';
 import { applyOpenClawSetup } from './openclaw.js';
 import { resolveGrokPaths } from './grok-config.js';
 import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
+import { MCP_SIDECAR_FIX, hasMcpSidecarPath, isMcpSidecarHealth } from '../env.js';
 import {
   AUTOMEM_API_KEY_NAMES,
   mergeEnvContent,
@@ -1138,6 +1139,16 @@ export async function verifyAutoMemEndpoint(
     }
   };
 
+  // An /mcp URL is the remote MCP sidecar. Probing it would only turn the hint
+  // into a timeout or a JSON 401 (GET /mcp can stream), and the message leaves
+  // the URL out because sidecar URLs can carry ?api_key=.
+  if (hasMcpSidecarPath(endpoint)) {
+    return {
+      ok: false,
+      message: `This URL ends in /mcp, which is the remote MCP sidecar, not the AutoMem API: ${MCP_SIDECAR_FIX}.`,
+    };
+  }
+
   try {
     const health = await runTimed(async ({ signal, raceAbort }) => {
       const res = await fetchFn(`${endpoint}/health`, { signal });
@@ -1162,6 +1173,14 @@ export async function verifyAutoMemEndpoint(
     }
     if (!health.res.ok) {
       return { ok: false, message: `Health check failed with HTTP ${health.res.status}.` };
+    }
+    // The sidecar's own /health is a 200 with a status, so check it before the
+    // status field and never send the API key to its /recall.
+    if (isMcpSidecarHealth(health.body)) {
+      return {
+        ok: false,
+        message: `This URL is the remote MCP sidecar, not the AutoMem API: ${MCP_SIDECAR_FIX}.`,
+      };
     }
 
     // A 200 alone is not proof this is AutoMem — a reverse-proxy login wall,
