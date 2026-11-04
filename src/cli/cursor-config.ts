@@ -9,7 +9,7 @@ import {
   resolveInheritedApiKey,
   writeFileWithBackup,
 } from './host-toolkit.js';
-import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
+import { automemNpxArgs, DEFAULT_AUTOMEM_API_URL } from './templates.js';
 
 type Document = Record<string, unknown>;
 export type CursorWriteOptions = { dryRun?: boolean; quiet?: boolean };
@@ -82,7 +82,7 @@ export function planCursorMcpSetup(
   // Explicit blanks shadow credentials inherited from the launching Cursor process.
   const entry = {
     command: 'npx',
-    args: ['-y', '@verygoodplugins/mcp-automem'],
+    args: automemNpxArgs(),
     env: { AUTOMEM_API_URL: endpoint, AUTOMEM_API_KEY: apiKey ?? '', AUTOMEM_API_TOKEN: '' },
   };
   return {

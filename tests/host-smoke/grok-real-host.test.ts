@@ -85,7 +85,7 @@ describe('Grok real host contract', () => {
 
       // The registration Grok will actually read.
       expect(entry.command).toBe('npx');
-      expect(entry.args).toEqual(['-y', '@verygoodplugins/mcp-automem']);
+      expect(entry.args).toEqual(['-y', '@verygoodplugins/mcp-automem@latest']);
       expect(entry.enabled).toBe(true);
       // The env is the whole point: without it the server defaults to localhost:8001.
       expect(entry.env.AUTOMEM_API_URL).toBe(fakeApi.url);

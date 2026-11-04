@@ -10,6 +10,7 @@ import {
   readApiKeyFrom,
   readEndpointFrom,
 } from './host-toolkit.js';
+import { automemNpxArgs } from './templates.js';
 
 export const GROK_MCP_SERVER_NAME = 'memory';
 
@@ -70,7 +71,7 @@ export function buildGrokAutoMemServerEntry(
   }
   return {
     command: 'npx',
-    args: ['-y', '@verygoodplugins/mcp-automem'],
+    args: automemNpxArgs(),
     enabled: true,
     env,
   };

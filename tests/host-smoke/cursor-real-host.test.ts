@@ -108,7 +108,7 @@ describe('Cursor MCP host boundary', () => {
       });
       const entry = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.memory;
       expect(entry.command).toBe('npx');
-      expect(entry.args).toEqual(['-y', '@verygoodplugins/mcp-automem']);
+      expect(entry.args).toEqual(['-y', '@verygoodplugins/mcp-automem@latest']);
       expect(entry.env.AUTOMEM_API_URL).toBe(api.url);
       expect(entry.env.AUTOMEM_API_KEY).toBe('cursor-smoke-key');
       // Substitute only the published launcher with this checkout's entry point.
