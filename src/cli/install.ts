@@ -7,6 +7,15 @@ import { AGENT_CLIENTS, DEFAULT_AGENT_CLIENTS, type AgentClient } from './client
 import { applyClaudeCodeSetup } from './claude-code.js';
 import { applyCodexSetup } from './codex.js';
 import { applyCursorSetup } from './cursor.js';
+import {
+  CURSOR_PLUGIN_NAME,
+  cursorLocalPluginDir,
+  detectCursorFileInstall,
+  installCursorPlugin,
+  readCursorPluginName,
+  removeCursorLocalPlugin,
+} from './cursor-plugin.js';
+import { removeCursorFileInstall } from './uninstall.js';
 import { applyHermesSetup, type HermesInstallMode } from './hermes.js';
 import { applyGrokSetup } from './grok.js';
 import { applyOpenClawSetup } from './openclaw.js';
@@ -133,6 +142,28 @@ export async function installClaudeCodePlugin(params: {
 // How the guided installer wires Claude Code. Defaults to the recommended plugin.
 export type ClaudeCodeMode = 'plugin' | 'settings';
 
+// How the guided installer wires Cursor. Defaults to the local plugin; `files`
+// keeps the mcp.json + project rule + hook install (also `mcp-automem cursor`).
+export type CursorMode = 'plugin' | 'files';
+
+/** A file-mode Cursor install found next to a plugin-mode run, and whether to remove it. */
+export type CursorFileInstallPlan = {
+  /** File-mode artifacts; removable with the user's consent. */
+  paths: string[];
+  remove: boolean;
+  /** Project .cursor/mcp.json files registering AutoMem; only ever removed by hand. */
+  projectRegistrations?: string[];
+};
+
+/** An installed AutoMem Cursor plugin found next to a files-mode run. */
+export type CursorLocalPluginPlan = { path: string; remove: boolean };
+
+export const CURSOR_UNINSTALL_COMMAND = 'npx @verygoodplugins/mcp-automem uninstall cursor';
+const CURSOR_PLUGIN_CONFIGURE_STEP =
+  'Fully restart Cursor, then open Customize → Automem → Configure and enter your AutoMem REST URL and API key.';
+const GROK_BOT_PLUGIN_STEP =
+  'For Grok Bot (mobile), add the AutoMem plugin in Grok Bot under Settings → Plugins and enter your REST URL and key there. The `grok` command configured here is the Grok Build CLI; Grok Bot does not read its config.';
+
 // Re-exported so existing importers (and the CLI surface) keep one entry point,
 // while the definitions themselves stay dependency-free in ./clients.js.
 export { AGENT_CLIENTS, DEFAULT_AGENT_CLIENTS };
@@ -160,6 +191,7 @@ export type ParsedInstallOptions = {
   localDir?: string;
   hermesMode: HermesInstallMode;
   claudeCodeMode: ClaudeCodeMode;
+  cursorMode: CursorMode;
   dryRun: boolean;
   yes: boolean;
   noAgentInstall: boolean;
@@ -418,6 +450,7 @@ export function equivalentInstallCommand(options: {
   cloudProvider?: CloudProviderId;
   clients: AgentClient[];
   claudeCodeMode?: ClaudeCodeMode;
+  cursorMode?: CursorMode;
   hermesMode?: HermesInstallMode;
   localDir?: string;
   noAgentInstall?: boolean;
@@ -444,6 +477,8 @@ export function equivalentInstallCommand(options: {
   else parts.push(`--clients ${options.clients.join(',')}`);
   if (!options.noAgentInstall && options.clients.includes('claude-code') && options.claudeCodeMode)
     parts.push(`--claude-code-mode ${options.claudeCodeMode}`);
+  if (!options.noAgentInstall && options.clients.includes('cursor') && options.cursorMode)
+    parts.push(`--cursor-mode ${options.cursorMode}`);
   if (!options.noAgentInstall && options.clients.includes('hermes') && options.hermesMode)
     parts.push(`--hermes-mode ${options.hermesMode}`);
   // A headless run needed --yes to get past shouldUseNonInteractivePreview;
@@ -650,6 +685,12 @@ function parseClaudeCodeMode(value: string | undefined): ClaudeCodeMode | undefi
   throw new Error(`Invalid Claude Code mode: ${value}. Expected plugin or settings.`);
 }
 
+function parseCursorMode(value: string | undefined): CursorMode | undefined {
+  if (!value) return undefined;
+  if (value === 'plugin' || value === 'files') return value;
+  throw new Error(`Invalid Cursor mode: ${value}. Expected plugin or files.`);
+}
+
 function parseClients(value: string | undefined): AgentClient[] | undefined {
   if (!value) return undefined;
   const requested = value
@@ -683,6 +724,7 @@ export function parseInstallArgs(
   let localDir = env.AUTOMEM_LOCAL_DIR;
   let hermesMode = parseHermesMode(env.AUTOMEM_HERMES_MODE);
   let claudeCodeMode = parseClaudeCodeMode(env.AUTOMEM_CLAUDE_CODE_MODE);
+  let cursorMode = parseCursorMode(env.AUTOMEM_CURSOR_MODE);
   let dryRun = parseBooleanEnv(env.AUTOMEM_DRY_RUN);
   let yes = parseBooleanEnv(env.AUTOMEM_YES);
   let noAgentInstall = parseBooleanEnv(env.AUTOMEM_NO_AGENT_INSTALL);
@@ -728,6 +770,10 @@ export function parseInstallArgs(
         claudeCodeMode = parseClaudeCodeMode(assertValue(args, i, arg));
         i += 1;
         break;
+      case '--cursor-mode':
+        cursorMode = parseCursorMode(assertValue(args, i, arg));
+        i += 1;
+        break;
       case '--dry-run':
         dryRun = true;
         break;
@@ -766,6 +812,7 @@ export function parseInstallArgs(
     localDir,
     hermesMode: hermesMode ?? 'mcp',
     claudeCodeMode: claudeCodeMode ?? 'plugin',
+    cursorMode: cursorMode ?? 'plugin',
     dryRun,
     yes,
     noAgentInstall,
@@ -908,6 +955,10 @@ export function pinLocalInstallOptions(options: ResolvedInstallOptions): Resolve
 export function buildInstallPlan(params: {
   options: ResolvedInstallOptions;
   environment: InstallEnvironment;
+  /** Plugin mode only: a detected file-mode Cursor install and the removal decision. */
+  cursorFileInstall?: CursorFileInstallPlan;
+  /** Files mode only: an installed AutoMem Cursor plugin and the removal decision. */
+  cursorLocalPlugin?: CursorLocalPluginPlan;
 }): InstallPlan {
   const options = pinLocalInstallOptions(params.options);
   const { environment } = params;
@@ -1011,6 +1062,10 @@ export function buildInstallPlan(params: {
         }
         continue;
       }
+      if (client === 'cursor' && options.cursorMode === 'plugin') {
+        actions.push(...cursorPluginActions(environment, params.cursorFileInstall));
+        continue;
+      }
       actions.push({
         kind: 'install-agent',
         title: `Install ${clientLabel(client)} integration`,
@@ -1023,6 +1078,20 @@ export function buildInstallPlan(params: {
         client,
         paths: agentPaths(client, environment, options),
       });
+      if (client === 'cursor' && params.cursorLocalPlugin) {
+        actions.push(cursorLocalPluginAction(params.cursorLocalPlugin));
+      }
+      if (client === 'grok') {
+        // `grok` is the Grok Build CLI. Grok Bot (mobile) installs the shared plugin
+        // through its own catalog, which no CLI can drive, so it is a guided step.
+        actions.push({
+          kind: 'manual-step',
+          title: 'Grok Bot plugin (optional, mobile)',
+          detail: GROK_BOT_PLUGIN_STEP,
+          client,
+          paths: [],
+        });
+      }
     }
   }
 
@@ -1038,6 +1107,117 @@ export function buildInstallPlan(params: {
     noAgentInstall: Boolean(options.noAgentInstall),
     actions,
   };
+}
+
+function detectCursorFileInstallPlan(
+  options: ResolvedInstallOptions,
+  environment: InstallEnvironment,
+  remove: boolean
+): CursorFileInstallPlan | undefined {
+  if (!cursorPluginSelected(options)) return undefined;
+  const found = detectCursorFileInstall({
+    homeDir: environment.homeDir,
+    projectDir: environment.cwd,
+  });
+  for (const filePath of found.unreadable) {
+    // Plugin mode never writes this file, so an unparseable one is not fatal here.
+    writeStatus(
+      `Couldn't check ${tildify(filePath)} for an older AutoMem entry: it is not valid JSON.`,
+      'warn'
+    );
+  }
+  return found.paths.length > 0 || found.projectRegistrations.length > 0
+    ? { paths: found.paths, remove, projectRegistrations: found.projectRegistrations }
+    : undefined;
+}
+
+function cursorLocalPluginAction(plugin: CursorLocalPluginPlan): InstallAction {
+  return plugin.remove
+    ? {
+        kind: 'install-agent',
+        title: 'Remove the Cursor plugin',
+        detail: 'Remove the AutoMem Cursor plugin so AutoMem is registered once.',
+        client: 'cursor',
+        paths: [plugin.path],
+      }
+    : {
+        kind: 'manual-step',
+        title: 'AutoMem Cursor plugin found: AutoMem would load twice',
+        detail: `Not removed automatically. Disable AutoMem in Cursor → Customize, or delete ${tildify(plugin.path)}, then restart Cursor.`,
+        client: 'cursor',
+        paths: [],
+      };
+}
+
+function detectCursorLocalPluginPlan(
+  options: ResolvedInstallOptions,
+  environment: InstallEnvironment
+): CursorLocalPluginPlan | undefined {
+  if (options.noAgentInstall || !options.clients.includes('cursor')) return undefined;
+  if (options.cursorMode !== 'files') return undefined;
+  const pluginDir = cursorLocalPluginDir(environment.homeDir);
+  return readCursorPluginName(pluginDir) === CURSOR_PLUGIN_NAME
+    ? { path: pluginDir, remove: false }
+    : undefined;
+}
+
+function cursorPluginActions(
+  environment: InstallEnvironment,
+  fileInstall: CursorFileInstallPlan | undefined
+): InstallAction[] {
+  const actions: InstallAction[] = [
+    {
+      kind: 'install-agent',
+      title: 'Install the Cursor plugin (recommended)',
+      detail:
+        "Copy the bundled AutoMem plugin (MCP server, session-start hook, always-on rule) into Cursor's local plugins folder, replacing any older copy.",
+      client: 'cursor',
+      paths: [cursorLocalPluginDir(environment.homeDir)],
+    },
+  ];
+  if (fileInstall && fileInstall.paths.length > 0) {
+    if (fileInstall.remove) {
+      actions.push({
+        kind: 'install-agent',
+        title: 'Remove the older file-based Cursor install',
+        detail:
+          'Remove the AutoMem entry from ~/.cursor/mcp.json (shared by every Cursor project) and this project’s rule and hook, so AutoMem is registered once.',
+        client: 'cursor',
+        paths: [...fileInstall.paths],
+      });
+    } else {
+      actions.push({
+        kind: 'manual-step',
+        title: 'File-based Cursor install found: AutoMem would load twice',
+        detail:
+          'Not removed automatically. Run the uninstall (it removes the file install and the plugin), then re-run this install:',
+        client: 'cursor',
+        paths: [],
+        commands: [
+          CURSOR_UNINSTALL_COMMAND,
+          'npx @verygoodplugins/mcp-automem install --clients cursor --cursor-mode plugin',
+        ],
+      });
+    }
+  }
+  const projectRegistrations = fileInstall?.projectRegistrations ?? [];
+  if (projectRegistrations.length > 0) {
+    actions.push({
+      kind: 'manual-step',
+      title: 'Project MCP registration found: AutoMem would load twice',
+      detail: `Remove the AutoMem server from ${projectRegistrations.join(', ')} by hand. The installer never writes project MCP files, and uninstall does not remove them.`,
+      client: 'cursor',
+      paths: [],
+    });
+  }
+  actions.push({
+    kind: 'manual-step',
+    title: 'Configure the Cursor plugin',
+    detail: CURSOR_PLUGIN_CONFIGURE_STEP,
+    client: 'cursor',
+    paths: [],
+  });
+  return actions;
 }
 
 export function shouldUseNonInteractivePreview(params: {
@@ -1058,6 +1238,18 @@ function argsSpecifyHermesMode(args: string[]): boolean {
 
 function argsSpecifyClaudeCodeMode(args: string[]): boolean {
   return args.includes('--claude-code-mode') || Boolean(process.env.AUTOMEM_CLAUDE_CODE_MODE);
+}
+
+function argsSpecifyCursorMode(args: string[]): boolean {
+  return args.includes('--cursor-mode') || Boolean(process.env.AUTOMEM_CURSOR_MODE);
+}
+
+function cursorPluginSelected(
+  options: Pick<ResolvedInstallOptions, 'noAgentInstall' | 'clients' | 'cursorMode'>
+): boolean {
+  return (
+    !options.noAgentInstall && options.clients.includes('cursor') && options.cursorMode === 'plugin'
+  );
 }
 
 export function validateInstallPrerequisites(
@@ -1553,14 +1745,19 @@ function clientLabel(client: AgentClient): string {
 
 // One actionable line per agent that failed to apply, so a partial install ends
 // with a clear "here's how to finish it by hand" rather than a dead end.
-export function manualFixHint(client: AgentClient): string {
+export function manualFixHint(
+  client: AgentClient,
+  modes: { cursorMode?: CursorMode } = {}
+): string {
   switch (client) {
     case 'openclaw':
       return 'OpenClaw: run  openclaw plugins install @verygoodplugins/mcp-automem --force';
     case 'hermes':
       return 'Hermes: re-run  npx @verygoodplugins/mcp-automem install --clients hermes';
     case 'cursor':
-      return 'Cursor: re-run  npx @verygoodplugins/mcp-automem install --clients cursor';
+      return modes.cursorMode
+        ? `Cursor: re-run  npx @verygoodplugins/mcp-automem install --clients cursor --cursor-mode ${modes.cursorMode}`
+        : 'Cursor: re-run  npx @verygoodplugins/mcp-automem install --clients cursor';
     case 'codex':
       return 'Codex: re-run  npx @verygoodplugins/mcp-automem install --clients codex';
     case 'claude-code':
@@ -1665,7 +1862,8 @@ export function renderInstallPlan(
   const out: string[] = [sectionTitle('Install review', theme)];
 
   // At-a-glance summary chip.
-  const agentCount = plan.actions.filter((action) => action.client).length;
+  // Unique clients: one tool can carry several stages (an install plus a guide).
+  const agentCount = new Set(plan.actions.map((action) => action.client).filter(Boolean)).size;
   const chip = `${plan.actions.length} stages · ${targetLabel(plan.target)} · ${
     agentCount ? `${agentCount} AI tool${agentCount === 1 ? '' : 's'}` : 'no AI tools'
   }${plan.dryRun ? ' · dry run' : ''}`;
@@ -1753,7 +1951,8 @@ async function resolveInteractiveOptions(
   environment: InstallEnvironment,
   clientsExplicit: boolean,
   hermesModeExplicit: boolean,
-  claudeCodeModeExplicit: boolean
+  claudeCodeModeExplicit: boolean,
+  cursorModeExplicit: boolean
 ): Promise<ResolvedInstallOptions> {
   let target = parsed.target;
   if (!target) {
@@ -1974,6 +2173,28 @@ async function resolveInteractiveOptions(
     );
   }
 
+  let cursorMode = parsed.cursorMode;
+  if (!parsed.noAgentInstall && clients.includes('cursor') && !cursorModeExplicit) {
+    cursorMode = await cancelable(
+      promptSelect<CursorMode>({
+        message: 'How should AutoMem integrate with Cursor?',
+        options: [
+          {
+            value: 'plugin',
+            label: 'Plugin (recommended)',
+            hint: 'bundles the MCP server, hook, and rule; you enter your endpoint in Cursor → Customize',
+          },
+          {
+            value: 'files',
+            label: 'Project files',
+            hint: "writes ~/.cursor/mcp.json plus this project's rule and hook",
+          },
+        ],
+        initialValue: 'plugin',
+      })
+    );
+  }
+
   return {
     ...parsed,
     target,
@@ -1984,6 +2205,7 @@ async function resolveInteractiveOptions(
     clients,
     hermesMode,
     claudeCodeMode,
+    cursorMode,
   };
 }
 
@@ -1995,6 +2217,13 @@ async function applyAgentInstall(
     dryRun: boolean;
     hermesMode: HermesInstallMode;
     claudeCodeMode: ClaudeCodeMode;
+    cursorMode: CursorMode;
+    /** Plugin mode: remove a file-mode Cursor install after the plugin lands. */
+    removeCursorFiles?: boolean;
+    /** Files mode: remove the AutoMem Cursor plugin after the files are written. */
+    removeCursorPlugin?: boolean;
+    homeDir: string;
+    cwd: string;
   }
 ): Promise<void> {
   // quiet: true everywhere — the guided installer shows its own themed checklist,
@@ -2010,6 +2239,14 @@ async function applyAgentInstall(
       await applyClaudeCodeSetup({ dryRun: params.dryRun, quiet: true, yes: true });
       break;
     case 'cursor':
+      if (params.cursorMode === 'plugin') {
+        // Plugin first: if the copy fails, the existing file install keeps working.
+        installCursorPlugin({ homeDir: params.homeDir, dryRun: params.dryRun, quiet: true });
+        if (params.removeCursorFiles) {
+          removeCursorFileInstall({ projectDir: params.cwd, dryRun: params.dryRun, quiet: true });
+        }
+        break;
+      }
       await applyCursorSetup({
         endpoint: params.endpoint,
         apiKey: params.apiKey,
@@ -2017,6 +2254,9 @@ async function applyAgentInstall(
         quiet: true,
         skipPrompts: true,
       });
+      if (params.removeCursorPlugin) {
+        removeCursorLocalPlugin({ homeDir: params.homeDir, dryRun: params.dryRun, quiet: true });
+      }
       break;
     case 'openclaw':
       await applyOpenClawSetup({
@@ -2075,6 +2315,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
   const clientsExplicit = Boolean(process.env.AUTOMEM_CLIENTS) || argsSpecifyClients(args);
   const hermesModeExplicit = argsSpecifyHermesMode(args);
   const claudeCodeModeExplicit = argsSpecifyClaudeCodeMode(args);
+  const cursorModeExplicit = argsSpecifyCursorMode(args);
 
   // The splash is Unicode mascot art, so only animate when the terminal can
   // render unicode — otherwise fall through to the plain one-line brand header.
@@ -2101,7 +2342,12 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       target: parsed.target ?? 'existing',
       dryRun: true,
     });
-    const plan = buildInstallPlan({ options: fallback, environment });
+    const plan = buildInstallPlan({
+      options: fallback,
+      environment,
+      cursorFileInstall: detectCursorFileInstallPlan(fallback, environment, false),
+      cursorLocalPlugin: detectCursorLocalPluginPlan(fallback, environment),
+    });
     process.stdout.write(`\n${renderInstallPlan(plan)}\n`);
     writeStatus('No TTY detected. Re-run with --yes (or AUTOMEM_YES=1) to apply automatically.');
     return;
@@ -2124,7 +2370,8 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
             environment,
             clientsExplicit,
             hermesModeExplicit,
-            claudeCodeModeExplicit
+            claudeCodeModeExplicit,
+            cursorModeExplicit
           )
         : ({ ...parsed, target: parsed.target ?? 'existing' } as ResolvedInstallOptions)
     );
@@ -2136,7 +2383,42 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       );
     }
 
-    const plan = buildInstallPlan({ options: resolved, environment });
+    // Plugin mode next to a file-mode install would register AutoMem twice. Only an
+    // interactive, applying run may remove it, and only after asking; --yes and dry
+    // runs list it in the plan with the uninstall command and never remove silently.
+    const cursorFileInstall = detectCursorFileInstallPlan(resolved, environment, false);
+    if (
+      cursorFileInstall &&
+      cursorFileInstall.paths.length > 0 &&
+      interactive &&
+      !resolved.yes &&
+      !resolved.dryRun
+    ) {
+      cursorFileInstall.remove = await cancelable(
+        promptConfirm({
+          message:
+            'An older file-based Cursor install of AutoMem was found. Remove it so AutoMem is not registered twice?',
+          initialValue: true,
+        })
+      );
+    }
+    // The reverse case: files mode next to an installed plugin also loads AutoMem twice.
+    const cursorLocalPlugin = detectCursorLocalPluginPlan(resolved, environment);
+    if (cursorLocalPlugin && interactive && !resolved.yes && !resolved.dryRun) {
+      cursorLocalPlugin.remove = await cancelable(
+        promptConfirm({
+          message:
+            'The AutoMem Cursor plugin is installed. Remove it so AutoMem is not registered twice?',
+          initialValue: true,
+        })
+      );
+    }
+    const plan = buildInstallPlan({
+      options: resolved,
+      environment,
+      cursorFileInstall,
+      cursorLocalPlugin,
+    });
     // Deliberate, typed reveal: prose types in a word at a time, rules/tables snap
     // in whole. Slower than a dump so the review reads as it builds.
     await revealLines(`\n${renderInstallPlan(plan)}`, {
@@ -2145,6 +2427,33 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       lineBeatMs: 55,
       structuralBeatMs: 72,
     });
+
+    const cursorDoubleRegistration = Boolean(
+      cursorFileInstall && cursorFileInstall.paths.length > 0 && !cursorFileInstall.remove
+    );
+    const cursorProjectRegistrations = cursorFileInstall?.projectRegistrations ?? [];
+    const cursorPluginKept = Boolean(cursorLocalPlugin && !cursorLocalPlugin.remove);
+    if (cursorPluginKept) {
+      writeStatus(
+        `WARNING: the AutoMem Cursor plugin is installed, so files mode makes Cursor load AutoMem twice. ` +
+          `It was not removed. Disable AutoMem in Cursor → Customize, or delete ${tildify(cursorLocalPlugin!.path)}.`,
+        'warn'
+      );
+    }
+    if (cursorDoubleRegistration) {
+      writeStatus(
+        `WARNING: a file-based Cursor install of AutoMem is still registered, so Cursor will load AutoMem twice. ` +
+          `It was not removed. Run  ${CURSOR_UNINSTALL_COMMAND}  then re-run this install.`,
+        'warn'
+      );
+    }
+    if (cursorProjectRegistrations.length > 0) {
+      writeStatus(
+        `WARNING: ${cursorProjectRegistrations.map((p) => tildify(p)).join(', ')} also registers AutoMem, so Cursor will load it twice. ` +
+          'Remove that server entry by hand; uninstall does not touch project MCP files.',
+        'warn'
+      );
+    }
 
     if (resolved.dryRun) {
       writeStatus(`Dry run only. No files were changed. ${dryRunApplyHint({ interactive, args })}`);
@@ -2285,7 +2594,9 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         label:
           client === 'claude-code' && resolved.claudeCodeMode === 'plugin'
             ? `${clientGlyph(client, theme)} Claude Code (plugin — see below)`
-            : `${clientGlyph(client, theme)} Configure ${clientLabel(client)}`,
+            : client === 'cursor' && resolved.cursorMode === 'plugin'
+              ? `${clientGlyph(client, theme)} Install Cursor plugin`
+              : `${clientGlyph(client, theme)} Configure ${clientLabel(client)}`,
       })),
     ];
 
@@ -2412,8 +2723,18 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
             dryRun: false,
             hermesMode: resolved.hermesMode,
             claudeCodeMode: resolved.claudeCodeMode,
+            cursorMode: resolved.cursorMode,
+            removeCursorFiles: cursorFileInstall?.remove,
+            removeCursorPlugin: cursorLocalPlugin?.remove,
+            homeDir: environment.homeDir,
+            cwd: environment.cwd,
           });
-          list.done(key, `${clientGlyph(client, theme)} ${clientLabel(client)} configured`);
+          list.done(
+            key,
+            client === 'cursor' && resolved.cursorMode === 'plugin'
+              ? `${clientGlyph(client, theme)} Cursor plugin installed`
+              : `${clientGlyph(client, theme)} ${clientLabel(client)} configured`
+          );
         } catch (agentErr) {
           list.fail(
             key,
@@ -2467,6 +2788,27 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       }
       if (apiKey) nextSteps.push(`  ${CLAUDE_CODE_PLUGIN_API_KEY_HINT}`);
     }
+    if (cursorPluginSelected(resolved) && installedClients.includes('cursor')) {
+      nextSteps.push(`Cursor plugin: ${CURSOR_PLUGIN_CONFIGURE_STEP}`);
+    }
+    if (cursorPluginKept) {
+      nextSteps.push(
+        `Cursor: the AutoMem plugin is still installed (loads twice). Disable it in Cursor → Customize, or delete ${tildify(cursorLocalPlugin!.path)}.`
+      );
+    }
+    if (cursorProjectRegistrations.length > 0) {
+      nextSteps.push(
+        `Cursor: remove the AutoMem server from ${cursorProjectRegistrations.map((p) => tildify(p)).join(', ')} by hand (loads twice).`
+      );
+    }
+    if (cursorDoubleRegistration) {
+      nextSteps.push(
+        `Cursor: a file-based AutoMem install is still registered (loads twice). Run  ${CURSOR_UNINSTALL_COMMAND}  then re-run this install.`
+      );
+    }
+    if (installedClients.includes('grok')) {
+      nextSteps.push(`Grok Bot (optional): ${GROK_BOT_PLUGIN_STEP}`);
+    }
     if (agentFailures.length > 0) {
       const subject =
         agentFailures.length === 1
@@ -2474,7 +2816,9 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           : `${agentFailures.length} AI tools need a manual step:`;
       nextSteps.push(subject);
       for (const failure of agentFailures) {
-        nextSteps.push(`  ${failure.hint ?? manualFixHint(failure.client)}`);
+        nextSteps.push(
+          `  ${failure.hint ?? manualFixHint(failure.client, { cursorMode: resolved.cursorMode })}`
+        );
       }
     }
     nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');

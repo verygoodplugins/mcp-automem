@@ -65,7 +65,8 @@ npx @verygoodplugins/mcp-automem install --yes --target existing \
 
 Flags: `--target <local|cloud|existing>`, `--cloud-provider <instapods|railway|other>`,
 `--clients <list>`, `--endpoint`, `--api-key`, `--local-dir`,
-`--claude-code-mode <plugin|settings>`, `--hermes-mode <mcp|provider|both>`,
+`--claude-code-mode <plugin|settings>`, `--cursor-mode <plugin|files>`,
+`--hermes-mode <mcp|provider|both>`,
 `--dry-run`, `--yes`, `--no-agent-install`. The same values can be passed as
 `AUTOMEM_*` environment variables. For CI/dotfiles, prefer `--target existing`
 with `--endpoint` and `--api-key`; InstaPods is an interactive browser+paste flow.
@@ -386,7 +387,13 @@ From your project directory, run the installer and select Cursor:
 npx @verygoodplugins/mcp-automem install
 ```
 
-Choose your existing AutoMem service, or follow the local/cloud setup prompts. The installer passes the selected endpoint and API key into Cursor setup, which:
+Choose your existing AutoMem service, or follow the local/cloud setup prompts. The installer then asks how to wire Cursor.
+
+**Plugin (default, `--cursor-mode plugin`).** The installer copies the bundled AutoMem plugin into `~/.cursor/plugins/local/automem`: the MCP server, a Cursor-native `sessionStart` recall hook, and the always-on rule, all from `plugins/automem/.cursor-plugin/plugin.json`. It is a real directory (Cursor does not load symlinked local plugins), and re-running the installer replaces it with the current release. The installer refuses to replace a symlink, or a folder there that is not the AutoMem plugin. Cursor's CLI cannot install plugins non-interactively, so the endpoint is entered in Cursor: fully restart Cursor, then open Customize → Automem → Configure and enter your AutoMem REST URL (not the `/mcp` URL) and API key. The plugin exposes every tool except `delete_memory`.
+
+If the installer finds a file-mode install as well (an AutoMem entry in `~/.cursor/mcp.json` or the marked `.cursor/rules/automem.mdc` in this project), AutoMem would load twice. An interactive run offers to remove the file install. A `--yes` run never removes it; it prints a warning with `npx @verygoodplugins/mcp-automem uninstall cursor`, which removes both the file install and the plugin, so re-run the install afterwards. An AutoMem server in this project's own `.cursor/mcp.json` also loads twice; no installer writes that file and uninstall does not remove it, so the installer tells you to remove that entry by hand.
+
+**Project files (`--cursor-mode files`).** If the AutoMem plugin is already installed, an interactive run offers to remove it so AutoMem loads once; a `--yes` run leaves it and warns. The installer passes the selected endpoint and API key into Cursor setup, the same as `mcp-automem cursor`, which:
 
 - Merges an AutoMem server into `~/.cursor/mcp.json`, preserving unrelated servers and settings.
 - Creates the always-on project rule `.cursor/rules/automem.mdc`.
@@ -1631,7 +1638,7 @@ npx @verygoodplugins/mcp-automem uninstall cursor --rules custom/rules/automem.m
 npx @verygoodplugins/mcp-automem uninstall cursor --dry-run
 ```
 
-Cursor uninstall preserves unrelated rules, hooks, and MCP servers. Its global MCP registration is shared across projects: removing it also disconnects AutoMem in other Cursor projects until setup is run again. `--clean-all` additionally checks supported legacy locations such as Claude Desktop; unrelated registrations remain untouched.
+Cursor uninstall also removes the local plugin at `~/.cursor/plugins/local/automem`, but only when it is a real directory whose `.cursor-plugin/plugin.json` is named `automem`; a symlinked or foreign plugin folder is left alone. A malformed `hooks.json` or `mcp.json` stops the file-mode teardown but does not block removing the plugin. It preserves unrelated rules, hooks, and MCP servers. Its global MCP registration is shared across projects: removing it also disconnects AutoMem in other Cursor projects until setup is run again. `--clean-all` additionally checks supported legacy locations such as Claude Desktop; unrelated registrations remain untouched.
 
 ### Help
 

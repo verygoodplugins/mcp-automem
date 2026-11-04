@@ -11,6 +11,7 @@ export interface HostSmokeSpec {
     | 'codex'
     | 'claude-code'
     | 'cursor'
+    | 'cursor-plugin'
     | 'copilot-cli'
     | 'vscode-copilot'
     | 'grok'
@@ -79,6 +80,15 @@ export const HOST_SMOKE_SPECS: HostSmokeSpec[] = [
     // Current Cursor discovery reports server-local names; the IDE can defer them through its MCP dispatcher.
     expectedToolNames: [...RAW_AUTOMEM_TOOLS].sort(),
     validationCommand: ['cursor-agent', 'mcp', 'list-tools', 'memory'],
+    realHostSmoke: 'required-when-installed',
+  },
+  {
+    host: 'cursor-plugin',
+    client: 'cursor',
+    configPath: '~/.cursor/plugins/local/automem/.cursor-plugin/plugin.json',
+    installCommand: ['mcp-automem', 'install', '--clients', 'cursor', '--cursor-mode', 'plugin'],
+    // Same manifest as Grok Bot: server-local names, delete_memory hidden by enabledTools.
+    expectedToolNames: [...PLUGIN_ENABLED_TOOLS].sort(),
     realHostSmoke: 'required-when-installed',
   },
   {

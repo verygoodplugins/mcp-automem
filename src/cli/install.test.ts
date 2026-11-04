@@ -69,6 +69,7 @@ describe('guided install helpers', () => {
       localDir: '/tmp/automem-server',
       hermesMode: 'both',
       claudeCodeMode: 'plugin',
+      cursorMode: 'plugin',
       dryRun: true,
       yes: true,
       noAgentInstall: true,
@@ -841,7 +842,7 @@ describe('guided install helpers', () => {
     expect(claudeAction?.commands).toBeUndefined();
   });
 
-  it('plans every Cursor configuration write', () => {
+  it('plans every Cursor configuration write in files mode', () => {
     const homeDir = '/Users/tester';
     const cwd = '/repo/project';
     const plan = buildInstallPlan({
@@ -851,6 +852,7 @@ describe('guided install helpers', () => {
         endpoint: 'https://memory.example',
         hermesMode: 'mcp',
         claudeCodeMode: 'plugin',
+        cursorMode: 'files',
         dryRun: true,
         yes: false,
         noAgentInstall: false,
@@ -870,6 +872,234 @@ describe('guided install helpers', () => {
       path.join(cwd, '.cursor', 'hooks.json'),
       path.join(cwd, '.cursor', 'hooks', 'automem-session-start.mjs'),
     ]);
+  });
+
+  it('defaults Cursor to the plugin and parses the mode override', () => {
+    expect(parseInstallArgs([], {}).cursorMode).toBe('plugin');
+    expect(parseInstallArgs(['--cursor-mode', 'files'], {}).cursorMode).toBe('files');
+    expect(parseInstallArgs([], { AUTOMEM_CURSOR_MODE: 'files' }).cursorMode).toBe('files');
+    expect(
+      parseInstallArgs(['--cursor-mode', 'plugin'], { AUTOMEM_CURSOR_MODE: 'files' }).cursorMode
+    ).toBe('plugin');
+    expect(() => parseInstallArgs(['--cursor-mode', 'nope'])).toThrow(/invalid Cursor mode/i);
+  });
+
+  describe('Cursor plugin mode plan', () => {
+    const homeDir = '/Users/tester';
+    const cwd = '/repo/project';
+    const pluginDir = path.join(homeDir, '.cursor', 'plugins', 'local', 'automem');
+    const fileInstallPaths = [
+      path.join(homeDir, '.cursor', 'mcp.json'),
+      path.join(cwd, '.cursor', 'rules', 'automem.mdc'),
+    ];
+    const environment = () =>
+      detectInstallEnvironment({
+        homeDir,
+        cwd,
+        commandExists: () => true,
+        pathExists: () => true,
+      });
+    const options = (overrides: Record<string, unknown> = {}) =>
+      ({
+        target: 'existing',
+        clients: ['cursor'],
+        endpoint: 'https://memory.example',
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        cursorMode: 'plugin',
+        dryRun: true,
+        yes: false,
+        noAgentInstall: false,
+        ...overrides,
+      }) as Parameters<typeof buildInstallPlan>[0]['options'];
+
+    it('copies the local plugin and never plans the file-mode writes', () => {
+      const plan = buildInstallPlan({ options: options(), environment: environment() });
+      const cursorActions = plan.actions.filter((action) => action.client === 'cursor');
+
+      expect(cursorActions.map((action) => action.kind)).toEqual(['install-agent', 'manual-step']);
+      expect(cursorActions[0].title).toMatch(/Cursor plugin/);
+      expect(cursorActions[0].paths).toEqual([pluginDir]);
+      expect(cursorActions[1].detail).toContain('Customize → Automem → Configure');
+      const allPaths = plan.actions.flatMap((action) => action.paths);
+      expect(allPaths).not.toContain(path.join(homeDir, '.cursor', 'mcp.json'));
+      expect(allPaths).not.toContain(path.join(cwd, '.cursor', 'hooks.json'));
+
+      const rendered = renderInstallPlan(plan);
+      expect(rendered).toContain('.cursor/plugins/local/automem');
+      expect(rendered).toContain('Customize → Automem → Configure');
+      // Two Cursor stages are still one AI tool.
+      expect(rendered).toContain('1 AI tool');
+      expect(rendered).not.toContain('2 AI tools');
+    });
+
+    it('warns with the uninstall command when a file install is found and not removed', () => {
+      const plan = buildInstallPlan({
+        options: options({ yes: true, dryRun: false }),
+        environment: environment(),
+        cursorFileInstall: { paths: fileInstallPaths, remove: false },
+      });
+      const warning = plan.actions.find(
+        (action) => action.client === 'cursor' && action.kind === 'manual-step' && action.commands
+      );
+
+      expect(warning?.title).toMatch(/twice/i);
+      expect(warning?.commands?.[0]).toBe('npx @verygoodplugins/mcp-automem uninstall cursor');
+      // Nothing is removed silently: the found files are not planned as writes.
+      expect(plan.actions.flatMap((action) => action.paths)).toEqual([
+        path.join(cwd, '.env'),
+        pluginDir,
+      ]);
+    });
+
+    it('plans the removal when the user agreed to remove the file install', () => {
+      const plan = buildInstallPlan({
+        options: options({ dryRun: false }),
+        environment: environment(),
+        cursorFileInstall: { paths: fileInstallPaths, remove: true },
+      });
+      const removal = plan.actions.find(
+        (action) => action.client === 'cursor' && /Remove/.test(action.title)
+      );
+
+      expect(removal?.kind).toBe('install-agent');
+      expect(removal?.paths).toEqual(fileInstallPaths);
+      expect(plan.actions.some((action) => action.commands?.length)).toBe(false);
+    });
+
+    it('tells the user to remove a project-level MCP registration by hand', () => {
+      const projectMcp = path.join(cwd, '.cursor', 'mcp.json');
+      const plan = buildInstallPlan({
+        options: options({ dryRun: false }),
+        environment: environment(),
+        cursorFileInstall: { paths: [], remove: false, projectRegistrations: [projectMcp] },
+      });
+      const step = plan.actions.find(
+        (action) => action.client === 'cursor' && /project/i.test(action.title)
+      );
+
+      expect(step?.kind).toBe('manual-step');
+      expect(step?.detail).toContain(projectMcp);
+      expect(step?.detail).toMatch(/by hand/);
+      // The uninstall command does not touch project MCP files, so it is not offered here.
+      expect(plan.actions.some((action) => action.commands?.length)).toBe(false);
+      expect(plan.actions.flatMap((action) => action.paths)).toEqual([
+        path.join(cwd, '.env'),
+        pluginDir,
+      ]);
+    });
+
+    it('in files mode, warns about an installed plugin without removing it', () => {
+      const plan = buildInstallPlan({
+        options: options({ cursorMode: 'files', yes: true, dryRun: false }),
+        environment: environment(),
+        cursorLocalPlugin: { path: pluginDir, remove: false },
+      });
+      const cursorActions = plan.actions.filter((action) => action.client === 'cursor');
+
+      expect(cursorActions[0].title).toBe('Install Cursor integration');
+      const warning = cursorActions.find((action) => action.kind === 'manual-step');
+      expect(warning?.title).toMatch(/twice/i);
+      expect(warning?.detail).toContain('Customize');
+      expect(plan.actions.flatMap((action) => action.paths)).not.toContain(pluginDir);
+    });
+
+    it('in files mode, plans the plugin removal when the user agreed', () => {
+      const plan = buildInstallPlan({
+        options: options({ cursorMode: 'files', dryRun: false }),
+        environment: environment(),
+        cursorLocalPlugin: { path: pluginDir, remove: true },
+      });
+      const removal = plan.actions.find(
+        (action) => action.client === 'cursor' && /Remove the Cursor plugin/.test(action.title)
+      );
+
+      expect(removal?.kind).toBe('install-agent');
+      expect(removal?.paths).toEqual([pluginDir]);
+    });
+
+    it('ignores the plugin-presence signal in plugin mode (it is replaced in place)', () => {
+      const withSignal = buildInstallPlan({
+        options: options(),
+        environment: environment(),
+        cursorLocalPlugin: { path: pluginDir, remove: false },
+      });
+      expect(withSignal).toEqual(
+        buildInstallPlan({ options: options(), environment: environment() })
+      );
+    });
+
+    it('leaves files mode unchanged even when a file install is detected', () => {
+      const withDetection = buildInstallPlan({
+        options: options({ cursorMode: 'files' }),
+        environment: environment(),
+        cursorFileInstall: { paths: fileInstallPaths, remove: false },
+      });
+      const without = buildInstallPlan({
+        options: options({ cursorMode: 'files' }),
+        environment: environment(),
+      });
+      expect(withDetection).toEqual(without);
+    });
+  });
+
+  it('adds a Grok Bot plugin manual step after the Grok Build install', () => {
+    const plan = buildInstallPlan({
+      options: {
+        target: 'existing',
+        clients: ['grok'],
+        endpoint: 'https://memory.example',
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        cursorMode: 'plugin',
+        dryRun: true,
+        yes: false,
+        noAgentInstall: false,
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => false,
+      }),
+    });
+    const grokActions = plan.actions.filter((action) => action.client === 'grok');
+
+    expect(grokActions.map((action) => action.kind)).toEqual(['install-agent', 'manual-step']);
+    expect(grokActions[1].title).toContain('Grok Bot');
+    expect(grokActions[1].detail).toContain('Settings → Plugins');
+    expect(grokActions[1].detail).toContain('Grok Build CLI');
+    expect(renderInstallPlan(plan)).toContain('1 AI tool');
+  });
+
+  it('carries --cursor-mode in the equivalent command only when Cursor is selected', () => {
+    const base = {
+      target: 'existing' as const,
+      endpoint: 'https://memory.example',
+      hermesMode: 'mcp' as const,
+      apiKeyProvided: false,
+    };
+    expect(
+      equivalentInstallCommand({ ...base, clients: ['cursor'], cursorMode: 'files' })
+    ).toContain('--clients cursor --cursor-mode files');
+    expect(
+      equivalentInstallCommand({ ...base, clients: ['codex'], cursorMode: 'plugin' })
+    ).not.toContain('--cursor-mode');
+    expect(
+      equivalentInstallCommand({
+        ...base,
+        clients: ['cursor'],
+        cursorMode: 'plugin',
+        noAgentInstall: true,
+      })
+    ).not.toContain('--cursor-mode');
+  });
+
+  it('gives a plugin-mode Cursor fix hint that names the mode', () => {
+    expect(manualFixHint('cursor', { cursorMode: 'plugin' })).toContain(
+      'install --clients cursor --cursor-mode plugin'
+    );
+    expect(manualFixHint('cursor', { cursorMode: 'files' })).toContain('--cursor-mode files');
   });
 
   it('renders Hermes plan paths from HERMES_HOME when explicitly selected', () => {

@@ -48,7 +48,7 @@ node tests/e2e/interactive.mjs      # all routes (existing/cloud/local × plugin
 node tests/e2e/interactive.mjs claude   # filter by name substring
 ```
 
-Routes covered: `existing-cursor`, `existing-claude-plugin`, `existing-claude-settings`,
+Routes covered: `existing-cursor` (plugin), `existing-cursor-files`, `existing-claude-plugin`, `existing-claude-settings`,
 `cloud`, `local`, `existing-grok`. It self-heals node-pty's `spawn-helper` executable bit (a common
 post-install quirk that otherwise throws `posix_spawnp failed`). PTY allocation may be
 unavailable in some CI sandboxes, so this stays a local/dev gate, not a CI gate.
