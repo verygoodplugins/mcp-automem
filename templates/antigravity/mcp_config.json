@@ -2,7 +2,7 @@
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem"],
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
       "env": {
         "AUTOMEM_API_URL": "https://your-automem-instance.railway.app",
         "AUTOMEM_API_KEY": "your-api-key-if-required"

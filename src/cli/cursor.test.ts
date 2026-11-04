@@ -52,7 +52,7 @@ describe('Cursor setup', () => {
     await setup({ endpoint: 'https://new.example.test', apiKey: 'test-key', projectName: 'demo' });
     expect(read(configPath).mcpServers.memory).toMatchObject({
       command: 'npx',
-      args: ['-y', '@verygoodplugins/mcp-automem'],
+      args: ['-y', '@verygoodplugins/mcp-automem@latest'],
       env: {
         AUTOMEM_API_URL: 'https://new.example.test',
         AUTOMEM_API_KEY: 'test-key',
@@ -69,6 +69,17 @@ describe('Cursor setup', () => {
     expect(hooks.hooks.sessionStart).toHaveLength(1);
     expect(hooks.hooks.sessionStart[0].command).toContain('automem-session-start.mjs');
     expect(hooks.hooks).not.toHaveProperty('stop');
+  });
+
+  // An unpinned spec is one npm treats as the local project inside a clone of this
+  // repo, so npx fails with `mcp-automem: not found`. A re-run has to move an existing
+  // entry onto the dist-tag in place rather than leave it or add a second server.
+  it('moves an existing unpinned registration to @latest without adding a server', async () => {
+    write(configPath, { mcpServers: { memory: server() } });
+    await setup();
+    const servers = read(configPath).mcpServers;
+    expect(Object.keys(servers)).toEqual(['memory']);
+    expect(servers.memory.args).toEqual(['-y', '@verygoodplugins/mcp-automem@latest']);
   });
 
   it('preserves user config and hooks, reuses a verified custom server, and is idempotent', async () => {

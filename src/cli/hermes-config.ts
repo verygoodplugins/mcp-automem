@@ -12,6 +12,7 @@ import {
   readEndpointFrom,
   sameEndpoint,
 } from './host-toolkit.js';
+import { automemNpxArgs } from './templates.js';
 
 export interface HermesPaths {
   home: string;
@@ -95,7 +96,7 @@ export function buildAutoMemServerEntry(endpoint: string, apiKey?: string): Auto
   }
   return {
     command: 'npx',
-    args: ['-y', '@verygoodplugins/mcp-automem'],
+    args: automemNpxArgs(),
     env,
     tools: {
       include: [
@@ -289,7 +290,7 @@ function upsertViaYaml(
  * Register an MCP server into ~/.hermes/config.yaml. We write the YAML directly
  * rather than shelling out to `hermes mcp add`: the CLI's argparse `--args`
  * (nargs='*') cannot accept a value beginning with `-` (our entry needs
- * `npx -y @verygoodplugins/mcp-automem`), and driving it via execSync would also
+ * `npx -y @verygoodplugins/mcp-automem@latest`), and driving it via execSync would also
  * echo the API key to the terminal. Direct YAML editing is comment-preserving,
  * idempotent, and is exactly what `hermes mcp list` reads back.
  */

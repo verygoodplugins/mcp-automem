@@ -52,7 +52,7 @@ describe('grok-config', () => {
       const entry = buildGrokAutoMemServerEntry('https://api.example.com', 'sk-test');
       expect(entry).toEqual({
         command: 'npx',
-        args: ['-y', '@verygoodplugins/mcp-automem'],
+        args: ['-y', '@verygoodplugins/mcp-automem@latest'],
         enabled: true,
         env: {
           AUTOMEM_API_URL: 'https://api.example.com',
@@ -463,6 +463,54 @@ describe('grok-config', () => {
       }
 
       expect(fs.readFileSync(configPath, 'utf8')).toBe(original);
+    });
+
+    // An unpinned spec is one npm treats as the local project inside a clone of this
+    // repo, so npx fails with `mcp-automem: not found`. Every shape a pre-existing
+    // install can have must come out on the dist-tag, as the only AutoMem server.
+    it.each([
+      [
+        'block table',
+        [
+          '[mcp_servers.memory]',
+          'command = "npx"',
+          'args = ["-y", "@verygoodplugins/mcp-automem"]',
+          'enabled = true',
+          '',
+          '[mcp_servers.memory.env]',
+          'AUTOMEM_API_URL = "https://old.example"',
+          '',
+        ],
+      ],
+      [
+        'spaced array',
+        [
+          '[mcp_servers.memory]',
+          'command = "npx"',
+          'args = [ "-y", "@verygoodplugins/mcp-automem" ]',
+          '',
+        ],
+      ],
+      [
+        'inline table',
+        [
+          'mcp_servers.memory = { command = "npx", args = ["-y", "@verygoodplugins/mcp-automem"] }',
+          '',
+        ],
+      ],
+    ])('moves an unpinned %s entry to @latest in place', (_shape, lines) => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      fs.writeFileSync(configPath, lines.join('\n'));
+
+      upsertGrokMemoryServer(configPath, buildGrokAutoMemServerEntry('https://new.example'), {
+        quiet: true,
+      });
+
+      const parsed = parseToml(fs.readFileSync(configPath, 'utf8')) as {
+        mcp_servers: Record<string, { args?: string[] }>;
+      };
+      expect(Object.keys(parsed.mcp_servers)).toEqual(['memory']);
+      expect(parsed.mcp_servers.memory.args).toEqual(['-y', '@verygoodplugins/mcp-automem@latest']);
     });
 
     it('falls back to a full rewrite when the entry is an inline table', () => {

@@ -183,7 +183,7 @@ describe('openclaw cli helpers', () => {
         automem: {
           description: 'AutoMem memory service',
           command: 'npx',
-          args: ['-y', '@verygoodplugins/mcp-automem'],
+          args: ['-y', '@verygoodplugins/mcp-automem@latest'],
         },
         other: {
           command: 'uvx',

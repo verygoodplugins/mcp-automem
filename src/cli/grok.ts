@@ -178,7 +178,7 @@ export async function applyGrokSetup(cliOptions: GrokSetupOptions): Promise<void
   log('\n✨ Grok AutoMem setup complete! Next steps:', cliOptions.quiet);
   log('  1. Start a new Grok session (existing sessions keep the old MCP child)', cliOptions.quiet);
   log(
-    '  2. Confirm: grok mcp list  →  memory: npx -y @verygoodplugins/mcp-automem',
+    '  2. Confirm: grok mcp list  →  memory: npx -y @verygoodplugins/mcp-automem@latest',
     cliOptions.quiet
   );
   log(

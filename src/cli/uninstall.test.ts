@@ -35,7 +35,7 @@ describe('uninstall --clean-all preserves foreign Claude Desktop mcpServers', ()
         {
           mcpServers: {
             memory: { command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem'] },
-            automem: { command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem'] },
+            automem: { command: 'npx', args: ['-y', '@verygoodplugins/mcp-automem@latest'] },
             filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem'] },
           },
           globalShortcut: 'Cmd+Shift+Space',
