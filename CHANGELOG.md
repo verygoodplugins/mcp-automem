@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.18.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.17.0...mcp-automem-v0.18.0) (2026-11-04)
+
+
+### Features
+
+* **install:** --cursor-mode plugin|files and Cursor plugin orchestration ([#296](https://github.com/verygoodplugins/mcp-automem/issues/296)) ([e36da3c](https://github.com/verygoodplugins/mcp-automem/commit/e36da3c1eeb25f426c962272012a4cb71546c82f))
+* **plugin:** cursor-native hooks, plugin-scope rule, manifest parity ([#292](https://github.com/verygoodplugins/mcp-automem/issues/292)) ([73731ea](https://github.com/verygoodplugins/mcp-automem/commit/73731eaa26ecfdf091e825aa323452e8868d0179))
+
+
+### Bug Fixes
+
+* **desktop:** verify clean bundles throughout releases ([#279](https://github.com/verygoodplugins/mcp-automem/issues/279)) ([5472c09](https://github.com/verygoodplugins/mcp-automem/commit/5472c0982606937b8a715dd91caa5052fef12c3f))
+* **install:** run [@latest](https://github.com/latest) so npx works inside a clone ([#295](https://github.com/verygoodplugins/mcp-automem/issues/295)) ([5a52c64](https://github.com/verygoodplugins/mcp-automem/commit/5a52c64f911b1ed56462e7c9cb3db71a98a31997))
+* **mcp:** align tag and metadata tool descriptions with API behavior ([#277](https://github.com/verygoodplugins/mcp-automem/issues/277)) ([6f0add0](https://github.com/verygoodplugins/mcp-automem/commit/6f0add055a68653b7e326e568ac09f40709a4aec))
+* **openclaw:** preserve omitted and explicit update tags ([#275](https://github.com/verygoodplugins/mcp-automem/issues/275)) ([34486b7](https://github.com/verygoodplugins/mcp-automem/commit/34486b78b5b843e90a9c036f258ab110fef50c4f))
+* **policy:** align host tags and memory importance guidance ([#276](https://github.com/verygoodplugins/mcp-automem/issues/276)) ([a28550a](https://github.com/verygoodplugins/mcp-automem/commit/a28550afccfc6c0c2deab82adc07b79eb164bc9f))
+* **server:** detect the remote MCP sidecar given as AUTOMEM_API_URL ([#291](https://github.com/verygoodplugins/mcp-automem/issues/291)) ([69c9e8a](https://github.com/verygoodplugins/mcp-automem/commit/69c9e8a0135e579d73db8c7e89731ce7db600eeb))
+* **test:** require real service integration execution ([#278](https://github.com/verygoodplugins/mcp-automem/issues/278)) ([bc26559](https://github.com/verygoodplugins/mcp-automem/commit/bc26559b92c80ec321e3f36c718bc01fd99dc79a))
+
+
+### Performance Improvements
+
+* **server:** trim tool parameter descriptions ([#294](https://github.com/verygoodplugins/mcp-automem/issues/294)) ([4ee9bad](https://github.com/verygoodplugins/mcp-automem/commit/4ee9bad045bdc0bf0dd36b8bcc8e63a831ccd63d)), closes [#290](https://github.com/verygoodplugins/mcp-automem/issues/290)
+
 ## [0.17.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.16.0...mcp-automem-v0.17.0) (2026-10-20)
 
 

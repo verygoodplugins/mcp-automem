@@ -1,6 +1,6 @@
 {
   "name": "automem",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Persistent memory across conversations. Remember preferences, decisions, and project context with AutoMem.",
   "author": {
     "name": "Very Good Plugins",
