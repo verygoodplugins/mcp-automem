@@ -28,6 +28,7 @@ import {
 } from './cursor-config.js';
 import { UNINSTALL_PLATFORMS, type UninstallPlatform } from './clients.js';
 import { removeCursorLocalPlugin } from './cursor-plugin.js';
+import { AUTOMEM_NPX_COMMAND } from './templates.js';
 
 interface UninstallOptions {
   platform: UninstallPlatform;
@@ -762,13 +763,10 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
 
   if (options.platform === 'claude-code' && !options.cleanAll && !options.dryRun) {
     log('\nNote: To also remove the memory server from Claude Desktop config, run:', options.quiet);
-    log(
-      `  npx @verygoodplugins/mcp-automem uninstall ${options.platform} --clean-all`,
-      options.quiet
-    );
+    log(`  ${AUTOMEM_NPX_COMMAND} uninstall ${options.platform} --clean-all`, options.quiet);
   } else if (options.platform === 'copilot' && !options.cleanAll && !options.dryRun) {
     log('\nNote: To also remove the MCP server config from Copilot, run:', options.quiet);
-    log(`  npx @verygoodplugins/mcp-automem uninstall copilot --clean-all`, options.quiet);
+    log(`  ${AUTOMEM_NPX_COMMAND} uninstall copilot --clean-all`, options.quiet);
   }
 }
 

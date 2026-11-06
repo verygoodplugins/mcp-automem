@@ -9,6 +9,7 @@ import {
   buildHermesSnippet,
   buildMcpConfigJson,
   buildSummaryInstructions,
+  AUTOMEM_NPX_COMMAND,
   DEFAULT_AUTOMEM_API_URL,
 } from './templates.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
@@ -258,9 +259,9 @@ export async function runSetup(args: string[] = []): Promise<void> {
   // Always render the key as a placeholder — this snippet is meant to be
   // copy-pasted and shared; the real key lives in ~/.hermes/.env / config.yaml.
   console.log(buildHermesSnippet(endpoint, '${AUTOMEM_API_KEY}'));
-  console.log('\nOr run: npx @verygoodplugins/mcp-automem hermes');
+  console.log(`\nOr run: ${AUTOMEM_NPX_COMMAND} hermes`);
   console.log(
-    '\nUse `npx @verygoodplugins/mcp-automem config --format=json` to print this snippet again later.'
+    `\nUse \`${AUTOMEM_NPX_COMMAND} config --format=json\` to print this snippet again later.`
   );
 
   if (options.claudeCode) {

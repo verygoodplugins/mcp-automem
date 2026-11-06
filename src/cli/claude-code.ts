@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { AUTOMEM_NPX_COMMAND } from './templates.js';
 
 interface ClaudeCodeSetupOptions {
   targetDir?: string;
@@ -634,7 +635,7 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   const hasQueueHooks = output.includes('queue-cleanup.sh') || output.includes('mcp-automem queue');
   if (hadQueueHooks && !hasQueueHooks) {
     log(
-      'migrated: removed retired queue Stop hooks (queue-cleanup.sh, queue drainer) — the memory queue is manual-only via `npx @verygoodplugins/mcp-automem queue`',
+      `migrated: removed retired queue Stop hooks (queue-cleanup.sh, queue drainer) — the memory queue is manual-only via \`${AUTOMEM_NPX_COMMAND} queue\``,
       options.quiet
     );
   }

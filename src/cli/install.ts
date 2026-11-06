@@ -20,7 +20,7 @@ import { applyHermesSetup, type HermesInstallMode } from './hermes.js';
 import { applyGrokSetup } from './grok.js';
 import { applyOpenClawSetup } from './openclaw.js';
 import { resolveGrokPaths } from './grok-config.js';
-import { DEFAULT_AUTOMEM_API_URL } from './templates.js';
+import { AUTOMEM_NPX_COMMAND, DEFAULT_AUTOMEM_API_URL } from './templates.js';
 import { MCP_SIDECAR_FIX, hasMcpSidecarPath, isMcpSidecarHealth } from '../env.js';
 import {
   AUTOMEM_API_KEY_NAMES,
@@ -158,7 +158,7 @@ export type CursorFileInstallPlan = {
 /** An installed AutoMem Cursor plugin found next to a files-mode run. */
 export type CursorLocalPluginPlan = { path: string; remove: boolean };
 
-export const CURSOR_UNINSTALL_COMMAND = 'npx @verygoodplugins/mcp-automem uninstall cursor';
+export const CURSOR_UNINSTALL_COMMAND = `${AUTOMEM_NPX_COMMAND} uninstall cursor`;
 const CURSOR_PLUGIN_CONFIGURE_STEP =
   'Fully restart Cursor, then open Customize → Automem → Configure and enter your AutoMem REST URL and API key.';
 const GROK_BOT_PLUGIN_STEP =
@@ -457,7 +457,7 @@ export function equivalentInstallCommand(options: {
   yes?: boolean;
   apiKeyProvided: boolean;
 }): string {
-  const parts = ['npx @verygoodplugins/mcp-automem install', `--target ${options.target}`];
+  const parts = [`${AUTOMEM_NPX_COMMAND} install`, `--target ${options.target}`];
   // --endpoint is rejected with --target local (the local server always binds the
   // compose default), so never reconstruct one there.
   if (options.endpoint && options.target !== 'local')
@@ -1195,7 +1195,7 @@ function cursorPluginActions(
         paths: [],
         commands: [
           CURSOR_UNINSTALL_COMMAND,
-          'npx @verygoodplugins/mcp-automem install --clients cursor --cursor-mode plugin',
+          `${AUTOMEM_NPX_COMMAND} install --clients cursor --cursor-mode plugin`,
         ],
       });
     }
@@ -1753,17 +1753,17 @@ export function manualFixHint(
     case 'openclaw':
       return 'OpenClaw: run  openclaw plugins install @verygoodplugins/mcp-automem --force';
     case 'hermes':
-      return 'Hermes: re-run  npx @verygoodplugins/mcp-automem install --clients hermes';
+      return `Hermes: re-run  ${AUTOMEM_NPX_COMMAND} install --clients hermes`;
     case 'cursor':
       return modes.cursorMode
-        ? `Cursor: re-run  npx @verygoodplugins/mcp-automem install --clients cursor --cursor-mode ${modes.cursorMode}`
-        : 'Cursor: re-run  npx @verygoodplugins/mcp-automem install --clients cursor';
+        ? `Cursor: re-run  ${AUTOMEM_NPX_COMMAND} install --clients cursor --cursor-mode ${modes.cursorMode}`
+        : `Cursor: re-run  ${AUTOMEM_NPX_COMMAND} install --clients cursor`;
     case 'codex':
-      return 'Codex: re-run  npx @verygoodplugins/mcp-automem install --clients codex';
+      return `Codex: re-run  ${AUTOMEM_NPX_COMMAND} install --clients codex`;
     case 'claude-code':
-      return 'Claude Code: re-run  npx @verygoodplugins/mcp-automem install --clients claude-code';
+      return `Claude Code: re-run  ${AUTOMEM_NPX_COMMAND} install --clients claude-code`;
     case 'grok':
-      return 'Grok: re-run  npx @verygoodplugins/mcp-automem install --clients grok';
+      return `Grok: re-run  ${AUTOMEM_NPX_COMMAND} install --clients grok`;
   }
 }
 
@@ -2573,7 +2573,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           spin.error('AutoMem is not responding yet');
           throw new InstallError(
             `AutoMem deployed, but ${endpoint} isn't responding yet.`,
-            `A multi-service deploy can take a few minutes. Check the provider's logs (e.g. \`railway logs\`), then finish with:\n  npx @verygoodplugins/mcp-automem install --target existing --endpoint ${endpoint}${apiKey ? ' --api-key YOUR_KEY_HERE' : ''}`
+            `A multi-service deploy can take a few minutes. Check the provider's logs (e.g. \`railway logs\`), then finish with:\n  ${AUTOMEM_NPX_COMMAND} install --target existing --endpoint ${endpoint}${apiKey ? ' --api-key YOUR_KEY_HERE' : ''}`
           );
         }
       }
@@ -2831,7 +2831,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       nextSteps.splice(
         1,
         0,
-        'Connect one: npx @verygoodplugins/mcp-automem install --clients claude-code (or your tool).'
+        `Connect one: ${AUTOMEM_NPX_COMMAND} install --clients claude-code (or your tool).`
       );
     }
     const cardTitle =

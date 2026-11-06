@@ -17,6 +17,7 @@ import { runGrokSetup } from './cli/grok.js';
 import { runMigrateCommand } from './cli/migrate.js';
 import { runUninstallCommand } from './cli/uninstall.js';
 import { runQueueCommand } from './cli/queue.js';
+import { AUTOMEM_NPX_COMMAND } from './cli/templates.js';
 import { AutoMemClient } from './automem-client.js';
 import { parseWatchdogIntervalMs, startParentWatchdog } from './lifecycle.js';
 import { readAutoMemApiKeyFromEnv, resolveAutoMemApiUrl } from './env.js';
@@ -130,7 +131,7 @@ if (command === 'help' || command === '--help' || command === '-h') {
 AutoMem MCP Server - AI Memory Storage & Recall
 
 USAGE:
-  npx @verygoodplugins/mcp-automem <command> [options]
+  ${AUTOMEM_NPX_COMMAND} <command> [options]
 
 COMMANDS:
   setup              Alias of install (the guided installer)
@@ -150,7 +151,7 @@ COMMANDS:
   help               Show this help message
 
         CURSOR SETUP:
-          npx @verygoodplugins/mcp-automem cursor [options]
+          ${AUTOMEM_NPX_COMMAND} cursor [options]
 
           Options:
             --name <name>           Project name (auto-detected if not provided)
@@ -168,7 +169,7 @@ COMMANDS:
           For guided endpoint and credential setup, run the install command from your project.
 
 CLAUDE CODE SETUP:
-  npx @verygoodplugins/mcp-automem claude-code [options]
+  ${AUTOMEM_NPX_COMMAND} claude-code [options]
 
   Settings-level install. Recommended alternative: the AutoMem plugin
   (/plugin marketplace add verygoodplugins/mcp-automem, then
@@ -186,7 +187,7 @@ CLAUDE CODE SETUP:
 ${COPILOT_USAGE}
 
 MIGRATION:
-  npx @verygoodplugins/mcp-automem migrate --from <source> --to <target>
+  ${AUTOMEM_NPX_COMMAND} migrate --from <source> --to <target>
   
   Options:
     --from <manual|none>   Source configuration
@@ -196,7 +197,7 @@ MIGRATION:
     --yes, -y             Skip confirmation
 
 UNINSTALL:
-  npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes|grok> [options]
+  ${AUTOMEM_NPX_COMMAND} uninstall <cursor|claude-code|codex|hermes|grok> [options]
 
   Options:
     --dir <path>          Project / hermes-home / grok-home directory
@@ -206,7 +207,7 @@ UNINSTALL:
     --yes, -y           Skip confirmation
 
 RECALL:
-  npx @verygoodplugins/mcp-automem recall [options]
+  ${AUTOMEM_NPX_COMMAND} recall [options]
   
   Options:
     --query <text>        Search query
@@ -215,25 +216,25 @@ RECALL:
 
         EXAMPLES:
           # Set up Cursor MCP server, project rules, and session-start hook
-          npx @verygoodplugins/mcp-automem cursor
+          ${AUTOMEM_NPX_COMMAND} cursor
 
           # Set up with custom project name
-          npx @verygoodplugins/mcp-automem cursor --name my-project
+          ${AUTOMEM_NPX_COMMAND} cursor --name my-project
 
           # Preview Claude Code setup without changing anything
-          npx @verygoodplugins/mcp-automem claude-code --dry-run
+          ${AUTOMEM_NPX_COMMAND} claude-code --dry-run
 
           # Migrate manual memory usage to Cursor
-          npx @verygoodplugins/mcp-automem migrate --from manual --to cursor
+          ${AUTOMEM_NPX_COMMAND} migrate --from manual --to cursor
 
           # Uninstall Cursor AutoMem
-          npx @verygoodplugins/mcp-automem uninstall cursor
+          ${AUTOMEM_NPX_COMMAND} uninstall cursor
 
           # Recall memories matching a query
-          npx @verygoodplugins/mcp-automem recall --query "authentication decisions" --limit 5
+          ${AUTOMEM_NPX_COMMAND} recall --query "authentication decisions" --limit 5
 
 CODEX SETUP:
-  npx @verygoodplugins/mcp-automem codex [options]
+  ${AUTOMEM_NPX_COMMAND} codex [options]
   
   Options:
     --name <name>         Project name (auto-detected if not provided)
@@ -242,7 +243,7 @@ CODEX SETUP:
     --quiet               Suppress output
 
 HERMES SETUP:
-  npx @verygoodplugins/mcp-automem hermes [options]
+  ${AUTOMEM_NPX_COMMAND} hermes [options]
 
   Options:
     --dir <path>          Hermes home directory (default: $HERMES_HOME or ~/.hermes)
@@ -255,7 +256,7 @@ HERMES SETUP:
     --quiet               Suppress output
 
 GROK SETUP:
-  npx @verygoodplugins/mcp-automem grok [options]
+  ${AUTOMEM_NPX_COMMAND} grok [options]
 
   Writes native ~/.grok/config.toml [mcp_servers.memory] with AUTOMEM_* env
   (required — Claude/Cursor compat imports can drop env and fail with fetch failed).
@@ -270,7 +271,7 @@ GROK SETUP:
     --quiet               Suppress output
 
 OPENCLAW SETUP:
-  npx @verygoodplugins/mcp-automem openclaw [options]
+  ${AUTOMEM_NPX_COMMAND} openclaw [options]
 
   Recommended happy path:
     curl -fsSL https://automem.ai/install.sh | bash
@@ -288,7 +289,7 @@ OPENCLAW SETUP:
     --quiet                     Suppress output
 
 GUIDED INSTALL:
-  npx @verygoodplugins/mcp-automem install [options]
+  ${AUTOMEM_NPX_COMMAND} install [options]
 
   Walks you through where AutoMem runs (Hosted Cloud / Local Docker / Existing
   Endpoint), verifies the endpoint, writes .env, and configures your agents.
@@ -434,7 +435,7 @@ const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
 if (automemApiUrlSource === 'default') {
   if (isInteractiveTerminal()) {
     console.warn(
-      '⚠️  AUTOMEM_API_URL not set. Run `npx @verygoodplugins/mcp-automem install` or export the environment variable before connecting.'
+      `⚠️  AUTOMEM_API_URL not set. Run \`${AUTOMEM_NPX_COMMAND} install\` or export the environment variable before connecting.`
     );
   }
 } else if (automemApiUrlSource === 'AUTOMEM_ENDPOINT') {

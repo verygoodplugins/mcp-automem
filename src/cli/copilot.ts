@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { AUTOMEM_NPX_COMMAND } from './templates.js';
 import {
   COPILOT_HOOK_EVENT_NAMES,
   resolveCopilotHome,
@@ -647,7 +648,7 @@ export async function applyCopilotSetup(cliOptions: CopilotSetupOptions): Promis
  * src/index.ts, so the two can't drift.
  */
 export const COPILOT_USAGE = `COPILOT SETUP:
-  npx @verygoodplugins/mcp-automem copilot [options]
+  ${AUTOMEM_NPX_COMMAND} copilot [options]
 
   Options:
     --format <cli|vscode|both>  Memory rules and hook event name casing. cli = camelCase

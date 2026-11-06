@@ -168,7 +168,7 @@ describe('Cursor MCP host boundary', () => {
       // --yes never removes the file install; it warns with the uninstall command.
       expect(fs.readFileSync(configPath, 'utf8')).toBe(seeded);
       expect(output).toMatch(/twice/i);
-      expect(output).toContain('npx @verygoodplugins/mcp-automem uninstall cursor');
+      expect(output).toContain('npx @verygoodplugins/mcp-automem@latest uninstall cursor');
       expect(output).toContain('Customize → Automem → Configure');
       // No project-level file-mode artifacts.
       expect(fs.existsSync(path.join(project, '.cursor', 'rules'))).toBe(false);
