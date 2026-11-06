@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { isAutoMemServerEntry, log } from './host-toolkit.js';
+import { isAutoMemServerEntry, isRecord, log } from './host-toolkit.js';
 import { readCursorDocument } from './cursor-config.js';
 
 /** The `name` in plugins/automem/.cursor-plugin/plugin.json, and the local folder name. */
@@ -35,7 +36,7 @@ function lstatOrUndefined(target: string): fs.Stats | undefined {
   }
 }
 
-function readManifest(dir: string): { name?: unknown; version?: unknown } | undefined {
+function readManifest(dir: string): Record<string, unknown> | undefined {
   try {
     const parsed = JSON.parse(
       fs.readFileSync(path.join(dir, '.cursor-plugin', 'plugin.json'), 'utf8')
@@ -64,6 +65,8 @@ export interface CursorPluginInstallOptions {
   sourceDir?: string;
   dryRun?: boolean;
   quiet?: boolean;
+  /** Configure the local copy without placing credentials in its public manifest. */
+  connection?: { endpoint: string; apiKey?: string };
 }
 
 export interface CursorPluginInstallResult {
@@ -72,6 +75,62 @@ export interface CursorPluginInstallResult {
   /** True when an earlier copy was swapped out. */
   replaced: boolean;
   dryRun: boolean;
+}
+
+/** Credentials are removed with the local plugin and never copied into its manifest. */
+export function cursorPluginConnectionPath(homeDir: string = os.homedir()): string {
+  return path.join(cursorLocalPluginDir(homeDir), 'cursor', 'connection.json');
+}
+
+function configureStagedPlugin(
+  staging: string,
+  connection: { endpoint: string; apiKey?: string }
+): void {
+  const manifestPath = path.join(staging, '.cursor-plugin', 'plugin.json');
+  const manifest = readManifest(staging);
+  if (!manifest || !isRecord(manifest.mcpServers) || !isRecord(manifest.mcpServers.memory)) {
+    throw new Error('The bundled Cursor plugin has no AutoMem MCP server.');
+  }
+  if (!connection.endpoint) {
+    throw new Error('The Cursor plugin connection is missing.');
+  }
+  const server = { ...manifest.mcpServers.memory };
+  // The local copy loads a private file instead of asking Cursor's variables form.
+  // Keep the bundled marketplace manifest and its configuration schema unchanged.
+  // A fresh non-secret revision makes Cursor reconnect after a re-install. Blank
+  // legacy env names so unrelated inherited keys do not reach the process.
+  server.env = {
+    AUTOMEM_CONNECTION_FILE: '${CURSOR_PLUGIN_ROOT}/cursor/connection.json',
+    AUTOMEM_CURSOR_REVISION: randomUUID(),
+    AUTOMEM_API_URL: '',
+    AUTOMEM_ENDPOINT: '',
+    AUTOMEM_API_KEY: '',
+    AUTOMEM_API_TOKEN: '',
+    CLAUDE_PLUGIN_OPTION_API_URL: '',
+    CLAUDE_PLUGIN_OPTION_api_url: '',
+    CLAUDE_PLUGIN_OPTION_API_KEY: '',
+    CLAUDE_PLUGIN_OPTION_api_key: '',
+    CLAUDE_PLUGIN_OPTION_API_TOKEN: '',
+    CLAUDE_PLUGIN_OPTION_api_token: '',
+  };
+  delete server.envFile;
+  delete manifest.variables;
+  manifest.mcpServers = { ...manifest.mcpServers, memory: server };
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+  const connectionPath = path.join(staging, 'cursor', 'connection.json');
+  // Exclusive creation refuses an unexpected file or symlink in the bundle.
+  const fd = fs.openSync(connectionPath, 'wx', 0o600);
+  try {
+    fs.writeFileSync(
+      fd,
+      `${JSON.stringify({ endpoint: connection.endpoint, apiKey: connection.apiKey ?? '' })}\n`,
+      'utf8'
+    );
+    if (process.platform !== 'win32') fs.fchmodSync(fd, 0o600);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function sweepSwapLeftovers(pluginsRoot: string): void {
@@ -140,6 +199,7 @@ export function installCursorPlugin(
   const retired = path.join(pluginsRoot, `.automem-old-${stamp}`);
   try {
     fs.cpSync(sourceDir, staging, { recursive: true, dereference: true });
+    if (options.connection) configureStagedPlugin(staging, options.connection);
     if (existing) fs.renameSync(pluginDir, retired);
     try {
       fs.renameSync(staging, pluginDir);

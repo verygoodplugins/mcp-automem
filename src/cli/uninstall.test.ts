@@ -5,6 +5,7 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { removeManagedHookEntries } from './claude-code.js';
 import { applyCursorSetup } from './cursor.js';
+import { applyCodexSetup } from './codex.js';
 import { cursorLocalPluginDir, installCursorPlugin } from './cursor-plugin.js';
 import { parseUninstallArgs, runUninstall } from './uninstall.js';
 
@@ -17,12 +18,14 @@ describe('uninstall --clean-all preserves foreign Claude Desktop mcpServers', ()
 
   beforeEach(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-uninstall-claude-desktop-'));
+    vi.stubEnv('CODEX_HOME', path.join(home, '.codex'));
     vi.spyOn(os, 'homedir').mockReturnValue(home);
     vi.spyOn(os, 'platform').mockReturnValue('darwin');
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     fs.rmSync(home, { recursive: true, force: true });
   });
 
@@ -568,9 +571,11 @@ describe('uninstall codex', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-uninstall-codex-'));
+    vi.stubEnv('CODEX_HOME', path.join(tmpDir, '.codex'));
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -581,6 +586,67 @@ describe('uninstall codex', () => {
       projectDir: '/x',
       yes: true,
     });
+  });
+
+  it('removes the owned MCP registration and private connection, preserving other servers', async () => {
+    const codexHome = path.join(tmpDir, '.codex');
+    fs.mkdirSync(codexHome);
+    const configPath = path.join(codexHome, 'config.toml');
+    fs.writeFileSync(configPath, '# Keep my config\n[mcp_servers.other]\ncommand = "other"\n');
+    await applyCodexSetup({
+      rulesPath: path.join(tmpDir, 'AGENTS.md'),
+      endpoint: 'https://example.test',
+      apiKey: 'test-only-key',
+      quiet: true,
+    });
+    const connectionPath = path.join(codexHome, 'automem', 'connection.json');
+    await runUninstall({ platform: 'codex', projectDir: tmpDir, yes: true, quiet: true });
+    const config = fs.readFileSync(configPath, 'utf8');
+    expect(config).toContain('# Keep my config');
+    expect(config).toContain('[mcp_servers.other]');
+    expect(config).not.toContain('[mcp_servers.memory]');
+    expect(fs.existsSync(connectionPath)).toBe(false);
+    expect(fs.existsSync(path.dirname(connectionPath))).toBe(false);
+  });
+
+  it('leaves unrelated files in the Codex AutoMem directory on uninstall', async () => {
+    await applyCodexSetup({
+      rulesPath: path.join(tmpDir, 'AGENTS.md'),
+      endpoint: 'https://example.test',
+      apiKey: 'test-only-key',
+      quiet: true,
+    });
+    const userFile = path.join(tmpDir, '.codex', 'automem', 'notes.txt');
+    fs.writeFileSync(userFile, 'keep');
+    await runUninstall({ platform: 'codex', projectDir: tmpDir, yes: true, quiet: true });
+    expect(fs.readFileSync(userFile, 'utf8')).toBe('keep');
+    expect(fs.existsSync(path.join(path.dirname(userFile), 'connection.json'))).toBe(false);
+  });
+
+  it('keeps a foreign memory server and does not remove anything during a dry run', async () => {
+    const codexHome = path.join(tmpDir, '.codex');
+    await applyCodexSetup({
+      rulesPath: path.join(tmpDir, 'AGENTS.md'),
+      endpoint: 'https://example.test',
+      apiKey: 'test-only-key',
+      quiet: true,
+    });
+    const configPath = path.join(codexHome, 'config.toml');
+    const connectionPath = path.join(codexHome, 'automem', 'connection.json');
+    const original = fs.readFileSync(configPath, 'utf8');
+    await runUninstall({
+      platform: 'codex',
+      projectDir: tmpDir,
+      yes: true,
+      dryRun: true,
+      quiet: true,
+    });
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(original);
+    expect(fs.existsSync(connectionPath)).toBe(true);
+    fs.writeFileSync(configPath, '[mcp_servers.memory]\ncommand = "foreign"\n');
+    await runUninstall({ platform: 'codex', projectDir: tmpDir, yes: true, quiet: true });
+    expect(fs.readFileSync(configPath, 'utf8')).toContain('foreign');
+    expect(fs.existsSync(connectionPath)).toBe(true);
   });
 
   it('strips the AutoMem block from AGENTS.md and leaves a backup', async () => {

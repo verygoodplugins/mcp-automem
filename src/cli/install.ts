@@ -6,9 +6,11 @@ import { execFileSync, spawnSync } from 'child_process';
 import { AGENT_CLIENTS, DEFAULT_AGENT_CLIENTS, type AgentClient } from './clients.js';
 import { applyClaudeCodeSetup } from './claude-code.js';
 import { applyCodexSetup } from './codex.js';
+import { resolveCodexPaths } from './codex-config.js';
 import { applyCursorSetup } from './cursor.js';
 import {
   CURSOR_PLUGIN_NAME,
+  cursorPluginConnectionPath,
   cursorLocalPluginDir,
   detectCursorFileInstall,
   installCursorPlugin,
@@ -30,6 +32,20 @@ import {
   writeFileWithBackup,
 } from './host-toolkit.js';
 import { provisionViaInstaPodsLink, provisionViaRailway } from './cloud/installer-bridge.js';
+import { promptWelcomeTarget, startWelcome, welcomeTargets } from './welcome.js';
+import {
+  LOCAL_PORTS,
+  chooseLocalPorts,
+  discoverPreferredLocalServer,
+  dockerRunning,
+  inspectLocalVersion,
+  launchDocker,
+  portEnv,
+  readLocalPorts,
+  waitForDocker,
+  type LocalDockerPlan,
+  type LocalPorts,
+} from './local-docker.js';
 // Re-exported so existing importers (and install.test.ts) keep a stable path.
 export { formatEnvValue } from './host-toolkit.js';
 import { playInstallerSplash, shouldUseInstallerAnimation } from './install-ui.js';
@@ -159,8 +175,6 @@ export type CursorFileInstallPlan = {
 export type CursorLocalPluginPlan = { path: string; remove: boolean };
 
 export const CURSOR_UNINSTALL_COMMAND = `${AUTOMEM_NPX_COMMAND} uninstall cursor`;
-const CURSOR_PLUGIN_CONFIGURE_STEP =
-  'Fully restart Cursor, then open Customize → Automem → Configure and enter your AutoMem REST URL and API key.';
 const GROK_BOT_PLUGIN_STEP =
   'For Grok Bot (mobile), add the AutoMem plugin in Grok Bot under Settings → Plugins and enter your REST URL and key there. The `grok` command configured here is the Grok Build CLI; Grok Bot does not read its config.';
 
@@ -195,6 +209,8 @@ export type ParsedInstallOptions = {
   dryRun: boolean;
   yes: boolean;
   noAgentInstall: boolean;
+  /** Skip the optional, user-visible first conversation. */
+  noWelcome?: boolean;
   /** True only when `--endpoint` was on the argv — not when the URL came from env. */
   endpointFromFlag: boolean;
   /** True only when `--api-key` was on the argv — not when the key came from env. */
@@ -203,6 +219,7 @@ export type ParsedInstallOptions = {
 
 export type ResolvedInstallOptions = ParsedInstallOptions & {
   target: InstallTarget;
+  localDocker?: LocalDockerPlan;
 };
 
 export type DetectedClient = {
@@ -243,6 +260,7 @@ export type InstallPlan = {
   endpoint?: string;
   apiKeyProvided: boolean;
   localDir: string;
+  localPorts?: LocalPorts;
   requiresReview: boolean;
   // A preview renders the same stages and the same file paths as a real run, so
   // the renderer needs to know which one this is to label them honestly.
@@ -283,6 +301,8 @@ type VerifyEndpointOptions = {
    * any AutoMem status string (the original identity check).
    */
   requireHealthy?: boolean;
+  /** Probe recall even without a key, for a reused server whose auth is unknown. */
+  verifyRecall?: boolean;
   /**
    * Absolute `Date.now()` cutoff for the whole verify (health + optional recall).
    * Each probe aborts when this instant is reached so a slow health body cannot
@@ -454,12 +474,24 @@ export function equivalentInstallCommand(options: {
   hermesMode?: HermesInstallMode;
   localDir?: string;
   noAgentInstall?: boolean;
+  noWelcome?: boolean;
   yes?: boolean;
   apiKeyProvided: boolean;
+  localDocker?: LocalDockerPlan;
 }): string {
   const parts = [`${AUTOMEM_NPX_COMMAND} install`, `--target ${options.target}`];
-  // --endpoint is rejected with --target local (the local server always binds the
-  // compose default), so never reconstruct one there.
+  if (
+    options.target === 'local' &&
+    options.localDocker?.mode === 'new' &&
+    Object.entries(options.localDocker.ports).some(
+      ([key, port]) => port !== LOCAL_PORTS[key as keyof typeof LOCAL_PORTS].defaultPort
+    )
+  ) {
+    parts[0] = `${Object.entries(portEnv(options.localDocker.ports))
+      .map(([key, value]) => `${key}=${value}`)
+      .join(' ')} ${parts[0]}`;
+  }
+  // --endpoint is rejected with --target local; its port comes from Compose.
   if (options.endpoint && options.target !== 'local')
     parts.push(`--endpoint ${shellQuote(options.endpoint)}`);
   if (options.target === 'cloud' && options.cloudProvider)
@@ -475,6 +507,7 @@ export function equivalentInstallCommand(options: {
   // explicit flag.
   if (options.noAgentInstall || options.clients.length === 0) parts.push('--no-agent-install');
   else parts.push(`--clients ${options.clients.join(',')}`);
+  if (options.noWelcome) parts.push('--no-welcome');
   if (!options.noAgentInstall && options.clients.includes('claude-code') && options.claudeCodeMode)
     parts.push(`--claude-code-mode ${options.claudeCodeMode}`);
   if (!options.noAgentInstall && options.clients.includes('cursor') && options.cursorMode)
@@ -587,6 +620,7 @@ export function localHealthRecoveryHint(params: {
   const dir = shellQuote(params.localDir);
   const inspect = params.inspect ?? inspectLocalHealth(params.localDir);
   const healthUrl = `${params.endpoint.replace(/\/$/, '')}/health`;
+  const apiPort = new URL(params.endpoint).port || '8001';
   const lines = [
     `Docker Compose started the containers, then we waited for GET ${healthUrl}.`,
     explainLocalHealthFailure(params.waitMessage),
@@ -597,8 +631,8 @@ export function localHealthRecoveryHint(params: {
     `     cd ${dir} && docker compose ps`,
     '3. If flask-api is Exited or Restarting, read the crash:',
     `     cd ${dir} && docker compose logs flask-api --tail 80`,
-    '4. If port 8001 is taken by something else:',
-    '     docker ps    # or: lsof -iTCP:8001 -sTCP:LISTEN',
+    `4. If port ${apiPort} is taken by something else:`,
+    `     docker ps    # or: lsof -iTCP:${apiPort} -sTCP:LISTEN`,
     '     Stop that process, then re-run.',
     '5. First start after a rebuild can take a couple of minutes. Watch logs, wait until /health works, then:',
     `     ${params.retryCommand}`,
@@ -728,6 +762,7 @@ export function parseInstallArgs(
   let dryRun = parseBooleanEnv(env.AUTOMEM_DRY_RUN);
   let yes = parseBooleanEnv(env.AUTOMEM_YES);
   let noAgentInstall = parseBooleanEnv(env.AUTOMEM_NO_AGENT_INSTALL);
+  let noWelcome = parseBooleanEnv(env.AUTOMEM_NO_WELCOME);
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -784,6 +819,9 @@ export function parseInstallArgs(
       case '--no-agent-install':
         noAgentInstall = true;
         break;
+      case '--no-welcome':
+        noWelcome = true;
+        break;
       default:
         break;
     }
@@ -816,6 +854,7 @@ export function parseInstallArgs(
     dryRun,
     yes,
     noAgentInstall,
+    ...(noWelcome ? { noWelcome: true } : {}),
     endpointFromFlag,
     apiKeyFromFlag,
   };
@@ -844,7 +883,7 @@ export function detectInstallEnvironment(options: DetectOptions = {}): InstallEn
   const pathExists = options.pathExists ?? fs.existsSync;
   const commandExists = options.commandExists ?? defaultCommandExists;
   const clientRoots: Record<AgentClient, string> = {
-    codex: path.join(homeDir, '.codex'),
+    codex: resolveCodexPaths({ homeDir, env }).home,
     'claude-code': path.join(homeDir, '.claude'),
     cursor: path.join(homeDir, '.cursor'),
     openclaw: path.join(homeDir, '.openclaw'),
@@ -902,11 +941,11 @@ function agentPaths(
 ): string[] {
   switch (client) {
     case 'codex':
-      // Only AGENTS.md is written by the codex installer. The MCP server
-      // registration in ~/.codex/config.toml is advice-only (codex.ts logs a
-      // pointer at templates/codex/config.toml, it never writes the file), so
-      // listing it here would make the plan promise a write that never happens.
-      return [path.join(environment.cwd, 'AGENTS.md')];
+      return [
+        path.join(environment.cwd, 'AGENTS.md'),
+        resolveCodexPaths({ dir: environment.clientRoots.codex }).configPath,
+        resolveCodexPaths({ dir: environment.clientRoots.codex }).connectionPath,
+      ];
     case 'claude-code':
       return [
         path.join(environment.homeDir, '.claude', 'settings.json'),
@@ -935,7 +974,7 @@ function displayKey(apiKey: string | undefined): string | undefined {
   return apiKey ? REDACTED : undefined;
 }
 
-// Local Docker always binds DEFAULT_AUTOMEM_API_URL. An inherited AUTOMEM_API_URL
+// Local Docker binds the selected API port. An inherited AUTOMEM_API_URL
 // from a project .env is not `--endpoint` — treating it as such aborted the
 // interactive Local Docker path. Pin unless the operator passed `--endpoint`.
 // A key inherited alongside a foreign URL is paired to that URL, so drop it
@@ -943,11 +982,16 @@ function displayKey(apiKey: string | undefined): string | undefined {
 export function pinLocalInstallOptions(options: ResolvedInstallOptions): ResolvedInstallOptions {
   if (options.target !== 'local') return options;
   if (options.endpointFromFlag) return options;
-  const foreign =
-    Boolean(options.endpoint) && !sameEndpoint(options.endpoint, DEFAULT_AUTOMEM_API_URL);
+  const localEndpoint =
+    options.localDocker?.mode === 'reuse'
+      ? options.localDocker.endpoint
+      : options.localDocker?.mode === 'new'
+        ? `http://127.0.0.1:${options.localDocker.ports.AUTOMEM_API_HOST_PORT}`
+        : DEFAULT_AUTOMEM_API_URL;
+  const foreign = Boolean(options.endpoint) && !sameEndpoint(options.endpoint, localEndpoint);
   return {
     ...options,
-    endpoint: DEFAULT_AUTOMEM_API_URL,
+    endpoint: localEndpoint,
     apiKey: foreign && !options.apiKeyFromFlag ? undefined : options.apiKey,
   };
 }
@@ -963,11 +1007,8 @@ export function buildInstallPlan(params: {
   const options = pinLocalInstallOptions(params.options);
   const { environment } = params;
   const localDir = options.localDir ?? defaultLocalDir(environment.homeDir);
-  // The local server always binds DEFAULT_AUTOMEM_API_URL (docker compose). A custom
-  // --endpoint with --target local would be shown in the approved plan but silently
-  // discarded at write time, so reject the contradiction up front rather than
-  // persisting a different endpoint than the user approved. Inherited env URLs are
-  // pinned above — only an explicit `--endpoint` flag is this contradiction.
+  // A custom --endpoint is not a local Compose host-port setting. Inherited env
+  // URLs are pinned above; only an explicit flag is a contradiction.
   if (
     options.target === 'local' &&
     options.endpointFromFlag &&
@@ -975,21 +1016,32 @@ export function buildInstallPlan(params: {
     options.endpoint.replace(/\/$/, '') !== DEFAULT_AUTOMEM_API_URL.replace(/\/$/, '')
   ) {
     throw new InstallError(
-      `--endpoint is not supported with --target local — the local server always binds ${DEFAULT_AUTOMEM_API_URL}.`,
-      'Use --target existing to point AutoMem at a custom endpoint.'
+      '--endpoint is not supported with --target local.',
+      'Choose an API port during local setup, or use --target existing for another endpoint.'
     );
   }
-  const endpoint = options.target === 'local' ? DEFAULT_AUTOMEM_API_URL : options.endpoint;
+  const endpoint = options.endpoint;
   const actions: InstallAction[] = [];
 
   if (options.target === 'local') {
+    const reuse = options.localDocker?.mode === 'reuse' ? options.localDocker : undefined;
     actions.push({
       kind: 'prepare-local',
-      title: 'Prepare local AutoMem server',
-      detail: `Clone or update ${AUTOMEM_REPO}, write local tokens, and start Docker Compose in ${localDir}.`,
-      paths: [localDir, path.join(localDir, '.env')],
-      command: `git clone ${AUTOMEM_REPO} ${localDir} && docker compose up -d --build`,
-      secret: true,
+      title: reuse
+        ? reuse.update
+          ? 'Update running AutoMem server'
+          : 'Use running AutoMem server'
+        : 'Prepare local AutoMem server',
+      detail: reuse
+        ? reuse.update
+          ? `Update the existing ${reuse.version} checkout and rebuild its API, keeping the database containers running.`
+          : `Use the existing ${reuse.version} server without rebuilding it.`
+        : `Clone or update ${AUTOMEM_REPO}, write local tokens and port settings, and start Docker Compose in ${localDir}.`,
+      paths: reuse ? [] : [localDir, path.join(localDir, '.env')],
+      command: reuse
+        ? undefined
+        : `git clone ${AUTOMEM_REPO} ${localDir} && docker compose up -d --build`,
+      secret: !reuse,
     });
   } else if (options.target === 'cloud' && !options.endpoint && options.cloudProvider !== 'other') {
     // InstaPods + Railway produce the endpoint + token during apply (after this plan
@@ -1100,6 +1152,7 @@ export function buildInstallPlan(params: {
     endpoint,
     apiKeyProvided: Boolean(options.apiKey),
     localDir,
+    localPorts: options.localDocker?.mode === 'new' ? options.localDocker.ports : undefined,
     requiresReview: actions.some(
       (action) => action.paths.length > 0 || action.kind === 'prepare-local'
     ),
@@ -1143,7 +1196,7 @@ function cursorLocalPluginAction(plugin: CursorLocalPluginPlan): InstallAction {
     : {
         kind: 'manual-step',
         title: 'AutoMem Cursor plugin found: AutoMem would load twice',
-        detail: `Not removed automatically. Disable AutoMem in Cursor → Customize, or delete ${tildify(plugin.path)}, then restart Cursor.`,
+        detail: `Not removed automatically. Disable AutoMem in Cursor → Customize, or delete ${tildify(plugin.path)}.`,
         client: 'cursor',
         paths: [],
       };
@@ -1170,9 +1223,12 @@ function cursorPluginActions(
       kind: 'install-agent',
       title: 'Install the Cursor plugin (recommended)',
       detail:
-        "Copy the bundled AutoMem plugin (MCP server, session-start hook, always-on rule) into Cursor's local plugins folder, replacing any older copy.",
+        "Install the AutoMem plugin and save its connection in a private file inside Cursor's local plugins folder.",
       client: 'cursor',
-      paths: [cursorLocalPluginDir(environment.homeDir)],
+      paths: [
+        cursorLocalPluginDir(environment.homeDir),
+        cursorPluginConnectionPath(environment.homeDir),
+      ],
     },
   ];
   if (fileInstall && fileInstall.paths.length > 0) {
@@ -1210,13 +1266,6 @@ function cursorPluginActions(
       paths: [],
     });
   }
-  actions.push({
-    kind: 'manual-step',
-    title: 'Configure the Cursor plugin',
-    detail: CURSOR_PLUGIN_CONFIGURE_STEP,
-    client: 'cursor',
-    paths: [],
-  });
   return actions;
 }
 
@@ -1269,7 +1318,7 @@ export function validateInstallPrerequisites(
     if (!environment.prerequisites.docker) {
       missing.push('docker');
     }
-    if (!environment.prerequisites.git) {
+    if (!environment.prerequisites.git && options.localDocker?.mode !== 'reuse') {
       missing.push('git');
     }
   }
@@ -1405,11 +1454,11 @@ export async function verifyAutoMemEndpoint(
       };
     }
 
-    if (options.apiKey) {
+    if (options.apiKey || options.verifyRecall) {
       const recall = await runTimed(async ({ signal }) =>
         fetchFn(`${endpoint}/recall?limit=1`, {
           signal,
-          headers: { Authorization: `Bearer ${options.apiKey}` },
+          ...(options.apiKey ? { headers: { Authorization: `Bearer ${options.apiKey}` } } : {}),
         })
       );
       if (!recall.ok) {
@@ -1466,6 +1515,7 @@ export async function waitForAutoMemEndpoint(
           : Math.max(1, Math.min(defaultProbeTimeoutMs, remainingMs)),
       deadlineAt,
       requireHealthy: options.requireHealthy,
+      verifyRecall: options.verifyRecall,
     });
     // Require `stableChecks` CONSECUTIVE successes so a fresh deploy that flickers
     // during early boot (health up, auth'd recall flapping) isn't declared ready on a
@@ -1591,13 +1641,160 @@ function readEnvFileValue(filePath: string, key: string): string | undefined {
   return value ? value : undefined;
 }
 
-// `docker --version` succeeds with the daemon stopped (Docker Desktop quit but
-// CLI on PATH), so the presence check alone can't catch the most common local
-// failure. `docker info` needs the daemon. Only called when Local Docker was
-// actually chosen, so the extra ~seconds never tax other targets.
-function dockerDaemonRunning(): boolean {
-  const result = spawnSync('docker', ['info'], { stdio: 'ignore', timeout: 15000 });
-  return result.status === 0;
+async function ensureDockerRunning(
+  environment: InstallEnvironment,
+  interactive: boolean,
+  yes: boolean
+): Promise<void> {
+  if (!environment.prerequisites.docker) {
+    throw new InstallError(
+      "AutoMem's local option needs Docker on this machine.",
+      'Install Docker Desktop: https://www.docker.com/products/docker-desktop'
+    );
+  }
+  if (dockerRunning()) return;
+  const start =
+    yes ||
+    (interactive &&
+      (await cancelable(
+        promptConfirm({
+          message: 'Docker is installed but not running. Would you like me to start Docker?',
+          initialValue: true,
+        })
+      )));
+  if (!start) {
+    throw new InstallError('Docker is not running.', 'Start Docker, then re-run the installer.');
+  }
+  if (!launchDocker(environment.platform)) {
+    throw new InstallError(
+      'Could not start Docker automatically.',
+      'Start Docker Desktop or the Docker service, then re-run the installer.'
+    );
+  }
+  const spin = startSpinner('Starting Docker — this can take a minute…');
+  if (!(await waitForDocker())) {
+    spin.error('Docker did not become ready');
+    throw new InstallError(
+      'Docker did not start in time.',
+      'Check Docker Desktop or the Docker service, then re-run the installer.'
+    );
+  }
+  spin.stop('Docker is running');
+}
+
+/** Resolve all local choices before presenting the apply plan. */
+async function resolveLocalDockerOptions(
+  options: ResolvedInstallOptions,
+  environment: InstallEnvironment,
+  interactive: boolean
+): Promise<ResolvedInstallOptions> {
+  if (options.target !== 'local') return options;
+  if (!options.dryRun) await ensureDockerRunning(environment, interactive, options.yes);
+  let initial: LocalPorts;
+  try {
+    initial = readLocalPorts(options.localDir ?? defaultLocalDir(environment.homeDir));
+  } catch (err) {
+    throw new InstallError(
+      'Could not read local Docker ports.',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+  if (options.dryRun) {
+    const preview =
+      options.endpointFromFlag &&
+      options.endpoint &&
+      sameEndpoint(options.endpoint, DEFAULT_AUTOMEM_API_URL)
+        ? { ...options, endpointFromFlag: false }
+        : options;
+    return pinLocalInstallOptions({ ...preview, localDocker: { mode: 'new', ports: initial } });
+  }
+  const existing = await discoverPreferredLocalServer(initial.AUTOMEM_API_HOST_PORT);
+  if (existing) {
+    writeStatus(`Found AutoMem already running at ${existing.endpoint}.`);
+    let apiKey = options.apiKeyFromFlag ? options.apiKey : (existing.apiKey ?? options.apiKey);
+    let verified = await verifyAutoMemEndpoint({
+      endpoint: existing.endpoint,
+      apiKey,
+      verifyRecall: true,
+    });
+    if (
+      !verified.ok &&
+      interactive &&
+      !options.yes &&
+      /recall probe failed with HTTP (401|403)/.test(verified.message)
+    ) {
+      promptCaption('The running server requires a working API key.');
+      apiKey =
+        (
+          await cancelable(promptPassword({ message: 'API key for the running AutoMem server' }))
+        ).trim() || undefined;
+      verified = await verifyAutoMemEndpoint({
+        endpoint: existing.endpoint,
+        apiKey,
+        verifyRecall: true,
+      });
+    }
+    if (!verified.ok) {
+      throw new InstallError(
+        'Could not verify the running AutoMem server.',
+        `${verified.message}\nCheck the server and API key, then re-run; the existing server was not changed.`
+      );
+    }
+    const version = inspectLocalVersion(existing);
+    writeStatus(
+      `Running checkout: ${version.label}${version.status === 'current' ? ' (up to date)' : version.status === 'different' ? ' (tracked branch has changed)' : ' (version check unavailable)'}.`
+    );
+    if (version.reason) writeStatus(version.reason, 'warn');
+    const update =
+      version.canUpdate && interactive && !options.yes
+        ? await cancelable(
+            promptConfirm({
+              message: 'An update is available for this AutoMem checkout. Update its API now?',
+              initialValue: false,
+            })
+          )
+        : false;
+    return {
+      ...options,
+      endpoint: existing.endpoint,
+      apiKey,
+      localDir: existing.localDir ?? options.localDir,
+      localDocker: {
+        mode: 'reuse',
+        endpoint: existing.endpoint,
+        project: existing.project,
+        localDir: existing.localDir,
+        configFile: existing.configFile,
+        sourceMounted: existing.sourceMounted,
+        apiToken: existing.apiKey,
+        adminToken: existing.adminToken,
+        update,
+        version: version.label,
+      },
+    };
+  }
+
+  try {
+    const ports = await chooseLocalPorts({
+      initial,
+      interactive: interactive && !options.yes,
+      notice: (message) => writeStatus(message, 'warn'),
+      askPort: async (key, suggested) =>
+        cancelable(
+          promptText({
+            message: `Host port for ${LOCAL_PORTS[key].label}`,
+            defaultValue: String(suggested),
+          })
+        ),
+    });
+    return pinLocalInstallOptions({ ...options, localDocker: { mode: 'new', ports } });
+  } catch (err) {
+    if (err instanceof InstallError) throw err;
+    throw new InstallError(
+      'Could not choose local Docker ports.',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 }
 
 function defaultRunCommand(
@@ -1644,9 +1841,60 @@ function defaultPluginCommand(command: string, args: string[]): PluginCommandRes
   };
 }
 
+export function updateExistingLocalServer(params: {
+  server: Extract<LocalDockerPlan, { mode: 'reuse' }>;
+  runCommand?: CommandRunner;
+}): void {
+  const server = params.server;
+  const version = inspectLocalVersion(server);
+  if (version.status === 'current') return;
+  if (!version.canUpdate || !server.localDir || !server.project || !server.configFile) {
+    throw new InstallError(
+      'The running AutoMem checkout cannot be updated safely.',
+      version.reason ?? 'Update the existing server manually, then re-run.'
+    );
+  }
+  const runCommand = params.runCommand ?? defaultRunCommand;
+  try {
+    runCommand('git', ['-C', server.localDir, 'pull', '--ff-only']);
+    // Override only values tied to the running API. The databases are deliberately
+    // left alone; neither Compose project nor its named volumes are replaced.
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      AUTOMEM_API_HOST_PORT: new URL(server.endpoint).port,
+    };
+    if (server.apiToken) env.AUTOMEM_API_TOKEN = server.apiToken;
+    else delete env.AUTOMEM_API_TOKEN;
+    if (server.adminToken) env.ADMIN_API_TOKEN = server.adminToken;
+    else delete env.ADMIN_API_TOKEN;
+    runCommand(
+      'docker',
+      [
+        'compose',
+        '-p',
+        server.project,
+        '-f',
+        server.configFile,
+        'up',
+        '-d',
+        '--no-deps',
+        '--build',
+        'flask-api',
+      ],
+      { cwd: server.localDir, env }
+    );
+  } catch {
+    throw new InstallError(
+      'Could not update the running AutoMem server.',
+      'Check the git and Docker output above. The database containers and volumes were left in place.'
+    );
+  }
+}
+
 export async function prepareLocalServer(params: {
   localDir: string;
   apiKey?: string;
+  ports?: LocalPorts;
   dryRun: boolean;
   runCommand?: CommandRunner;
 }): Promise<{ endpoint: string; apiKey: string }> {
@@ -1658,9 +1906,11 @@ export async function prepareLocalServer(params: {
   // an explicit --api-key overrides the stored AutoMem token.
   const apiKey = params.apiKey || readEnvFileValue(envFile, 'AUTOMEM_API_TOKEN') || randomToken();
   const adminToken = readEnvFileValue(envFile, 'ADMIN_API_TOKEN') || randomToken();
+  const ports = params.ports ?? readLocalPorts(params.localDir);
+  const endpoint = `http://127.0.0.1:${ports.AUTOMEM_API_HOST_PORT}`;
 
   if (params.dryRun) {
-    return { endpoint: DEFAULT_AUTOMEM_API_URL, apiKey };
+    return { endpoint, apiKey };
   }
 
   fs.mkdirSync(path.dirname(params.localDir), { recursive: true });
@@ -1682,6 +1932,7 @@ export async function prepareLocalServer(params: {
     {
       AUTOMEM_API_TOKEN: apiKey,
       ADMIN_API_TOKEN: adminToken,
+      ...portEnv(ports),
     },
     false
   );
@@ -1689,7 +1940,12 @@ export async function prepareLocalServer(params: {
   try {
     runCommand('docker', ['compose', '--env-file', '.env', 'up', '-d', '--build'], {
       cwd: params.localDir,
-      env: { ...process.env, AUTOMEM_API_TOKEN: apiKey, ADMIN_API_TOKEN: adminToken },
+      env: {
+        ...process.env,
+        ...portEnv(ports),
+        AUTOMEM_API_TOKEN: apiKey,
+        ADMIN_API_TOKEN: adminToken,
+      },
       logFile: composeLog,
     });
   } catch {
@@ -1704,13 +1960,13 @@ export async function prepareLocalServer(params: {
     throw new InstallError(
       "Local AutoMem server didn't start (docker compose).",
       `Is Docker Desktop running? Open it, then re-run this installer.\n` +
-        `Also common: a port already in use — FalkorDB :3000, Qdrant :6333, or the API :8001 ` +
+        `Also common: a port already in use — check the selected FalkorDB, Qdrant, and API ports ` +
         `(run \`docker ps\` to find the conflict).\n` +
         `Full build log: ${tildify(composeLog)}${tail ? `\nLast lines:\n${tail}` : ''}`
     );
   }
 
-  return { endpoint: DEFAULT_AUTOMEM_API_URL, apiKey };
+  return { endpoint, apiKey };
 }
 
 // The user picked a labeled option; the review should echo that label back, not
@@ -1841,7 +2097,23 @@ function renderActionDetail(
         detail('saved in the folder you ran this from:'),
       ];
     case 'prepare-local':
-      return [detail(`docker compose in ${tildify(plan.localDir)}`)];
+      return action.title === 'Prepare local AutoMem server'
+        ? [
+            detail(`docker compose in ${tildify(plan.localDir)}`),
+            ...(plan.localPorts
+              ? [
+                  detail(
+                    Object.entries(plan.localPorts)
+                      .map(
+                        ([key, port]) =>
+                          `${LOCAL_PORTS[key as keyof typeof LOCAL_PORTS].label}: ${port}`
+                      )
+                      .join(' · ')
+                  ),
+                ]
+              : []),
+          ]
+        : [detail(action.detail)];
     case 'provision-cloud':
       return [detail(action.detail)];
     case 'manual-step':
@@ -2017,25 +2289,18 @@ async function resolveInteractiveOptions(
   }
 
   if (target === 'local' && !parsed.dryRun) {
-    // Fail at the decision, not three prompts later. Dry runs stay open so the
-    // path can still be previewed on a machine without Docker.
-    if (!environment.prerequisites.docker) {
+    if (
+      parsed.endpointFromFlag &&
+      parsed.endpoint &&
+      !sameEndpoint(parsed.endpoint, DEFAULT_AUTOMEM_API_URL)
+    ) {
       throw new InstallError(
-        "AutoMem's local option needs Docker on this machine.",
-        `Get Docker Desktop (free): https://www.docker.com/products/docker-desktop\n` +
-          `Install it, open it once so it's running, then re-run this installer.\n` +
-          `Or pick Hosted Cloud — no Docker needed.`
+        '--endpoint is not supported with --target local.',
+        'Choose an API port during local setup, or use --target existing for another endpoint.'
       );
     }
-    // The CLI existing doesn't mean the daemon is up — Docker Desktop quit but
-    // still on PATH is the most common local-install failure. Catch it here.
-    if (!dockerDaemonRunning()) {
-      throw new InstallError(
-        'Docker is installed but not running.',
-        `Open Docker Desktop, wait until it says it's running, then re-run this installer.\n` +
-          `Or pick Hosted Cloud — no Docker needed.`
-      );
-    }
+    // Ask as soon as the user picks Local Docker, before the remaining questions.
+    await ensureDockerRunning(environment, true, parsed.yes);
   }
   if (target === 'local') {
     promptCaption("Where the server's files live — the default is fine.");
@@ -2182,7 +2447,7 @@ async function resolveInteractiveOptions(
           {
             value: 'plugin',
             label: 'Plugin (recommended)',
-            hint: 'bundles the MCP server, hook, and rule; you enter your endpoint in Cursor → Customize',
+            hint: 'bundles the MCP server, hook, and rule; uses the connection from this setup',
           },
           {
             value: 'files',
@@ -2224,13 +2489,22 @@ async function applyAgentInstall(
     removeCursorPlugin?: boolean;
     homeDir: string;
     cwd: string;
+    codexHome: string;
   }
 ): Promise<void> {
   // quiet: true everywhere — the guided installer shows its own themed checklist,
   // so the per-agent installers must not dump their own ✅/📦 output into the flow.
   switch (client) {
     case 'codex':
-      await applyCodexSetup({ dryRun: params.dryRun, quiet: true, yes: true });
+      await applyCodexSetup({
+        dryRun: params.dryRun,
+        quiet: true,
+        yes: true,
+        targetDir: params.codexHome,
+        rulesPath: path.join(params.cwd, 'AGENTS.md'),
+        endpoint: params.endpoint,
+        apiKey: params.apiKey,
+      });
       break;
     case 'claude-code':
       // Plugin mode is a guided manual step (the plan + outro print the /plugin
@@ -2241,7 +2515,15 @@ async function applyAgentInstall(
     case 'cursor':
       if (params.cursorMode === 'plugin') {
         // Plugin first: if the copy fails, the existing file install keeps working.
-        installCursorPlugin({ homeDir: params.homeDir, dryRun: params.dryRun, quiet: true });
+        installCursorPlugin({
+          homeDir: params.homeDir,
+          dryRun: params.dryRun,
+          quiet: true,
+          connection: {
+            endpoint: params.endpoint ?? DEFAULT_AUTOMEM_API_URL,
+            apiKey: params.apiKey,
+          },
+        });
         if (params.removeCursorFiles) {
           removeCursorFileInstall({ projectDir: params.cwd, dryRun: params.dryRun, quiet: true });
         }
@@ -2337,11 +2619,15 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
   }
 
   if (shouldUseNonInteractivePreview({ interactive, yes: parsed.yes, dryRun: parsed.dryRun })) {
-    const fallback: ResolvedInstallOptions = pinLocalInstallOptions({
-      ...parsed,
-      target: parsed.target ?? 'existing',
-      dryRun: true,
-    });
+    const fallback: ResolvedInstallOptions = await resolveLocalDockerOptions(
+      pinLocalInstallOptions({
+        ...parsed,
+        target: parsed.target ?? 'existing',
+        dryRun: true,
+      }),
+      environment,
+      false
+    );
     const plan = buildInstallPlan({
       options: fallback,
       environment,
@@ -2355,15 +2641,14 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
 
   try {
     if (interactive && !parsed.yes) {
-      // One line of framing before the first question: how long this takes and —
-      // the cheapest trust win in the flow — that nothing happens until the
-      // reviewed plan is approved.
+      // Docker can be started earlier with its own explicit confirmation; the
+      // AutoMem setup itself waits for the reviewed plan.
       const theme = makeTheme(process.stdout);
       process.stdout.write(
-        `  ${theme.style.dim('About 2 minutes. Nothing is written until you approve the plan at the end.')}\n`
+        `  ${theme.style.dim('About 2 minutes. Your AutoMem setup is applied after you approve the plan.')}\n`
       );
     }
-    const resolved = pinLocalInstallOptions(
+    let resolved = pinLocalInstallOptions(
       interactive
         ? await resolveInteractiveOptions(
             parsed,
@@ -2375,6 +2660,22 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           )
         : ({ ...parsed, target: parsed.target ?? 'existing' } as ResolvedInstallOptions)
     );
+    if (
+      resolved.target === 'local' &&
+      resolved.endpointFromFlag &&
+      resolved.endpoint &&
+      !sameEndpoint(resolved.endpoint, DEFAULT_AUTOMEM_API_URL)
+    ) {
+      throw new InstallError(
+        '--endpoint is not supported with --target local.',
+        'Choose an API port during local setup, or use --target existing for another endpoint.'
+      );
+    }
+    // A redundant explicit default endpoint must not prevent a later port choice.
+    if (resolved.target === 'local' && resolved.endpointFromFlag && !resolved.dryRun) {
+      resolved = { ...resolved, endpointFromFlag: false };
+    }
+    resolved = await resolveLocalDockerOptions(resolved, environment, interactive);
     const missingPrerequisites = validateInstallPrerequisites(resolved, environment);
     if (!resolved.dryRun && missingPrerequisites.length > 0) {
       throw new InstallError(
@@ -2494,40 +2795,63 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     // Local docker/git stream their own output (inherited stdio), so they run
     // BEFORE the live checklist — a redraw region can't share the screen with it.
     if (resolved.target === 'local') {
-      process.stdout.write(
-        `  ${theme.style.dim(theme.symbol.arrow)} Building the local server — the first time can take a few minutes ` +
-          `${theme.style.dim(`(log: ${tildify(path.join(plan.localDir, 'install.log'))})`)}…\n`
-      );
-      const local = await prepareLocalServer({ localDir: plan.localDir, apiKey, dryRun: false });
-      endpoint = local.endpoint;
-      apiKey = local.apiKey;
-      process.stdout.write(`  ${theme.style.gold(theme.symbol.check)} Local containers started\n`);
-
-      const waiting = 'Waiting for AutoMem to come online (first start can take a minute)…';
-      const spin = startSpinner(waiting);
-      const ready = await waitForAutoMemEndpoint({
-        endpoint,
-        attempts: 60,
-        timeoutMs: 2_000,
-        deadlineMs: 60_000,
-        requireHealthy: true,
-        onAttempt: (attempt, attempts) => spin.update(`${waiting} (${attempt}/${attempts})`),
-      });
-      if (!ready.ok) {
-        spin.error('AutoMem did not come online');
-        throw localHealthTimeoutError({
-          endpoint,
-          localDir: plan.localDir,
-          waitMessage: ready.message,
-          retryCommand: equivalentInstallCommand({
-            ...resolved,
+      const localDocker = resolved.localDocker;
+      if (localDocker?.mode === 'reuse' && !localDocker.update) {
+        process.stdout.write(
+          `  ${theme.style.gold(theme.symbol.check)} Using the running AutoMem server\n`
+        );
+      } else {
+        if (localDocker?.mode === 'reuse') {
+          process.stdout.write(
+            `  ${theme.style.dim(theme.symbol.arrow)} Updating the existing AutoMem API; database containers stay running…\n`
+          );
+          updateExistingLocalServer({ server: localDocker });
+        } else {
+          process.stdout.write(
+            `  ${theme.style.dim(theme.symbol.arrow)} Building the local server — the first time can take a few minutes ` +
+              `${theme.style.dim(`(log: ${tildify(path.join(plan.localDir, 'install.log'))})`)}…\n`
+          );
+          const local = await prepareLocalServer({
             localDir: plan.localDir,
-            yes: true,
-            apiKeyProvided: resolved.apiKeyFromFlag,
-          }),
+            apiKey,
+            dryRun: false,
+            ports: localDocker?.mode === 'new' ? localDocker.ports : undefined,
+          });
+          endpoint = local.endpoint;
+          apiKey = local.apiKey;
+        }
+        process.stdout.write(
+          `  ${theme.style.gold(theme.symbol.check)} Local containers started\n`
+        );
+
+        if (!endpoint) throw new InstallError('The local AutoMem endpoint is missing.');
+        const waiting = 'Waiting for AutoMem to come online (first start can take a minute)…';
+        const spin = startSpinner(waiting);
+        const ready = await waitForAutoMemEndpoint({
+          endpoint,
+          apiKey,
+          attempts: 60,
+          timeoutMs: 2_000,
+          deadlineMs: 60_000,
+          requireHealthy: localDocker?.mode !== 'reuse',
+          onAttempt: (attempt, attempts) => spin.update(`${waiting} (${attempt}/${attempts})`),
         });
+        if (!ready.ok) {
+          spin.error('AutoMem did not come online');
+          throw localHealthTimeoutError({
+            endpoint,
+            localDir: plan.localDir,
+            waitMessage: ready.message,
+            retryCommand: equivalentInstallCommand({
+              ...resolved,
+              localDir: plan.localDir,
+              yes: true,
+              apiKeyProvided: resolved.apiKeyFromFlag,
+            }),
+          });
+        }
+        spin.stop('AutoMem is online');
       }
-      spin.stop('AutoMem is online');
     }
 
     // InstaPods (open setup page → paste) and Railway (guided railway CLI) provision
@@ -2728,6 +3052,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
             removeCursorPlugin: cursorLocalPlugin?.remove,
             homeDir: environment.homeDir,
             cwd: environment.cwd,
+            codexHome: environment.clientRoots.codex,
           });
           list.done(
             key,
@@ -2774,12 +3099,18 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
             !agentFailures.some((failure) => failure.client === client) &&
             !(client === 'claude-code' && claudePluginIsManual)
         );
-    if (installedClients.length > 0) {
+    const clientsToRestart = installedClients.filter(
+      (client) => client !== 'cursor' && client !== 'codex'
+    );
+    if (clientsToRestart.length > 0) {
       nextSteps.push(
-        `Restart ${installedClients.map((client) => clientLabel(client)).join(' / ')} to pick up the connection.`
+        `Restart ${clientsToRestart.map((client) => clientLabel(client)).join(' / ')} to pick up the connection.`
       );
-      nextSteps.push('Try it: ask "what do you remember about me?"');
     }
+    if (installedClients.includes('codex')) {
+      nextSteps.push('Codex: a new session will load AutoMem.');
+    }
+    if (installedClients.length > 0) nextSteps.push('Try it: ask "what do you remember about me?"');
     nextSteps.push(`Docs: ${theme.link('https://automem.ai')}`);
     if (claudePluginIsManual) {
       nextSteps.push('Claude Code plugin — run these inside Claude Code:');
@@ -2787,9 +3118,6 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         nextSteps.push(`  ${cmd}`);
       }
       if (apiKey) nextSteps.push(`  ${CLAUDE_CODE_PLUGIN_API_KEY_HINT}`);
-    }
-    if (cursorPluginSelected(resolved) && installedClients.includes('cursor')) {
-      nextSteps.push(`Cursor plugin: ${CURSOR_PLUGIN_CONFIGURE_STEP}`);
     }
     if (cursorPluginKept) {
       nextSteps.push(
@@ -2849,6 +3177,34 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     // A partial install (some agents needed a manual step) still completes the
     // rest, but exits non-zero so scripts/CI notice the follow-ups.
     if (agentFailures.length > 0) process.exitCode = 1;
+
+    // The tour is an ordinary user message, offered once after a successful
+    // setup. Headless, --yes, dry-run and explicitly skipped installs never
+    // launch an assistant, touch the clipboard, or start an inference request.
+    if (interactive && !resolved.yes && !resolved.noWelcome && installedClients.length > 0) {
+      const targets = welcomeTargets({ clients: installedClients, platform: environment.platform });
+      process.stdout.write('\n');
+      promptCaption(
+        'Meet your assistant and see how AutoMem saves useful context. You can skip this.'
+      );
+      await drainBufferedStdin();
+      const choice = await promptWelcomeTarget(targets);
+      if (choice) {
+        const target = targets.find((item) => item.client === choice)!;
+        const result = startWelcome({
+          target,
+          cwd: environment.cwd,
+          platform: environment.platform,
+          clearCredentials: target.client === 'codex',
+        });
+        writeStatus(result.message, result.method === 'printed' ? 'warn' : 'info');
+        if (result.prompt) process.stdout.write(`\n${result.prompt}\n`);
+      } else {
+        writeStatus(
+          `Welcome conversation skipped. Run \`${AUTOMEM_NPX_COMMAND} welcome\` whenever you are ready.`
+        );
+      }
+    }
   } catch (err) {
     // Expected failures (bad endpoint, docker port clash, missing prereqs) render
     // as a clean themed line — never a raw Node stack trace. Cancels already exited.

@@ -157,6 +157,7 @@ const AUTOMEM_PACKAGE_SEGMENT = /(^|[/\\])(@verygoodplugins[/\\])?mcp-automem(@[
 const AUTOMEM_ENV_KEYS: readonly string[] = [
   ...AUTOMEM_ENDPOINT_NAMES,
   ...AUTOMEM_API_KEY_NAMES,
+  'AUTOMEM_CONNECTION_FILE',
   'AUTOMEM_PROCESS_TAG',
 ];
 
@@ -213,17 +214,28 @@ export function writeFileWithBackup(
   const existed = fs.existsSync(targetPath);
   if (existed) {
     const current = fs.readFileSync(targetPath, 'utf8');
+    if (mode !== undefined) {
+      try {
+        fs.chmodSync(targetPath, mode);
+      } catch {
+        // Best effort on platforms without POSIX permissions.
+      }
+    }
     if (current === content) {
       log(`✓ Unchanged: ${path.basename(targetPath)}`, opts.quiet);
       return { status: 'unchanged' };
     }
     const backup = backupPath(targetPath);
-    fs.copyFileSync(targetPath, backup);
-    if (mode !== undefined) {
+    if (mode === undefined) {
+      fs.copyFileSync(targetPath, backup);
+    } else {
+      // Create a secret-bearing backup with restrictive permissions from the
+      // first byte, even if the original was previously world-readable.
+      const fd = fs.openSync(backup, 'wx', mode);
       try {
-        fs.chmodSync(backup, mode);
-      } catch {
-        // best-effort: a permission tightening failure must not abort the write
+        fs.writeFileSync(fd, current, 'utf8');
+      } finally {
+        fs.closeSync(fd);
       }
     }
     log(`📦 Backup created: ${backup}`, opts.quiet);

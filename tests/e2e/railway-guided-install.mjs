@@ -117,6 +117,7 @@ async function run() {
   for (const k of Object.keys(env)) {
     if (k.startsWith('AUTOMEM_') || k.startsWith('RAILWAY_')) delete env[k];
   }
+  delete env.CODEX_HOME;
   env.AUTOMEM_NO_ANIM = '1';
   env.AUTOMEM_NO_BROWSER = '1'; // never pop a real browser for the Deploy-Now hand-off
 

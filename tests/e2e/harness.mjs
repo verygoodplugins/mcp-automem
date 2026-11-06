@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse as parseToml } from 'smol-toml';
 import { createMock } from './mock-automem.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -221,9 +222,35 @@ const SCENARIOS = [
       );
       r.push(A('.env written with api key', env && env.AUTOMEM_API_KEY === TOKEN));
       r.push(A('AGENTS.md written', ctx.cwdNew.includes('AGENTS.md')));
-      // Plugin-first codex is rules-only: it writes AGENTS.md and advises on the
-      // MCP registration. The retired hooks.json / capture / drain-queue files are
-      // no longer written (LLM-judged storage replaced mechanical capture).
+      const configPath = path.join(ctx.home, '.codex/config.toml');
+      const connectionPath = path.join(ctx.home, '.codex/automem/connection.json');
+      const config = existsSync(configPath) ? await readFile(configPath, 'utf8') : '';
+      const memory = config ? parseToml(config).mcp_servers?.memory : null;
+      const connection = existsSync(connectionPath)
+        ? JSON.parse(await readFile(connectionPath, 'utf8'))
+        : null;
+      r.push(
+        A(
+          'codex MCP entry written without the key',
+          /\[mcp_servers\.memory\]/.test(config) && !config.includes(TOKEN)
+        )
+      );
+      r.push(
+        A(
+          'codex connection holds endpoint and key',
+          connection?.endpoint === ctx.mock.url && connection?.apiKey === TOKEN
+        )
+      );
+      r.push(
+        A('codex MCP runs in its private directory', memory?.cwd === path.dirname(connectionPath))
+      );
+      r.push(
+        A(
+          'codex MCP masks inherited credentials',
+          memory?.env?.AUTOMEM_API_KEY === '' && memory?.env?.AUTOMEM_API_TOKEN === ''
+        )
+      );
+      // Retired mechanical-capture hooks remain absent.
       r.push(A('codex writes no hooks.json', !ctx.homeNew.includes('.codex/hooks.json')));
       r.push(
         A(
@@ -246,13 +273,6 @@ const SCENARIOS = [
       );
       return r;
     },
-    // F2 (config.toml plan/executor mismatch) is NOT keyed here: in a real
-    // (non-dry-run) install the executor's advice line also prints
-    // "templates/codex/config.toml", and @clack's note() wraps the long sandbox
-    // path so a `path:`-anchored grep never matches. A stdout grep therefore
-    // can't tell the plan promise from the advice line. F2 is asserted reliably
-    // in the dry-run scenario (plan-only output) and authoritatively in
-    // install.test.ts (structural buildInstallPlan check).
     findings: () => [],
   },
 
@@ -385,11 +405,8 @@ const SCENARIOS = [
             'CORRECTS the asymmetry hypothesis. The Claude settings.json the installer writes carries ' +
             'hooks + permission grants (mcp__memory__* in permissions.allow) but NO mcpServers block — ' +
             'and dist/cli/claude-code.js:227 logs advice "Add MCP server to ~/.claude.json (see ' +
-            'INSTALLATION.md)". So Claude is handled exactly like Codex: hooks + permissions/scripts + ' +
-            '.env, then advice-only for the server registration. config.toml advice-only is therefore ' +
-            'CONSISTENT house style, not a codex-specific omission. (The clients that DO write a ' +
-            'registration are cursor/openclaw via buildMcpConfigJson, which embeds the literal ' +
-            'AUTOMEM_API_KEY into the written file — relevant to the F2 security decision; not exercised here.)',
+            'INSTALLATION.md)". Claude Code settings mode still requires an MCP registration; ' +
+            'Codex now writes its own MCP registration and private connection file.',
         });
       }
       return out;
@@ -539,46 +556,18 @@ const SCENARIOS = [
       r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
       r.push(A('no new files in HOME', ctx.homeNew.length === 0, ctx.homeNew.join(', ')));
       r.push(A('no new files in cwd', ctx.cwdNew.length === 0, ctx.cwdNew.join(', ')));
-      // F2 fixed: the plan must no longer list ~/.codex/config.toml as a write path.
-      // In DRY-RUN the executor never runs, so the only stdout is the rendered plan —
-      // the advice line ("templates/codex/config.toml") is absent, making a bare
-      // `config.toml` substring unambiguous. (A `path:`-anchored regex would NOT work:
-      // @clack's note() wraps the long sandbox path onto the next visual line, so
-      // `path:` and `config.toml` land on separate lines — verified against the unfixed
-      // tarball, where the bare substring matched but the anchored regex did not.)
       const planMentionsConfigToml = /config\.toml/.test(last.stdout);
       r.push(
         A(
-          'plan does NOT promise ~/.codex/config.toml (over-promise removed)',
-          !planMentionsConfigToml,
-          planMentionsConfigToml
-            ? 'config.toml still listed in dry-run plan'
-            : 'no config.toml in plan'
+          'plan includes the Codex config it will write',
+          planMentionsConfigToml,
+          planMentionsConfigToml ? 'config.toml in plan' : 'config.toml missing from plan'
         )
       );
+      r.push(A('plan does not expose the key', !last.stdout.includes(TOKEN)));
       return r;
     },
-    findings: (ctx) => {
-      const out = [];
-      const last = ctx.steps.at(-1);
-      // Fires on the UNFIXED installer (the dry-run plan over-promises config.toml).
-      // Reliable here precisely because dry-run prints the plan only — never the
-      // codex executor's advice line — so the bare substring isolates the plan promise.
-      if (/config\.toml/.test(last.stdout) && !ctx.homeNew.includes('.codex/config.toml')) {
-        out.push({
-          id: 'F2-config-toml-plan-executor-mismatch',
-          severity: 'medium',
-          observation:
-            'VERIFIED: the dry-run install plan lists a write+backup of ~/.codex/config.toml, but the ' +
-            'codex executor only logs advice pointing at templates/codex/config.toml and never writes ' +
-            'the file. The plan/executor mismatch is the defect. INFERRED (not tested here): without ' +
-            'config.toml the memory MCP server is not registered, so a Codex restart would expose no ' +
-            'mcp__memory__* tools — confirming that needs a live Codex runtime. Pre-merge: the install ' +
-            'command is unreleased (no install.js in published @latest 0.14.0).',
-        });
-      }
-      return out;
-    },
+    findings: () => [],
   },
 
   {
@@ -687,7 +676,7 @@ const SCENARIOS = [
       const r = [];
       r.push(A('first run exit 0', ctx.steps[0].exitCode === 0, `exit=${ctx.steps[0].exitCode}`));
       r.push(A('second run exit 0', ctx.steps[1].exitCode === 0, `exit=${ctx.steps[1].exitCode}`));
-      // Plugin-first codex is rules-only: reinstalling must keep a SINGLE marked
+      // Reinstalling must keep a SINGLE marked
       // AutoMem block in AGENTS.md (the upsert replaces in place, never appends).
       let blockCount = 0;
       try {
@@ -917,13 +906,14 @@ const SCENARIOS = [
     name: 'website-bootstrap-install-sh',
     description:
       'The real production entrypoint: website install.sh -> npx file:<tarball> install, headless.',
-    mock: { mode: 'healthy' }, // install.sh has no api-key passthrough, so no token expected
+    mock: { mode: 'healthy', expectToken: TOKEN },
     steps: (ctx) => [
       {
         kind: 'bootstrap',
         env: {
           CI: '1', // forces is_headless -> --yes
           AUTOMEM_API_URL: ctx.mock.url,
+          AUTOMEM_API_KEY: TOKEN,
           AUTOMEM_CLIENTS: 'codex',
           AUTOMEM_INSTALL_TARGET: 'existing',
         },
@@ -935,8 +925,14 @@ const SCENARIOS = [
       r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
       const env = await readEnvFile(ctx.cwd);
       r.push(A('.env written with endpoint', env && env.AUTOMEM_API_URL === ctx.mock.url));
+      r.push(
+        A('bootstrap passes the key through the environment', env && env.AUTOMEM_API_KEY === TOKEN)
+      );
+      r.push(
+        A('key stays out of command output', !`${last.stdout}\n${last.stderr}`.includes(TOKEN))
+      );
       r.push(A('AGENTS.md written', ctx.cwdNew.includes('AGENTS.md')));
-      // Plugin-first codex is rules-only — no hooks.json/queue on the bootstrap path either.
+      // The native MCP registration does not add the retired hooks/queue machinery.
       r.push(A('codex writes no hooks.json', !ctx.homeNew.includes('.codex/hooks.json')));
       r.push(
         A(
@@ -944,26 +940,15 @@ const SCENARIOS = [
           ctx.mock.requests.some((q) => q.path === '/health')
         )
       );
+      r.push(
+        A(
+          'mock saw authenticated recall',
+          ctx.mock.requests.some((q) => q.path === '/recall' && q.authed)
+        )
+      );
       return r;
     },
-    findings: () => {
-      const out = [];
-      // F2 is NOT re-keyed on this production path: the headless install runs the
-      // codex executor, whose advice line prints "templates/codex/config.toml", and
-      // clack wraps the long path — so a stdout grep cannot separate the plan promise
-      // from the advice. F2 is asserted in the dry-run scenario + install.test.ts.
-      // F3 stands on its own (a property of install.sh's flag mapping, not stdout):
-      out.push({
-        id: 'F3-install-sh-no-api-key',
-        severity: 'medium',
-        observation:
-          'install.sh maps AUTOMEM_API_URL/CLIENTS/TARGET/LOCAL_DIR/DRY_RUN/NO_AGENT_INSTALL but ' +
-          'has NO AUTOMEM_API_KEY -> --api-key passthrough. A cloud/existing endpoint that needs a ' +
-          'key cannot receive one via the curl|sh bootstrap; the authed recall probe is skipped and ' +
-          '.env is written without AUTOMEM_API_KEY.',
-      });
-      return out;
-    },
+    findings: () => [],
   },
 
   {
@@ -1001,6 +986,12 @@ const SCENARIOS = [
       // Ignore the .bak/.backup/.removed safety copies the uninstaller leaves behind.
       const codexLeft = finalHome.filter(
         (f) => f.startsWith('.codex/') && !/\.(bak|backup|removed)(\.|$)/.test(f)
+      );
+      const configPath = path.join(ctx.home, '.codex/config.toml');
+      const config = existsSync(configPath) ? await readFile(configPath, 'utf8') : '';
+      r.push(A('codex MCP entry removed', !/\[mcp_servers\.memory\]/.test(config)));
+      r.push(
+        A('codex private connection removed', !codexLeft.includes('.codex/automem/connection.json'))
       );
       r.push(
         A(

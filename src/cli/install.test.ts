@@ -32,6 +32,34 @@ import {
 } from './install.js';
 
 describe('guided install helpers', () => {
+  it('plans Codex files in CODEX_HOME when it is configured', () => {
+    const environment = detectInstallEnvironment({
+      homeDir: '/home/tester',
+      cwd: '/project',
+      env: { CODEX_HOME: '/custom/codex' },
+      pathExists: () => false,
+      commandExists: () => true,
+    });
+    const plan = buildInstallPlan({
+      options: {
+        target: 'existing',
+        endpoint: 'https://memory.example',
+        clients: ['codex'],
+        hermesMode: 'mcp',
+        claudeCodeMode: 'plugin',
+        cursorMode: 'plugin',
+        dryRun: true,
+        yes: true,
+        noAgentInstall: false,
+      },
+      environment,
+    });
+    expect(plan.actions.find((action) => action.client === 'codex')?.paths).toEqual([
+      '/project/AGENTS.md',
+      '/custom/codex/config.toml',
+      '/custom/codex/automem/connection.json',
+    ]);
+  });
   it('parses env defaults and CLI overrides', () => {
     const parsed = parseInstallArgs(
       [
@@ -365,6 +393,7 @@ describe('guided install helpers', () => {
       environment: detectInstallEnvironment({
         homeDir,
         cwd,
+        env: {},
         commandExists: () => true,
         pathExists: () => true,
       }),
@@ -379,15 +408,12 @@ describe('guided install helpers', () => {
       'install-agent',
       'install-agent',
     ]);
-    // F2: the codex action must promise ONLY AGENTS.md. The MCP server registration
-    // in ~/.codex/config.toml is advice-only (codex.ts logs a pointer at
-    // templates/codex/config.toml, it never writes the file), so listing config.toml
-    // here would make the plan over-promise a write the executor never performs.
-    // Assert exact equality — a plain `.toContain(AGENTS.md)` would not catch a
-    // reintroduced config.toml path.
     const codexPaths = plan.actions.find((action) => action.client === 'codex')?.paths;
-    expect(codexPaths).toEqual([path.join(cwd, 'AGENTS.md')]);
-    expect(codexPaths).not.toContain(path.join(homeDir, '.codex', 'config.toml'));
+    expect(codexPaths).toEqual([
+      path.join(cwd, 'AGENTS.md'),
+      path.join(homeDir, '.codex', 'config.toml'),
+      path.join(homeDir, '.codex', 'automem', 'connection.json'),
+    ]);
     expect(plan.actions.find((action) => action.client === 'claude-code')?.paths).toContain(
       path.join(homeDir, '.claude', 'settings.json')
     );
@@ -917,18 +943,20 @@ describe('guided install helpers', () => {
       const plan = buildInstallPlan({ options: options(), environment: environment() });
       const cursorActions = plan.actions.filter((action) => action.client === 'cursor');
 
-      expect(cursorActions.map((action) => action.kind)).toEqual(['install-agent', 'manual-step']);
+      expect(cursorActions.map((action) => action.kind)).toEqual(['install-agent']);
       expect(cursorActions[0].title).toMatch(/Cursor plugin/);
-      expect(cursorActions[0].paths).toEqual([pluginDir]);
-      expect(cursorActions[1].detail).toContain('Customize → Automem → Configure');
+      expect(cursorActions[0].paths).toEqual([
+        pluginDir,
+        path.join(pluginDir, 'cursor', 'connection.json'),
+      ]);
       const allPaths = plan.actions.flatMap((action) => action.paths);
       expect(allPaths).not.toContain(path.join(homeDir, '.cursor', 'mcp.json'));
       expect(allPaths).not.toContain(path.join(cwd, '.cursor', 'hooks.json'));
 
       const rendered = renderInstallPlan(plan);
       expect(rendered).toContain('.cursor/plugins/local/automem');
-      expect(rendered).toContain('Customize → Automem → Configure');
-      // Two Cursor stages are still one AI tool.
+      expect(rendered).not.toContain('Customize → Automem → Configure');
+      expect(rendered).not.toMatch(/restart cursor/i);
       expect(rendered).toContain('1 AI tool');
       expect(rendered).not.toContain('2 AI tools');
     });
@@ -951,6 +979,7 @@ describe('guided install helpers', () => {
       expect(plan.actions.flatMap((action) => action.paths)).toEqual([
         path.join(cwd, '.env'),
         pluginDir,
+        path.join(pluginDir, 'cursor', 'connection.json'),
       ]);
     });
 
@@ -988,6 +1017,7 @@ describe('guided install helpers', () => {
       expect(plan.actions.flatMap((action) => action.paths)).toEqual([
         path.join(cwd, '.env'),
         pluginDir,
+        path.join(pluginDir, 'cursor', 'connection.json'),
       ]);
     });
 

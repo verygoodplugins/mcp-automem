@@ -59,9 +59,10 @@ Bot read before the Claude manifest. It adds the configuration form
 and `cursor/session-start.mjs`) that derives the project slug from the
 workspace folder, and hides `delete_memory` through `enabledTools`. Claude
 Code ignores those files; Cursor ignores `hooks/hooks.json` because the
-manifest declares its own hooks. To try it locally, copy this directory to
-`~/.cursor/plugins/local/automem`, reload Cursor, then open Customize →
-Automem → Configure.
+manifest declares its own hooks. The guided installer configures its local
+copy automatically. If you copy this directory by hand into
+`~/.cursor/plugins/local/automem`, configure the connection under Cursor →
+Customize → Automem → Configure.
 
 ### Slash Commands
 

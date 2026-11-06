@@ -85,10 +85,15 @@ const SCENARIOS = [
       /Install review/,
       /Install the Cursor plugin/,
       /plugins\/local\/automem/,
-      /Customize → Automem → Configure/,
+      /cursor\/connection\.json/,
       /Dry run only/,
     ],
-    notExpect: [/mcp\.json/, /AutoMem install canceled/],
+    notExpect: [
+      /mcp\.json/,
+      /AutoMem install canceled/,
+      /restart cursor/i,
+      /Customize → Automem → Configure/,
+    ],
   },
   {
     name: 'existing-cursor-files',
@@ -297,6 +302,7 @@ async function run(scenario) {
   delete env.NO_COLOR;
   delete env.CLAUDE_CODE;
   delete env.CODEX;
+  delete env.CODEX_HOME;
   // Client detection is path-based, and the hermes/grok roots are overridable by
   // env (HERMES_HOME / GROK_HOME in detectInstallEnvironment). Inheriting either
   // would point detection at the operator's REAL home, pre-check that agent in the

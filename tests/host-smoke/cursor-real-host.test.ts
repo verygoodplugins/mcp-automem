@@ -6,7 +6,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'node:module';
 import { applyCursorSetup } from '../../src/cli/cursor.js';
-import { installCursorPlugin } from '../../src/cli/cursor-plugin.js';
+import { cursorPluginConnectionPath, installCursorPlugin } from '../../src/cli/cursor-plugin.js';
 import { HOST_SMOKE_SPECS } from '../helpers/host-specs.js';
 import { fakeMemoryId, startFakeAutoMemApi, StdioMcpClient } from '../helpers/host-smoke.js';
 
@@ -107,7 +107,7 @@ describe('Cursor MCP host boundary', () => {
     }
   }, 25_000);
 
-  it('plugin-mode guided install copies the local plugin and leaves mcp.json untouched', async () => {
+  it('plugin-mode guided install configures the local plugin and leaves mcp.json untouched', async () => {
     const api = await startFakeAutoMemApi();
     try {
       // A pre-existing file install (AutoMem entry) next to a foreign server.
@@ -138,6 +138,8 @@ describe('Cursor MCP host boundary', () => {
           'existing',
           '--endpoint',
           api.url,
+          '--api-key',
+          'guided-plugin-key',
           '--clients',
           'cursor',
           '--cursor-mode',
@@ -165,14 +167,42 @@ describe('Cursor MCP host boundary', () => {
       );
       expect(manifest.name).toBe('automem');
       expect([...manifest.mcpServers.memory.enabledTools].sort()).toEqual(PLUGIN_TOOL_NAMES);
+      expect(JSON.parse(fs.readFileSync(cursorPluginConnectionPath(home), 'utf8'))).toEqual({
+        endpoint: api.url,
+        apiKey: 'guided-plugin-key',
+      });
+      expect(JSON.stringify(manifest)).not.toContain('guided-plugin-key');
+      expect(output).not.toContain('guided-plugin-key');
       // --yes never removes the file install; it warns with the uninstall command.
       expect(fs.readFileSync(configPath, 'utf8')).toBe(seeded);
       expect(output).toMatch(/twice/i);
       expect(output).toContain('npx @verygoodplugins/mcp-automem@latest uninstall cursor');
-      expect(output).toContain('Customize → Automem → Configure');
+      expect(output).not.toContain('Customize → Automem → Configure');
+      expect(output).not.toMatch(/restart cursor/i);
       // No project-level file-mode artifacts.
       expect(fs.existsSync(path.join(project, '.cursor', 'rules'))).toBe(false);
       expect(fs.existsSync(path.join(project, '.cursor', 'hooks.json'))).toBe(false);
+      await runFile(
+        process.execPath,
+        [
+          '--import',
+          import.meta.resolve('tsx'),
+          path.join(REPO_ROOT, 'src/index.ts'),
+          'uninstall',
+          'cursor',
+          '--yes',
+        ],
+        {
+          cwd: project,
+          env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home, NO_COLOR: '1' },
+          timeout: 20_000,
+        }
+      );
+      expect(fs.existsSync(pluginDir)).toBe(false);
+      expect(fs.existsSync(cursorPluginConnectionPath(home))).toBe(false);
+      expect(JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.other).toEqual({
+        command: 'other-mcp',
+      });
     } finally {
       await api.close();
     }
@@ -238,6 +268,125 @@ describe('Cursor MCP host boundary', () => {
       await api.close();
     }
   }, 20_000);
+
+  it.runIf(fs.existsSync(CURSOR_PLUGIN_LOADER))(
+    'runs the configured local plugin through the real Cursor loader without exposing its key',
+    async () => {
+      const api = await startFakeAutoMemApi();
+      let client: StdioMcpClient | undefined;
+      try {
+        const apiKey = 'plugin-${env:OTHER_KEY}-"quoted"';
+        installCursorPlugin({
+          homeDir: home,
+          quiet: true,
+          connection: { endpoint: api.url, apiKey },
+        });
+        const { loadPlugins } = createRequire(import.meta.url)(CURSOR_PLUGIN_LOADER);
+        const loaded = await loadPlugins({ roots: [], home, backend: null, userLocal: true });
+        expect(loaded.failures).toEqual([]);
+        expect(loaded.plugins).toHaveLength(1);
+        const server = loaded.plugins[0].mcpConfig.mcpServers.memory;
+        expect(server.command).toBe('npx');
+        expect(server.args).toEqual(['-y', '@verygoodplugins/mcp-automem@latest']);
+        expect(server.env.AUTOMEM_CONNECTION_FILE).toBe(cursorPluginConnectionPath(home));
+        expect(server.env.AUTOMEM_API_KEY).toBe('');
+        expect(server.env.AUTOMEM_CURSOR_REVISION).toEqual(expect.any(String));
+        expect(JSON.stringify(server)).not.toContain(apiKey);
+        expect(JSON.stringify(server)).not.toContain(api.url);
+
+        // Replace only npx, preserving Cursor's actual command, arguments and environment.
+        const bin = path.join(root, 'bin');
+        fs.mkdirSync(bin);
+        const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+        const envProbe = path.join(root, 'npx-env-probe');
+        fs.writeFileSync(
+          path.join(bin, 'npx'),
+          `#!/bin/sh\nif [ -z "$AUTOMEM_API_KEY" ] && [ -z "$AUTOMEM_API_TOKEN" ]; then echo empty > "$FAKE_ENV_PROBE"; else echo present > "$FAKE_ENV_PROBE"; fi\nexec ${quote(process.execPath)} --import ${quote(import.meta.resolve('tsx'))} ${quote(path.join(REPO_ROOT, 'src/index.ts'))}\n`,
+          { mode: 0o755 }
+        );
+        client = new StdioMcpClient(
+          server.command,
+          server.args,
+          {
+            PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+            HOME: home,
+            ...server.env,
+            FAKE_ENV_PROBE: envProbe,
+            DOTENV_CONFIG_QUIET: 'true',
+          },
+          project
+        );
+        await client.initialize();
+        expect(fs.readFileSync(envProbe, 'utf8').trim()).toBe('empty');
+        const listed = (await client.request('tools/list')) as { tools: Array<{ name: string }> };
+        const enabled = new Set<string>(server.enabledTools);
+        const visible = listed.tools.map((tool) => tool.name).filter((name) => enabled.has(name));
+        expect([...visible].sort()).toEqual(PLUGIN_TOOL_NAMES);
+        expect(new Set(visible).size).toBe(visible.length);
+        await client.request('tools/call', { name: 'check_database_health', arguments: {} });
+        expect(api.requests.every((request) => request.authorization === `Bearer ${apiKey}`)).toBe(
+          true
+        );
+        expect(client.invalidStdoutLines).toEqual([]);
+
+        await client.close();
+        client = undefined;
+        const before = api.requests.length;
+        fs.writeFileSync(path.join(project, '.env'), 'AUTOMEM_API_TOKEN=stale-file-key\n');
+        installCursorPlugin({ homeDir: home, quiet: true, connection: { endpoint: api.url } });
+        const reloaded = await loadPlugins({ roots: [], home, backend: null, userLocal: true });
+        const unauthed = reloaded.plugins[0].mcpConfig.mcpServers.memory;
+        expect(unauthed.env.AUTOMEM_CURSOR_REVISION).not.toBe(server.env.AUTOMEM_CURSOR_REVISION);
+        client = new StdioMcpClient(
+          unauthed.command,
+          unauthed.args,
+          {
+            PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+            HOME: home,
+            ...unauthed.env,
+            FAKE_ENV_PROBE: envProbe,
+            AUTOMEM_API_TOKEN: 'stale-shell-key',
+            CLAUDE_PLUGIN_OPTION_API_KEY: 'stale-claude-key',
+            DOTENV_CONFIG_QUIET: 'true',
+          },
+          project
+        );
+        await client.initialize();
+        await client.request('tools/call', { name: 'check_database_health', arguments: {} });
+        expect(api.requests.slice(before).length).toBeGreaterThan(0);
+        expect(api.requests.slice(before).every((request) => !request.authorization)).toBe(true);
+        await client.close();
+        client = undefined;
+        const requestsBeforeMissing = api.requests.length;
+        fs.rmSync(cursorPluginConnectionPath(home));
+        const failed = spawnSync(
+          process.execPath,
+          ['--import', import.meta.resolve('tsx'), path.join(REPO_ROOT, 'src/index.ts')],
+          {
+            cwd: project,
+            encoding: 'utf8',
+            timeout: 10_000,
+            env: {
+              PATH: process.env.PATH,
+              HOME: home,
+              AUTOMEM_CONNECTION_FILE: cursorPluginConnectionPath(home),
+              AUTOMEM_API_URL: api.url,
+              AUTOMEM_API_KEY: 'stale-key',
+            },
+          }
+        );
+        expect(failed.status).toBe(1);
+        expect(failed.stdout).toBe('');
+        expect(failed.stderr).toContain('connection file is missing or invalid');
+        expect(failed.stderr).not.toContain('stale-key');
+        expect(api.requests.length).toBe(requestsBeforeMissing);
+      } finally {
+        await client?.close();
+        await api.close();
+      }
+    },
+    30_000
+  );
 
   it.runIf(fs.existsSync(CURSOR_PLUGIN_LOADER))(
     'loads the installer-copied plugin through Cursor and exposes only the enabled tools',

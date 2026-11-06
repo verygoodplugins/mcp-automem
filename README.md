@@ -14,7 +14,7 @@
 **One command. Infinite memory. Perfect recall across all your AI tools.**
 
 ```bash
-npx @verygoodplugins/mcp-automem install
+npx @verygoodplugins/mcp-automem@latest install
 ```
 
 Your AI assistant now remembers everything. Forever. Across every conversation.
@@ -25,7 +25,7 @@ https://github.com/user-attachments/assets/fd79112b-5158-4320-a054-8c18ab1ea314
 
 </div>
 
-<p align="center"><sub><b>The guided installer</b> — <code>npx @verygoodplugins/mcp-automem install</code> walks you through local, hosted, or existing-endpoint setup.</sub></p>
+<p align="center"><sub><b>The guided installer</b> — <code>npx @verygoodplugins/mcp-automem@latest install</code> walks you through local, hosted, or existing-endpoint setup.</sub></p>
 
 Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex**, **OpenClaw**, **Hermes**, **Grok Build**, **Google Antigravity** - any MCP-compatible AI platform.
 
@@ -135,7 +135,7 @@ Connect your AI tools to the AutoMem service you just started.
 ```bash
 # Guided install - pick where AutoMem runs, verify it, write .env, and
 # configure your agents (Codex, Claude Code, Cursor, OpenClaw, Hermes)
-npx @verygoodplugins/mcp-automem install
+npx @verygoodplugins/mcp-automem@latest install
 ```
 
 Every change is shown in a review plan before anything is written, and each
@@ -143,7 +143,11 @@ modified file keeps a `.bak` backup. Add `--dry-run` to preview, `--yes` to
 apply non-interactively. See the [Installation Guide](INSTALLATION.md#guided-install-fastest)
 for all flags.
 
-`setup` is an alias of `install`. To print config snippets again later, use `npx @verygoodplugins/mcp-automem config`.
+`setup` is an alias of `install`. To print config snippets again later, use `npx @verygoodplugins/mcp-automem@latest config`.
+
+After an interactive install, you can start a short welcome conversation that
+learns how you work and shows you the memory operations as they happen. Choose
+**Not now** to skip it, or run `npx @verygoodplugins/mcp-automem@latest welcome` later.
 
 ### 3. Platform-Specific Setup
 
@@ -155,7 +159,7 @@ for all flags.
 /plugin install automem@verygoodplugins-mcp-automem
 ```
 
-Claude Code prompts for your AutoMem URL and API key at enable time, bundles the MCP server and silent recall/store-tracking hooks, and auto-updates. Prefer hooks and permissions written directly into `~/.claude/` instead? Run `npx @verygoodplugins/mcp-automem claude-code`.
+Claude Code prompts for your AutoMem URL and API key at enable time, bundles the MCP server and silent recall/store-tracking hooks, and auto-updates. Prefer hooks and permissions written directly into `~/.claude/` instead? Run `npx @verygoodplugins/mcp-automem@latest claude-code`.
 
 On Windows, the hook payload assumes a POSIX shell environment such as Git Bash, MSYS2, or WSL — only `bash` is required (the hooks are pure bash+sed).
 
@@ -164,10 +168,10 @@ On Windows, the hook payload assumes a POSIX shell environment such as Git Bash,
 Run the guided installer from your project and select Cursor:
 
 ```bash
-npx @verygoodplugins/mcp-automem install
+npx @verygoodplugins/mcp-automem@latest install
 ```
 
-By default this installs the AutoMem Cursor plugin into `~/.cursor/plugins/local/automem` (MCP server, session-start recall hook, and always-on rule); then open Cursor → Customize → Automem → Configure and enter your endpoint and key. `--cursor-mode files` instead writes `~/.cursor/mcp.json` plus project memory rules and a session-start hook. Already have an endpoint? Use `npx @verygoodplugins/mcp-automem cursor --endpoint https://your-automem.example`.
+By default this installs the AutoMem Cursor plugin into `~/.cursor/plugins/local/automem` (MCP server, session-start recall hook, and always-on rule) and configures it with the connection you chose. `--cursor-mode files` instead writes `~/.cursor/mcp.json` plus project memory rules and a session-start hook. Already have an endpoint? Use `npx @verygoodplugins/mcp-automem@latest cursor --endpoint https://your-automem.example`.
 
 The one-click button configures only the MCP server for a local AutoMem instance. Update its endpoint/key in Cursor if needed, then run the CLI above to add project rules and the hook:
 
@@ -284,7 +288,7 @@ mcp__memory__recall_memory({
 - ✅ **Standalone hook JSON files** installed into `$COPILOT_HOME/hooks/` or `~/.copilot/hooks/`
 - ✅ **Memory rules** template for `copilot-instructions.md`
 - ✅ **Format flag** - `--format cli` (camelCase) or `--format vscode` (PascalCase)
-- ✅ **Setup**: `npx @verygoodplugins/mcp-automem copilot --yes`
+- ✅ **Setup**: `npx @verygoodplugins/mcp-automem@latest copilot --yes`
 
 #### Claude Desktop
 
@@ -392,7 +396,7 @@ MIT - Because great memory should be free.
 **Ready to give your AI perfect memory?**
 
 ```bash
-npx @verygoodplugins/mcp-automem install
+npx @verygoodplugins/mcp-automem@latest install
 ```
 
 _Built with obsession. Validated by neuroscience. Powered by graph theory. Works with every MCP-enabled AI._
