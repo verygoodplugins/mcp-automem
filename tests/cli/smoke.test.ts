@@ -766,9 +766,15 @@ describe('Template Generation', () => {
     );
 
     expect(installationGuide).toContain('## Hermes Agent');
-    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode mcp');
-    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode provider');
-    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem hermes --mode both');
+    expect(installationGuide).toContain(
+      'npx @verygoodplugins/mcp-automem@latest hermes --mode mcp'
+    );
+    expect(installationGuide).toContain(
+      'npx @verygoodplugins/mcp-automem@latest hermes --mode provider'
+    );
+    expect(installationGuide).toContain(
+      'npx @verygoodplugins/mcp-automem@latest hermes --mode both'
+    );
     expect(installationGuide).toContain('hermes mcp test automem');
     expect(installationGuide).toContain('hermes memory status');
     expect(installationGuide).toContain('hermes automem doctor');
@@ -780,7 +786,7 @@ describe('Template Generation', () => {
     expect(installationGuide).toContain('5 / 10 / 10');
     expect(installationGuide).toContain('20 / 30 / 20');
     expect(installationGuide).toContain('Provider explicit recall is capped at 10 results');
-    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem uninstall hermes');
+    expect(installationGuide).toContain('npx @verygoodplugins/mcp-automem@latest uninstall hermes');
     expect(installationGuide).toContain('tools: Tool names must be unique');
     expect(installationGuide).toContain('mcp_servers.memory');
     expect(installationGuide).toContain('stale AutoMem Codex rules block');

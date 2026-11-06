@@ -341,9 +341,9 @@ describe('guided install helpers', () => {
       const hint = manualFixHint(client);
       expect(hint.length).toBeGreaterThan(0);
       // Each hint names a runnable recovery command.
-      expect(/openclaw plugins install|npx @verygoodplugins\/mcp-automem install/.test(hint)).toBe(
-        true
-      );
+      expect(
+        /openclaw plugins install|npx @verygoodplugins\/mcp-automem@latest install/.test(hint)
+      ).toBe(true);
     }
     expect(manualFixHint('openclaw')).toContain('openclaw plugins install');
   });
@@ -580,7 +580,7 @@ describe('guided install helpers', () => {
         apiKeyProvided: false,
       });
       expect(cmd).toBe(
-        'npx @verygoodplugins/mcp-automem install --target existing --endpoint https://memory.example --clients claude-code,grok --claude-code-mode plugin'
+        'npx @verygoodplugins/mcp-automem@latest install --target existing --endpoint https://memory.example --clients claude-code,grok --claude-code-mode plugin'
       );
     });
 
@@ -944,7 +944,9 @@ describe('guided install helpers', () => {
       );
 
       expect(warning?.title).toMatch(/twice/i);
-      expect(warning?.commands?.[0]).toBe('npx @verygoodplugins/mcp-automem uninstall cursor');
+      expect(warning?.commands?.[0]).toBe(
+        'npx @verygoodplugins/mcp-automem@latest uninstall cursor'
+      );
       // Nothing is removed silently: the found files are not planned as writes.
       expect(plan.actions.flatMap((action) => action.paths)).toEqual([
         path.join(cwd, '.env'),
@@ -1782,7 +1784,7 @@ describe('guided install helpers', () => {
       localDir: '/Users/me/.automem/server',
       waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: fetch failed',
       retryCommand:
-        'npx @verygoodplugins/mcp-automem install --target local --local-dir ~/.automem/server --clients cursor --yes',
+        'npx @verygoodplugins/mcp-automem@latest install --target local --local-dir ~/.automem/server --clients cursor --yes',
       inspect: {
         composePs: 'flask-api   Restarting (1) 0 seconds ago',
         apiLogs: 'Authorization: Bearer super-secret-token\nValueError: boom',
@@ -1806,7 +1808,7 @@ describe('guided install helpers', () => {
       endpoint: 'http://127.0.0.1:8001',
       localDir: '/tmp/AutoMem Server',
       waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: fetch failed',
-      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      retryCommand: 'npx @verygoodplugins/mcp-automem@latest install --target local --yes',
       inspect: {},
     });
     expect(hint).toContain("cd '/tmp/AutoMem Server' && docker compose ps");
@@ -1818,7 +1820,7 @@ describe('guided install helpers', () => {
       endpoint: 'http://127.0.0.1:8001',
       localDir: '/tmp/automem-server',
       waitMessage: 'Could not reach AutoMem endpoint http://127.0.0.1:8001: timed out after 2s',
-      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      retryCommand: 'npx @verygoodplugins/mcp-automem@latest install --target local --yes',
       inspect: {},
     });
     expect(hint).toMatch(/health check timed out/i);
@@ -1830,7 +1832,7 @@ describe('guided install helpers', () => {
       endpoint: 'http://127.0.0.1:8001',
       localDir: '/tmp/automem-server',
       waitMessage: 'AutoMem endpoint did not become healthy after 30 attempts: fetch failed',
-      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      retryCommand: 'npx @verygoodplugins/mcp-automem@latest install --target local --yes',
       inspect: {},
     });
     expect(err).toBeInstanceOf(InstallError);
@@ -1847,7 +1849,7 @@ describe('guided install helpers', () => {
       endpoint: 'http://127.0.0.1:8001',
       localDir: '/Users/me/.automem/server',
       waitMessage: 'AutoMem is degraded (FalkorDB disconnected, Qdrant disconnected).',
-      retryCommand: 'npx @verygoodplugins/mcp-automem install --target local --yes',
+      retryCommand: 'npx @verygoodplugins/mcp-automem@latest install --target local --yes',
       inspect: {
         apiLogs:
           'redis.exceptions.ConnectionError: Error -2 connecting to falkordb:6379. Name or service not known.',

@@ -12,6 +12,13 @@ export const DEFAULT_AUTOMEM_API_URL = 'http://127.0.0.1:8001';
  */
 export const AUTOMEM_NPX_PACKAGE = '@verygoodplugins/mcp-automem@latest';
 
+/**
+ * The `npx` prefix for every CLI subcommand we print (`install`, `uninstall`, help, …).
+ * It needs the dist-tag for the same reason as launch commands, and because with a
+ * global install the unpinned spec silently runs that, possibly older, build.
+ */
+export const AUTOMEM_NPX_COMMAND = `npx ${AUTOMEM_NPX_PACKAGE}`;
+
 /** Fresh `npx` args for an AutoMem server entry; a new array so callers never share one. */
 export function automemNpxArgs(): string[] {
   return ['-y', AUTOMEM_NPX_PACKAGE];

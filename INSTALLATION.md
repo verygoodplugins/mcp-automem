@@ -18,7 +18,7 @@ One command walks you through everything — where AutoMem runs, endpoint
 verification, writing `.env`, and configuring each agent:
 
 ```bash
-npx @verygoodplugins/mcp-automem install
+npx @verygoodplugins/mcp-automem@latest install
 ```
 
 It asks where AutoMem should run (**Hosted Cloud**, **Local Docker**, or an
@@ -54,11 +54,11 @@ Non-interactive / scriptable use:
 
 ```bash
 # Preview the plan without writing anything
-npx @verygoodplugins/mcp-automem install --dry-run --target existing \
+npx @verygoodplugins/mcp-automem@latest install --dry-run --target existing \
   --endpoint https://your-automem.example --api-key "$AUTOMEM_API_KEY"
 
 # Apply without prompts (CI / dotfiles)
-npx @verygoodplugins/mcp-automem install --yes --target existing \
+npx @verygoodplugins/mcp-automem@latest install --yes --target existing \
   --endpoint https://your-automem.example --clients codex,cursor \
   --claude-code-mode settings
 ```
@@ -91,7 +91,7 @@ endpoint alongside it is not bound to anything and is still used; a re-run at
 the *same* endpoint keeps the key it already has.
 
 **Removing AutoMem:** uninstall is per-agent —
-`npx @verygoodplugins/mcp-automem uninstall <cursor|claude-code|codex|hermes|grok>`
+`npx @verygoodplugins/mcp-automem@latest uninstall <cursor|claude-code|codex|hermes|grok>`
 (add `--clean-all` to also drop the MCP server config). OpenClaw owns its own
 plugin lifecycle, so remove the AutoMem plugin from OpenClaw directly with
 `openclaw plugins uninstall automem` rather than the `uninstall` command above.
@@ -261,7 +261,7 @@ For deeper details, see the AutoMem service docs linked above.
 
 ### Guided installer
 
-`npx @verygoodplugins/mcp-automem setup` is an alias of `install`. Both open the guided installer above. `claude-code`, `cursor`, `codex`, and the other host commands stay available as scriptable writers. Print snippets again with `npx @verygoodplugins/mcp-automem config`.
+`npx @verygoodplugins/mcp-automem@latest setup` is an alias of `install`. Both open the guided installer above. `claude-code`, `cursor`, `codex`, and the other host commands stay available as scriptable writers. Print snippets again with `npx @verygoodplugins/mcp-automem@latest config`.
 
 ---
 
@@ -384,14 +384,14 @@ _Claude Desktop using AutoMem from Personal Preferences_
 From your project directory, run the installer and select Cursor:
 
 ```bash
-npx @verygoodplugins/mcp-automem install
+npx @verygoodplugins/mcp-automem@latest install
 ```
 
 Choose your existing AutoMem service, or follow the local/cloud setup prompts. The installer then asks how to wire Cursor.
 
 **Plugin (default, `--cursor-mode plugin`).** The installer copies the bundled AutoMem plugin into `~/.cursor/plugins/local/automem`: the MCP server, a Cursor-native `sessionStart` recall hook, and the always-on rule, all from `plugins/automem/.cursor-plugin/plugin.json`. It is a real directory (Cursor does not load symlinked local plugins), and re-running the installer replaces it with the current release. The installer refuses to replace a symlink, or a folder there that is not the AutoMem plugin. Cursor's CLI cannot install plugins non-interactively, so the endpoint is entered in Cursor: fully restart Cursor, then open Customize → Automem → Configure and enter your AutoMem REST URL (not the `/mcp` URL) and API key. The plugin exposes every tool except `delete_memory`.
 
-If the installer finds a file-mode install as well (an AutoMem entry in `~/.cursor/mcp.json` or the marked `.cursor/rules/automem.mdc` in this project), AutoMem would load twice. An interactive run offers to remove the file install. A `--yes` run never removes it; it prints a warning with `npx @verygoodplugins/mcp-automem uninstall cursor`, which removes both the file install and the plugin, so re-run the install afterwards. An AutoMem server in this project's own `.cursor/mcp.json` also loads twice; no installer writes that file and uninstall does not remove it, so the installer tells you to remove that entry by hand.
+If the installer finds a file-mode install as well (an AutoMem entry in `~/.cursor/mcp.json` or the marked `.cursor/rules/automem.mdc` in this project), AutoMem would load twice. An interactive run offers to remove the file install. A `--yes` run never removes it; it prints a warning with `npx @verygoodplugins/mcp-automem@latest uninstall cursor`, which removes both the file install and the plugin, so re-run the install afterwards. An AutoMem server in this project's own `.cursor/mcp.json` also loads twice; no installer writes that file and uninstall does not remove it, so the installer tells you to remove that entry by hand.
 
 **Project files (`--cursor-mode files`).** If the AutoMem plugin is already installed, an interactive run offers to remove it so AutoMem loads once; a `--yes` run leaves it and warns. The installer passes the selected endpoint and API key into Cursor setup, the same as `mcp-automem cursor`, which:
 
@@ -409,23 +409,23 @@ Reload Cursor after installation, then create a new Agent conversation so the se
 To configure Cursor directly against an existing service:
 
 ```bash
-npx @verygoodplugins/mcp-automem cursor --endpoint https://your-automem.example
+npx @verygoodplugins/mcp-automem@latest cursor --endpoint https://your-automem.example
 ```
 
 Use `--api-key` for an authenticated service, or let the installer resolve credentials. Endpoint changes do not reuse credentials belonging to a different endpoint. An existing verified AutoMem server registration is reused; conflicting names, ambiguous registrations, malformed configuration, and project overrides are reported before setup writes files.
 
 ```bash
 # Specify the project name used in memory guidance
-npx @verygoodplugins/mcp-automem cursor --name my-project
+npx @verygoodplugins/mcp-automem@latest cursor --name my-project
 
 # Preview global MCP, project rule, and hook changes without writing files
-npx @verygoodplugins/mcp-automem cursor --dry-run
+npx @verygoodplugins/mcp-automem@latest cursor --dry-run
 
 # Custom rule directory (normally <project>/.cursor/rules)
-npx @verygoodplugins/mcp-automem cursor --dir .cursor/rules
+npx @verygoodplugins/mcp-automem@latest cursor --dir .cursor/rules
 
 # Noninteractive setup
-npx @verygoodplugins/mcp-automem cursor --yes
+npx @verygoodplugins/mcp-automem@latest cursor --yes
 ```
 
 The one-click button adds only the global MCP server, using `npx` with a separate argument list and a local endpoint. It does not install rules or hooks:
@@ -492,7 +492,7 @@ The plugin bundles the MCP server, silent integration hooks (SessionStart recall
 **Migrating from the CLI installer:** remove the settings-level install first, so hooks don't fire twice and the memory tools don't appear under two servers:
 
 ```bash
-npx @verygoodplugins/mcp-automem uninstall claude-code --clean-all
+npx @verygoodplugins/mcp-automem@latest uninstall claude-code --clean-all
 ```
 
 ### Option B: CLI installer (settings-level)
@@ -521,7 +521,7 @@ Add AutoMem to `~/.claude.json`:
 #### 2. Install hooks and permissions
 
 ```bash
-npx @verygoodplugins/mcp-automem claude-code
+npx @verygoodplugins/mcp-automem@latest claude-code
 ```
 
 This installs the hook scripts and merges the six `mcp__memory__*` tool permissions into `~/.claude/settings.json` so Claude can use memory tools without asking. The default profile registers only SessionStart recall and PostToolUse store tracking; the Stop storage nudge script is installed but not registered, so session end stays silent. That permission list is everything the installer grants — it no longer ships any `Bash(*)`, file-tool, or `deny`/`ask` entries.
@@ -529,7 +529,7 @@ This installs the hook scripts and merges the six `mcp__memory__*` tool permissi
 To opt back into the visible Stop storage nudge:
 
 ```bash
-npx @verygoodplugins/mcp-automem claude-code --profile nudged
+npx @verygoodplugins/mcp-automem@latest claude-code --profile nudged
 ```
 
 Re-running setup is also the supported migration path for legacy installs: the default silent merge removes the managed AutoMem Stop nudge from settings unless you pass `--profile nudged`, and removes retired hooks in every historical spelling — the old `session-memory.sh` Stop entry, the mechanical `capture-*.sh` PostToolUse hooks, and the queue Stop machinery (`queue-cleanup.sh` plus the `mcp-automem queue` drainer in its npx and bare-CLI forms; nothing writes to the queue anymore, so draining it per-session was dead weight). It also deletes the retired script files those hooks used from `~/.claude/hooks` and `~/.claude/scripts`, collapses duplicate hook registrations, and strips the four hook-era permission grants the old template shipped for that machinery (`Bash(python3:*)`, `Bash(python:*)`, `Bash(py:*)`, `Bash(jq:*)`). Generic grants like `Bash(git:*)` or `Edit` that earlier templates added are treated as user-owned and never touched — remove them yourself if you don't want them. Hooks the installer didn't author are never touched, and a backup (`settings.json.bak`, numbered if needed) is written before any change. The `mcp-automem queue` CLI remains available for manually draining a queue file.
@@ -723,7 +723,7 @@ The MCP server config lives in different places for CLI vs VS Code:
 ### 2. Install Hooks and Memory Rules
 
 ```bash
-npx @verygoodplugins/mcp-automem copilot --yes
+npx @verygoodplugins/mcp-automem@latest copilot --yes
 ```
 
 This installs:
@@ -758,7 +758,7 @@ Check the health of the AutoMem service
 ### 4. Uninstall
 
 ```bash
-npx @verygoodplugins/mcp-automem uninstall copilot --yes
+npx @verygoodplugins/mcp-automem@latest uninstall copilot --yes
 ```
 
 Add `--clean-all` to also remove the MCP server entry from the target Copilot `mcp-config.json`.
@@ -835,7 +835,7 @@ AUTOMEM_API_KEY = "your-api-key"
 Install memory-first rules into your project so Codex proactively recalls and stores context:
 
 ```bash
-npx @verygoodplugins/mcp-automem codex
+npx @verygoodplugins/mcp-automem@latest codex
 ```
 
 This creates or updates `AGENTS.md` with an AutoMem section tailored to your project.
@@ -963,13 +963,13 @@ AutoMem integrations use one shared AutoMem recall blueprint across hosts: prefe
 
 ```bash
 # MCP tools only: exposes mcp_automem_recall_memory, mcp_automem_store_memory, etc.
-npx @verygoodplugins/mcp-automem hermes --mode mcp
+npx @verygoodplugins/mcp-automem@latest hermes --mode mcp
 
 # Native memory provider: activates AutoMem through memory.provider.
-npx @verygoodplugins/mcp-automem hermes --mode provider
+npx @verygoodplugins/mcp-automem@latest hermes --mode provider
 
 # Advanced: native ambient recall plus MCP write/recall tools.
-npx @verygoodplugins/mcp-automem hermes --mode both
+npx @verygoodplugins/mcp-automem@latest hermes --mode both
 ```
 
 `--mode both` keeps explicit tools on the MCP path only and writes `AUTOMEM_HERMES_PROVIDER_TOOLS=false` so Hermes does not expose duplicate `automem_*` provider tools.
@@ -1014,14 +1014,14 @@ _`hermes -z` pulls the seeded fact out of recall and answers `Port 7341`._
 ### 4. Uninstall
 
 ```bash
-npx @verygoodplugins/mcp-automem uninstall hermes
+npx @verygoodplugins/mcp-automem@latest uninstall hermes
 
 # Preview without changing files
-npx @verygoodplugins/mcp-automem uninstall hermes --dry-run
+npx @verygoodplugins/mcp-automem@latest uninstall hermes --dry-run
 
 # Strip the AutoMem rules block from a custom rules file
 # (mirrors `hermes --rules <path>` at install time; defaults to $HERMES_HOME/AGENTS.md)
-npx @verygoodplugins/mcp-automem uninstall hermes --rules /path/to/AGENTS.md
+npx @verygoodplugins/mcp-automem@latest uninstall hermes --rules /path/to/AGENTS.md
 ```
 
 The Hermes uninstaller removes AutoMem's current config and known pre-release install targets, including `mcp_servers.automem`, AutoMem-owned `mcp_servers.memory`, `memory.provider: automem`, `$HERMES_HOME/plugins/automem`, AutoMem Hermes rules, and AutoMem keys in `$HERMES_HOME/.env`. Pass `--rules <path>` if you installed the rules block into a non-default file so the uninstaller strips that file instead of `$HERMES_HOME/AGENTS.md`.
@@ -1033,8 +1033,8 @@ Hermes setup also removes a stale AutoMem Codex rules block from `$HERMES_HOME/A
 If Anthropic returns `tools: Tool names must be unique`, Hermes is seeing two explicit AutoMem tool surfaces. The usual pre-release cause is a stale `mcp_servers.memory` AutoMem entry combined with `mcp_servers.automem` or provider tools. Run:
 
 ```bash
-npx @verygoodplugins/mcp-automem uninstall hermes
-npx @verygoodplugins/mcp-automem hermes --mode mcp
+npx @verygoodplugins/mcp-automem@latest uninstall hermes
+npx @verygoodplugins/mcp-automem@latest hermes --mode mcp
 ```
 
 For advanced `both` mode, confirm `$HERMES_HOME/.env` contains `AUTOMEM_HERMES_PROVIDER_TOOLS=false`.
@@ -1083,11 +1083,11 @@ Grok Build (xAI CLI) loads MCP from `~/.grok/config.toml`, then Claude/Cursor co
 
 ```bash
 # Guided installer (detects ~/.grok and offers Grok in the agent list)
-npx @verygoodplugins/mcp-automem install --clients grok \
+npx @verygoodplugins/mcp-automem@latest install --clients grok \
   --endpoint https://your-automem.example --api-key "$AUTOMEM_API_KEY"
 
 # Or standalone
-npx @verygoodplugins/mcp-automem grok \
+npx @verygoodplugins/mcp-automem@latest grok \
   --endpoint https://your-automem.example --api-key "$AUTOMEM_API_KEY"
 ```
 
@@ -1121,8 +1121,8 @@ Tools appear as `memory__recall_memory`, `memory__store_memory`, etc. Discover w
 ### Uninstall
 
 ```bash
-npx @verygoodplugins/mcp-automem uninstall grok
-npx @verygoodplugins/mcp-automem uninstall grok --dry-run
+npx @verygoodplugins/mcp-automem@latest uninstall grok
+npx @verygoodplugins/mcp-automem@latest uninstall grok --dry-run
 ```
 
 Removes AutoMem-owned `mcp_servers.memory` and strips the `<!-- BEGIN AUTOMEM GROK RULES -->` block from `~/.grok/AGENTS.md` (or `--rules <path>`). Non-AutoMem `memory` servers are left alone.
@@ -1291,7 +1291,7 @@ AutoMem now supports three OpenClaw integration modes, in this recommended order
 
 4. **Open OpenClaw**. The installer will restart the gateway, verify the plugin, and open or print the dashboard URL.
 
-The recommended setup command above installs OpenClaw in `plugin` mode using the packaged flow from `@verygoodplugins/mcp-automem` (under the hood: `npx @verygoodplugins/mcp-automem openclaw --mode plugin`). That stages a lean native plugin package and keeps `memory-core` as OpenClaw's active memory slot instead of replacing it.
+The recommended setup command above installs OpenClaw in `plugin` mode using the packaged flow from `@verygoodplugins/mcp-automem` (under the hood: `npx @verygoodplugins/mcp-automem@latest openclaw --mode plugin`). That stages a lean native plugin package and keeps `memory-core` as OpenClaw's active memory slot instead of replacing it.
 Plugin mode also enables the `/plugins` chat command so users can verify and inspect the install from inside OpenClaw.
 It also appends the AutoMem tool names to `tools.alsoAllow`, which keeps them callable even when OpenClaw is using a restrictive base profile such as `tools.profile = "coding"` without forcing a restrictive global allowlist.
 On fresh installs, it also probes AutoMem once: if the service is reachable and already contains memory, the installer sets `agents.defaults.skipBootstrap = true` so OpenClaw skips the name/timezone/vibe bootstrap flow. If AutoMem is empty or unavailable, the normal bootstrap remains in place.
@@ -1303,10 +1303,10 @@ For a deterministic dogfood pass, see the scripted clean-install demo in [`templ
 
 ```bash
 # Transparent typed-MCP path
-npx @verygoodplugins/mcp-automem openclaw --mode mcp --workspace ~/clawd
+npx @verygoodplugins/mcp-automem@latest openclaw --mode mcp --workspace ~/clawd
 
 # Legacy curl fallback
-npx @verygoodplugins/mcp-automem openclaw --mode skill --workspace ~/clawd
+npx @verygoodplugins/mcp-automem@latest openclaw --mode skill --workspace ~/clawd
 ```
 
 ### Why OpenClaw + AutoMem?
@@ -1322,7 +1322,7 @@ npx @verygoodplugins/mcp-automem openclaw --mode skill --workspace ~/clawd
 - **Optional full replacement mode**: `--replace-memory` disables `memory-core`, disables the bundled `session-memory` hook, and turns off dreaming so AutoMem becomes the only memory system
 - **Complementary memory layers**: `memory-core` remains useful for local file memory; AutoMem is the semantic graph layer
 
-Use `https://automem.ai/install.sh` for the OpenClaw happy path, or `npx @verygoodplugins/mcp-automem openclaw --mode plugin` when you need the raw CLI. Do not point `openclaw plugins install` at the main `@verygoodplugins/mcp-automem` package directly.
+Use `https://automem.ai/install.sh` for the OpenClaw happy path, or `npx @verygoodplugins/mcp-automem@latest openclaw --mode plugin` when you need the raw CLI. Do not point `openclaw plugins install` at the main `@verygoodplugins/mcp-automem` package directly.
 
 ### Full Setup Guide
 
@@ -1355,7 +1355,7 @@ AUTOMEM_API_KEY=your_api_key_here
 Re-print configuration snippets anytime:
 
 ```bash
-npx @verygoodplugins/mcp-automem config --format=json
+npx @verygoodplugins/mcp-automem@latest config --format=json
 ```
 
 ---
@@ -1617,25 +1617,25 @@ Remove AutoMem configuration:
 
 ```bash
 # Remove project rules/hooks and the verified global AutoMem MCP registration
-npx @verygoodplugins/mcp-automem uninstall cursor
+npx @verygoodplugins/mcp-automem@latest uninstall cursor
 
 # Uninstall Claude Code setup
-npx @verygoodplugins/mcp-automem uninstall claude-code
+npx @verygoodplugins/mcp-automem@latest uninstall claude-code
 
 # Uninstall Hermes setup
-npx @verygoodplugins/mcp-automem uninstall hermes
+npx @verygoodplugins/mcp-automem@latest uninstall hermes
 
 # Uninstall Grok Build setup
-npx @verygoodplugins/mcp-automem uninstall grok
+npx @verygoodplugins/mcp-automem@latest uninstall grok
 
 # Also clean Claude Desktop config
-npx @verygoodplugins/mcp-automem uninstall cursor --clean-all
+npx @verygoodplugins/mcp-automem@latest uninstall cursor --clean-all
 
 # Remove a rule installed into a custom directory
-npx @verygoodplugins/mcp-automem uninstall cursor --rules custom/rules/automem.mdc
+npx @verygoodplugins/mcp-automem@latest uninstall cursor --rules custom/rules/automem.mdc
 
 # Preview what would be removed
-npx @verygoodplugins/mcp-automem uninstall cursor --dry-run
+npx @verygoodplugins/mcp-automem@latest uninstall cursor --dry-run
 ```
 
 Cursor uninstall also removes the local plugin at `~/.cursor/plugins/local/automem`, but only when it is a real directory whose `.cursor-plugin/plugin.json` is named `automem`; a symlinked or foreign plugin folder is left alone. A malformed `hooks.json` or `mcp.json` stops the file-mode teardown but does not block removing the plugin. It preserves unrelated rules, hooks, and MCP servers. Its global MCP registration is shared across projects: removing it also disconnects AutoMem in other Cursor projects until setup is run again. `--clean-all` additionally checks supported legacy locations such as Claude Desktop; unrelated registrations remain untouched.
@@ -1645,7 +1645,7 @@ Cursor uninstall also removes the local plugin at `~/.cursor/plugins/local/autom
 View all available commands:
 
 ```bash
-npx @verygoodplugins/mcp-automem help
+npx @verygoodplugins/mcp-automem@latest help
 ```
 
 ---
@@ -1724,11 +1724,11 @@ warning and leave the file alone rather than failing the install.
 
 - Check `~/.claude/settings.json` has the MCP permissions
 - Verify MCP server is configured in `~/.claude.json`
-- Run setup again: `npx @verygoodplugins/mcp-automem claude-code`
+- Run setup again: `npx @verygoodplugins/mcp-automem@latest claude-code`
 
 #### Claude Code: Hooks firing twice or storing duplicate/session-summary memories
 
-- Run setup again: `npx @verygoodplugins/mcp-automem claude-code` — the merge self-repairs duplicate hook registrations and removes retired hooks (the `session-memory.sh` Stop entry, the `capture-*.sh` PostToolUse hooks, and the `queue-cleanup.sh` + `mcp-automem queue` drainer Stop entries) along with their orphaned script files
+- Run setup again: `npx @verygoodplugins/mcp-automem@latest claude-code` — the merge self-repairs duplicate hook registrations and removes retired hooks (the `session-memory.sh` Stop entry, the `capture-*.sh` PostToolUse hooks, and the `queue-cleanup.sh` + `mcp-automem queue` drainer Stop entries) along with their orphaned script files
 - A backup of `settings.json` is created automatically before any change
 - Preview first with `--dry-run` if you want to see what would change
 
@@ -1750,9 +1750,9 @@ warning and leave the file alone rather than failing the install.
 
 #### Hermes: Tool names must be unique
 
-- Run `npx @verygoodplugins/mcp-automem uninstall hermes --dry-run` to see stale AutoMem surfaces.
-- Remove the stale setup with `npx @verygoodplugins/mcp-automem uninstall hermes`.
-- Reinstall one mode, usually `npx @verygoodplugins/mcp-automem hermes --mode mcp`.
+- Run `npx @verygoodplugins/mcp-automem@latest uninstall hermes --dry-run` to see stale AutoMem surfaces.
+- Remove the stale setup with `npx @verygoodplugins/mcp-automem@latest uninstall hermes`.
+- Reinstall one mode, usually `npx @verygoodplugins/mcp-automem@latest hermes --mode mcp`.
 - If using `--mode both`, verify `$HERMES_HOME/.env` has `AUTOMEM_HERMES_PROVIDER_TOOLS=false`.
 - Check `config.yaml` for stale AutoMem-owned `mcp_servers.memory`; non-AutoMem memory servers are preserved by the uninstaller.
 
@@ -1777,7 +1777,7 @@ If you've installed hooks from an older version that invoked the shell directly,
 Or re-run the installer to get the updated hook configs:
 
 ```bash
-npx @verygoodplugins/mcp-automem copilot --yes
+npx @verygoodplugins/mcp-automem@latest copilot --yes
 ```
 ---
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-package_spec="${AUTOMEM_PACKAGE_SPEC:-@verygoodplugins/mcp-automem}"
+package_spec="${AUTOMEM_PACKAGE_SPEC:-@verygoodplugins/mcp-automem@latest}"
 default_endpoint="${AUTOMEM_DEFAULT_ENDPOINT:-http://127.0.0.1:8001}"
 endpoint="${AUTOMEM_API_URL:-${AUTOMEM_ENDPOINT:-}}"
 api_key="${AUTOMEM_API_KEY:-}"

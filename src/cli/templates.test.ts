@@ -104,3 +104,48 @@ describe('launch commands use the @latest dist-tag', () => {
     expect(Object.values(doc.mcp_servers).map((server) => server.args)).toEqual([LAUNCH_ARGS]);
   });
 });
+
+// CLI subcommands hit the same collision as launch commands, and with a global
+// install the unpinned spec silently runs that (possibly older) build instead.
+// So every copy-paste command we print, and the shell installer's fallback, names
+// the dist-tag too.
+describe('CLI subcommand invocations use the @latest dist-tag', () => {
+  const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  const readRepoFile = (file: string) => fs.readFileSync(path.join(REPO_ROOT, file), 'utf8');
+  // `npx [-y] @verygoodplugins/mcp-automem` not followed by `@<tag-or-version>`.
+  const UNPINNED = /npx(?: -y)? @verygoodplugins\/mcp-automem(?![@\w-])/;
+  // Historical hook commands that claude-code.ts matches in users' existing
+  // settings to migrate them; rewriting these would break that migration.
+  const LEGACY_MATCHERS = [
+    `'npx @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl"',`,
+    `'npx @verygoodplugins/mcp-automem queue --file "$HOME/.claude/scripts/memory-queue.jsonl" --limit 5',`,
+  ];
+
+  const unpinnedLines = (file: string) =>
+    readRepoFile(file)
+      .split('\n')
+      .map((line, index) => ({ line: line.trim(), at: `${file}:${index + 1}` }))
+      .filter(({ line }) => UNPINNED.test(line) && !LEGACY_MATCHERS.includes(line))
+      .map(({ at, line }) => `${at}: ${line}`);
+
+  const sourceFiles = (dir: string): string[] =>
+    fs.readdirSync(path.join(REPO_ROOT, dir), { withFileTypes: true }).flatMap((entry) => {
+      const rel = path.join(dir, entry.name);
+      if (entry.isDirectory()) return sourceFiles(rel);
+      return entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') ? [rel] : [];
+    });
+
+  it('install.sh defaults its npx fallback to the dist-tag, keeping the override', () => {
+    expect(readRepoFile('install.sh')).toContain(
+      'package_spec="${AUTOMEM_PACKAGE_SPEC:-@verygoodplugins/mcp-automem@latest}"'
+    );
+  });
+
+  it('no command printed from src/ uses the unpinned spec', () => {
+    expect(sourceFiles('src').flatMap(unpinnedLines)).toEqual([]);
+  });
+
+  it.each(['install.sh', 'INSTALLATION.md'])('%s has no unpinned npx command', (file) => {
+    expect(unpinnedLines(file)).toEqual([]);
+  });
+});
