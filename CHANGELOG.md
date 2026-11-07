@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.19.1](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.19.0...mcp-automem-v0.19.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **install:** detect Docker APIs on remapped ports ([#301](https://github.com/verygoodplugins/mcp-automem/issues/301)) ([da9e9ba](https://github.com/verygoodplugins/mcp-automem/commit/da9e9ba0f5d39c5a848988c4d7f224ea6be31acb))
+
 ## [0.19.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.18.0...mcp-automem-v0.19.0) (2026-11-07)
 
 
