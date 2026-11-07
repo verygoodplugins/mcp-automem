@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.19.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.18.0...mcp-automem-v0.19.0) (2026-11-07)
+
+
+### Features
+
+* **install:** streamline setup and welcome assistants ([#300](https://github.com/verygoodplugins/mcp-automem/issues/300)) ([1ee1663](https://github.com/verygoodplugins/mcp-automem/commit/1ee16634899cf60e0fb87dec895ab5995bf3bdd0))
+
+
+### Bug Fixes
+
+* **install:** run CLI subcommands via [@latest](https://github.com/latest) ([#298](https://github.com/verygoodplugins/mcp-automem/issues/298)) ([7aa4bf1](https://github.com/verygoodplugins/mcp-automem/commit/7aa4bf1b3049506a3241f65db7373d7e50e7a7ed))
+
 ## [0.18.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.17.0...mcp-automem-v0.18.0) (2026-11-04)
 
 
