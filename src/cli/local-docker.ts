@@ -232,9 +232,10 @@ export async function discoverExistingLocalServer(
 ): Promise<ExistingLocalServer | undefined> {
   const run = params.run ?? captureCommand;
   const apiPort = params.apiPort ?? 8001;
-  // Docker filters by the container-side port, even when the host port differs.
-  // Inspect below matches the requested host port before trusting credentials.
-  const ids = run('docker', ['ps', '--filter', 'publish=8001', '--format', '{{.ID}}']);
+  // Match the API's container-side port; Docker's publish filter can match the
+  // host-side port instead. Inspect below verifies the host binding before we
+  // probe the endpoint or trust credentials from a matching container.
+  const ids = run('docker', ['ps', '--filter', 'expose=8001', '--format', '{{.ID}}']);
   if (!ids.ok || !ids.stdout.trim()) return undefined;
   const endpoint = `http://127.0.0.1:${apiPort}`;
   let matchingBinding = false;
