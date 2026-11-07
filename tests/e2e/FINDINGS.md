@@ -1,6 +1,12 @@
 # AutoMem installer — end-to-end test harness: findings
 
-> **Reconciliation update (plugin-first base).** This report was written against
+> **Current status:** The findings below are a historical investigation, not a
+> description of the current installer. Codex setup now registers its MCP server,
+> stores its connection separately, and removes both during uninstall. The live
+> matrix verifies those behaviors; its website-bootstrap scenario checks that a
+> key supplied in the environment reaches setup without appearing in output.
+
+> **Historical reconciliation update (plugin-first base).** This report was written against
 > the pre-plugin-first installer. The guided `install` command was since replanted
 > onto the plugin-first base, where: (1) **Codex is rules-only** — it writes the
 > AGENTS.md AutoMem block and advises on the MCP registration; the mechanical

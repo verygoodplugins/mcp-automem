@@ -7,6 +7,7 @@ import {
   CURSOR_PLUGIN_NAME,
   bundledCursorPluginRoot,
   cursorLocalPluginDir,
+  cursorPluginConnectionPath,
   detectCursorFileInstall,
   installCursorPlugin,
   readCursorPluginName,
@@ -58,6 +59,89 @@ describe('Cursor local plugin install', () => {
     expect(fs.readdirSync(path.dirname(dest))).toEqual(['automem']);
     // Staging/old dirs are cleaned up from the plugins root as well.
     expect(fs.readdirSync(path.join(home, '.cursor', 'plugins'))).toEqual(['local']);
+  });
+
+  it('configures the local plugin with a private connection, without changing the bundled manifest', () => {
+    const endpoint = 'https://memory.example';
+    const apiKey = 'key-with-$-and-"quotes"';
+    const bundled = fs.readFileSync(
+      path.join(bundledCursorPluginRoot(), '.cursor-plugin', 'plugin.json'),
+      'utf8'
+    );
+    const result = installCursorPlugin({
+      homeDir: home,
+      quiet: true,
+      connection: { endpoint, apiKey },
+    });
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(result.pluginDir, '.cursor-plugin', 'plugin.json'), 'utf8')
+    );
+    const server = manifest.mcpServers.memory;
+    expect(server.command).toBe('npx');
+    expect(server.args).toEqual(['-y', '@verygoodplugins/mcp-automem@latest']);
+    expect(server.env).toMatchObject({
+      AUTOMEM_CONNECTION_FILE: '${CURSOR_PLUGIN_ROOT}/cursor/connection.json',
+      AUTOMEM_CURSOR_REVISION: expect.any(String),
+      AUTOMEM_API_KEY: '',
+      AUTOMEM_API_TOKEN: '',
+    });
+    expect(manifest.variables).toBeUndefined();
+    expect(JSON.stringify(manifest)).not.toContain(apiKey);
+    expect(JSON.stringify(manifest)).not.toContain(endpoint);
+    const connection = cursorPluginConnectionPath(home);
+    expect(JSON.parse(fs.readFileSync(connection, 'utf8'))).toEqual({ endpoint, apiKey });
+    if (process.platform !== 'win32') expect(fs.statSync(connection).mode & 0o777).toBe(0o600);
+    expect(
+      fs.readFileSync(path.join(bundledCursorPluginRoot(), '.cursor-plugin', 'plugin.json'), 'utf8')
+    ).toBe(bundled);
+    expect(removeCursorLocalPlugin({ homeDir: home, quiet: true })).toBe(true);
+    expect(fs.existsSync(connection)).toBe(false);
+  });
+
+  it('replaces the saved connection and does not inherit an old key for a new endpoint', () => {
+    installCursorPlugin({
+      homeDir: home,
+      quiet: true,
+      connection: { endpoint: 'https://old.example', apiKey: 'old-key' },
+    });
+    const manifestPath = path.join(cursorLocalPluginDir(home), '.cursor-plugin', 'plugin.json');
+    const before = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).mcpServers.memory.env
+      .AUTOMEM_CURSOR_REVISION;
+    installCursorPlugin({
+      homeDir: home,
+      quiet: true,
+      connection: { endpoint: 'https://new.example' },
+    });
+    const after = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).mcpServers.memory.env
+      .AUTOMEM_CURSOR_REVISION;
+    expect(after).not.toBe(before);
+    expect(JSON.parse(fs.readFileSync(cursorPluginConnectionPath(home), 'utf8'))).toEqual({
+      endpoint: 'https://new.example',
+      apiKey: '',
+    });
+  });
+
+  it('keeps the old plugin intact if a staged connection cannot be created', () => {
+    installCursorPlugin({
+      homeDir: home,
+      quiet: true,
+      connection: { endpoint: 'https://old.example', apiKey: 'old-key' },
+    });
+    const source = path.join(root, 'bad-bundle');
+    fs.cpSync(bundledCursorPluginRoot(), source, { recursive: true });
+    fs.writeFileSync(path.join(source, 'cursor', 'connection.json'), 'foreign file');
+    expect(() =>
+      installCursorPlugin({
+        homeDir: home,
+        sourceDir: source,
+        quiet: true,
+        connection: { endpoint: 'https://new.example', apiKey: 'new-key' },
+      })
+    ).toThrow();
+    expect(JSON.parse(fs.readFileSync(cursorPluginConnectionPath(home), 'utf8'))).toEqual({
+      endpoint: 'https://old.example',
+      apiKey: 'old-key',
+    });
   });
 
   it('replaces an older copy on re-run, dropping files the bundle no longer ships', () => {

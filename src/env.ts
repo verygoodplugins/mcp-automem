@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 // CLAUDE_PLUGIN_OPTION_* vars carry the Claude Code plugin's userConfig
 // answers (exported by Claude Code to plugin subprocesses). The server reads
 // them here instead of the plugin wiring them through .mcp.json env, where a
@@ -77,4 +79,33 @@ export function hasMcpSidecarPath(url: string): boolean {
     return false;
   }
   return /\/mcp(\/sse)?\/?$/i.test(pathname);
+}
+/** Local plugin connection stored separately from the MCP manifest and process env. */
+export function readAutoMemConnectionFile(
+  env: NodeJS.ProcessEnv = process.env
+): { endpoint: string; apiKey?: string } | undefined {
+  const file = env.AUTOMEM_CONNECTION_FILE;
+  if (!file) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+    const record = parsed as Record<string, unknown>;
+    if (
+      typeof record.endpoint !== 'string' ||
+      !record.endpoint.trim() ||
+      (record.apiKey !== undefined && typeof record.apiKey !== 'string')
+    )
+      throw new Error();
+    const url = new URL(record.endpoint);
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+    return {
+      endpoint: record.endpoint,
+      apiKey: typeof record.apiKey === 'string' && record.apiKey ? record.apiKey : undefined,
+    };
+  } catch {
+    // Never include the file contents or parser errors, which can contain secrets.
+    throw new Error(
+      'The AutoMem connection file is missing or invalid. Re-run the AutoMem installer.'
+    );
+  }
 }

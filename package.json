@@ -29,6 +29,8 @@
     "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "bash tests/e2e/run-matrix.sh",
+    "test:e2e:local": "node tests/e2e/local-guided-install.mjs",
+    "test:e2e:welcome": "node tests/e2e/welcome-guided-install.mjs",
     "test:e2e:railway": "node tests/e2e/railway-guided-install.mjs",
     "test:e2e:railway:watch": "node tests/e2e/railway-guided-install.mjs --watch",
     "test:all": "vitest run && vitest run --config vitest.integration.config.ts",

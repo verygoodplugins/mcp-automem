@@ -25,12 +25,17 @@ export interface GrokAutoMemServerEntry {
   args: string[];
   enabled: boolean;
   env: Record<string, string>;
+  cwd?: string;
 }
 
 export interface UpsertOptions {
   dryRun?: boolean;
   quiet?: boolean;
   onlyIfAutoMem?: boolean;
+  /** The same TOML MCP table format is also used by Codex. */
+  host?: 'Grok' | 'Codex';
+  /** Avoid reformatting a user-owned config when a verified splice is impossible. */
+  preserveFormatting?: boolean;
 }
 
 export type UpsertMethod = 'toml' | 'dry-run';
@@ -107,6 +112,20 @@ function restrictToOwner(filePath: string): void {
   }
 }
 
+function copyConfigBackup(source: string, destination: string, secret: boolean): void {
+  if (!secret) {
+    fs.copyFileSync(source, destination);
+    return;
+  }
+  // Never create a temporarily world-readable copy of a legacy credential.
+  const fd = fs.openSync(destination, 'wx', 0o600);
+  try {
+    fs.writeFileSync(fd, fs.readFileSync(source));
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /**
  * Whether an mcp_servers entry carries an API key.
  *
@@ -127,7 +146,11 @@ function entryHasApiKey(entry: unknown): boolean {
 
 const isAutoMemMcpEntry = isAutoMemServerEntry;
 
-function parseGrokDocument(raw: string, configPath: string): Record<string, unknown> {
+function parseGrokDocument(
+  raw: string,
+  configPath: string,
+  host = 'Grok'
+): Record<string, unknown> {
   try {
     const parsed = parseToml(raw || '') as unknown;
     if (parsed === null || parsed === undefined) return {};
@@ -138,7 +161,7 @@ function parseGrokDocument(raw: string, configPath: string): Record<string, unkn
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Failed to parse Grok config at ${configPath}: ${reason}. Fix the TOML syntax and re-run.`,
+      `Failed to parse ${host} config at ${configPath}: ${reason}. Fix the TOML syntax and re-run.`,
       { cause: error }
     );
   }
@@ -253,7 +276,7 @@ export function upsertGrokMemoryServer(
   const raw = existed ? fs.readFileSync(configPath, 'utf8') : '';
   // Parse even on dry runs: it is the only way to report add-vs-update-vs-unchanged
   // honestly, and a malformed config should fail the preview, not just the real run.
-  const doc = parseGrokDocument(raw, configPath);
+  const doc = parseGrokDocument(raw, configPath, opts.host);
 
   const servers = isRecord(doc.mcp_servers)
     ? { ...(doc.mcp_servers as Record<string, unknown>) }
@@ -290,6 +313,14 @@ export function upsertGrokMemoryServer(
   servers[GROK_MCP_SERVER_NAME] = entry;
   doc.mcp_servers = servers;
 
+  const spliced = existed ? spliceMemoryTable(raw, doc, renderMemoryTableBlock(entry)) : null;
+  if (existed && !spliced && opts.preserveFormatting) {
+    throw new Error(
+      `Could not update mcp_servers.memory in ${configPath} without changing unrelated formatting. ` +
+        'Move the AutoMem entry into its own [mcp_servers.memory] table and re-run.'
+    );
+  }
+
   if (opts.dryRun) {
     const verb = existing ? 'update' : 'add';
     log(
@@ -299,7 +330,6 @@ export function upsertGrokMemoryServer(
     return { method: 'dry-run', changed: false };
   }
 
-  const spliced = existed ? spliceMemoryTable(raw, doc, renderMemoryTableBlock(entry)) : null;
   if (existed && !spliced) {
     // Fall back loudly: the rewrite is correct but reformats the whole document,
     // dropping comments and collapsing multi-line strings.
@@ -322,10 +352,10 @@ export function upsertGrokMemoryServer(
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   if (existed) {
     const backup = backupPath(configPath);
-    fs.copyFileSync(configPath, backup);
-    if (holdsSecret) restrictToOwner(backup);
+    copyConfigBackup(configPath, backup, holdsSecret);
     log(`📦 Backup created: ${backup}`, opts.quiet);
   }
+  if (holdsSecret && existed) restrictToOwner(configPath);
   fs.writeFileSync(
     configPath,
     serialized,
@@ -345,7 +375,7 @@ export function upsertGrokMemoryServer(
 export function removeGrokMemoryServer(configPath: string, opts: UpsertOptions = {}): boolean {
   if (!fs.existsSync(configPath)) return false;
   const raw = fs.readFileSync(configPath, 'utf8');
-  const doc = parseGrokDocument(raw, configPath);
+  const doc = parseGrokDocument(raw, configPath, opts.host);
   if (!isRecord(doc.mcp_servers)) return false;
   if (!(GROK_MCP_SERVER_NAME in doc.mcp_servers)) return false;
 
@@ -373,6 +403,11 @@ export function removeGrokMemoryServer(configPath: string, opts: UpsertOptions =
   // Splice out just the AutoMem table so the rest of the config keeps its comments
   // and formatting; fall back to a full rewrite only when that can't be verified.
   const spliced = spliceMemoryTable(raw, doc, []);
+  if (!spliced && opts.preserveFormatting) {
+    throw new Error(
+      `Could not remove mcp_servers.memory from ${configPath} without changing unrelated formatting.`
+    );
+  }
   if (!spliced) {
     log(
       `⚠️  Could not remove mcp_servers.${GROK_MCP_SERVER_NAME} in place in ${path.basename(configPath)} — rewriting the whole file.`,
@@ -385,10 +420,10 @@ export function removeGrokMemoryServer(configPath: string, opts: UpsertOptions =
   }
 
   const backup = backupPath(configPath);
-  fs.copyFileSync(configPath, backup);
+  copyConfigBackup(configPath, backup, entryHasApiKey(entry));
   // Uninstalling a keyed entry leaves the credential in the backup, and copyFileSync
   // preserves the source's mode — so a 0644 config yields a 0644 copy of the secret.
-  if (entryHasApiKey(entry)) restrictToOwner(backup);
+  if (entryHasApiKey(entry)) restrictToOwner(configPath);
   fs.writeFileSync(configPath, spliced ?? stringifyToml(doc), 'utf8');
   log(
     `🗑️  Removed mcp_servers.${GROK_MCP_SERVER_NAME} from ${path.basename(configPath)}`,

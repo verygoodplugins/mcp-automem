@@ -104,12 +104,19 @@ describe('CLI Smoke Tests', () => {
     // of. Regression guard for `copilot` joining KNOWN_COMMANDS, which flipped
     // the banner on for every copilot invocation.
     //
-    // Only `copilot` is exercised with a subcommand flag here. Every other host
-    // handler still ignores --help and installs (see parseCommonFlags), so
+    // Only `copilot` and `codex` are exercised with a subcommand flag here. Other host
+    // handlers still ignore --help and install (see parseCommonFlags), so
     // `claude-code --help` would rewrite the developer's real ~/.claude during
-    // `npm test`, and `cursor`/`codex --help` would write into the repo. Those
+    // `npm test`, and `cursor --help` would write into the repo. Those
     // commands get a case here once they short-circuit on help too.
-    const helpInvocations = [['help'], ['--help'], ['copilot', '--help'], ['copilot', '-h']];
+    const helpInvocations = [
+      ['help'],
+      ['--help'],
+      ['copilot', '--help'],
+      ['copilot', '-h'],
+      ['codex', '--help'],
+      ['codex', '-h'],
+    ];
 
     for (const args of helpInvocations) {
       it(`\`${args.join(' ')}\` prints no dotenv banner`, () => {
@@ -117,12 +124,26 @@ describe('CLI Smoke Tests', () => {
         // short-circuit ever regresses, the blast radius stays in the temp dir.
         const copilotHome = fs.mkdtempSync(path.join(tempDir, 'banner-home-'));
 
-        const result = runCli(args, { env: { COPILOT_HOME: copilotHome } });
+        const result = runCli(args, {
+          cwd: copilotHome,
+          env: { COPILOT_HOME: copilotHome, CODEX_HOME: copilotHome },
+        });
 
         expect(result.exitCode).toBe(0);
         expect(result.stdout + result.stderr).not.toContain('injected env');
       });
     }
+
+    it('`codex --help` writes nothing to the Codex home or project', () => {
+      const codexHome = fs.mkdtempSync(path.join(tempDir, 'codex-help-'));
+      const result = runCli(['codex', '--help'], {
+        cwd: codexHome,
+        env: { CODEX_HOME: codexHome },
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('CODEX SETUP:');
+      expect(fs.readdirSync(codexHome)).toEqual([]);
+    });
 
     it('`copilot --help` writes nothing to COPILOT_HOME', () => {
       const copilotHome = fs.mkdtempSync(path.join(tempDir, 'copilot-home-'));

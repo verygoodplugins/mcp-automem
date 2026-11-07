@@ -18,6 +18,7 @@ import { GROK_RULES_END, GROK_RULES_START, stripGrokRulesMarkers } from './grok.
 // deliberately left as-is (its output shape differs from the install-time helper and
 // is pinned by uninstall.test.ts).
 import { CODEX_RULES_END, CODEX_RULES_START } from './codex.js';
+import { removeCodexMemory, resolveCodexPaths } from './codex-config.js';
 import { COPILOT_RULES_END, COPILOT_RULES_START } from './copilot.js';
 import { HERMES_RULES_END, HERMES_RULES_START } from './hermes.js';
 import { isAutoMemServerEntry } from './host-toolkit.js';
@@ -391,13 +392,11 @@ async function uninstallGrok(options: UninstallOptions): Promise<void> {
 }
 
 async function uninstallCodex(options: UninstallOptions): Promise<void> {
-  // Plugin-first codex install is rules-only: it writes a single marked AutoMem
-  // block into AGENTS.md (cwd by default, or --rules). Uninstall strips that
-  // block — symmetric with the `codex` setup command and with uninstallHermes.
   const projectDir = options.projectDir ?? process.cwd();
   const rulesFile = options.rulesPath ?? path.join(projectDir, 'AGENTS.md');
 
   log('\n🗑️  Uninstalling Codex AutoMem...', options.quiet);
+  removeCodexMemory({ paths: resolveCodexPaths(), dryRun: options.dryRun, quiet: options.quiet });
 
   if (!fs.existsSync(rulesFile)) {
     log(`ℹ️  No rules file at ${rulesFile}`, options.quiet);

@@ -14,12 +14,62 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   hasMcpSidecarPath,
   isMcpSidecarHealth,
   readAutoMemApiKeyFromEnv,
+  readAutoMemConnectionFile,
   resolveAutoMemApiUrl,
 } from './env.js';
+
+describe('readAutoMemConnectionFile', () => {
+  it('reads a protected connection exactly and allows an intentionally empty key', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-connection-'));
+    try {
+      const file = path.join(dir, 'connection.json');
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ endpoint: 'https://memory.example', apiKey: 'key-${env:VALUE}-"quoted"' })
+      );
+      expect(readAutoMemConnectionFile({ AUTOMEM_CONNECTION_FILE: file })).toEqual({
+        endpoint: 'https://memory.example',
+        apiKey: 'key-${env:VALUE}-"quoted"',
+      });
+      fs.writeFileSync(file, JSON.stringify({ endpoint: 'http://127.0.0.1:8001', apiKey: '' }));
+      expect(readAutoMemConnectionFile({ AUTOMEM_CONNECTION_FILE: file })).toEqual({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: undefined,
+      });
+      expect(readAutoMemConnectionFile({})).toBeUndefined();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed without disclosing credentials when the file is missing or invalid', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-connection-'));
+    try {
+      const file = path.join(dir, 'connection.json');
+      expect(() => readAutoMemConnectionFile({ AUTOMEM_CONNECTION_FILE: file })).toThrow(
+        /missing or invalid/
+      );
+      fs.writeFileSync(file, '{"endpoint":"not-a-url", "apiKey":"secret-in-file"}');
+      expect(() => readAutoMemConnectionFile({ AUTOMEM_CONNECTION_FILE: file })).toThrow(
+        /missing or invalid/
+      );
+      try {
+        readAutoMemConnectionFile({ AUTOMEM_CONNECTION_FILE: file });
+      } catch (error) {
+        expect(String(error)).not.toContain('secret-in-file');
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('resolveAutoMemApiUrl', () => {
   it('prefers AUTOMEM_API_URL over everything', () => {

@@ -84,6 +84,19 @@ describe('host-toolkit', () => {
       expect(fs.existsSync(`${target}.bak`)).toBe(false);
     });
 
+    it('tightens an unchanged secret file and protects secret backups', () => {
+      if (process.platform === 'win32') return;
+      const target = path.join(tmpDir, 'secret.env');
+      fs.writeFileSync(target, 'key=old', { mode: 0o644 });
+      writeFileWithBackup(target, 'key=old', { quiet: true, secret: true });
+      expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+      fs.chmodSync(target, 0o644);
+      writeFileWithBackup(target, 'key=new', { quiet: true, secret: true });
+      expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(`${target}.bak`).mode & 0o777).toBe(0o600);
+      expect(fs.readFileSync(`${target}.bak`, 'utf8')).toBe('key=old');
+    });
+
     it('writes nothing in dry-run mode', () => {
       const target = path.join(tmpDir, 'dry.txt');
       const result = writeFileWithBackup(target, 'hello', { dryRun: true, quiet: true });
@@ -637,6 +650,12 @@ describe('isAutoMemServerEntry', () => {
         command: 'some-wrapper',
         args: ['--serve'],
         env: { AUTOMEM_API_URL: 'https://automem.example.test' },
+      })
+    ).toBe(true);
+    expect(
+      isAutoMemServerEntry({
+        command: 'custom-wrapper',
+        env: { AUTOMEM_CONNECTION_FILE: '/tmp/connection.json' },
       })
     ).toBe(true);
   });

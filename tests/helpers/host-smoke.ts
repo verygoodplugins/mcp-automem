@@ -258,6 +258,7 @@ export class StdioMcpClient {
   }
 
   async close(): Promise<void> {
+    if (this.child.exitCode !== null || this.child.signalCode !== null) return;
     this.child.stdin.end();
     const exit = once(this.child, 'exit');
     setTimeout(() => {

@@ -65,6 +65,30 @@ npm run test:e2e:railway
 npm run test:e2e:railway:watch
 ```
 
+## Local Docker guided apply guard
+
+`local-guided-install.mjs` drives Docker startup and decline, reuse of an
+existing server, accepting or declining an available update, and conflicting
+port selection through the real terminal prompts. A fake Docker/Git/Claude CLI,
+isolated home and mock API keep it separate from real containers and settings.
+
+```bash
+npm run build
+npm run test:e2e:local
+```
+
+## Welcome conversation guard
+
+`welcome-guided-install.mjs` exercises the opt-out prompt, Cursor deeplink,
+interactive CLI handoff, and `--no-welcome`/headless behavior in an isolated
+home. Fake host commands capture the message without opening an app or sending
+an inference request.
+
+```bash
+npm run build
+npm run test:e2e:welcome
+```
+
 ## Files
 
 | File | Role |
@@ -73,6 +97,8 @@ npm run test:e2e:railway:watch
 | `harness.mjs` | Scenario-matrix runner: fresh `HOME`+`cwd` per scenario, write-surface diffing, per-scenario assertions + findings. |
 | `mock-automem.mjs` | In-process adversarial endpoint (`healthy` / `500` / `401` / `malformed` modes). No real AutoMem server needed. |
 | `railway-guided-install.mjs` | Fake Railway CLI + mock AutoMem guard for the guided Railway apply path. |
+| `local-guided-install.mjs` | Fake Docker/Git/Claude CLIs + mock AutoMem guard for the guided local apply path. |
+| `welcome-guided-install.mjs` | Fake Cursor and Codex handoffs for the optional welcome conversation. |
 
 Machine-generated evidence is written to
 `$AUTOMEM_E2E_SCRATCH/artifacts/matrix/{report.md,results.json}` after every run.
@@ -91,7 +117,7 @@ Machine-generated evidence is written to
 
 | Scenario | What it pins |
 |---|---|
-| `codex-existing-headless` | Headless existing-target install for Codex against a healthy endpoint. |
+| `codex-existing-headless` | Headless Codex install registers MCP and writes its protected connection file. |
 | `grok-existing-headless` | Grok Build install — opt-in via `--clients` (grok is absent from `DEFAULT_AGENT_CLIENTS`); asserts the `config.toml` MCP registration, the marked rules block, and that the global rules stay project-agnostic. |
 | `claude-existing-headless` | Sibling client (Claude Code) — proves the symmetric writer exists. |
 | `claude-plugin-fallback` | Claude Code defaults to the plugin install (recommended) — with no `claude` on PATH the plan shows the `/plugin` commands, not settings-file writes. |
@@ -99,7 +125,7 @@ Machine-generated evidence is written to
 | `dry-run-no-writes` | `--dry-run` produces a plan and changes nothing. |
 | `no-agent-install` | `--no-agent-install` writes only `.env`, no client integration files. |
 | `non-tty-no-yes-preview` | Non-interactive **without** `--yes`/`--dry-run` previews only — writes nothing. |
-| `idempotent-reinstall` | Running the codex install twice stays valid (no corruption; `hooks.json` still parses). |
+| `idempotent-reinstall` | Running the Codex install twice stays valid without duplicating the rules. |
 | `endpoint-500-aborts` | A reachable-but-broken endpoint (500) aborts **before** any write. |
 | `bad-token-401-aborts` | A 401 on the authed recall probe aborts before any write. |
 | `malformed-health-200-html` | `/health` 200 with an HTML (non-JSON) body — does verify assert the body shape? |

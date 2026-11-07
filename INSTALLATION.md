@@ -38,6 +38,23 @@ It asks where AutoMem should run (**Hosted Cloud**, **Local Docker**, or an
 - **Other** — already deployed AutoMem somewhere? Paste your endpoint + token and
   the installer takes it from there.
 
+For **Local Docker**, the installer offers to start Docker when it is installed
+but not running. If an AutoMem API is already running on the selected API port,
+it reuses that server and its credentials. For a recognized, clean AutoMem Git
+checkout, it checks the tracked branch and offers to update the API when that
+branch has changed; the existing database containers and volumes stay in place.
+If the checkout or its version cannot be identified, it keeps using the server
+and tells you why it cannot update it automatically.
+
+For a new local stack, the installer checks the five published ports (FalkorDB,
+its browser, Qdrant HTTP and gRPC, and the AutoMem API). When a port is occupied,
+it asks for a free replacement, saves the selections in the server's `.env`, and
+uses the chosen API port in agent configuration. In non-interactive runs, set
+`FALKORDB_HOST_PORT`, `FALKORDB_BROWSER_HOST_PORT`, `QDRANT_HOST_PORT`,
+`QDRANT_GRPC_HOST_PORT`, or `AUTOMEM_API_HOST_PORT` to resolve conflicts; the
+installer will report a conflict instead of choosing a port silently. `--yes`
+can start Docker but does not automatically update an already-running server.
+
 It then verifies the endpoint (`/health` + an authenticated
 recall probe when you supply a key), then offers to configure your agents
 (Codex, Claude Code, Cursor, OpenClaw, Hermes). For Claude Code it offers the
@@ -67,7 +84,7 @@ Flags: `--target <local|cloud|existing>`, `--cloud-provider <instapods|railway|o
 `--clients <list>`, `--endpoint`, `--api-key`, `--local-dir`,
 `--claude-code-mode <plugin|settings>`, `--cursor-mode <plugin|files>`,
 `--hermes-mode <mcp|provider|both>`,
-`--dry-run`, `--yes`, `--no-agent-install`. The same values can be passed as
+`--dry-run`, `--yes`, `--no-agent-install`, `--no-welcome`. The same values can be passed as
 `AUTOMEM_*` environment variables. For CI/dotfiles, prefer `--target existing`
 with `--endpoint` and `--api-key`; InstaPods is an interactive browser+paste flow.
 Railway can run non-interactively only when the `railway` CLI is already installed
@@ -78,6 +95,18 @@ the plan.
 
 > Without a TTY and without `--yes`/`--dry-run`, `install` prints the review
 > plan and stops without writing — re-run with `--yes` to apply.
+
+After an interactive install, AutoMem offers an optional welcome conversation.
+Choose an installed assistant or **Not now**. The welcome message helps the
+assistant learn your work style while showing the actual memory and relationship
+operations. Cursor opens with the message prefilled for your review; supported
+terminal assistants start an interactive conversation; other hosts get a
+copy-and-paste prompt. Codex is configured automatically with the connection
+provided during setup. Use `--no-welcome` or `AUTOMEM_NO_WELCOME=1` to skip the
+offer. Dry runs, non-interactive runs and `--yes` never launch the conversation.
+To start it later, run `npx @verygoodplugins/mcp-automem@latest welcome`; use
+`npx @verygoodplugins/mcp-automem@latest welcome --print` to print a prompt you can
+paste into any assistant.
 
 **API keys are paired with their endpoint.** A key belongs to the AutoMem
 instance it was issued for, so the installers never carry one to a different
@@ -389,7 +418,7 @@ npx @verygoodplugins/mcp-automem@latest install
 
 Choose your existing AutoMem service, or follow the local/cloud setup prompts. The installer then asks how to wire Cursor.
 
-**Plugin (default, `--cursor-mode plugin`).** The installer copies the bundled AutoMem plugin into `~/.cursor/plugins/local/automem`: the MCP server, a Cursor-native `sessionStart` recall hook, and the always-on rule, all from `plugins/automem/.cursor-plugin/plugin.json`. It is a real directory (Cursor does not load symlinked local plugins), and re-running the installer replaces it with the current release. The installer refuses to replace a symlink, or a folder there that is not the AutoMem plugin. Cursor's CLI cannot install plugins non-interactively, so the endpoint is entered in Cursor: fully restart Cursor, then open Customize → Automem → Configure and enter your AutoMem REST URL (not the `/mcp` URL) and API key. The plugin exposes every tool except `delete_memory`.
+**Plugin (default, `--cursor-mode plugin`).** The installer copies the bundled AutoMem plugin into `~/.cursor/plugins/local/automem`: the MCP server, a Cursor-native `sessionStart` recall hook, and the always-on rule. It configures the local copy with the endpoint and API key already collected by the installer, so there is no separate Cursor configuration step. The connection is saved in `cursor/connection.json` inside the local plugin (owner-only permissions on Unix). The MCP server reads that file directly; the key is not put in the plugin manifest, command arguments, or its process environment. Re-run the guided installer to change the connection. Uninstall removes the local plugin and its connection file. The installer refuses to replace a symlink or a folder that is not the AutoMem plugin. The shared marketplace plugin keeps its own configuration form. The plugin exposes every tool except `delete_memory`.
 
 If the installer finds a file-mode install as well (an AutoMem entry in `~/.cursor/mcp.json` or the marked `.cursor/rules/automem.mdc` in this project), AutoMem would load twice. An interactive run offers to remove the file install. A `--yes` run never removes it; it prints a warning with `npx @verygoodplugins/mcp-automem@latest uninstall cursor`, which removes both the file install and the plugin, so re-run the install afterwards. An AutoMem server in this project's own `.cursor/mcp.json` also loads twice; no installer writes that file and uninstall does not remove it, so the installer tells you to remove that entry by hand.
 
@@ -402,7 +431,7 @@ If the installer finds a file-mode install as well (an AutoMem entry in `~/.curs
 
 The session-start hook supplies recall guidance through Cursor's `additional_context` response. The model calls AutoMem, decides what is durable, and stores, verifies, and associates memories during work. The rule provides a fallback when hooks are unavailable; initial recalls run once per conversation. There is no Stop hook or automatic memory storage. This setup targets the local Cursor IDE; Cursor cloud agents do not currently run `sessionStart` hooks.
 
-Reload Cursor after installation, then create a new Agent conversation so the session-start hook can run. In Cursor's MCP settings, confirm that the AutoMem server is enabled and exposes six tools. Ask it to check database health, then recall context relevant to your project. Current Cursor versions can discover the tools through an MCP dispatcher; the rule also includes direct tool-name examples for older versions. If the service is unavailable, restore its connection and retry; memory access should not block normal project work.
+Create a new Agent conversation so the session-start hook can run. In Cursor's MCP settings, confirm that the AutoMem server is enabled and exposes six tools. Ask it to check database health, then recall context relevant to your project. Current Cursor versions can discover the tools through an MCP dispatcher; the rule also includes direct tool-name examples for older versions. If the service is unavailable, restore its connection and retry; memory access should not block normal project work.
 
 ### 2. Existing Service and One-Click Setup
 
@@ -791,11 +820,37 @@ codex
 
 ### 3. Configure MCP Server
 
-Add AutoMem to your Codex configuration file.
+The guided installer configures Codex with the connection you provide:
 
-**Config location:** `~/.codex/config.toml`
+```bash
+npx @verygoodplugins/mcp-automem@latest install --clients codex
+```
 
-Add the following to your `config.toml`:
+For an existing connection, you can also run `npx @verygoodplugins/mcp-automem@latest codex`.
+It uses `AUTOMEM_API_URL` and `AUTOMEM_API_KEY` from your environment when set,
+or defaults to `http://127.0.0.1:8001`. Pass `--endpoint` to select a different
+service, or `--dir` to select a Codex home.
+
+The installer writes a `memory` MCP entry to `~/.codex/config.toml`, stores the
+endpoint and API key in `~/.codex/automem/connection.json`, and adds memory rules
+to the current project's `AGENTS.md`. If `CODEX_HOME` is set, it uses that directory
+instead of `~/.codex`. On POSIX systems, the connection file is restricted to the
+current user (`0600`); Windows uses the directory's inherited access controls.
+The API key is not included in the Codex MCP entry or the welcome message.
+Codex starts the MCP server from its private AutoMem directory and clears inherited
+AutoMem credential variables so the project `.env` is not loaded by that server.
+Other Codex settings and MCP servers are preserved. If a non-AutoMem server already
+uses the name `memory`, setup reports the conflict and leaves that entry in place.
+
+Uninstall with `npx @verygoodplugins/mcp-automem@latest uninstall codex`. It removes the
+AutoMem MCP entry, private connection file, and this project's marked rules block.
+Configuration backups are retained; a backup of an older entry containing a key is
+restricted to the current user on POSIX. For a custom Codex home, set `CODEX_HOME`
+to that directory when uninstalling.
+
+For a manual configuration, add the following to `~/.codex/config.toml`. A key
+entered directly in this file is stored as plaintext; restrict the file to your
+account. The installer uses the separate connection file described above.
 
 ```toml
 [mcp_servers.memory]
@@ -830,19 +885,10 @@ AUTOMEM_API_URL = "https://your-automem-instance.railway.app"
 AUTOMEM_API_KEY = "your-api-key"
 ```
 
-### 3.5. Add Memory Rules (Optional but recommended)
+### 4. Start a Codex session
 
-Install memory-first rules into your project so Codex proactively recalls and stores context:
-
-```bash
-npx @verygoodplugins/mcp-automem@latest codex
-```
-
-This creates or updates `AGENTS.md` with an AutoMem section tailored to your project.
-
-### 4. Restart Codex
-
-Restart the Codex CLI or reload your IDE extension to load the MCP server.
+Start a new Codex session to load the connection. The guided installer can launch
+the optional welcome conversation immediately after setup.
 
 ### 5. Verify Installation
 
@@ -874,8 +920,8 @@ codex "What were the key decisions made in this project last week?"
 **In Cloud Agent:**
 
 - Launch tasks from [chatgpt.com/codex](https://chatgpt.com/codex/)
-- Codex has access to stored memories across environments
-- Memories sync between CLI, IDE, and cloud agent
+- Connect the cloud environment to the same reachable AutoMem service to use the
+  memories available to your local CLI and IDE.
 
 ### Memory Best Practices for Codex
 

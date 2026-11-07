@@ -24,6 +24,8 @@ export interface HostSmokeSpec {
    */
   client: AgentClient | 'copilot';
   configPath: string;
+  /** Additional credential-bearing file owned by this integration, when present. */
+  credentialPath?: string;
   installCommand: string[];
   expectedToolNames: string[];
   validationCommand?: string[];
@@ -68,9 +70,12 @@ export const HOST_SMOKE_SPECS: HostSmokeSpec[] = [
     host: 'codex',
     client: 'codex',
     configPath: '~/.codex/config.toml',
+    credentialPath: '~/.codex/automem/connection.json',
     installCommand: ['mcp-automem', 'codex'],
+    // Qualified identities also cover Codex versions that send these as tools
+    // nested under a provider-visible mcp__memory namespace.
     expectedToolNames: RAW_AUTOMEM_TOOLS.map((name) => `mcp__memory__${name}`).sort(),
-    realHostSmoke: 'config-and-mcp-contract',
+    realHostSmoke: 'required-when-installed',
   },
   {
     host: 'cursor',
@@ -86,6 +91,7 @@ export const HOST_SMOKE_SPECS: HostSmokeSpec[] = [
     host: 'cursor-plugin',
     client: 'cursor',
     configPath: '~/.cursor/plugins/local/automem/.cursor-plugin/plugin.json',
+    credentialPath: '~/.cursor/plugins/local/automem/cursor/connection.json',
     installCommand: ['mcp-automem', 'install', '--clients', 'cursor', '--cursor-mode', 'plugin'],
     // Same manifest as Grok Bot: server-local names, delete_memory hidden by enabledTools.
     expectedToolNames: [...PLUGIN_ENABLED_TOOLS].sort(),

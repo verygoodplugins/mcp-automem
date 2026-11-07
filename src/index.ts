@@ -9,7 +9,7 @@ import { findRemovedSetupFlag, removedSetupFlagMessage, runConfig } from './cli/
 import { runInstallCommand } from './cli/install.js';
 import { runClaudeCodeSetup } from './cli/claude-code.js';
 import { runCursorSetup } from './cli/cursor.js';
-import { runCodexSetup } from './cli/codex.js';
+import { CODEX_USAGE, runCodexSetup } from './cli/codex.js';
 import { runOpenClawSetup } from './cli/openclaw.js';
 import { COPILOT_USAGE, runCopilotSetup } from './cli/copilot.js';
 import { runHermesSetup } from './cli/hermes.js';
@@ -17,10 +17,15 @@ import { runGrokSetup } from './cli/grok.js';
 import { runMigrateCommand } from './cli/migrate.js';
 import { runUninstallCommand } from './cli/uninstall.js';
 import { runQueueCommand } from './cli/queue.js';
+import { runWelcomeCommand } from './cli/welcome.js';
 import { AUTOMEM_NPX_COMMAND } from './cli/templates.js';
 import { AutoMemClient } from './automem-client.js';
 import { parseWatchdogIntervalMs, startParentWatchdog } from './lifecycle.js';
-import { readAutoMemApiKeyFromEnv, resolveAutoMemApiUrl } from './env.js';
+import {
+  readAutoMemApiKeyFromEnv,
+  readAutoMemConnectionFile,
+  resolveAutoMemApiUrl,
+} from './env.js';
 import { createAutoMemMcpServer } from './mcp-surface.js';
 import type { AutoMemConfig } from './types.js';
 
@@ -44,6 +49,7 @@ const KNOWN_COMMANDS = new Set([
   'uninstall',
   'queue',
   'recall',
+  'welcome',
 ]);
 const commandArgs = process.argv.slice(3);
 const isMachineReadableCommand =
@@ -68,6 +74,7 @@ const shouldSilenceDotenv =
   wantsQuietOutput ||
   command === 'install' ||
   command === 'setup' ||
+  command === 'welcome' ||
   !KNOWN_COMMANDS.has(command);
 
 // Prevent dotenv from writing its banner to stdout when the caller expects clean
@@ -136,6 +143,7 @@ USAGE:
 COMMANDS:
   setup              Alias of install (the guided installer)
   install            Guided installer for local/cloud AutoMem + agent setup
+  welcome            Start or print the optional AutoMem welcome conversation
   config             Show configuration snippets
   claude-code        Set up AutoMem for Claude Code
   copilot            Set up AutoMem for GitHub Copilot
@@ -233,14 +241,7 @@ RECALL:
           # Recall memories matching a query
           ${AUTOMEM_NPX_COMMAND} recall --query "authentication decisions" --limit 5
 
-CODEX SETUP:
-  ${AUTOMEM_NPX_COMMAND} codex [options]
-  
-  Options:
-    --name <name>         Project name (auto-detected if not provided)
-    --rules <path>        Target rules file (default: ./AGENTS.md)
-    --dry-run             Show what would be changed
-    --quiet               Suppress output
+${CODEX_USAGE}
 
 HERMES SETUP:
   ${AUTOMEM_NPX_COMMAND} hermes [options]
@@ -295,7 +296,7 @@ GUIDED INSTALL:
   Endpoint), verifies the endpoint, writes .env, and configures your agents.
   For Claude Code it offers the plugin (recommended) or a settings-level install.
   For Cursor it copies the AutoMem plugin into ~/.cursor/plugins/local/automem
-  (recommended; then Cursor → Customize → Automem → Configure) or writes
+  with the selected connection (recommended), or writes
   ~/.cursor/mcp.json plus project rule and hook files.
 
   Options:
@@ -309,6 +310,7 @@ GUIDED INSTALL:
     --dry-run                        Show the review plan without writing files
     --yes, -y                        Apply without confirmation
     --no-agent-install               Configure endpoint only; skip agent writes
+    --no-welcome                     Skip the optional welcome conversation
 
 For more information, visit:
 https://github.com/verygoodplugins/mcp-automem
@@ -333,6 +335,18 @@ if (command === 'install') {
   process.exit(process.exitCode ?? 0);
 }
 
+if (command === 'welcome') {
+  try {
+    await runWelcomeCommand(process.argv.slice(3));
+  } catch (error) {
+    console.error(
+      error instanceof Error ? error.message : 'Could not start the welcome conversation.'
+    );
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
 if (command === 'config') {
   await runConfig(process.argv.slice(3));
   process.exit(0);
@@ -354,7 +368,12 @@ if (command === 'cursor') {
 }
 
 if (command === 'codex') {
-  await runCodexSetup(process.argv.slice(3));
+  try {
+    await runCodexSetup(process.argv.slice(3));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : 'Could not configure Codex.');
+    process.exit(1);
+  }
   process.exit(0);
 }
 
@@ -429,8 +448,21 @@ if (!isServerMode) {
   process.exit(1);
 }
 
-const { url: AUTOMEM_API_URL, source: automemApiUrlSource } = resolveAutoMemApiUrl();
-const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
+let localConnection: ReturnType<typeof readAutoMemConnectionFile>;
+try {
+  localConnection = readAutoMemConnectionFile();
+} catch (error) {
+  console.error(
+    error instanceof Error ? error.message : 'Could not read the AutoMem connection file.'
+  );
+  process.exit(1);
+}
+const { url: AUTOMEM_API_URL, source: automemApiUrlSource } = localConnection
+  ? { url: localConnection.endpoint, source: 'AUTOMEM_CONNECTION_FILE' as const }
+  : resolveAutoMemApiUrl();
+// A configured file is authoritative, including a deliberately empty key; never
+// fall through to a shell or project credential belonging to another endpoint.
+const AUTOMEM_API_KEY = localConnection ? localConnection.apiKey : readAutoMemApiKeyFromEnv();
 
 if (automemApiUrlSource === 'default') {
   if (isInteractiveTerminal()) {

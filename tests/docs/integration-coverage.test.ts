@@ -99,9 +99,10 @@ describe('Cursor install modes docs', () => {
     expect(installation).toContain('--cursor-mode <plugin|files>');
   });
 
-  it('documents plugin mode, its configure step, and the files fallback in the Cursor section', () => {
+  it('documents automatic plugin configuration and the files fallback in the Cursor section', () => {
     expect(cursorSection).toContain('~/.cursor/plugins/local/automem');
-    expect(cursorSection).toContain('Customize → Automem → Configure');
+    expect(cursorSection).toContain('connection.json');
+    expect(cursorSection).not.toMatch(/fully restart Cursor/i);
     expect(cursorSection).toContain('--cursor-mode files');
     expect(cursorSection).toContain('uninstall cursor');
   });
@@ -109,6 +110,18 @@ describe('Cursor install modes docs', () => {
   it('documents that Cursor uninstall removes the local plugin', () => {
     expect(installation).toContain(
       'Cursor uninstall also removes the local plugin at `~/.cursor/plugins/local/automem`'
+    );
+  });
+});
+
+describe('Codex installer docs', () => {
+  const installation = repoFile('INSTALLATION.md');
+  it('documents automatic registration, private credentials and uninstall', () => {
+    expect(installation).toContain('~/.codex/automem/connection.json');
+    expect(installation).toContain('uninstall codex');
+    expect(installation).toContain('`CODEX_HOME`');
+    expect(installation).not.toContain(
+      'the guided installer adds its project rules, but does not register the server'
     );
   });
 });
