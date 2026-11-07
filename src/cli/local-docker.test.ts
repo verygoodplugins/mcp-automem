@@ -202,8 +202,10 @@ describe('local Docker preflight', () => {
   it('rediscovers a running API when its host port differs from its container port', async () => {
     const run: CapturedCommand = (_command, args) => {
       if (args[0] === 'ps') {
-        // Docker's publish filter selects the container port, not HostPort.
-        return { ok: true, stdout: args.includes('publish=8001') ? 'api-container\n' : '' };
+        // A mapped API exposes container port 8001 and publishes host port 8100.
+        // Docker 29's publish filter matches the host port, not the container port.
+        const found = args.includes('expose=8001') || args.includes('publish=8100');
+        return { ok: true, stdout: found ? 'api-container\n' : '' };
       }
       return {
         ok: true,

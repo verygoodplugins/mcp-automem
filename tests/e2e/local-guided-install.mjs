@@ -37,7 +37,9 @@ function fakeExecutables(home, existing) {
 case "$1" in
   --version) exit 0 ;;
   info) test -f "$FAKE_DOCKER_READY" ; exit $? ;;
-  ps) [ "$FAKE_EXISTING" = 1 ] && [ "$3" = "publish=8001" ] && echo fake-api; exit 0 ;;
+  ps)
+    if [ "$FAKE_EXISTING" = 1 ] && { [ "$3" = "expose=8001" ] || [ "$3" = "publish=$FAKE_API_PORT" ]; }; then echo fake-api; fi
+    exit 0 ;;
   inspect) cat "$FAKE_INSPECT"; exit 0 ;;
   compose)
     echo "docker $*" >> "$FAKE_LOG"
