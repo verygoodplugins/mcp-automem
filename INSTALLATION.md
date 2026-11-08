@@ -105,7 +105,8 @@ assistant learn your work style while showing the actual memory and relationship
 operations. Cursor opens with the message prefilled for your review; supported
 terminal assistants start an interactive conversation; other hosts get a
 copy-and-paste prompt. Codex is configured automatically with the connection
-provided during setup. Use `--no-welcome` or `AUTOMEM_NO_WELCOME=1` to skip the
+provided during setup, and its welcome waits for the memory tools to start before
+the first message. Use `--no-welcome` or `AUTOMEM_NO_WELCOME=1` to skip the
 offer. Dry runs, non-interactive runs and `--yes` never launch the conversation.
 To start it later, run `npx @verygoodplugins/mcp-automem@latest welcome`; use
 `npx @verygoodplugins/mcp-automem@latest welcome --print` to print a prompt you can

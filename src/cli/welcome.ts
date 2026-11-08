@@ -204,6 +204,8 @@ export function startWelcome(params: {
   runCommand?: Runner;
   /** The guided Codex install uses a private file instead of inherited credentials. */
   clearCredentials?: boolean;
+  /** The installer just configured Codex's memory server. */
+  configuredMemory?: boolean;
 }): { method: 'opened' | 'finished' | 'copied' | 'printed'; message: string; prompt?: string } {
   const platform = params.platform ?? process.platform;
   const runner = params.runCommand ?? run;
@@ -222,7 +224,21 @@ export function startWelcome(params: {
   if (params.target.method === 'terminal') {
     const command = TERMINAL_COMMANDS[params.target.client];
     const args =
-      params.target.client === 'openclaw' ? ['tui', '--message', WELCOME_PROMPT] : [WELCOME_PROMPT];
+      params.target.client === 'openclaw'
+        ? ['tui', '--message', WELCOME_PROMPT]
+        : params.target.client === 'codex'
+          ? [
+              // Codex otherwise starts the first turn after a one-second optional
+              // MCP grace period, before a cold npx server can expose its tools.
+              // These overrides apply only to the welcome session, not user config.
+              '-c',
+              'mcp_optional_startup_grace_ms=0',
+              ...(params.configuredMemory
+                ? ['-c', 'mcp_servers.memory.startup_timeout_sec=60']
+                : []),
+              WELCOME_PROMPT,
+            ]
+          : [WELCOME_PROMPT];
     const launcherEnv =
       params.target.client === 'codex' && params.clearCredentials ? cleanEnv : env;
     if (

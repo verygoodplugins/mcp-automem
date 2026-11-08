@@ -68,7 +68,11 @@ describe('optional AutoMem welcome', () => {
       const [command, args, opts] = runCommand.mock.calls[0];
       expect(command).toBe(client === 'claude-code' ? 'claude' : client);
       expect(args).toEqual(
-        client === 'openclaw' ? ['tui', '--message', WELCOME_PROMPT] : [WELCOME_PROMPT]
+        client === 'openclaw'
+          ? ['tui', '--message', WELCOME_PROMPT]
+          : client === 'codex'
+            ? ['-c', 'mcp_optional_startup_grace_ms=0', WELCOME_PROMPT]
+            : [WELCOME_PROMPT]
       );
       expect(opts).toMatchObject({ interactive: true, cwd: '/tmp/project' });
       expect(args).not.toContain('--deliver');
@@ -89,6 +93,7 @@ describe('optional AutoMem welcome', () => {
       platform: 'darwin',
       runCommand,
       clearCredentials: true,
+      configuredMemory: true,
       env: {
         PATH: '/bin',
         AUTOMEM_API_KEY: 'test-key',
@@ -98,6 +103,13 @@ describe('optional AutoMem welcome', () => {
       },
     });
     expect(runCommand.mock.calls[0][2].env).toEqual({ PATH: '/bin', OTHER_SETTING: 'kept' });
+    expect(runCommand.mock.calls[0][1]).toEqual([
+      '-c',
+      'mcp_optional_startup_grace_ms=0',
+      '-c',
+      'mcp_servers.memory.startup_timeout_sec=60',
+      WELCOME_PROMPT,
+    ]);
     const manualRun = vi.fn(() => true);
     startWelcome({
       target,

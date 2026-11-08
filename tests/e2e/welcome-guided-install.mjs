@@ -190,7 +190,13 @@ fs.writeFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({
       assert.match(clean, /Review it and press Send/);
     } else if (kind === 'codex') {
       const launch = JSON.parse(fs.readFileSync(codexLog, 'utf8'));
-      assert.deepEqual(launch.args, [WELCOME_PROMPT]);
+      assert.deepEqual(launch.args, [
+        '-c',
+        'mcp_optional_startup_grace_ms=0',
+        '-c',
+        'mcp_servers.memory.startup_timeout_sec=60',
+        WELCOME_PROMPT,
+      ]);
       assert.equal(launch.hasApiKey, false);
       assert.ok(!launch.args.join(' ').includes(TOKEN));
       const config = fs.readFileSync(path.join(home, '.codex/config.toml'), 'utf8');
