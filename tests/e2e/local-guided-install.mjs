@@ -2,7 +2,7 @@
 // CLI, isolated HOME and a mock API. It never starts or changes real containers.
 // Run after `npm run build`: node tests/e2e/local-guided-install.mjs
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -38,12 +38,18 @@ case "$1" in
   --version) exit 0 ;;
   info) test -f "$FAKE_DOCKER_READY" ; exit $? ;;
   ps)
-    if [ "$FAKE_EXISTING" = 1 ] && { [ "$3" = "expose=8001" ] || [ "$3" = "publish=$FAKE_API_PORT" ]; }; then echo fake-api; fi
+    if { [ "$FAKE_EXISTING" = 1 ] || [ -f "$FAKE_REUSE_READY" ]; } && { [ "$3" = "expose=8001" ] || [ "$3" = "publish=$FAKE_API_PORT" ]; }; then echo fake-api; fi
     exit 0 ;;
   inspect) cat "$FAKE_INSPECT"; exit 0 ;;
   compose)
     echo "docker $*" >> "$FAKE_LOG"
     printf '%s %s %s %s %s\\n' "$FALKORDB_HOST_PORT" "$FALKORDB_BROWSER_HOST_PORT" "$QDRANT_HOST_PORT" "$QDRANT_GRPC_HOST_PORT" "$AUTOMEM_API_HOST_PORT" > "$FAKE_PORTS"
+    if [ "$FAKE_RACE" = 1 ] && [ ! -f "$FAKE_COMPOSE_FAILED" ]; then
+      touch "$FAKE_COMPOSE_FAILED"
+      if [ "$FAKE_RACE_API" = 1 ]; then conflict="$AUTOMEM_API_HOST_PORT"; else conflict="$QDRANT_HOST_PORT"; fi
+      echo "Error response from daemon: Bind for 127.0.0.1:$conflict failed: port is already allocated" >&2
+      exit 1
+    fi
     touch "$FAKE_COMPOSE_STARTED"; exit 0 ;;
 esac
 exit 1`
@@ -93,6 +99,14 @@ async function holdPort() {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return server;
 }
+async function holdSpecificPort(port) {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', resolve);
+  });
+  return server;
+}
 
 async function scenario(kind) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-e2e-'));
@@ -103,19 +117,23 @@ async function scenario(kind) {
   const dir = path.join(home, 'running-server');
   fs.mkdirSync(dir);
   fs.writeFileSync(path.join(dir, 'docker-compose.yml'), 'services: {}\n');
-  const existing = kind !== 'conflict';
+  const race = kind === 'race-port' || kind === 'race-reuse' || kind === 'race-api';
+  const existing = kind !== 'conflict' && !race;
   let apiMock;
   const blockers = [];
   const bin = fakeExecutables(home, existing);
   const log = path.join(root, 'calls.log');
   const ready = path.join(root, 'docker-ready');
   const composeStarted = path.join(root, 'compose-started');
+  const composeFailed = path.join(root, 'compose-failed');
+  const reuseReady = path.join(root, 'reuse-ready');
   const inspect = path.join(root, 'inspect.json');
   const portFile = path.join(root, 'ports');
   if (kind !== 'start' && kind !== 'decline') fs.writeFileSync(ready, '');
   let apiPort;
   let chosenApi;
   let chosenQdrant;
+  let initialQdrant;
   const reservedPorts = new Set();
   const uniquePort = async () => {
     let port;
@@ -145,11 +163,16 @@ async function scenario(kind) {
         Mounts: [{ Type: 'bind', Source: dir, Destination: '/app' }],
       })
     );
-  } else {
+  } else if (kind === 'conflict') {
     blockers.push(await holdPort(), await holdPort());
     blockers.forEach((server) => reservedPorts.add(server.address().port));
     apiPort = blockers[1].address().port;
     chosenApi = await uniquePort();
+    chosenQdrant = await uniquePort();
+  } else {
+    apiPort = await uniquePort();
+    initialQdrant = await uniquePort();
+    chosenApi = kind === 'race-api' ? await uniquePort() : apiPort;
     chosenQdrant = await uniquePort();
   }
   const env = {
@@ -165,6 +188,10 @@ async function scenario(kind) {
     FAKE_INSPECT: inspect,
     FAKE_CHANGED: kind === 'update' || kind === 'skip-update' ? '1' : '0',
     FAKE_COMPOSE_STARTED: composeStarted,
+    FAKE_COMPOSE_FAILED: composeFailed,
+    FAKE_REUSE_READY: reuseReady,
+    FAKE_RACE: race ? '1' : '0',
+    FAKE_RACE_API: kind === 'race-api' ? '1' : '0',
     FAKE_PORTS: portFile,
     FAKE_API_PORT: String(apiPort),
     AUTOMEM_API_HOST_PORT: String(apiPort),
@@ -172,11 +199,13 @@ async function scenario(kind) {
   if (!existing) {
     env.FALKORDB_HOST_PORT = String(await uniquePort());
     env.FALKORDB_BROWSER_HOST_PORT = String(await uniquePort());
-    env.QDRANT_HOST_PORT = String(blockers[0].address().port);
+    env.QDRANT_HOST_PORT = String(kind === 'conflict' ? blockers[0].address().port : initialQdrant);
     env.QDRANT_GRPC_HOST_PORT = String(await uniquePort());
   }
   const args = [dist, 'install', '--target', 'local', '--local-dir', path.join(home, 'new-server')];
   if (kind === 'start') args.push('--clients', 'claude-code', '--claude-code-mode', 'plugin');
+  else if (kind === 'race-reuse' || kind === 'race-api')
+    args.push('--clients', 'codex', '--no-welcome');
   else args.push('--no-agent-install');
   const term = spawn(process.execPath, args, {
     name: 'xterm-color',
@@ -232,14 +261,61 @@ async function scenario(kind) {
       await answer(/Host port for Qdrant HTTP/, `${chosenQdrant}\r`);
       await answer(/Host port for AutoMem API/, `${chosenApi}\r`);
     }
-    await answer(/Apply this AutoMem install plan/, 'y\r');
-    if (kind === 'conflict') {
+    await waitFor(/Apply this AutoMem install plan/);
+    if (race) {
+      // The ports were free at review time; they become occupied while the
+      // installer is applying the already-approved plan.
+      blockers.push(await holdSpecificPort(kind === 'race-api' ? apiPort : initialQdrant));
+      if (kind !== 'race-reuse')
+        blockers.push(await holdSpecificPort(Number(env.FALKORDB_HOST_PORT)));
+      if (kind === 'race-reuse') {
+        apiMock = await createMock({ port: apiPort, expectToken: TOKEN });
+        fs.writeFileSync(
+          inspect,
+          JSON.stringify({
+            Config: {
+              Env: [`AUTOMEM_API_TOKEN=${TOKEN}`, 'ADMIN_API_TOKEN=admin-test'],
+              Labels: {
+                'com.docker.compose.service': 'flask-api',
+                'com.docker.compose.project': 'automem-original',
+                'com.docker.compose.project.working_dir': dir,
+                'com.docker.compose.project.config_files': path.join(dir, 'docker-compose.yml'),
+              },
+            },
+            NetworkSettings: {
+              Ports: { '8001/tcp': [{ HostIp: '127.0.0.1', HostPort: String(apiPort) }] },
+            },
+            Mounts: [{ Type: 'bind', Source: dir, Destination: '/app' }],
+          })
+        );
+        fs.writeFileSync(reuseReady, '');
+      }
+    }
+    await sleep(150);
+    term.write('y\r');
+    let firstToken;
+    if (kind === 'race-port' || kind === 'race-api') {
+      await waitFor(
+        kind === 'race-api' ? /Host port for AutoMem API/ : /Host port for Qdrant HTTP/
+      );
+      const firstEnv = fs.readFileSync(path.join(home, 'new-server', '.env'), 'utf8');
+      firstToken = firstEnv.match(/^AUTOMEM_API_TOKEN=(.+)$/m)?.[1];
+      assert.ok(firstToken, 'first attempt persisted a token');
+      await sleep(150);
+      term.write(`${kind === 'race-api' ? chosenApi : chosenQdrant}\r`);
+    }
+    if (kind === 'conflict' || kind === 'race-port' || kind === 'race-api') {
       const end = Date.now() + 10_000;
       while (!fs.existsSync(composeStarted) && Date.now() < end) await sleep(50);
       assert.ok(fs.existsSync(composeStarted), 'new Compose stack was started');
       const dotenv = fs.readFileSync(path.join(home, 'new-server', '.env'), 'utf8');
       const token = dotenv.match(/^AUTOMEM_API_TOKEN=(.+)$/m)?.[1];
       assert.ok(token, 'new server token persisted');
+      if (firstToken) assert.equal(token, firstToken, 'retry preserves the generated token');
+      if (kind === 'race-port')
+        assert.match(dotenv, new RegExp(`QDRANT_HOST_PORT=${chosenQdrant}`));
+      if (kind === 'race-api')
+        assert.match(dotenv, new RegExp(`AUTOMEM_API_HOST_PORT=${chosenApi}`));
       apiMock = await createMock({ port: chosenApi, expectToken: token });
     }
     let timer;
@@ -275,6 +351,38 @@ async function scenario(kind) {
     } else if (kind === 'skip-update') {
       assert.doesNotMatch(calls, /git pull|docker compose|git clone/);
       assert.match(out, /Using the running AutoMem server/);
+    } else if (kind === 'race-reuse') {
+      assert.match(out, /Checking for a running AutoMem server/);
+      assert.match(out, /Found AutoMem already running/);
+      assert.match(out, /Using the running AutoMem server/);
+      assert.equal((calls.match(/docker compose/g) ?? []).length, 1);
+      const connection = JSON.parse(
+        fs.readFileSync(path.join(home, '.codex/automem/connection.json'), 'utf8')
+      );
+      assert.equal(connection.endpoint, `http://127.0.0.1:${apiPort}`);
+      assert.equal(connection.apiKey, TOKEN);
+      assert.equal(
+        fs.statSync(path.join(home, '.codex/automem/connection.json')).mode & 0o777,
+        0o600
+      );
+    } else if (kind === 'race-port' || kind === 'race-api') {
+      const ports = fs.readFileSync(portFile, 'utf8').trim().split(' ');
+      assert.equal(
+        ports[kind === 'race-api' ? 4 : 2],
+        String(kind === 'race-api' ? chosenApi : chosenQdrant)
+      );
+      assert.equal((calls.match(/docker compose/g) ?? []).length, 2);
+      assert.equal((calls.match(/git clone/g) ?? []).length, 1);
+      assert.doesNotMatch(calls, /git pull|docker compose .*down/);
+      assert.match(out, /became unavailable while Docker was starting/);
+      assert.doesNotMatch(out, /Host port for FalkorDB/);
+      if (kind === 'race-api') {
+        const connection = JSON.parse(
+          fs.readFileSync(path.join(home, '.codex/automem/connection.json'), 'utf8')
+        );
+        assert.equal(connection.endpoint, `http://127.0.0.1:${chosenApi}`);
+        assert.equal(connection.apiKey, firstToken);
+      }
     } else {
       const ports = fs.readFileSync(portFile, 'utf8').trim().split(' ');
       assert.equal(ports[2], String(chosenQdrant));
@@ -345,5 +453,76 @@ function preview() {
   }
 }
 
+async function headlessRace() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-headless-race-'));
+  try {
+    const home = path.join(root, 'home');
+    fs.mkdirSync(home);
+    const bin = fakeExecutables(home, false);
+    const ready = path.join(root, 'docker-ready');
+    const log = path.join(root, 'calls.log');
+    fs.writeFileSync(ready, '');
+    const selected = new Set();
+    while (selected.size < 5) selected.add(await freePort());
+    const [falkor, browser, qdrant, grpc, api] = selected;
+    const failure = spawnSync(
+      process.execPath,
+      [
+        dist,
+        'install',
+        '--target',
+        'local',
+        '--local-dir',
+        path.join(home, 'server'),
+        '--no-agent-install',
+        '--yes',
+      ],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        env: {
+          HOME: home,
+          PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+          TMPDIR: os.tmpdir(),
+          NO_COLOR: '1',
+          AUTOMEM_NO_ANIM: '1',
+          CI: '1',
+          FAKE_LOG: log,
+          FAKE_DOCKER_READY: ready,
+          FAKE_EXISTING: '0',
+          FAKE_REUSE_READY: path.join(root, 'not-running'),
+          FAKE_RACE: '1',
+          FAKE_COMPOSE_FAILED: path.join(root, 'failed'),
+          FAKE_COMPOSE_STARTED: path.join(root, 'started'),
+          FAKE_PORTS: path.join(root, 'ports'),
+          FAKE_API_PORT: String(api),
+          FALKORDB_HOST_PORT: String(falkor),
+          FALKORDB_BROWSER_HOST_PORT: String(browser),
+          QDRANT_HOST_PORT: String(qdrant),
+          QDRANT_GRPC_HOST_PORT: String(grpc),
+          AUTOMEM_API_HOST_PORT: String(api),
+        },
+      }
+    );
+    assert.equal(failure?.status, 1);
+    assert.match(failure.stderr, /QDRANT_HOST_PORT.*--yes cannot choose/);
+    assert.equal((fs.readFileSync(log, 'utf8').match(/docker compose/g) ?? []).length, 1);
+    console.log('local guided install (headless race) … pass');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 preview();
-for (const kind of ['start', 'decline', 'update', 'skip-update', 'conflict']) await scenario(kind);
+for (const kind of [
+  'start',
+  'decline',
+  'update',
+  'skip-update',
+  'conflict',
+  'race-port',
+  'race-reuse',
+  'race-api',
+])
+  await scenario(kind);
+await headlessRace();

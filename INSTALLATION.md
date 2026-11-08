@@ -54,6 +54,9 @@ uses the chosen API port in agent configuration. In non-interactive runs, set
 `QDRANT_GRPC_HOST_PORT`, or `AUTOMEM_API_HOST_PORT` to resolve conflicts; the
 installer will report a conflict instead of choosing a port silently. `--yes`
 can start Docker but does not automatically update an already-running server.
+If a port becomes occupied while Docker is starting, the installer checks again
+for an existing AutoMem server or asks for a replacement port and retries. Your
+other port choices and server credentials are preserved.
 
 It then verifies the endpoint (`/health` + an authenticated
 recall probe when you supply a key), then offers to configure your agents

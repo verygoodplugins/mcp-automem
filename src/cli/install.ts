@@ -39,6 +39,7 @@ import {
   discoverPreferredLocalServer,
   dockerRunning,
   inspectLocalVersion,
+  isPortAvailable,
   launchDocker,
   portEnv,
   readLocalPorts,
@@ -357,6 +358,32 @@ export class InstallError extends Error {
     this.name = 'InstallError';
     this.hint = hint;
   }
+}
+
+/** A selected host port became unavailable after the preflight. */
+export class LocalDockerPortConflict extends InstallError {
+  constructor(
+    public readonly port: number,
+    hint: string
+  ) {
+    super("Local AutoMem server didn't start (docker compose).", hint);
+    this.name = 'LocalDockerPortConflict';
+  }
+}
+
+function dockerConflictPort(log: string, ports: LocalPorts): number | undefined {
+  const selected = new Set(Object.values(ports));
+  for (const line of log.split('\n').reverse()) {
+    if (!/port is already allocated|address already in use|ports? are not available/i.test(line))
+      continue;
+    for (const match of line.matchAll(
+      /(?:\[[^\]]+\]|(?:\d{1,3}\.){3}\d{1,3}|localhost):(\d{1,5})\b/gi
+    )) {
+      const port = Number(match[1]);
+      if (selected.has(port)) return port;
+    }
+  }
+  return undefined;
 }
 
 // Shorten $HOME to ~ so review paths stay readable on one line.
@@ -1686,13 +1713,15 @@ async function ensureDockerRunning(
 async function resolveLocalDockerOptions(
   options: ResolvedInstallOptions,
   environment: InstallEnvironment,
-  interactive: boolean
+  interactive: boolean,
+  recovery?: { initial: LocalPorts; unavailablePort: number }
 ): Promise<ResolvedInstallOptions> {
   if (options.target !== 'local') return options;
   if (!options.dryRun) await ensureDockerRunning(environment, interactive, options.yes);
   let initial: LocalPorts;
   try {
-    initial = readLocalPorts(options.localDir ?? defaultLocalDir(environment.homeDir));
+    initial =
+      recovery?.initial ?? readLocalPorts(options.localDir ?? defaultLocalDir(environment.homeDir));
   } catch (err) {
     throw new InstallError(
       'Could not read local Docker ports.',
@@ -1778,6 +1807,13 @@ async function resolveLocalDockerOptions(
     const ports = await chooseLocalPorts({
       initial,
       interactive: interactive && !options.yes,
+      // Other selected ports may now belong to services Compose started before
+      // the failure. Keep them; a later conflict can be handled on its own.
+      available: recovery
+        ? async (port) =>
+            port !== recovery.unavailablePort &&
+            (Object.values(recovery.initial).includes(port) || (await isPortAvailable(port)))
+        : undefined,
       notice: (message) => writeStatus(message, 'warn'),
       askPort: async (key, suggested) =>
         cancelable(
@@ -1896,6 +1932,7 @@ export async function prepareLocalServer(params: {
   apiKey?: string;
   ports?: LocalPorts;
   dryRun: boolean;
+  checkoutPrepared?: boolean;
   runCommand?: CommandRunner;
 }): Promise<{ endpoint: string; apiKey: string }> {
   const runCommand = params.runCommand ?? defaultRunCommand;
@@ -1913,18 +1950,20 @@ export async function prepareLocalServer(params: {
     return { endpoint, apiKey };
   }
 
-  fs.mkdirSync(path.dirname(params.localDir), { recursive: true });
-  try {
-    if (fs.existsSync(path.join(params.localDir, '.git'))) {
-      runCommand('git', ['-C', params.localDir, 'pull', '--ff-only']);
-    } else {
-      runCommand('git', ['clone', AUTOMEM_REPO, params.localDir]);
+  if (!params.checkoutPrepared) {
+    fs.mkdirSync(path.dirname(params.localDir), { recursive: true });
+    try {
+      if (fs.existsSync(path.join(params.localDir, '.git'))) {
+        runCommand('git', ['-C', params.localDir, 'pull', '--ff-only']);
+      } else {
+        runCommand('git', ['clone', AUTOMEM_REPO, params.localDir]);
+      }
+    } catch {
+      throw new InstallError(
+        `Couldn't fetch the AutoMem server into ${tildify(params.localDir)}.`,
+        'Check your network and that git can reach github.com, then re-run. (Git output is above.)'
+      );
     }
-  } catch {
-    throw new InstallError(
-      `Couldn't fetch the AutoMem server into ${tildify(params.localDir)}.`,
-      'Check your network and that git can reach github.com, then re-run. (Git output is above.)'
-    );
   }
 
   mergeEnvFile(
@@ -1937,6 +1976,7 @@ export async function prepareLocalServer(params: {
     false
   );
   const composeLog = path.join(params.localDir, 'install.log');
+  const logStart = fs.existsSync(composeLog) ? fs.statSync(composeLog).size : 0;
   try {
     runCommand('docker', ['compose', '--env-file', '.env', 'up', '-d', '--build'], {
       cwd: params.localDir,
@@ -1949,21 +1989,36 @@ export async function prepareLocalServer(params: {
       logFile: composeLog,
     });
   } catch {
-    // Surface only the tail — the full compose transcript lives in the log.
-    let tail = '';
+    // Only inspect this attempt, not stale errors from an earlier install.
+    // Bound reads and output even when Docker has written a large build log.
+    let currentLog = '';
     try {
-      const logLines = fs.readFileSync(composeLog, 'utf8').trimEnd().split('\n');
-      tail = logLines.slice(-15).join('\n');
+      const fd = fs.openSync(composeLog, 'r');
+      try {
+        const size = fs.fstatSync(fd).size;
+        const start = Math.max(logStart, size - 64 * 1024);
+        const buffer = Buffer.alloc(Math.max(0, size - start));
+        currentLog = buffer
+          .subarray(0, fs.readSync(fd, buffer, 0, buffer.length, start))
+          .toString('utf8');
+      } finally {
+        fs.closeSync(fd);
+      }
     } catch {
       /* no log — docker may have failed to launch at all */
     }
-    throw new InstallError(
-      "Local AutoMem server didn't start (docker compose).",
+    const port = dockerConflictPort(currentLog, ports);
+    let tail = currentLog.trimEnd().split('\n').slice(-15).join('\n');
+    for (const secret of [apiKey, adminToken]) {
+      if (secret) tail = tail.split(secret).join(REDACTED);
+    }
+    const hint =
       `Is Docker Desktop running? Open it, then re-run this installer.\n` +
-        `Also common: a port already in use — check the selected FalkorDB, Qdrant, and API ports ` +
-        `(run \`docker ps\` to find the conflict).\n` +
-        `Full build log: ${tildify(composeLog)}${tail ? `\nLast lines:\n${tail}` : ''}`
-    );
+      `Also common: a port already in use — check the selected FalkorDB, Qdrant, and API ports ` +
+      `(run \`docker ps\` to find the conflict).\n` +
+      `Full build log: ${tildify(composeLog)}${tail ? `\nLast lines:\n${tail}` : ''}`;
+    if (port !== undefined) throw new LocalDockerPortConflict(port, hint);
+    throw new InstallError("Local AutoMem server didn't start (docker compose).", hint);
   }
 
   return { endpoint, apiKey };
@@ -2795,12 +2850,16 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     // Local docker/git stream their own output (inherited stdio), so they run
     // BEFORE the live checklist — a redraw region can't share the screen with it.
     if (resolved.target === 'local') {
-      const localDocker = resolved.localDocker;
-      if (localDocker?.mode === 'reuse' && !localDocker.update) {
-        process.stdout.write(
-          `  ${theme.style.gold(theme.symbol.check)} Using the running AutoMem server\n`
-        );
-      } else {
+      let localDocker = resolved.localDocker;
+      let checkoutPrepared = false;
+      let recoveries = 0;
+      for (;;) {
+        if (localDocker?.mode === 'reuse' && !localDocker.update) {
+          process.stdout.write(
+            `  ${theme.style.gold(theme.symbol.check)} Using the running AutoMem server\n`
+          );
+          break;
+        }
         if (localDocker?.mode === 'reuse') {
           process.stdout.write(
             `  ${theme.style.dim(theme.symbol.arrow)} Updating the existing AutoMem API; database containers stay running…\n`
@@ -2811,12 +2870,33 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
             `  ${theme.style.dim(theme.symbol.arrow)} Building the local server — the first time can take a few minutes ` +
               `${theme.style.dim(`(log: ${tildify(path.join(plan.localDir, 'install.log'))})`)}…\n`
           );
-          const local = await prepareLocalServer({
-            localDir: plan.localDir,
-            apiKey,
-            dryRun: false,
-            ports: localDocker?.mode === 'new' ? localDocker.ports : undefined,
-          });
+          let local: Awaited<ReturnType<typeof prepareLocalServer>>;
+          try {
+            local = await prepareLocalServer({
+              localDir: plan.localDir,
+              apiKey,
+              dryRun: false,
+              ports: localDocker?.mode === 'new' ? localDocker.ports : undefined,
+              checkoutPrepared,
+            });
+          } catch (err) {
+            if (!(err instanceof LocalDockerPortConflict) || recoveries >= 5) throw err;
+            recoveries += 1;
+            checkoutPrepared = true;
+            writeStatus(
+              `Port ${err.port} became unavailable while Docker was starting. Checking for a running AutoMem server…`,
+              'warn'
+            );
+            resolved = await resolveLocalDockerOptions(resolved, environment, interactive, {
+              initial:
+                localDocker?.mode === 'new' ? localDocker.ports : readLocalPorts(plan.localDir),
+              unavailablePort: err.port,
+            });
+            localDocker = resolved.localDocker;
+            endpoint = resolved.endpoint ?? plan.endpoint;
+            apiKey = resolved.apiKey;
+            continue;
+          }
           endpoint = local.endpoint;
           apiKey = local.apiKey;
         }
@@ -2840,7 +2920,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           spin.error('AutoMem did not come online');
           throw localHealthTimeoutError({
             endpoint,
-            localDir: plan.localDir,
+            localDir: resolved.localDir ?? plan.localDir,
             waitMessage: ready.message,
             retryCommand: equivalentInstallCommand({
               ...resolved,
@@ -2851,6 +2931,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           });
         }
         spin.stop('AutoMem is online');
+        break;
       }
     }
 
