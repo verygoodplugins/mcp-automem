@@ -7,6 +7,7 @@ import {
   AGENT_CLIENTS,
   DEFAULT_AGENT_CLIENTS,
   InstallError,
+  LocalDockerPortConflict,
   buildInstallPlan,
   pinLocalInstallOptions,
   claudePluginInstallArgs,
@@ -1728,6 +1729,84 @@ describe('guided install helpers', () => {
       expect(err.message).not.toContain('Command failed');
       expect(err.message).toMatch(/local AutoMem server/i);
       expect(err.hint).toMatch(/port|:3000/i);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['Bind for 127.0.0.1:6333 failed: port is already allocated', 6333],
+    ['failed to bind host port for [::]:6379:172.18.0.2:6379/tcp: address already in use', 6379],
+    ['Ports are not available: exposing port TCP 0.0.0.0:8001: bind: address already in use', 8001],
+  ])(
+    'recognizes the conflicting selected host port from the current Compose run',
+    async (line, port) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-race-'));
+      try {
+        const localDir = path.join(dir, 'server');
+        const runCommand = (command: string, _args: string[], options?: { logFile?: string }) => {
+          if (command === 'docker') {
+            fs.appendFileSync(options!.logFile!, `${line}\n`);
+            throw new Error('docker compose failed');
+          }
+        };
+        const error = await prepareLocalServer({ localDir, dryRun: false, runCommand }).catch(
+          (e) => e
+        );
+        expect(error).toBeInstanceOf(LocalDockerPortConflict);
+        expect(error.port).toBe(port);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it('does not mistake a stale port error in the install log for a new failure', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-stale-log-'));
+    try {
+      const localDir = path.join(dir, 'server');
+      fs.mkdirSync(localDir);
+      fs.writeFileSync(
+        path.join(localDir, 'install.log'),
+        'Bind for 127.0.0.1:6333 failed: port is already allocated\n'
+      );
+      const runCommand = (command: string, _args: string[], options?: { logFile?: string }) => {
+        if (command === 'docker') {
+          fs.appendFileSync(options!.logFile!, 'build failed: missing Dockerfile\n');
+          throw new Error('docker compose failed');
+        }
+      };
+      const error = await prepareLocalServer({ localDir, dryRun: false, runCommand }).catch(
+        (e) => e
+      );
+      expect(error).toBeInstanceOf(InstallError);
+      expect(error).not.toBeInstanceOf(LocalDockerPortConflict);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('redacts server credentials from a Compose error tail', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-local-secret-log-'));
+    try {
+      const localDir = path.join(dir, 'server');
+      fs.mkdirSync(localDir);
+      fs.writeFileSync(path.join(localDir, '.env'), 'ADMIN_API_TOKEN=admin-test-secret\n');
+      const runCommand = (command: string, _args: string[], options?: { logFile?: string }) => {
+        if (command === 'docker') {
+          fs.appendFileSync(options!.logFile!, 'failure: api-test-secret admin-test-secret\n');
+          throw new Error('docker compose failed');
+        }
+      };
+      const error = await prepareLocalServer({
+        localDir,
+        apiKey: 'api-test-secret',
+        dryRun: false,
+        runCommand,
+      }).catch((e) => e as InstallError);
+      expect(error.hint).toContain('<redacted>');
+      expect(error.hint).not.toContain('api-test-secret');
+      expect(error.hint).not.toContain('admin-test-secret');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
