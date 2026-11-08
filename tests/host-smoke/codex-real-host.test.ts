@@ -7,7 +7,7 @@ import path from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyCodexSetup } from '../../src/cli/codex.js';
-import { WELCOME_PROMPT } from '../../src/cli/welcome.js';
+import { WELCOME_PROMPT, startWelcome, welcomeTargets } from '../../src/cli/welcome.js';
 import { HOST_SMOKE_SPECS } from '../helpers/host-specs.js';
 import { fakeMemoryId, startFakeAutoMemApi, StdioMcpClient } from '../helpers/host-smoke.js';
 
@@ -25,7 +25,7 @@ const expectedTools = [
 ];
 type ProviderTool = { name?: string; tools?: Array<{ name?: string }> };
 
-function writeNpxShim(bin: string, codexHome: string): void {
+function writeNpxShim(bin: string, codexHome: string, startupDelaySeconds = 0): void {
   const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
   const probe = quote(path.join(path.dirname(codexHome), 'npx-probe'));
   const lines = [
@@ -34,6 +34,7 @@ function writeNpxShim(bin: string, codexHome: string): void {
     `[ -z "\${AUTOMEM_API_KEY:-}" ] || { printf key > ${probe}; exit 91; }`,
     `[ -z "\${AUTOMEM_API_TOKEN:-}" ] || { printf token > ${probe}; exit 92; }`,
     `[ "$AUTOMEM_CONNECTION_FILE" = ${quote(path.join(codexHome, 'automem', 'connection.json'))} ] || { printf path > ${probe}; exit 93; }`,
+    ...(startupDelaySeconds ? [`sleep ${startupDelaySeconds}`] : []),
     `exec ${quote(process.execPath)} --import ${quote(import.meta.resolve('tsx'))} ${quote(path.join(REPO_ROOT, 'src/index.ts'))}`,
   ];
   fs.writeFileSync(path.join(bin, 'npx'), `${lines.join('\n')}\n`, { mode: 0o755 });
@@ -222,7 +223,7 @@ describe('Codex host contract', () => {
   );
 
   it.skipIf(!hasCodex)(
-    'includes the welcome and unique AutoMem tools in a local fake-provider request',
+    'includes AutoMem tools in the first welcome turn even when the server starts slowly',
     async () => {
       const api = await startFakeAutoMemApi();
       let deliverPayload: (value: { tools: ProviderTool[]; input: unknown }) => void = () => {};
@@ -264,10 +265,24 @@ describe('Codex host contract', () => {
         );
         const bin = path.join(root, 'bin');
         fs.mkdirSync(bin);
-        writeNpxShim(bin, codexHome);
+        writeNpxShim(bin, codexHome, 3);
+        const launch = vi.fn(() => true);
+        startWelcome({
+          target: welcomeTargets({
+            clients: ['codex'],
+            platform: 'linux',
+            commandExists: () => true,
+          })[0],
+          cwd: project,
+          configuredMemory: true,
+          clearCredentials: true,
+          runCommand: launch,
+        });
+        const launcherArgs = launch.mock.calls[0][1] as string[];
+        expect(launcherArgs.at(-1)).toBe(WELCOME_PROMPT);
         const client = new StdioMcpClient(
           'codex',
-          ['app-server'],
+          [...launcherArgs.slice(0, -1), 'app-server'],
           {
             PATH: `${bin}${path.delimiter}${process.env.PATH}`,
             HOME: root,

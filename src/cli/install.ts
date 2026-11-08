@@ -3277,6 +3277,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           cwd: environment.cwd,
           platform: environment.platform,
           clearCredentials: target.client === 'codex',
+          configuredMemory: target.client === 'codex',
         });
         writeStatus(result.message, result.method === 'printed' ? 'warn' : 'info');
         if (result.prompt) process.stdout.write(`\n${result.prompt}\n`);
