@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.19.3](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.19.2...mcp-automem-v0.19.3) (2026-11-08)
+
+
+### Bug Fixes
+
+* **codex:** wait for memory before welcome ([#305](https://github.com/verygoodplugins/mcp-automem/issues/305)) ([d0e1f54](https://github.com/verygoodplugins/mcp-automem/commit/d0e1f54ad99e38448d970d26392044a4405a8805))
+
 ## [0.19.2](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.19.1...mcp-automem-v0.19.2) (2026-11-08)
 
 
