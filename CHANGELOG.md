@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.19.2](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.19.1...mcp-automem-v0.19.2) (2026-11-08)
+
+
+### Bug Fixes
+
+* **install:** recover from Docker port collisions ([#303](https://github.com/verygoodplugins/mcp-automem/issues/303)) ([b455c87](https://github.com/verygoodplugins/mcp-automem/commit/b455c8772631f2240ce8f1d40beebc092fefc3ce))
+
 ## [0.19.1](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.19.0...mcp-automem-v0.19.1) (2026-11-07)
 
 
