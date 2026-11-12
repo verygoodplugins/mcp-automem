@@ -8,6 +8,7 @@ import {
   discoverExistingLocalServer,
   discoverPreferredLocalServer,
   dockerRunning,
+  dockerStatus,
   inspectLocalVersion,
   isPortAvailable,
   launchDocker,
@@ -42,6 +43,37 @@ function tempDir() {
 afterEach(() =>
   temporaryDirs.splice(0).forEach((dir) => fs.rmSync(dir, { recursive: true, force: true }))
 );
+
+describe('dockerStatus', () => {
+  const probe =
+    (ok: boolean, stderr = '', stdout = ''): CapturedCommand =>
+    () => ({
+      ok,
+      stdout,
+      stderr,
+    });
+
+  it('separates a running daemon, a stopped one, and one this user may not use', () => {
+    expect(dockerStatus(probe(true))).toBe('running');
+    expect(
+      dockerStatus(
+        probe(false, 'Cannot connect to the Docker daemon. Is the docker daemon running?')
+      )
+    ).toBe('unavailable');
+    expect(
+      dockerStatus(
+        probe(
+          false,
+          'ERROR: permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock'
+        )
+      )
+    ).toBe('permission-denied');
+  });
+
+  it('works with a runner that reports no stderr', () => {
+    expect(dockerStatus(() => ({ ok: false, stdout: '' }))).toBe('unavailable');
+  });
+});
 
 describe('local Docker preflight', () => {
   it('starts the installed application for each supported platform and polls the daemon', async () => {

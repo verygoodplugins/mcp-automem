@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { describeDockerInstall, planDockerInstall } from './docker-install.js';
+import {
+  describeDockerInstall,
+  dockerPermissionHint,
+  planDockerInstall,
+} from './docker-install.js';
 
 const has =
   (...commands: string[]) =>
@@ -26,5 +30,18 @@ describe('planDockerInstall', () => {
     expect(planDockerInstall('win32', has())).toBeUndefined();
     expect(planDockerInstall('linux', has())).toBeUndefined();
     expect(planDockerInstall('freebsd', has('brew', 'curl'))).toBeUndefined();
+  });
+});
+
+describe('dockerPermissionHint', () => {
+  it('tells a Linux user how to get socket access without running anything for them', () => {
+    const hint = dockerPermissionHint('linux');
+    expect(hint).toContain('sudo usermod -aG docker "$USER"');
+    expect(hint).toContain('sign out and back in');
+    expect(hint).toContain('docs.docker.com/engine/install/linux-postinstall');
+  });
+
+  it('stays generic where there is no docker group', () => {
+    expect(dockerPermissionHint('darwin')).not.toContain('usermod');
   });
 });

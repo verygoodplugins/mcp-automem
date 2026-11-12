@@ -37,13 +37,14 @@ import {
   LOCAL_PORTS,
   chooseLocalPorts,
   discoverPreferredLocalServer,
-  dockerRunning,
+  dockerStatus,
   inspectLocalVersion,
   isPortAvailable,
   launchDocker,
   portEnv,
   readLocalPorts,
   waitForDocker,
+  type DockerStatus,
   type LocalDockerPlan,
   type LocalPorts,
 } from './local-docker.js';
@@ -58,6 +59,7 @@ import { startSpinner } from './ui/tasks.js';
 import {
   DOCKER_DOWNLOAD_URL,
   describeDockerInstall,
+  dockerPermissionHint,
   planDockerInstall,
   runDockerInstall,
   type DockerInstallRunner,
@@ -1723,15 +1725,32 @@ export async function ensureDockerInstalled(
   environment.prerequisites.docker = true;
 }
 
-async function ensureDockerRunning(
+export async function ensureDockerRunning(
   environment: InstallEnvironment,
   interactive: boolean,
   yes: boolean,
-  installDocker = false
+  installDocker = false,
+  deps: {
+    commandExists?: (command: string) => boolean;
+    run?: DockerInstallRunner;
+    status?: () => DockerStatus;
+    launch?: (platform: NodeJS.Platform) => boolean;
+    wait?: typeof waitForDocker;
+  } = {}
 ): Promise<void> {
   const freshlyInstalled = !environment.prerequisites.docker;
-  await ensureDockerInstalled(environment, interactive, yes, installDocker);
-  if (dockerRunning()) return;
+  await ensureDockerInstalled(environment, interactive, yes, installDocker, deps);
+  const status = deps.status ?? dockerStatus;
+  // A running daemon this user cannot reach (Linux, right after the install script)
+  // is not a stopped one: launching or waiting would only end in a misleading timeout.
+  const accessError = () =>
+    new InstallError(
+      'Docker is installed, but your user cannot use it yet.',
+      dockerPermissionHint(environment.platform)
+    );
+  const first = status();
+  if (first === 'running') return;
+  if (first === 'permission-denied') throw accessError();
   const start =
     yes ||
     freshlyInstalled ||
@@ -1745,7 +1764,7 @@ async function ensureDockerRunning(
   if (!start) {
     throw new InstallError('Docker is not running.', 'Start Docker, then re-run the installer.');
   }
-  if (!launchDocker(environment.platform)) {
+  if (!(deps.launch ?? launchDocker)(environment.platform)) {
     throw new InstallError(
       'Could not start Docker automatically.',
       'Start Docker Desktop or the Docker service, then re-run the installer.'
@@ -1756,12 +1775,27 @@ async function ensureDockerRunning(
       ? 'Starting Docker for the first time — accept any prompts it shows (up to 3 minutes)…'
       : 'Starting Docker — this can take a minute…'
   );
-  if (!(await waitForDocker(freshlyInstalled ? { attempts: 90, deadlineMs: 180_000 } : {}))) {
+  // Cast, not an annotation: `settled` assigns this from a closure, which TypeScript's
+  // control-flow narrowing cannot see, so an annotation would pin it to 'unavailable'.
+  let latest = 'unavailable' as DockerStatus;
+  const settled = () => {
+    latest = status();
+    return latest !== 'unavailable';
+  };
+  const ready = await (deps.wait ?? waitForDocker)({
+    ...(freshlyInstalled ? { attempts: 90, deadlineMs: 180_000 } : {}),
+    running: settled,
+  });
+  if (!ready) {
     spin.error('Docker did not become ready');
     throw new InstallError(
       'Docker did not start in time.',
       'Check Docker Desktop or the Docker service, then re-run the installer.'
     );
+  }
+  if (latest === 'permission-denied') {
+    spin.error('Docker is running, but your user cannot use it yet');
+    throw accessError();
   }
   spin.stop('Docker is running');
 }

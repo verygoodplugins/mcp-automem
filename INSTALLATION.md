@@ -32,7 +32,10 @@ The installer is a short series of questions and defaults to **keeping your memo
 on this computer** in Docker — no account, no password, nothing leaves your machine.
 If Docker is missing it offers to install it (Homebrew on macOS, winget on Windows,
 Docker's official script on Linux), shows the exact command first, and starts it for
-you. In a non-interactive run, add `--install-docker` to give that consent.
+you. In a non-interactive run, add `--install-docker` to give that consent. On Linux,
+a fresh Docker install leaves its socket usable only by root until your user joins the
+`docker` group, so the installer stops there and prints the exact command
+(`sudo usermod -aG docker "$USER"`); sign out and back in, then re-run it.
 
 It then looks for AI tools on your machine and asks one question per tool it finds
 ("I see you're using Cursor. Want me to install the Cursor plugin?"). It ends with a

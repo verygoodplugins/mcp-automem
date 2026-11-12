@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
 
 export const DOCKER_DOWNLOAD_URL = 'https://www.docker.com/products/docker-desktop';
+export const DOCKER_LINUX_POSTINSTALL_URL =
+  'https://docs.docker.com/engine/install/linux-postinstall/';
 
 /** One concrete way to put Docker on this machine. Always shown before it runs. */
 export type DockerInstallPlan = {
@@ -60,3 +62,18 @@ export type DockerInstallRunner = (command: string, args: string[]) => boolean;
 /** Inherit stdio so package-manager progress and sudo/UAC prompts stay visible. */
 export const runDockerInstall: DockerInstallRunner = (command, args) =>
   spawnSync(command, args, { stdio: 'inherit' }).status === 0;
+
+/**
+ * Docker is up but this user may not talk to it. On Linux the install script leaves
+ * a root-only socket, and a group change only applies to a new login session.
+ */
+export function dockerPermissionHint(platform: NodeJS.Platform): string {
+  if (platform === 'linux') {
+    return [
+      'Add your user to the docker group, sign out and back in (or run `newgrp docker`), then re-run the installer:',
+      '  sudo usermod -aG docker "$USER"',
+      `Rootless mode and details: ${DOCKER_LINUX_POSTINSTALL_URL}`,
+    ].join('\n');
+  }
+  return `Make sure your user is allowed to use Docker (${DOCKER_DOWNLOAD_URL}), then re-run the installer.`;
+}
