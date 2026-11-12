@@ -309,6 +309,7 @@ GUIDED INSTALL:
     --cursor-mode <plugin|files>     Cursor: local plugin (default) or mcp.json + project files
     --dry-run                        Show the review plan without writing files
     --yes, -y                        Apply without confirmation
+    --install-docker                 Install Docker if it is missing (otherwise the installer asks)
     --no-agent-install               Configure endpoint only; skip agent writes
     --no-welcome                     Skip the optional welcome conversation
 

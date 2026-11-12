@@ -9,6 +9,8 @@ import {
   InstallError,
   LocalDockerPortConflict,
   buildInstallPlan,
+  defaultInstallTarget,
+  ensureDockerInstalled,
   pinLocalInstallOptions,
   claudePluginInstallArgs,
   claudePluginMarketplaceAddArgs,
@@ -2394,5 +2396,71 @@ describe('writeProjectEnv credential pairing', () => {
 
     expect(fs.readFileSync(envPath, 'utf8')).not.toContain('sk-old');
     expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+  });
+});
+
+describe('local-Docker-first defaults', () => {
+  it('defaults to local Docker unless the user names an endpoint or target', () => {
+    expect(defaultInstallTarget({})).toBe('local');
+    expect(defaultInstallTarget({ endpoint: 'https://memory.example' })).toBe('existing');
+    expect(defaultInstallTarget({ target: 'cloud', endpoint: 'https://x' })).toBe('cloud');
+    expect(parseInstallArgs([], {}).target).toBeUndefined();
+  });
+
+  it('parses --install-docker and its env twin, off by default', () => {
+    expect(parseInstallArgs([], {}).installDocker).toBeUndefined();
+    expect(parseInstallArgs(['--install-docker'], {}).installDocker).toBe(true);
+    expect(parseInstallArgs([], { AUTOMEM_INSTALL_DOCKER: '1' }).installDocker).toBe(true);
+  });
+
+  describe('ensureDockerInstalled', () => {
+    const missing = () =>
+      detectInstallEnvironment({
+        platform: 'darwin',
+        pathExists: () => false,
+        commandExists: (command) => command !== 'docker',
+      });
+
+    it('does nothing when Docker is present', async () => {
+      const run = vi.fn(() => true);
+      const environment = detectInstallEnvironment({ commandExists: () => true });
+      await ensureDockerInstalled(environment, false, false, false, { run });
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it('never installs software without consent, and says how to consent', async () => {
+      const run = vi.fn(() => true);
+      const error = await ensureDockerInstalled(missing(), false, true, false, {
+        commandExists: () => true,
+        run,
+      }).catch((err) => err);
+      expect(error).toBeInstanceOf(InstallError);
+      expect(error.hint).toContain('--install-docker');
+      expect(error.hint).toContain('brew install --cask docker-desktop');
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it('installs with --install-docker and records that Docker is now present', async () => {
+      const run = vi.fn(() => true);
+      const environment = missing();
+      await ensureDockerInstalled(environment, false, false, true, {
+        commandExists: () => true,
+        run,
+      });
+      expect(run).toHaveBeenCalledWith('brew', ['install', '--cask', 'docker-desktop']);
+      expect(environment.prerequisites.docker).toBe(true);
+    });
+
+    it('falls back to the download page when the installer fails or no route exists', async () => {
+      const failed = await ensureDockerInstalled(missing(), false, false, true, {
+        commandExists: () => true,
+        run: () => false,
+      }).catch((err) => err);
+      expect(failed.message).toContain('did not finish installing');
+      const none = await ensureDockerInstalled(missing(), false, false, true, {
+        commandExists: () => false,
+      }).catch((err) => err);
+      expect(none.hint).toContain('docker-desktop');
+    });
   });
 });
