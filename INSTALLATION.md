@@ -42,6 +42,20 @@ briefly and starts building your memory graph.
 Two other places are available as options: **In the cloud** (for always-on access) and
 **A server I already have** (**Existing Endpoint**). For the cloud you pick a provider:
 
+- **InstaPods** — opens the InstaPods setup page in your browser. It deploys
+  AutoMem (Grow plan) and emails you your API URL + key; you paste them back into
+  the installer. Already have them? Skip the browser and paste directly.
+- **Railway** — if the `railway` CLI isn't on your PATH, the installer offers to
+  install it for you with `npm i -g @railway/cli` (with your confirmation — you already
+  have Node from running this installer). It then signs you in via the CLI (a browser
+  hand-off that also creates an account if you're new) and deploys the AutoMem template
+  **straight from the terminal** — no browser tab for the deploy itself — reading back
+  the service domain + API token automatically. If you decline the CLI install, or the
+  terminal deploy can't complete, it falls back to the template's **Deploy Now** page in
+  your browser, then captures the credentials (via `railway link`, or by paste).
+- **Other** — already deployed AutoMem somewhere? Paste your endpoint + token and
+  the installer takes it from there.
+
 For **Local Docker**, the installer offers to start Docker when it is installed
 but not running. If an AutoMem API is already running on the selected API port,
 it reuses that server and its credentials. For a recognized, clean AutoMem Git
@@ -64,9 +78,9 @@ other port choices and server credentials are preserved.
 
 It then verifies the endpoint (`/health` + an authenticated
 recall probe when you supply a key), then offers to configure your agents
-(Codex, Claude Code, Cursor, OpenClaw, Hermes). For Claude Code it offers the
-**plugin** (recommended — bundles the MCP server + hooks and auto-updates) or a
-**settings-level** install. When the `claude` CLI is on your PATH, the installer
+(Codex, Claude Code, Cursor, OpenClaw, Hermes). For Claude Code it installs the
+**plugin** (bundles the MCP server + hooks and auto-updates); pass
+`--claude-code-mode settings` for the **settings-level** install instead. When the `claude` CLI is on your PATH, the installer
 runs `claude plugin install` for you and passes the verified endpoint as plugin
 config; API keys are not passed in process arguments, so configure the key through
 Claude Code's plugin UI or `AUTOMEM_API_KEY`. If `claude` is unavailable, it
