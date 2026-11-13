@@ -25,7 +25,7 @@ https://github.com/user-attachments/assets/fd79112b-5158-4320-a054-8c18ab1ea314
 
 </div>
 
-<p align="center"><sub><b>The guided installer</b> — <code>npx @verygoodplugins/mcp-automem@latest install</code> walks you through local, hosted, or existing-endpoint setup.</sub></p>
+<p align="center"><sub><b>The guided installer</b> — <code>npx @verygoodplugins/mcp-automem@latest install</code> walks you through a private local Docker setup by default — or hosted and existing-endpoint setups if you prefer.</sub></p>
 
 Works with **Claude Desktop**, **Cursor IDE**, **Claude Code**, **GitHub Copilot (coding agent)**, **ChatGPT**, **ElevenLabs**, **OpenAI Codex**, **OpenClaw**, **Hermes**, **Grok Build**, **Google Antigravity** - any MCP-compatible AI platform.
 

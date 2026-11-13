@@ -37,13 +37,14 @@ import {
   LOCAL_PORTS,
   chooseLocalPorts,
   discoverPreferredLocalServer,
-  dockerRunning,
+  dockerStatus,
   inspectLocalVersion,
   isPortAvailable,
   launchDocker,
   portEnv,
   readLocalPorts,
   waitForDocker,
+  type DockerStatus,
   type LocalDockerPlan,
   type LocalPorts,
 } from './local-docker.js';
@@ -55,6 +56,15 @@ import { keyValueRows, type TableRow } from './ui/table.js';
 import { sectionTitle } from './ui/messages.js';
 import { renderBrandHeader, renderSuccessCard, renderWorkingMascot } from './ui/brand.js';
 import { startSpinner } from './ui/tasks.js';
+import {
+  DOCKER_DOWNLOAD_URL,
+  describeDockerInstall,
+  dockerPermissionHint,
+  planDockerInstall,
+  runDockerInstall,
+  type DockerInstallRunner,
+} from './docker-install.js';
+import { renderConnectionMap } from './connection-map.js';
 import { startChecklist, type ChecklistStep } from './ui/checklist.js';
 import { revealHeroLine, revealLines } from './ui/animate.js';
 import {
@@ -212,6 +222,8 @@ export type ParsedInstallOptions = {
   noAgentInstall: boolean;
   /** Skip the optional, user-visible first conversation. */
   noWelcome?: boolean;
+  /** Consent to install Docker when it is missing (interactive runs ask instead). */
+  installDocker?: boolean;
   /** True only when `--endpoint` was on the argv — not when the URL came from env. */
   endpointFromFlag: boolean;
   /** True only when `--api-key` was on the argv — not when the key came from env. */
@@ -790,6 +802,7 @@ export function parseInstallArgs(
   let yes = parseBooleanEnv(env.AUTOMEM_YES);
   let noAgentInstall = parseBooleanEnv(env.AUTOMEM_NO_AGENT_INSTALL);
   let noWelcome = parseBooleanEnv(env.AUTOMEM_NO_WELCOME);
+  let installDocker = parseBooleanEnv(env.AUTOMEM_INSTALL_DOCKER);
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -849,6 +862,9 @@ export function parseInstallArgs(
       case '--no-welcome':
         noWelcome = true;
         break;
+      case '--install-docker':
+        installDocker = true;
+        break;
       default:
         break;
     }
@@ -882,9 +898,20 @@ export function parseInstallArgs(
     yes,
     noAgentInstall,
     ...(noWelcome ? { noWelcome: true } : {}),
+    ...(installDocker ? { installDocker: true } : {}),
     endpointFromFlag,
     apiKeyFromFlag,
   };
+}
+
+/**
+ * Local Docker is the default: no account, nothing leaves the computer. A named
+ * endpoint means the user already has a server, so that wins.
+ */
+export function defaultInstallTarget(
+  options: Pick<ParsedInstallOptions, 'target' | 'endpoint'>
+): InstallTarget {
+  return options.target ?? (options.endpoint ? 'existing' : 'local');
 }
 
 function defaultCommandExists(command: string): boolean {
@@ -1312,14 +1339,6 @@ function argsSpecifyHermesMode(args: string[]): boolean {
   return args.includes('--hermes-mode') || Boolean(process.env.AUTOMEM_HERMES_MODE);
 }
 
-function argsSpecifyClaudeCodeMode(args: string[]): boolean {
-  return args.includes('--claude-code-mode') || Boolean(process.env.AUTOMEM_CLAUDE_CODE_MODE);
-}
-
-function argsSpecifyCursorMode(args: string[]): boolean {
-  return args.includes('--cursor-mode') || Boolean(process.env.AUTOMEM_CURSOR_MODE);
-}
-
 function cursorPluginSelected(
   options: Pick<ResolvedInstallOptions, 'noAgentInstall' | 'clients' | 'cursorMode'>
 ): boolean {
@@ -1668,20 +1687,73 @@ function readEnvFileValue(filePath: string, key: string): string | undefined {
   return value ? value : undefined;
 }
 
-async function ensureDockerRunning(
+/** Docker missing → offer to install it (always shown first, never silent). */
+export async function ensureDockerInstalled(
   environment: InstallEnvironment,
   interactive: boolean,
-  yes: boolean
+  yes: boolean,
+  installDocker: boolean,
+  deps: { commandExists?: (command: string) => boolean; run?: DockerInstallRunner } = {}
 ): Promise<void> {
-  if (!environment.prerequisites.docker) {
+  if (environment.prerequisites.docker) return;
+  const plan = planDockerInstall(environment.platform, deps.commandExists ?? defaultCommandExists);
+  const manual = new InstallError(
+    "AutoMem's local option needs Docker on this machine.",
+    plan && !installDocker
+      ? `Re-run with --install-docker to let the installer run: ${describeDockerInstall(plan)}\nOr install Docker Desktop yourself: ${DOCKER_DOWNLOAD_URL}`
+      : `Install Docker Desktop: ${DOCKER_DOWNLOAD_URL}`
+  );
+  if (!plan) throw manual;
+  const consent =
+    installDocker ||
+    (interactive &&
+      !yes &&
+      (await cancelable(
+        promptConfirm({
+          message: `Docker isn't installed — AutoMem runs inside it. Install it for you now? (${plan.label})`,
+          initialValue: true,
+        })
+      )));
+  if (!consent) throw manual;
+  writeStatus(`Installing Docker: ${describeDockerInstall(plan)}`);
+  if (!(deps.run ?? runDockerInstall)(plan.command, plan.args)) {
     throw new InstallError(
-      "AutoMem's local option needs Docker on this machine.",
-      'Install Docker Desktop: https://www.docker.com/products/docker-desktop'
+      'Docker did not finish installing.',
+      `Install Docker Desktop yourself (${DOCKER_DOWNLOAD_URL}), then re-run the installer.`
     );
   }
-  if (dockerRunning()) return;
+  environment.prerequisites.docker = true;
+}
+
+export async function ensureDockerRunning(
+  environment: InstallEnvironment,
+  interactive: boolean,
+  yes: boolean,
+  installDocker = false,
+  deps: {
+    commandExists?: (command: string) => boolean;
+    run?: DockerInstallRunner;
+    status?: () => DockerStatus;
+    launch?: (platform: NodeJS.Platform) => boolean;
+    wait?: typeof waitForDocker;
+  } = {}
+): Promise<void> {
+  const freshlyInstalled = !environment.prerequisites.docker;
+  await ensureDockerInstalled(environment, interactive, yes, installDocker, deps);
+  const status = deps.status ?? dockerStatus;
+  // A running daemon this user cannot reach (Linux, right after the install script)
+  // is not a stopped one: launching or waiting would only end in a misleading timeout.
+  const accessError = () =>
+    new InstallError(
+      'Docker is installed, but your user cannot use it yet.',
+      dockerPermissionHint(environment.platform)
+    );
+  const first = status();
+  if (first === 'running') return;
+  if (first === 'permission-denied') throw accessError();
   const start =
     yes ||
+    freshlyInstalled ||
     (interactive &&
       (await cancelable(
         promptConfirm({
@@ -1692,19 +1764,38 @@ async function ensureDockerRunning(
   if (!start) {
     throw new InstallError('Docker is not running.', 'Start Docker, then re-run the installer.');
   }
-  if (!launchDocker(environment.platform)) {
+  if (!(deps.launch ?? launchDocker)(environment.platform)) {
     throw new InstallError(
       'Could not start Docker automatically.',
       'Start Docker Desktop or the Docker service, then re-run the installer.'
     );
   }
-  const spin = startSpinner('Starting Docker — this can take a minute…');
-  if (!(await waitForDocker())) {
+  const spin = startSpinner(
+    freshlyInstalled
+      ? 'Starting Docker for the first time — accept any prompts it shows (up to 3 minutes)…'
+      : 'Starting Docker — this can take a minute…'
+  );
+  // Cast, not an annotation: `settled` assigns this from a closure, which TypeScript's
+  // control-flow narrowing cannot see, so an annotation would pin it to 'unavailable'.
+  let latest = 'unavailable' as DockerStatus;
+  const settled = () => {
+    latest = status();
+    return latest !== 'unavailable';
+  };
+  const ready = await (deps.wait ?? waitForDocker)({
+    ...(freshlyInstalled ? { attempts: 90, deadlineMs: 180_000 } : {}),
+    running: settled,
+  });
+  if (!ready) {
     spin.error('Docker did not become ready');
     throw new InstallError(
       'Docker did not start in time.',
       'Check Docker Desktop or the Docker service, then re-run the installer.'
     );
+  }
+  if (latest === 'permission-denied') {
+    spin.error('Docker is running, but your user cannot use it yet');
+    throw accessError();
   }
   spin.stop('Docker is running');
 }
@@ -1717,7 +1808,13 @@ async function resolveLocalDockerOptions(
   recovery?: { initial: LocalPorts; unavailablePort: number }
 ): Promise<ResolvedInstallOptions> {
   if (options.target !== 'local') return options;
-  if (!options.dryRun) await ensureDockerRunning(environment, interactive, options.yes);
+  if (!options.dryRun)
+    await ensureDockerRunning(
+      environment,
+      interactive,
+      options.yes,
+      Boolean(options.installDocker)
+    );
   let initial: LocalPorts;
   try {
     initial =
@@ -2037,6 +2134,18 @@ function targetLabel(target: InstallTarget): string {
   }
 }
 
+// The per-tool question, phrased for what will actually be installed.
+function clientOffer(
+  client: AgentClient,
+  options: Pick<ParsedInstallOptions, 'claudeCodeMode' | 'cursorMode'>
+): string {
+  if (client === 'cursor' && options.cursorMode === 'plugin')
+    return 'Want me to install the Cursor plugin?';
+  if (client === 'claude-code' && options.claudeCodeMode === 'plugin')
+    return 'Want me to install the Claude Code plugin?';
+  return `Want me to connect AutoMem to ${clientLabel(client)}?`;
+}
+
 function clientLabel(client: AgentClient): string {
   switch (client) {
     case 'codex':
@@ -2277,37 +2386,35 @@ async function resolveInteractiveOptions(
   parsed: ParsedInstallOptions,
   environment: InstallEnvironment,
   clientsExplicit: boolean,
-  hermesModeExplicit: boolean,
-  claudeCodeModeExplicit: boolean,
-  cursorModeExplicit: boolean
+  hermesModeExplicit: boolean
 ): Promise<ResolvedInstallOptions> {
   let target = parsed.target;
   if (!target) {
     target = await cancelable(
       promptSelect<InstallTarget>({
-        message: 'Where should AutoMem run?',
+        message: 'Where should AutoMem keep your memories?',
         options: [
           {
-            value: 'cloud',
-            label: 'Hosted Cloud (recommended)',
-            hint: 'easiest — we set it up for you, ~$1–15/mo depending on provider',
+            value: 'local',
+            label: 'On this computer (recommended)',
+            // Docker-aware: tell the user NOW what happens, instead of letting
+            // them discover a missing prerequisite mid-wizard.
+            hint: environment.prerequisites.docker
+              ? 'private and free — no account needed, nothing leaves your computer'
+              : "private and free — Docker isn't installed, so I'll offer to install it",
           },
           {
-            value: 'local',
-            label: 'Local Docker',
-            // Docker-aware: tell the user NOW whether this path can even start,
-            // instead of letting them discover a missing prerequisite mid-wizard.
-            hint: environment.prerequisites.docker
-              ? 'free, runs on this computer — Docker detected'
-              : 'free, runs on this computer — needs Docker (not found here)',
+            value: 'cloud',
+            label: 'In the cloud (optional)',
+            hint: 'always on, reachable from anywhere — needs a hosting account, ~$1–15/mo',
           },
           {
             value: 'existing',
-            label: 'Existing Endpoint',
-            hint: 'paste an AutoMem URL + key you already have',
+            label: 'On a server I already have',
+            hint: 'paste an AutoMem URL + key',
           },
         ],
-        initialValue: 'cloud',
+        initialValue: 'local',
       })
     );
   }
@@ -2355,7 +2462,7 @@ async function resolveInteractiveOptions(
       );
     }
     // Ask as soon as the user picks Local Docker, before the remaining questions.
-    await ensureDockerRunning(environment, true, parsed.yes);
+    await ensureDockerRunning(environment, true, parsed.yes, Boolean(parsed.installDocker));
   }
   if (target === 'local') {
     promptCaption("Where the server's files live — the default is fine.");
@@ -2406,40 +2513,72 @@ async function resolveInteractiveOptions(
   let clients = parsed.clients;
   if (!parsed.noAgentInstall && !clientsExplicit) {
     const detected = new Set(environment.detectedClients.map((client) => client.client));
-    // On a fresh machine nothing is detected, nothing is pre-checked, and Enter
-    // submits an empty selection — silently skipping the tool's entire purpose.
-    // Loop: an empty submit gets one explicit confirm; No re-opens the list.
-    for (;;) {
-      const selected = await cancelable(
-        promptMultiselect<AgentClient>({
-          message: 'Connect AutoMem to which AI tools?',
-          options: AGENT_CLIENTS.map((client) => ({
-            value: client,
-            label: clientLabel(client),
-            hint: detected.has(client)
-              ? 'detected on this machine'
-              : 'not found here — pick it anyway if you use it',
-          })),
-          // Pre-check everything detected on this machine (Hermes included) so a
-          // user who already runs an agent reaches its follow-up prompts by default.
-          initialValues: AGENT_CLIENTS.filter((client) => detected.has(client)),
-          required: false,
-        })
-      );
-      if (selected.length > 0) {
-        clients = selected;
-        break;
+    const seen = AGENT_CLIENTS.filter((client) => detected.has(client));
+    if (seen.length > 0) {
+      // One plain question per tool we can see on this machine.
+      const chosen: AgentClient[] = [];
+      for (const client of seen) {
+        const yes = await cancelable(
+          promptConfirm({
+            message: `I see you're using ${clientLabel(client)}. ${clientOffer(client, parsed)}`,
+            initialValue: true,
+          })
+        );
+        if (yes) chosen.push(client);
       }
-      const skipAgents = await cancelable(
-        promptConfirm({
-          message:
-            'No AI tools selected — AutoMem will be set up but nothing will use it. Continue anyway?',
-          initialValue: false,
-        })
+      const unseen = AGENT_CLIENTS.filter((client) => !detected.has(client));
+      const more = await cancelable(
+        promptConfirm({ message: 'Connect any other AI tools too?', initialValue: false })
       );
-      if (skipAgents) {
-        clients = [];
-        break;
+      if (more) {
+        chosen.push(
+          ...(await cancelable(
+            promptMultiselect<AgentClient>({
+              message: 'Which ones?',
+              options: unseen.map((client) => ({
+                value: client,
+                label: clientLabel(client),
+                hint: 'not found here — pick it anyway if you use it',
+              })),
+              initialValues: [],
+              required: false,
+            })
+          ))
+        );
+      }
+      clients = chosen;
+    } else {
+      // Nothing detected, so nothing is pre-checked and Enter submits an empty
+      // selection — silently skipping the tool's entire purpose. Loop: an empty
+      // submit gets one explicit confirm; No re-opens the list.
+      for (;;) {
+        const selected = await cancelable(
+          promptMultiselect<AgentClient>({
+            message: 'Connect AutoMem to which AI tools?',
+            options: AGENT_CLIENTS.map((client) => ({
+              value: client,
+              label: clientLabel(client),
+              hint: 'not found here — pick it anyway if you use it',
+            })),
+            initialValues: [],
+            required: false,
+          })
+        );
+        if (selected.length > 0) {
+          clients = selected;
+          break;
+        }
+        const skipAgents = await cancelable(
+          promptConfirm({
+            message:
+              'No AI tools selected — AutoMem will be set up but nothing will use it. Continue anyway?',
+            initialValue: false,
+          })
+        );
+        if (skipAgents) {
+          clients = [];
+          break;
+        }
       }
     }
   }
@@ -2471,49 +2610,9 @@ async function resolveInteractiveOptions(
     );
   }
 
-  let claudeCodeMode = parsed.claudeCodeMode;
-  if (!parsed.noAgentInstall && clients.includes('claude-code') && !claudeCodeModeExplicit) {
-    claudeCodeMode = await cancelable(
-      promptSelect<ClaudeCodeMode>({
-        message: 'How should AutoMem integrate with Claude Code?',
-        options: [
-          {
-            value: 'plugin',
-            label: 'Plugin (recommended)',
-            hint: 'bundles the MCP server + hooks, prompts for your endpoint, auto-updates',
-          },
-          {
-            value: 'settings',
-            label: 'Settings-level install',
-            hint: 'writes ~/.claude hooks + permissions directly; no auto-update',
-          },
-        ],
-        initialValue: 'plugin',
-      })
-    );
-  }
-
-  let cursorMode = parsed.cursorMode;
-  if (!parsed.noAgentInstall && clients.includes('cursor') && !cursorModeExplicit) {
-    cursorMode = await cancelable(
-      promptSelect<CursorMode>({
-        message: 'How should AutoMem integrate with Cursor?',
-        options: [
-          {
-            value: 'plugin',
-            label: 'Plugin (recommended)',
-            hint: 'bundles the MCP server, hook, and rule; uses the connection from this setup',
-          },
-          {
-            value: 'files',
-            label: 'Project files',
-            hint: "writes ~/.cursor/mcp.json plus this project's rule and hook",
-          },
-        ],
-        initialValue: 'plugin',
-      })
-    );
-  }
+  // Claude Code and Cursor default to their plugins; --claude-code-mode / --cursor-mode
+  // remain for anyone who wants the file-based install.
+  const { claudeCodeMode, cursorMode } = parsed;
 
   return {
     ...parsed,
@@ -2651,8 +2750,6 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const clientsExplicit = Boolean(process.env.AUTOMEM_CLIENTS) || argsSpecifyClients(args);
   const hermesModeExplicit = argsSpecifyHermesMode(args);
-  const claudeCodeModeExplicit = argsSpecifyClaudeCodeMode(args);
-  const cursorModeExplicit = argsSpecifyCursorMode(args);
 
   // The splash is Unicode mascot art, so only animate when the terminal can
   // render unicode — otherwise fall through to the plain one-line brand header.
@@ -2677,7 +2774,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     const fallback: ResolvedInstallOptions = await resolveLocalDockerOptions(
       pinLocalInstallOptions({
         ...parsed,
-        target: parsed.target ?? 'existing',
+        target: defaultInstallTarget(parsed),
         dryRun: true,
       }),
       environment,
@@ -2705,15 +2802,8 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     }
     let resolved = pinLocalInstallOptions(
       interactive
-        ? await resolveInteractiveOptions(
-            parsed,
-            environment,
-            clientsExplicit,
-            hermesModeExplicit,
-            claudeCodeModeExplicit,
-            cursorModeExplicit
-          )
-        : ({ ...parsed, target: parsed.target ?? 'existing' } as ResolvedInstallOptions)
+        ? await resolveInteractiveOptions(parsed, environment, clientsExplicit, hermesModeExplicit)
+        : ({ ...parsed, target: defaultInstallTarget(parsed) } as ResolvedInstallOptions)
     );
     if (
       resolved.target === 'local' &&
@@ -3230,6 +3320,11 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
         );
       }
     }
+    nextSteps.push(
+      resolved.target === 'local'
+        ? 'Moving to the cloud later? Your tools keep working — see INSTALLATION.md → Moving to another host.'
+        : 'Claude on your phone: see INSTALLATION.md → Remote MCP via HTTP (Sidecar).'
+    );
     nextSteps.push('Backups: every changed file keeps a <file>.bak copy.');
     // The card is a box, so rows snap in whole (never half-drawn) but slowly —
     // a deliberate beat per row so the finish lands instead of flashing past.
@@ -3258,6 +3353,12 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     // A partial install (some agents needed a manual step) still completes the
     // rest, but exits non-zero so scripts/CI notice the follow-ups.
     if (agentFailures.length > 0) process.exitCode = 1;
+
+    // The picture closes the questions, ahead of the welcome chat, which may take
+    // over the terminal.
+    process.stdout.write(
+      `\n${renderConnectionMap({ clients: installedClients, endpoint, local: resolved.target === 'local', theme })}\n`
+    );
 
     // The tour is an ordinary user message, offered once after a successful
     // setup. Headless, --yes, dry-run and explicitly skipped installs never

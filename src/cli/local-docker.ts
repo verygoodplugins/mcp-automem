@@ -38,6 +38,7 @@ export type CapturedCommand = (
 ) => {
   ok: boolean;
   stdout: string;
+  stderr?: string;
 };
 
 export const captureCommand: CapturedCommand = (command, args, timeoutMs = 8_000) => {
@@ -46,11 +47,25 @@ export const captureCommand: CapturedCommand = (command, args, timeoutMs = 8_000
     timeout: timeoutMs,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  return { ok: result.status === 0, stdout: result.stdout ?? '' };
+  return { ok: result.status === 0, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 };
 
 export function dockerRunning(run: CapturedCommand = captureCommand): boolean {
   return run('docker', ['info'], 3_000).ok;
+}
+
+export type DockerStatus = 'running' | 'permission-denied' | 'unavailable';
+
+/**
+ * One `docker info` probe that tells a stopped daemon from one this user may not
+ * use. Starting Docker cannot fix the second, so callers must not keep waiting.
+ */
+export function dockerStatus(run: CapturedCommand = captureCommand): DockerStatus {
+  const result = run('docker', ['info'], 3_000);
+  if (result.ok) return 'running';
+  return /permission denied/i.test(`${result.stderr ?? ''}\n${result.stdout}`)
+    ? 'permission-denied'
+    : 'unavailable';
 }
 
 /** Start the installed desktop app/service; never install Docker or request sudo. */

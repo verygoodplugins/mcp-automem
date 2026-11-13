@@ -9,6 +9,9 @@ import {
   InstallError,
   LocalDockerPortConflict,
   buildInstallPlan,
+  defaultInstallTarget,
+  ensureDockerInstalled,
+  ensureDockerRunning,
   pinLocalInstallOptions,
   claudePluginInstallArgs,
   claudePluginMarketplaceAddArgs,
@@ -31,6 +34,7 @@ import {
   waitForAutoMemEndpoint,
   writeProjectEnv,
 } from './install.js';
+import { waitForDocker, type DockerStatus } from './local-docker.js';
 
 describe('guided install helpers', () => {
   it('plans Codex files in CODEX_HOME when it is configured', () => {
@@ -2394,5 +2398,145 @@ describe('writeProjectEnv credential pairing', () => {
 
     expect(fs.readFileSync(envPath, 'utf8')).not.toContain('sk-old');
     expect(result.removedKeys).toEqual(['AUTOMEM_API_KEY']);
+  });
+});
+
+describe('local-Docker-first defaults', () => {
+  it('defaults to local Docker unless the user names an endpoint or target', () => {
+    expect(defaultInstallTarget({})).toBe('local');
+    expect(defaultInstallTarget({ endpoint: 'https://memory.example' })).toBe('existing');
+    expect(defaultInstallTarget({ target: 'cloud', endpoint: 'https://x' })).toBe('cloud');
+    expect(parseInstallArgs([], {}).target).toBeUndefined();
+  });
+
+  it('parses --install-docker and its env twin, off by default', () => {
+    expect(parseInstallArgs([], {}).installDocker).toBeUndefined();
+    expect(parseInstallArgs(['--install-docker'], {}).installDocker).toBe(true);
+    expect(parseInstallArgs([], { AUTOMEM_INSTALL_DOCKER: '1' }).installDocker).toBe(true);
+  });
+
+  describe('ensureDockerRunning', () => {
+    const linux = (dockerPresent: boolean) =>
+      detectInstallEnvironment({
+        platform: 'linux',
+        pathExists: () => false,
+        commandExists: (command) => (command === 'docker' ? dockerPresent : true),
+      });
+    const statuses = (...sequence: DockerStatus[]) => {
+      const queue = [...sequence];
+      return vi.fn(() => queue.shift() ?? sequence[sequence.length - 1]);
+    };
+    const instantWait: typeof waitForDocker = (params) =>
+      waitForDocker({ ...params, delay: async () => {} });
+
+    it('returns without launching anything when Docker already answers', async () => {
+      const launch = vi.fn(() => true);
+      await ensureDockerRunning(linux(true), false, true, false, {
+        status: statuses('running'),
+        launch,
+      });
+      expect(launch).not.toHaveBeenCalled();
+    });
+
+    it('stops with group instructions right after a fresh Linux install instead of launching Docker', async () => {
+      const launch = vi.fn(() => true);
+      const wait = vi.fn(instantWait);
+      const run = vi.fn(() => true);
+      const error = await ensureDockerRunning(linux(false), false, false, true, {
+        commandExists: () => true,
+        run,
+        status: statuses('permission-denied'),
+        launch,
+        wait,
+      }).catch((err) => err);
+      expect(run).toHaveBeenCalledOnce();
+      expect(error).toBeInstanceOf(InstallError);
+      expect(error.message).toContain('your user cannot use it');
+      expect(error.hint).toContain('sudo usermod -aG docker "$USER"');
+      expect(launch).not.toHaveBeenCalled();
+      expect(wait).not.toHaveBeenCalled();
+    });
+
+    it('reports a permission problem that only shows up once the daemon is reachable', async () => {
+      const launch = vi.fn(() => true);
+      const error = await ensureDockerRunning(linux(true), false, true, false, {
+        status: statuses('unavailable', 'unavailable', 'permission-denied'),
+        launch,
+        wait: instantWait,
+      }).catch((err) => err);
+      expect(launch).toHaveBeenCalledOnce();
+      expect(error).toBeInstanceOf(InstallError);
+      expect(error.hint).toContain('usermod');
+    });
+
+    it('still waits for a daemon that is merely starting, then succeeds', async () => {
+      const status = statuses('unavailable', 'unavailable', 'running');
+      await ensureDockerRunning(linux(true), false, true, false, {
+        status,
+        launch: () => true,
+        wait: instantWait,
+      });
+      expect(status).toHaveBeenCalledTimes(3);
+    });
+
+    it('keeps the timeout error for a daemon that never comes up', async () => {
+      const error = await ensureDockerRunning(linux(true), false, true, false, {
+        status: statuses('unavailable'),
+        launch: () => true,
+        wait: (params) => instantWait({ ...params, attempts: 3 }),
+      }).catch((err) => err);
+      expect(error.message).toContain('did not start in time');
+    });
+  });
+
+  describe('ensureDockerInstalled', () => {
+    const missing = () =>
+      detectInstallEnvironment({
+        platform: 'darwin',
+        pathExists: () => false,
+        commandExists: (command) => command !== 'docker',
+      });
+
+    it('does nothing when Docker is present', async () => {
+      const run = vi.fn(() => true);
+      const environment = detectInstallEnvironment({ commandExists: () => true });
+      await ensureDockerInstalled(environment, false, false, false, { run });
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it('never installs software without consent, and says how to consent', async () => {
+      const run = vi.fn(() => true);
+      const error = await ensureDockerInstalled(missing(), false, true, false, {
+        commandExists: () => true,
+        run,
+      }).catch((err) => err);
+      expect(error).toBeInstanceOf(InstallError);
+      expect(error.hint).toContain('--install-docker');
+      expect(error.hint).toContain('brew install --cask docker-desktop');
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it('installs with --install-docker and records that Docker is now present', async () => {
+      const run = vi.fn(() => true);
+      const environment = missing();
+      await ensureDockerInstalled(environment, false, false, true, {
+        commandExists: () => true,
+        run,
+      });
+      expect(run).toHaveBeenCalledWith('brew', ['install', '--cask', 'docker-desktop']);
+      expect(environment.prerequisites.docker).toBe(true);
+    });
+
+    it('falls back to the download page when the installer fails or no route exists', async () => {
+      const failed = await ensureDockerInstalled(missing(), false, false, true, {
+        commandExists: () => true,
+        run: () => false,
+      }).catch((err) => err);
+      expect(failed.message).toContain('did not finish installing');
+      const none = await ensureDockerInstalled(missing(), false, false, true, {
+        commandExists: () => false,
+      }).catch((err) => err);
+      expect(none.hint).toContain('docker-desktop');
+    });
   });
 });

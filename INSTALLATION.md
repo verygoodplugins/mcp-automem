@@ -21,8 +21,29 @@ verification, writing `.env`, and configuring each agent:
 npx @verygoodplugins/mcp-automem@latest install
 ```
 
-It asks where AutoMem should run (**Hosted Cloud**, **Local Docker**, or an
-**Existing Endpoint**). For **Hosted Cloud** you pick a provider:
+Prefer a single pasteable line that also checks for Node.js first?
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/verygoodplugins/mcp-automem/main/get.sh | sh
+# the same script, once published at the short URL: curl -fsSL https://get.automem.ai | sh
+```
+
+The installer is a short series of questions and defaults to **keeping your memories
+on this computer** in Docker — no account, no password, nothing leaves your machine.
+If Docker is missing it offers to install it (Homebrew on macOS, winget on Windows,
+Docker's official script on Linux), shows the exact command first, and starts it for
+you. In a non-interactive run, add `--install-docker` to give that consent. On Linux,
+a fresh Docker install leaves its socket usable only by root until your user joins the
+`docker` group, so the installer stops there and prints the exact command
+(`sudo usermod -aG docker "$USER"`); sign out and back in, then re-run it.
+
+It then looks for AI tools on your machine and asks one question per tool it finds
+("I see you're using Cursor. Want me to install the Cursor plugin?"). It ends with a
+picture of how everything connects, and offers the welcome conversation, where your assistant interviews you
+briefly and starts building your memory graph.
+
+Two other places are available as options: **In the cloud** (for always-on access) and
+**A server I already have** (**Existing Endpoint**). For the cloud you pick a provider:
 
 - **InstaPods** — opens the InstaPods setup page in your browser. It deploys
   AutoMem (Grow plan) and emails you your API URL + key; you paste them back into
@@ -60,9 +81,9 @@ other port choices and server credentials are preserved.
 
 It then verifies the endpoint (`/health` + an authenticated
 recall probe when you supply a key), then offers to configure your agents
-(Codex, Claude Code, Cursor, OpenClaw, Hermes). For Claude Code it offers the
-**plugin** (recommended — bundles the MCP server + hooks and auto-updates) or a
-**settings-level** install. When the `claude` CLI is on your PATH, the installer
+(Codex, Claude Code, Cursor, OpenClaw, Hermes). For Claude Code it installs the
+**plugin** (bundles the MCP server + hooks and auto-updates); pass
+`--claude-code-mode settings` for the **settings-level** install instead. When the `claude` CLI is on your PATH, the installer
 runs `claude plugin install` for you and passes the verified endpoint as plugin
 config; API keys are not passed in process arguments, so configure the key through
 Claude Code's plugin UI or `AUTOMEM_API_KEY`. If `claude` is unavailable, it
@@ -87,7 +108,7 @@ Flags: `--target <local|cloud|existing>`, `--cloud-provider <instapods|railway|o
 `--clients <list>`, `--endpoint`, `--api-key`, `--local-dir`,
 `--claude-code-mode <plugin|settings>`, `--cursor-mode <plugin|files>`,
 `--hermes-mode <mcp|provider|both>`,
-`--dry-run`, `--yes`, `--no-agent-install`, `--no-welcome`. The same values can be passed as
+`--dry-run`, `--yes`, `--install-docker`, `--no-agent-install`, `--no-welcome`. The same values can be passed as
 `AUTOMEM_*` environment variables. For CI/dotfiles, prefer `--target existing`
 with `--endpoint` and `--api-key`; InstaPods is an interactive browser+paste flow.
 Railway can run non-interactively only when the `railway` CLI is already installed
@@ -111,6 +132,20 @@ offer. Dry runs, non-interactive runs and `--yes` never launch the conversation.
 To start it later, run `npx @verygoodplugins/mcp-automem@latest welcome`; use
 `npx @verygoodplugins/mcp-automem@latest welcome --print` to print a prompt you can
 paste into any assistant.
+
+### Moving to another host
+
+Nothing in your tools is tied to Docker: they point at an endpoint and key in `.env`
+(or the plugin settings). To move later:
+
+1. Back up from the running stack (the server checkout is mounted in the container):
+   `cd ~/.automem/server && docker compose exec flask-api python scripts/backup_automem.py --backup-dir /app/backups`
+   — the files appear in `~/.automem/server/backups`.
+2. Stand up the new host, for example `npx @verygoodplugins/mcp-automem@latest install --target cloud --cloud-provider railway`.
+3. Restore into it with AutoMem's `scripts/restore_from_backup.py` (`--dry-run` first;
+   `--import` merges without deleting). See the AutoMem service's
+   `docs/MONITORING_AND_BACKUPS.md`.
+4. Re-point every tool: `npx @verygoodplugins/mcp-automem@latest install --target existing --endpoint <new-url> --api-key <key>`.
 
 **API keys are paired with their endpoint.** A key belongs to the AutoMem
 instance it was issued for, so the installers never carry one to a different
