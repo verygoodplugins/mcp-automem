@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.20.0](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.19.3...mcp-automem-v0.20.0) (2026-11-13)
+
+
+### Features
+
+* **install:** default the guided installer to a local Docker install ([#308](https://github.com/verygoodplugins/mcp-automem/issues/308)) ([086decd](https://github.com/verygoodplugins/mcp-automem/commit/086decdd700c59880cce1dc966e14e28b24cb0ab))
+
 ## [0.19.3](https://github.com/verygoodplugins/mcp-automem/compare/mcp-automem-v0.19.2...mcp-automem-v0.19.3) (2026-11-08)
 
 
