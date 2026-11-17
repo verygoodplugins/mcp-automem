@@ -58,7 +58,10 @@ export interface AutoMemConfig {
    * has its own latency budget — the remote bridge runs a tighter one.
    */
   timeoutMs?: number;
-  /** Retry budget for network errors and 5xx. Default 3. */
+  /**
+   * Retry budget for GET requests after network errors, timeouts, and 5xx.
+   * Default 3. Writes (POST/PATCH/DELETE) are never replayed.
+   */
   maxRetries?: number;
 }
 

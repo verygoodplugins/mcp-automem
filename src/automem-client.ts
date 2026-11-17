@@ -231,6 +231,41 @@ function sanitizeAssociationInput(
   };
 }
 
+/**
+ * Only GET is replayed after a timeout, dropped connection, or 5xx. Every
+ * write the client sends (POST /memory, POST /memory/batch, POST /associate,
+ * PATCH and DELETE /memory/...) can commit on the server even when the client
+ * sees a failure: a slow server that commits a batch store after the 25s abort
+ * gets a fresh copy of every memory on each replay. No non-GET endpoint is
+ * allow-listed — recall and health are already GET, and /associate gives no
+ * idempotency guarantee the client can rely on.
+ */
+function isReplayableMethod(method: string): boolean {
+  return method === 'GET';
+}
+
+/**
+ * Error for a write whose outcome the client cannot know. `status` is set when
+ * the server answered (5xx or an unreadable body); `cause` keeps the original.
+ */
+function writeOutcomeUnknownError(
+  method: string,
+  path: string,
+  reason: string,
+  cause: unknown,
+  status?: number
+): Error & { status?: number; outcomeUnknown: true } {
+  const route = `/${path.replace(/^\//, '').split('?')[0]}`;
+  const error = new Error(
+    `AutoMem ${method} ${route} outcome unknown: ${reason}. The write may have been applied, ` +
+      'so it was not retried. Verify with recall_memory before retrying to avoid duplicates.',
+    { cause }
+  ) as Error & { status?: number; outcomeUnknown: true };
+  error.outcomeUnknown = true;
+  if (status !== undefined) error.status = status;
+  return error;
+}
+
 /** Per-call overrides for a single request, e.g. a health probe that must not retry. */
 export interface RequestOverrides {
   timeoutMs?: number;
@@ -294,33 +329,52 @@ export class AutoMemClient {
       return this.makeRequest(method, path, body, retryCount + 1, overrides);
     };
 
+    const replayable = isReplayableMethod(method);
+
     try {
-      // Network errors (fetch) should be retried; HTTP errors handled below
+      // Network errors and timeouts: replay GET only. A write may already be
+      // committed (see isReplayableMethod), so surface it as outcome-unknown.
       let response;
       try {
         response = await fetch(url, options);
       } catch (error) {
-        if (error instanceof Error && retryCount < maxRetries) {
+        if (replayable && error instanceof Error && retryCount < maxRetries) {
           return retryAfter('Network error');
         }
 
         console.error(`AutoMem API error (${method} ${url}):`, error);
+        if (!replayable) {
+          const reason = controller.signal.aborted
+            ? `no response within ${timeoutMs}ms`
+            : `network error (${error instanceof Error ? error.message : String(error)})`;
+          throw writeOutcomeUnknownError(method, path, reason, error);
+        }
         throw error;
       }
+
+      const isServerError = response.status >= 500 && response.status < 600;
 
       let data: any;
       try {
         // Truncated HTTP/2 bodies arrive as 2xx/5xx with invalid JSON. Retry
         // GET (recall/health) like a dropped connection. Never replay POST,
         // PATCH, or DELETE after a parse failure: a committed store whose 201
-        // or gateway 5xx body was cut would mint a second UUID. 5xx responses
-        // that parse as JSON still retry for every method, as before.
+        // or gateway 5xx body was cut would mint a second UUID.
         data = await response.json();
-      } catch {
-        const isRetryableParse =
-          method === 'GET' && (response.ok || (response.status >= 500 && response.status < 600));
-        if (isRetryableParse && retryCount < maxRetries) {
-          return retryAfter(`Invalid JSON response (${response.status})`);
+      } catch (parseError) {
+        if (response.ok || isServerError) {
+          if (replayable && retryCount < maxRetries) {
+            return retryAfter(`Invalid JSON response (${response.status})`);
+          }
+          if (!replayable) {
+            throw writeOutcomeUnknownError(
+              method,
+              path,
+              `Invalid JSON response (${response.status})`,
+              parseError,
+              response.status
+            );
+          }
         }
         // The remote MCP sidecar answers REST routes it lacks with an HTML 404.
         const sidecarHint =
@@ -328,19 +382,31 @@ export class AutoMemClient {
           (response.status === 404
             ? `. If AUTOMEM_API_URL is the remote MCP sidecar, ${MCP_SIDECAR_FIX}`
             : '');
-        throw new Error(`Invalid JSON response (${response.status})${sidecarHint}`);
+        throw new Error(`Invalid JSON response (${response.status})${sidecarHint}`, {
+          cause: parseError,
+        });
       }
 
       if (!response.ok) {
-        // Retry on 5xx only
-        const isRetryable = response.status >= 500 && response.status < 600;
-
-        if (isRetryable && retryCount < maxRetries) {
+        // Retry 5xx for GET only; a write that 5xx'd may still have committed.
+        if (replayable && isServerError && retryCount < maxRetries) {
           return retryAfter(`HTTP ${response.status}`);
         }
 
         const baseMessage =
           (data as any)?.message || (data as any)?.detail || `HTTP ${response.status}`;
+
+        if (!replayable && isServerError) {
+          const error = writeOutcomeUnknownError(
+            method,
+            path,
+            `${baseMessage}${this.sidecarPathHint()}`,
+            data,
+            response.status
+          );
+          console.error(`AutoMem API error (${method} ${url}):`, error);
+          throw error;
+        }
 
         const hint =
           response.status === 401 || response.status === 403
