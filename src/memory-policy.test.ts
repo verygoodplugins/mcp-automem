@@ -434,7 +434,9 @@ describe('shared AutoMem memory policy', () => {
       projectName: '{{PROJECT_NAME}}',
       templateVersion: readPackageVersion(),
     });
-    expect(codex).toContain('mcp__memory__recall_memory({');
+    expect(codex).toContain(
+      'mcp__memory__recall_memory({\n  tags: ["preference"],\n  limit: 50,\n  sort: "score"\n})'
+    );
     expect(codex).toContain('const related = await mcp__memory__recall_memory(');
     expect(codex).not.toContain('use_tool(');
   });

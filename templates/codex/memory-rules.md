@@ -20,7 +20,7 @@ Drop the project tag gate when the slug collides with common topic words: `api`,
 
 ## Session start — two-phase recall
 
-Standardized defaults: preferences limit 20, task-context limit 30, 90-day task window.
+Standardized defaults: preferences limit 50, task-context limit 30, 90-day task window.
 
 Preferences and task context are independent recalls - issue them in parallel in a single message.
 
@@ -29,8 +29,8 @@ Preferences first:
 ```javascript
 mcp__memory__recall_memory({
   tags: ["preference"],
-  limit: 20,
-  sort: "updated_desc"
+  limit: 50,
+  sort: "score"
 })
 ```
 

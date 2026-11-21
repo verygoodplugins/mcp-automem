@@ -537,12 +537,13 @@ function renderRecallRulesSection(params: {
   style: ToolCallStyle;
   desktop?: boolean;
   cursor?: boolean;
+  preferenceRecall?: { limit: number; sort: 'score' | 'updated_desc' };
 }): string {
-  const preferenceArgs = [
-    '  tags: ["preference"],',
-    `  limit: ${AUTOMEM_RULES_POLICY_DEFAULTS.preferenceRecallLimit},`,
-    '  sort: "updated_desc"',
-  ];
+  const { limit, sort } = params.preferenceRecall ?? {
+    limit: AUTOMEM_RULES_POLICY_DEFAULTS.preferenceRecallLimit,
+    sort: 'updated_desc',
+  };
+  const preferenceArgs = ['  tags: ["preference"],', `  limit: ${limit},`, `  sort: "${sort}"`];
   const taskContextArgs = [
     '  query: "<proper nouns, product names, people, tools, specific topics from the user\'s message>",',
     ...(params.desktop
@@ -583,7 +584,7 @@ function renderRecallRulesSection(params: {
     '',
     params.desktop
       ? 'Desktop has no reliable project slug on most first turns, so prefer preferences plus one semantic task query. Add a tag gate only after the user clearly scopes to a project.'
-      : `Standardized defaults: preferences limit ${AUTOMEM_RULES_POLICY_DEFAULTS.preferenceRecallLimit}, task-context limit ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallLimit}, ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallWindowDays}-day task window.`,
+      : `Standardized defaults: preferences limit ${limit}, task-context limit ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallLimit}, ${AUTOMEM_RULES_POLICY_DEFAULTS.contextRecallWindowDays}-day task window.`,
     '',
     'Preferences and task context are independent recalls - issue them in parallel in a single message.',
     '',
@@ -742,7 +743,11 @@ export function renderCodexMemoryRules(params: ToolRuleRenderOptions): string {
     '',
     renderToolBehaviorSection(style),
     '',
-    renderRecallRulesSection({ projectName: params.projectName, style }),
+    renderRecallRulesSection({
+      projectName: params.projectName,
+      style,
+      preferenceRecall: { limit: 50, sort: 'score' },
+    }),
     '',
     renderStorageRulesSection(style, params.projectName),
     '',
