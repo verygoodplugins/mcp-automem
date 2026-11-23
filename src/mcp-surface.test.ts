@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { tools, AUTOMEM_INSTRUCTIONS, createAutoMemMcpServer } from './mcp-surface.js';
@@ -95,6 +95,59 @@ describe('tool errors', () => {
     } finally {
       await client.close();
     }
+  });
+});
+
+describe('recall failure vs empty recall', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  async function callRecall(): Promise<{
+    content: Array<{ type: string; text: string }>;
+    isError?: boolean;
+  }> {
+    const server = createAutoMemMcpServer({
+      client: new AutoMemClient({ endpoint: 'http://127.0.0.1:8001', maxRetries: 0 }),
+      name: 'test-transport',
+      version: '9.9.9',
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    await client.connect(clientTransport);
+    try {
+      return (await client.callTool({
+        name: 'recall_memory',
+        arguments: { query: 'anything' },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+    } finally {
+      await client.close();
+    }
+  }
+
+  // The shipped policy tells agents to stay silent on an empty recall but to report an
+  // unreachable service once; that only works while the two results stay distinguishable.
+  it('returns an unreachable service as an isError result, distinct from an empty recall', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
+    const result = await callRecall();
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/^Error: fetch failed/);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ results: [], count: 0 }),
+      })
+    );
+    const empty = await callRecall();
+    expect(empty.isError).toBeUndefined();
+    expect(empty.content[0].text).toBe('No memories found matching your query.');
   });
 });
 

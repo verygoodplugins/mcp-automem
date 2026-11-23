@@ -2,7 +2,7 @@
 
 AutoMem session context for {{PROJECT_NAME}}.
 Perform the initial preference and task-context recalls once per conversation, when the first user request is available. If the project rule already prompted these recalls, do not repeat them. Use the tool names actually exposed by Cursor for the configured AutoMem server.
-The always-on AutoMem project rule supplies storage and association guidance. Hooks never store memories. If tools or the service are unavailable, continue the task normally.
+The always-on AutoMem project rule supplies storage and association guidance. Hooks never store memories. Empty recall: continue silently. If AutoMem is unreachable, times out, rejects the API key, or returns a server error, tell the user once per session in one line that names the cause, and suggest check_database_health; then continue without memory.
 
 ## Session start — two-phase recall
 

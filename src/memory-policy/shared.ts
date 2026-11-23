@@ -3,6 +3,9 @@ import { AUTHORABLE_RELATION_TYPES } from '../types.js';
 export const AUTOMEM_BARE_TAG_GUIDANCE =
   'Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.';
 
+export const AUTOMEM_RECALL_FAILURE_GUIDANCE =
+  'Empty recall: continue silently. If AutoMem is unreachable, times out, rejects the API key, or returns a server error, tell the user once per session in one line that names the cause, and suggest check_database_health; then continue without memory.';
+
 export const AUTOMEM_IMPORTANCE_GUIDANCE =
   'Bug fixes: Insight, importance 0.75, confidence 0.85. Articulated patterns: Pattern, importance 0.8. User corrections: Preference, importance 0.9, confidence 0.95.';
 
@@ -157,7 +160,7 @@ function renderSessionStartPrompt(options: SessionStartPromptOptions): string {
     "- Phase 2 uses ONE targeted query, not `queries[]` + `auto_decompose`. Sub-queries converge and dedup drops results; a single query built from the real nouns in the user's message wins empirically. Only switch to `queries[]` for genuinely multi-topic questions.",
     projectSlugCollisionLine,
     '- Do not re-recall every turn. After turn 1, recall again only for topic shifts, new proper nouns, or active debugging.',
-    '- If recall fails or returns nothing, continue without memory - do not mention the failure to the user.',
+    `- ${AUTOMEM_RECALL_FAILURE_GUIDANCE}`,
   ];
 
   if (options.includeFirstToolCallGuard) {
@@ -237,7 +240,7 @@ export function renderClaudeCodeSessionStartPrompt(projectExpression: string): s
     '- If the project slug collides with a common topic word (for example `video` or `test`), drop the Phase 2 tag gate and rely on semantic `query` alone.',
     '- Results show created/updated timestamps and importance - prefer fresh, high-importance memories. Fetch a single full record with recall_memory({ memory_id: "<id>" }) when needed.',
     '- Do not re-recall every turn. After turn 1, recall again only for topic shifts, new proper nouns, or active debugging.',
-    '- If recall fails or returns nothing, continue without memory - do not mention the failure to the user.',
+    `- ${AUTOMEM_RECALL_FAILURE_GUIDANCE}`,
     '</automem_session_context>',
   ].join('\n');
 }
@@ -726,7 +729,7 @@ function renderMemoryVsCurrentState(): string {
     '',
     "Recalled context is a prior, not ground truth. If a memory disagrees with the current repo state, the user's latest instruction, or a freshly read file - **current evidence wins**. Update or invalidate stale memory instead of acting on it.",
     '',
-    'If recall fails or returns nothing, continue without memory and do not mention the failure to the user. Weave recalled context naturally.',
+    `${AUTOMEM_RECALL_FAILURE_GUIDANCE} Weave recalled context naturally.`,
   ].join('\n');
 }
 
@@ -825,7 +828,7 @@ export function renderCursorSessionStartContext(
       : [renderTemplateVersionMarker(params.templateVersion), '']),
     `AutoMem session context for ${params.projectName}.`,
     'Perform the initial preference and task-context recalls once per conversation, when the first user request is available. If the project rule already prompted these recalls, do not repeat them. Use the tool names actually exposed by Cursor for the configured AutoMem server.',
-    'The always-on AutoMem project rule supplies storage and association guidance. Hooks never store memories. If tools or the service are unavailable, continue the task normally.',
+    `The always-on AutoMem project rule supplies storage and association guidance. Hooks never store memories. ${AUTOMEM_RECALL_FAILURE_GUIDANCE}`,
     '',
     renderRecallRulesSection({
       projectName: params.projectName,
@@ -949,9 +952,9 @@ export function renderCursorProjectRule(params: CursorProjectRuleOptions): strin
     '',
     '## Error Handling',
     '',
-    '- Recall fails or stays empty after retries: continue without historical context.',
+    '- Recall stays empty after retries: continue without historical context.',
     '- Store fails: complete the task normally. Memory is enhancement, not requirement.',
-    '- Service unavailable: focus on solving the immediate problem.',
+    '- Service unreachable or API key rejected: report it once as described above, then focus on the immediate problem.',
     '',
     'Memory is your persistent brain across sessions. Use it strategically - 200 sharp memories beat 2000 fuzzy ones.',
     '',

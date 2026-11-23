@@ -126,6 +126,12 @@ describe('plugin session-start hook', () => {
     expect(context).toContain('tags: ["my-proj"]');
   });
 
+  it('stays silent on empty recall but reports service errors with a health-check hint', () => {
+    const context = contextFor({ workspace_roots: ['/Users/dev/My Proj'] });
+    expect(context).toContain('Empty recall: continue silently.');
+    expect(context).toContain('check_database_health');
+  });
+
   it('drops the tag gate when the workspace name collides with a common word', () => {
     const context = contextFor({ workspace_roots: ['/Users/dev/api'] });
     expect(context).not.toContain('tags: ["api"]');
