@@ -365,9 +365,10 @@ async function scenario(kind) {
       // plugin install still runs.
       assert.match(calls, /claude plugin install/);
       assert.ok(
-        out.includes('Add the mcp__plugin_automem_memory__* rules by hand; see INSTALLATION.md.'),
-        'pre-approval hint shown'
+        out.includes('could not update ~/.claude/settings.json'),
+        'pre-approval cause shown'
       );
+      assert.ok(out.includes('mcp__plugin_automem_memory__*'), 'pre-approval fix shown');
       assert.equal(fs.readFileSync(seededSettingsPath, 'utf8'), '{ not json');
       assert.deepEqual(
         fs.readdirSync(path.dirname(seededSettingsPath)).filter((name) => name.includes('.bak')),

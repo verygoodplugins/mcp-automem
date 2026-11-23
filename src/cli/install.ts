@@ -91,6 +91,11 @@ export const CLAUDE_CODE_PLUGIN_COMMANDS = [
 export const CLAUDE_CODE_PLUGIN_API_KEY_HINT =
   'Claude Code plugin: run  /plugin configure automem@verygoodplugins-mcp-automem  and set api_key, or export AUTOMEM_API_KEY before using Claude Code.';
 
+// The closing summary prints only each failure's hint, so this one must carry
+// the cause as well as the fix.
+export const CLAUDE_CODE_PLUGIN_PERMISSIONS_HINT =
+  'Claude Code: could not update ~/.claude/settings.json, so AutoMem tools will ask for permission. Fix that file and re-run the installer, or add the mcp__plugin_automem_memory__* rules by hand (see INSTALLATION.md).';
+
 // Identity for the `claude plugin …` CLI path (the supported, non-interactive way to
 // add the marketplace + install the plugin, distinct from the in-TUI slash commands).
 export const CLAUDE_CODE_MARKETPLACE_SOURCE = 'verygoodplugins/mcp-automem';
@@ -3189,7 +3194,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
             agentFailures.push({
               client,
               message: 'Could not pre-approve AutoMem tools in ~/.claude/settings.json.',
-              hint: 'Add the mcp__plugin_automem_memory__* rules by hand; see INSTALLATION.md.',
+              hint: CLAUDE_CODE_PLUGIN_PERMISSIONS_HINT,
               showPluginCommands: false,
             });
           }
