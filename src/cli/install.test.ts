@@ -809,7 +809,7 @@ describe('guided install helpers', () => {
     );
   });
 
-  it('plans Claude Code as a plugin manual step when claude is not on PATH (no settings write)', () => {
+  it('plans Claude Code as a plugin manual step when claude is not on PATH', () => {
     const homeDir = '/Users/tester';
     const cwd = '/repo/project';
     const plan = buildInstallPlan({
@@ -835,8 +835,9 @@ describe('guided install helpers', () => {
 
     const claudeAction = plan.actions.find((action) => action.client === 'claude-code');
     expect(claudeAction?.kind).toBe('manual-step');
-    // Plugin mode must NOT promise any ~/.claude file writes.
-    expect(claudeAction?.paths).toEqual([]);
+    // Plugin mode writes only the allow rules that pre-approve the plugin's
+    // memory tools — no hooks or scripts under ~/.claude.
+    expect(claudeAction?.paths).toEqual([path.join(homeDir, '.claude', 'settings.json')]);
     expect(claudeAction?.commands).toEqual([
       '/plugin marketplace add verygoodplugins/mcp-automem',
       '/plugin install automem@verygoodplugins-mcp-automem',
@@ -2201,6 +2202,32 @@ describe('claude plugin auto-install', () => {
     });
     const action = plan.actions.find((a) => a.client === 'claude-code');
     expect(action?.kind).toBe('manual-step');
+  });
+
+  it('plugin-mode plan lists the settings.json allow-rule write', () => {
+    const homeDir = '/Users/tester';
+    for (const claudeOnPath of [true, false]) {
+      const env = detectInstallEnvironment({
+        homeDir,
+        cwd: '/repo/project',
+        commandExists: (c) => (c === 'claude' ? claudeOnPath : true),
+        pathExists: () => true,
+      });
+      const plan = buildInstallPlan({
+        options: {
+          ...parseInstallArgs([], {}),
+          target: 'existing',
+          endpoint: 'http://x',
+          clients: ['claude-code'],
+          claudeCodeMode: 'plugin',
+        },
+        environment: env,
+      });
+      const action = plan.actions.find((a) => a.client === 'claude-code');
+      expect(action?.kind).toBe(claudeOnPath ? 'install-agent' : 'manual-step');
+      expect(action?.paths).toContain(path.join(homeDir, '.claude', 'settings.json'));
+      expect(action?.detail).toMatch(/and pre-approve its memory tools\.?$/);
+    }
   });
 });
 

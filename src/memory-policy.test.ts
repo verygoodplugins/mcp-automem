@@ -251,6 +251,13 @@ describe('shared AutoMem memory policy', () => {
     expect(hookContents).toBe(renderClaudeCodeSessionStartHook());
   });
 
+  // The same hook ships in settings mode (mcp__memory__*) and in the plugin
+  // (mcp__plugin_automem_memory__*), so it must name tools host-neutrally.
+  it('Claude Code session-start hook uses host-neutral tool names', () => {
+    expect(renderClaudeCodeSessionStartHook()).toContain('recall_memory({');
+    expect(renderClaudeCodeSessionStartHook()).not.toContain('mcp__');
+  });
+
   it('embeds the storage-nudge prompt as JSON with the required hookEventName field', () => {
     const hook = renderClaudeCodeStopNudgeHook();
     // Claude Code rejects Stop-hook JSON whose hookSpecificOutput lacks

@@ -344,6 +344,15 @@ async function scenario(kind) {
       assert.match(out, /plugin needs API key configuration/);
       assert.doesNotMatch(calls, /docker compose|git clone/);
       assert.match(projectEnv, new RegExp(`AUTOMEM_API_KEY=${TOKEN}`));
+      // Plugin mode pre-approves the plugin's memory tools, and only those:
+      // the plugin bundles its own hooks, so no settings-mode SessionStart.
+      const claudeSettingsPath = path.join(home, '.claude', 'settings.json');
+      assert.ok(fs.existsSync(claudeSettingsPath), 'plugin mode wrote ~/.claude/settings.json');
+      const claudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8'));
+      const allow = claudeSettings.permissions?.allow ?? [];
+      assert.ok(allow.includes('mcp__plugin_automem_memory__recall_memory'));
+      assert.ok(allow.includes('mcp__plugin_automem_memory__store_memory'));
+      assert.equal(claudeSettings.hooks?.SessionStart, undefined);
     } else if (kind === 'update') {
       assert.match(calls, /git pull --ff-only/);
       assert.match(calls, /docker compose -p automem-original .*up -d --no-deps --build flask-api/);

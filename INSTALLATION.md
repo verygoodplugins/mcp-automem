@@ -555,7 +555,7 @@ When you enable the plugin, Claude Code prompts for:
 
 The plugin bundles the MCP server, silent integration hooks (SessionStart recall plus store tracking), and the memory-management skill plus `/memory-recall`, `/memory-store`, and `/memory-health` commands. It does not register a Stop hook by default, so normal sessions end without AutoMem feedback in the chat stream.
 
-> Tool naming: Claude Code namespaces plugin MCP tools, so they appear as `mcp__plugin_automem_memory__store_memory` (etc.) rather than `mcp__memory__*`. Approve each tool on first use, or pre-approve by adding the `mcp__plugin_automem_memory__*` names to `permissions.allow` in `~/.claude/settings.json`.
+> Tool naming: Claude Code namespaces plugin MCP tools, so they appear as `mcp__plugin_automem_memory__store_memory` (etc.) rather than `mcp__memory__*`. The guided installer adds five allow rules to `permissions.allow` in `~/.claude/settings.json`: `store_memory`, `recall_memory`, `associate_memories`, `update_memory`, and `check_database_health`, each with the `mcp__plugin_automem_memory__` prefix. `delete_memory` is left out on purpose, so it still prompts. If you install the plugin with `/plugin` instead, approve each tool on first use or add those names yourself.
 
 **Migrating from the CLI installer:** remove the settings-level install first, so hooks don't fire twice and the memory tools don't appear under two servers:
 

@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
 import { AGENT_CLIENTS, DEFAULT_AGENT_CLIENTS, type AgentClient } from './clients.js';
-import { applyClaudeCodeSetup } from './claude-code.js';
+import { applyClaudeCodePluginPermissions, applyClaudeCodeSetup } from './claude-code.js';
 import { applyCodexSetup } from './codex.js';
 import { resolveCodexPaths } from './codex-config.js';
 import { applyCursorSetup } from './cursor.js';
@@ -1139,10 +1139,13 @@ export function buildInstallPlan(params: {
 
   if (!options.noAgentInstall) {
     for (const client of options.clients) {
-      // Claude Code plugin mode can't be performed by the CLI (it needs the
-      // /plugin slash commands inside Claude Code), so it's a guided manual step
-      // instead of a file write. Settings mode keeps the scriptable path.
+      // Claude Code plugin mode installs through `claude plugin …` (or the
+      // /plugin slash commands when the binary is absent). Either way the
+      // installer itself writes only the settings.json allow rules that
+      // pre-approve the plugin's memory tools. Settings mode keeps the full
+      // scriptable path.
       if (client === 'claude-code' && options.claudeCodeMode === 'plugin') {
+        const pluginPaths = [path.join(environment.homeDir, '.claude', 'settings.json')];
         if (environment.prerequisites.claude) {
           // `claude` is on PATH — install + configure the plugin directly via the
           // supported `claude plugin …` CLI instead of a copy-paste hand-off.
@@ -1150,9 +1153,9 @@ export function buildInstallPlan(params: {
             kind: 'install-agent',
             title: 'Install the Claude Code plugin (recommended)',
             detail:
-              'Add the marketplace and install + configure the plugin via `claude plugin install` — the MCP server, hooks, and skill come bundled and auto-update.',
+              'Add the marketplace, install + configure the plugin via `claude plugin install` (the MCP server, hooks, and skill come bundled and auto-update), and pre-approve its memory tools.',
             client,
-            paths: [],
+            paths: pluginPaths,
           });
         } else {
           // No `claude` binary — fall back to the guided copy-paste slash commands.
@@ -1160,9 +1163,9 @@ export function buildInstallPlan(params: {
             kind: 'manual-step',
             title: 'Install the Claude Code plugin (recommended)',
             detail:
-              'Run these inside Claude Code — the plugin bundles the MCP server, hooks, and auto-updates.',
+              'Run these inside Claude Code — the plugin bundles the MCP server and hooks, and auto-updates. The installer will update settings.json and pre-approve its memory tools.',
             client,
-            paths: [],
+            paths: pluginPaths,
             commands: [...CLAUDE_CODE_PLUGIN_COMMANDS],
           });
         }
@@ -3171,10 +3174,36 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       // it never aborts the others. Only verify/env above are fatal.
       for (const { client, key } of agentSteps) {
         if (client === 'claude-code' && resolved.claudeCodeMode === 'plugin') {
+          // Pre-approve the plugin's memory tools first, whether or not `claude`
+          // is on PATH: without allow rules the first session prompts on every
+          // memory call. A failure here never blocks the plugin install itself.
+          let preApprovalFailed = false;
+          try {
+            applyClaudeCodePluginPermissions({
+              targetDir: path.join(environment.homeDir, '.claude'),
+              dryRun: false,
+              quiet: true,
+            });
+          } catch {
+            preApprovalFailed = true;
+            agentFailures.push({
+              client,
+              message: 'Could not pre-approve AutoMem tools in ~/.claude/settings.json.',
+              hint: 'Add the mcp__plugin_automem_memory__* rules by hand; see INSTALLATION.md.',
+              showPluginCommands: false,
+            });
+          }
           // Plugin mode: auto-install via `claude plugin …` when the binary is on
           // PATH; otherwise leave it for the /plugin commands printed in the outro.
           if (!environment.prerequisites.claude) {
-            list.done(key);
+            if (preApprovalFailed) {
+              list.fail(
+                key,
+                `${clientGlyph(client, theme)} Claude Code tool pre-approval needs a manual step`
+              );
+            } else {
+              list.done(key);
+            }
             continue;
           }
           list.start(key);
@@ -3197,6 +3226,11 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
                 hint: CLAUDE_CODE_PLUGIN_API_KEY_HINT,
                 showPluginCommands: false,
               });
+            } else if (preApprovalFailed) {
+              list.fail(
+                key,
+                `${clientGlyph(client, theme)} Claude Code plugin installed; tool pre-approval needs a manual step`
+              );
             } else {
               list.done(key, `${clientGlyph(client, theme)} Claude Code plugin installed`);
             }

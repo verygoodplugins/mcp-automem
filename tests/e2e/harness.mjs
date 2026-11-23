@@ -416,7 +416,7 @@ const SCENARIOS = [
   {
     name: 'claude-plugin-fallback',
     description:
-      'Plugin mode with no `claude` on PATH falls back to the guided /plugin commands, not a ~/.claude write.',
+      'Plugin mode with no `claude` on PATH falls back to the guided /plugin commands; the only ~/.claude write is the tool pre-approval in settings.json.',
     mock: { mode: 'healthy', expectToken: TOKEN },
     // Default stub bin shadows any real claude with an exit-127 stub -> claude absent.
     steps: (ctx) => [
@@ -442,11 +442,24 @@ const SCENARIOS = [
       r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
       const env = await readEnvFile(ctx.cwd);
       r.push(A('.env still written with endpoint', env && env.AUTOMEM_API_URL === ctx.mock.url));
+      const claudeWrites = ctx.homeNew.filter((f) => f.startsWith('.claude/'));
       r.push(
         A(
-          'no ~/.claude writes in plugin fallback',
-          !ctx.homeNew.some((f) => f.startsWith('.claude/')),
-          ctx.homeNew.join(', ') || '(none)'
+          'only ~/.claude/settings.json written in plugin fallback (tool pre-approval)',
+          claudeWrites.length === 1 && claudeWrites[0] === '.claude/settings.json',
+          claudeWrites.join(', ') || '(none)'
+        )
+      );
+      const claudeSettings = JSON.parse(
+        await readFile(path.join(ctx.home, '.claude/settings.json'), 'utf8').catch(() => '{}')
+      );
+      r.push(
+        A(
+          'settings.json pre-approves the plugin memory tools and registers no hooks',
+          (claudeSettings.permissions?.allow ?? []).includes(
+            'mcp__plugin_automem_memory__recall_memory'
+          ) && claudeSettings.hooks === undefined,
+          JSON.stringify(claudeSettings)
         )
       );
       r.push(

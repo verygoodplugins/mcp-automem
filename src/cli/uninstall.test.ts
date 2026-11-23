@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { removeManagedHookEntries } from './claude-code.js';
+import { CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS, removeManagedHookEntries } from './claude-code.js';
 import { applyCursorSetup } from './cursor.js';
 import { applyCodexSetup } from './codex.js';
 import { cursorLocalPluginDir, installCursorPlugin } from './cursor-plugin.js';
@@ -499,6 +499,31 @@ describe('uninstall claude-code', () => {
       .readdirSync(path.join(tmpHome, '.claude'))
       .filter((name) => name.startsWith('settings.json.backup.'));
     expect(backups).toHaveLength(1);
+  });
+
+  it('uninstall claude-code removes plugin allow rules and keeps unrelated ones', async () => {
+    fs.writeFileSync(
+      settingsPath(),
+      JSON.stringify(
+        {
+          permissions: {
+            allow: [
+              ...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS,
+              'mcp__plugin_other_x__tool',
+              'mcp__memory__recall_memory',
+              'Bash(ls:*)',
+            ],
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    await runUninstall({ platform: 'claude-code', yes: true, quiet: true });
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    expect(settings.permissions.allow).toEqual(['mcp__plugin_other_x__tool', 'Bash(ls:*)']);
   });
 
   it('removes AutoMem-owned hook and script files, keeps foreign files', async () => {

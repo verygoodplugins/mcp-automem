@@ -5,7 +5,13 @@ import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { getCopilotSupportScriptBaseNames } from './copilot.js';
 import { resolveCopilotHome } from './hook-model.js';
-import { automemOwnedFiles, removeManagedHookEntries, RETIRED_PERMISSIONS } from './claude-code.js';
+import {
+  automemOwnedFiles,
+  CLAUDE_CODE_MCP_PERMISSIONS,
+  CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS,
+  removeManagedHookEntries,
+  RETIRED_PERMISSIONS,
+} from './claude-code.js';
 import {
   removeHermesMemoryProvider,
   removeMcpServerEntry,
@@ -482,17 +488,14 @@ async function uninstallClaudeCode(options: UninstallOptions): Promise<void> {
 // which case the caller must NOT delete the on-disk scripts the config still
 // points at.
 function uninstallClaudeCodeSettings(settingsPath: string, options: UninstallOptions): boolean {
-  const mcpPermissions = [
-    'mcp__memory__store_memory',
-    'mcp__memory__recall_memory',
-    'mcp__memory__associate_memories',
-    'mcp__memory__update_memory',
-    'mcp__memory__delete_memory',
-    'mcp__memory__check_database_health',
+  // Settings-mode MCP grants, plugin-mode pre-approvals, and the hook-era Bash
+  // grants old templates shipped. All three lists are shared with the
+  // installer so they cannot drift.
+  const removablePermissions = [
+    ...CLAUDE_CODE_MCP_PERMISSIONS,
+    ...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS,
+    ...RETIRED_PERMISSIONS,
   ];
-  // Plus the hook-era Bash grants old templates shipped (RETIRED_PERMISSIONS
-  // is shared with the installer so the two lists cannot drift).
-  const removablePermissions = [...mcpPermissions, ...RETIRED_PERMISSIONS];
 
   try {
     const raw = fs.readFileSync(settingsPath, 'utf8');
