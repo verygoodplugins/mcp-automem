@@ -149,6 +149,28 @@ describe('recall failure vs empty recall', () => {
     expect(empty.isError).toBeUndefined();
     expect(empty.content[0].text).toBe('No memories found matching your query.');
   });
+
+  // The policy also names a rejected key and a server error as reportable causes.
+  it.each([
+    { status: 401, body: { message: 'Unauthorized' }, expected: /AUTOMEM_API_KEY/ },
+    { status: 500, body: { message: 'Internal Server Error' }, expected: /Internal Server Error/ },
+  ])(
+    'returns an HTTP $status JSON response as an isError result, distinct from an empty recall',
+    async ({ status, body, expected }) => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: false, status, json: async () => body })
+      );
+
+      const result = await callRecall();
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toMatch(/^Error: /);
+      expect(result.content[0].text).toMatch(expected);
+      expect(result.content[0].text).not.toBe('No memories found matching your query.');
+    }
+  );
 });
 
 describe('tools/list size budget', () => {

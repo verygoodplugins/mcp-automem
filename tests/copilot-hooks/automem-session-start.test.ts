@@ -151,7 +151,8 @@ function sessionStartSuite(shell: Shell) {
     'stays silent on empty recall but reports service errors with a health-check hint',
     () => {
       const { additionalContext: ctx } = runSessionStart(shell);
-      expect(ctx).toContain('Empty recall: continue silently.');
+      expect(ctx).toContain('Empty recall: continue silently');
+      expect(ctx).toContain('once per session');
       expect(ctx).toContain('check_database_health');
     },
     timeoutMs

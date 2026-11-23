@@ -4,7 +4,7 @@ export const AUTOMEM_BARE_TAG_GUIDANCE =
   'Use bare tags only. No namespace prefixes (`project/*`, `lang/*`), no platform tags, and no date-stamped tags. Keep source attribution in metadata and dates in timestamp / t_valid / t_invalid.';
 
 export const AUTOMEM_RECALL_FAILURE_GUIDANCE =
-  'Empty recall: continue silently. If AutoMem is unreachable, times out, rejects the API key, or returns a server error, tell the user once per session in one line that names the cause, and suggest check_database_health; then continue without memory.';
+  'Empty recall: continue silently, unless the user asked what you remember. If the AutoMem tools are missing, or AutoMem is unreachable, times out, rejects the API key, or returns a server error, tell the user once per session in one line that names the cause, then continue without memory. For an unreachable service or a server error, suggest check_database_health; for a rejected key, suggest checking AUTOMEM_API_KEY.';
 
 export const AUTOMEM_IMPORTANCE_GUIDANCE =
   'Bug fixes: Insight, importance 0.75, confidence 0.85. Articulated patterns: Pattern, importance 0.8. User corrections: Preference, importance 0.9, confidence 0.95.';

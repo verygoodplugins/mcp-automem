@@ -128,7 +128,8 @@ describe('plugin session-start hook', () => {
 
   it('stays silent on empty recall but reports service errors with a health-check hint', () => {
     const context = contextFor({ workspace_roots: ['/Users/dev/My Proj'] });
-    expect(context).toContain('Empty recall: continue silently.');
+    expect(context).toContain('Empty recall: continue silently');
+    expect(context).toContain('once per session');
     expect(context).toContain('check_database_health');
   });
 

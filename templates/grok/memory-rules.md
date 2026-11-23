@@ -166,6 +166,6 @@ Valid relation types for `memory__associate_memories`: RELATES_TO, LEADS_TO, OCC
 
 Recalled context is a prior, not ground truth. If a memory disagrees with the current repo state, the user's latest instruction, or a freshly read file - **current evidence wins**. Update or invalidate stale memory instead of acting on it.
 
-Empty recall: continue silently. If AutoMem is unreachable, times out, rejects the API key, or returns a server error, tell the user once per session in one line that names the cause, and suggest check_database_health; then continue without memory. Weave recalled context naturally.
+Empty recall: continue silently, unless the user asked what you remember. If the AutoMem tools are missing, or AutoMem is unreachable, times out, rejects the API key, or returns a server error, tell the user once per session in one line that names the cause, then continue without memory. For an unreachable service or a server error, suggest check_database_health; for a rejected key, suggest checking AUTOMEM_API_KEY. Weave recalled context naturally.
 
 <!-- END AUTOMEM GROK RULES -->

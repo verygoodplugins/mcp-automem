@@ -172,7 +172,8 @@ describe('automem-session-start.sh', () => {
 
   it('stays silent on empty recall but reports service errors with a health-check hint', () => {
     const { stdout } = runSessionStart();
-    expect(stdout).toContain('Empty recall: continue silently.');
+    expect(stdout).toContain('Empty recall: continue silently');
+    expect(stdout).toContain('once per session');
     expect(stdout).toContain('check_database_health');
   });
 });

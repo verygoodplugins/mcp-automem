@@ -54,6 +54,21 @@ describe('shipped memory policy consistency', () => {
     expect(text).not.toMatch(/\|\s*\*?\*?Pattern\*?\*?\s*\|\s*0\.7\s*\|/);
   });
 
+  it('recall failure guidance covers asked-for recall, missing tools and a rejected key', () => {
+    // An explicit "what do you remember" must not be met with silence.
+    expect(AUTOMEM_RECALL_FAILURE_GUIDANCE).toContain(
+      'Empty recall: continue silently, unless the user asked what you remember.'
+    );
+    // A host where the tools never appeared gets guidance too.
+    expect(AUTOMEM_RECALL_FAILURE_GUIDANCE).toContain('If the AutoMem tools are missing');
+    // /health skips auth, so check_database_health can't diagnose a bad key.
+    expect(AUTOMEM_RECALL_FAILURE_GUIDANCE).toContain(
+      'for a rejected key, suggest checking AUTOMEM_API_KEY'
+    );
+    // Must survive the bash heredoc, the PowerShell here-string and JSON embedding.
+    expect(AUTOMEM_RECALL_FAILURE_GUIDANCE).not.toMatch(/[`$"'\\]/);
+  });
+
   it.each([
     'AGENTS.md',
     'templates/claude-code/hooks/automem-session-start.sh',
