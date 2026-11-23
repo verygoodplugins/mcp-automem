@@ -678,44 +678,60 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   log('updated settings.json (merged MCP permissions)', options.quiet);
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
 // Plugin mode: pre-approve the plugin's memory tools with allow rules in
-// <targetDir>/settings.json. Merges ONLY the allow block — never the
-// settings-mode hooks (mergeSettingsFile / applyClaudeCodeSetup): the plugin
-// bundles its own, and installing both would fire SessionStart twice.
+// <targetDir>/settings.json. Add-only: it appends the missing plugin rules to
+// permissions.allow and changes nothing else. It deliberately skips
+// mergeSettings, which strips RETIRED_PERMISSIONS — plugin mode never granted
+// those, so they may be the user's own. It also never writes the settings-mode
+// hooks (mergeSettingsFile / applyClaudeCodeSetup): the plugin bundles its
+// own, and installing both would fire SessionStart twice.
 export function applyClaudeCodePluginPermissions(
   options: { targetDir?: string; dryRun?: boolean; quiet?: boolean } = {}
 ): { settingsPath: string; changed: boolean } {
   const targetDir = options.targetDir ?? path.join(os.homedir(), '.claude');
   const settingsPath = path.join(targetDir, 'settings.json');
 
-  let current: unknown = {};
+  let current: Record<string, unknown> = {};
   const exists = fs.existsSync(settingsPath);
   if (exists) {
     const raw = fs.readFileSync(settingsPath, 'utf8');
+    let parsed: unknown;
     try {
-      current = JSON.parse(raw);
+      parsed = JSON.parse(raw);
     } catch (error) {
       // Path only: a JSON parse error can quote the file, and settings.json
       // env blocks often hold tokens.
       throw new Error(`Cannot parse existing settings.json at ${settingsPath}`, { cause: error });
     }
-    if (current === null || typeof current !== 'object' || Array.isArray(current)) {
+    if (!isPlainObject(parsed)) {
       throw new Error(`Existing settings.json at ${settingsPath} is not a JSON object`);
     }
+    current = parsed;
   }
 
-  // Compare semantically, not by bytes: `claude plugin install` rewrites this
+  // Refuse shapes we can't extend without clobbering something.
+  const permissions = current.permissions ?? {};
+  if (!isPlainObject(permissions)) {
+    throw new Error(`"permissions" in ${settingsPath} is not a JSON object`);
+  }
+  const existingAllow = permissions.allow ?? [];
+  if (!Array.isArray(existingAllow)) {
+    throw new Error(`"permissions.allow" in ${settingsPath} is not a JSON array`);
+  }
+
+  // Existing entries keep their order; missing plugin rules go on the end.
+  // Comparing counts (not bytes) matters: `claude plugin install` rewrites this
   // file in its own formatting right after the installer runs, and a re-run
   // must not churn it (or leave another backup) when the rules are present.
-  // mergeSettings mutates nested arrays, so it gets a clone.
-  const before = JSON.stringify(current);
-  const merged = mergeSettings(structuredClone(current), {
-    permissions: { allow: [...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS] },
-  });
-  if (exists && JSON.stringify(merged) === before) {
+  const allow = mergeUniqueStrings([...existingAllow], [...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS]);
+  if (exists && allow.length === existingAllow.length) {
     log('settings.json already pre-approves the AutoMem plugin tools', options.quiet);
     return { settingsPath, changed: false };
   }
+  const merged = { ...current, permissions: { ...permissions, allow } };
 
   writeFileWithBackup(settingsPath, `${JSON.stringify(merged, null, 2)}\n`, options);
   if (options.dryRun) {

@@ -219,6 +219,34 @@ describe('Claude Code plugin tool pre-approval', () => {
     expect(backups()).toHaveLength(1);
   });
 
+  it('plugin permissions only add: retired grants and every other key survive', () => {
+    // Plugin mode never granted the hook-era Bash rules, so they may be the
+    // user's own: the plugin path must add its five rules and remove nothing.
+    const seeded = {
+      permissions: {
+        allow: ['Bash(jq:*)', 'Bash(python3:*)', 'Bash(git:*)'],
+        deny: ['Read(./.env)'],
+      },
+      someUnknownKey: { nested: [1, 'two'], flag: true },
+    };
+    fs.writeFileSync(settingsPath(), JSON.stringify(seeded, null, 2));
+
+    const result = applyClaudeCodePluginPermissions({ targetDir, quiet: true });
+
+    const settings = readSettings() as SettingsShape & { someUnknownKey?: unknown };
+    expect(result.changed).toBe(true);
+    expect(settings.permissions?.allow).toEqual([
+      'Bash(jq:*)',
+      'Bash(python3:*)',
+      'Bash(git:*)',
+      ...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS,
+    ]);
+    expect(settings.permissions?.deny).toEqual(seeded.permissions.deny);
+    expect(settings.someUnknownKey).toEqual(seeded.someUnknownKey);
+    expect(Object.keys(settings).sort()).toEqual(['permissions', 'someUnknownKey']);
+    expect(Object.keys(settings.permissions ?? {}).sort()).toEqual(['allow', 'deny']);
+  });
+
   it('plugin permissions on a fresh home write only the allow block', () => {
     const result = applyClaudeCodePluginPermissions({ targetDir, quiet: true });
 

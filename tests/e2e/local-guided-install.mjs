@@ -119,6 +119,8 @@ async function scenario(kind) {
   fs.writeFileSync(path.join(dir, 'docker-compose.yml'), 'services: {}\n');
   const race = kind === 'race-port' || kind === 'race-reuse' || kind === 'race-api';
   const existing = kind !== 'conflict' && !race;
+  // start-bad-settings is the start flow over an unparseable ~/.claude/settings.json.
+  const startFlow = kind === 'start' || kind === 'start-bad-settings';
   let apiMock;
   const blockers = [];
   const bin = fakeExecutables(home, existing);
@@ -129,7 +131,7 @@ async function scenario(kind) {
   const reuseReady = path.join(root, 'reuse-ready');
   const inspect = path.join(root, 'inspect.json');
   const portFile = path.join(root, 'ports');
-  if (kind !== 'start' && kind !== 'decline') fs.writeFileSync(ready, '');
+  if (!startFlow && kind !== 'decline') fs.writeFileSync(ready, '');
   let apiPort;
   let chosenApi;
   let chosenQdrant;
@@ -203,7 +205,12 @@ async function scenario(kind) {
     env.QDRANT_GRPC_HOST_PORT = String(await uniquePort());
   }
   const args = [dist, 'install', '--target', 'local', '--local-dir', path.join(home, 'new-server')];
-  if (kind === 'start') args.push('--clients', 'claude-code', '--claude-code-mode', 'plugin');
+  const seededSettingsPath = path.join(home, '.claude', 'settings.json');
+  if (kind === 'start-bad-settings') {
+    fs.mkdirSync(path.dirname(seededSettingsPath), { recursive: true });
+    fs.writeFileSync(seededSettingsPath, '{ not json');
+  }
+  if (startFlow) args.push('--clients', 'claude-code', '--claude-code-mode', 'plugin');
   else if (kind === 'race-reuse' || kind === 'race-api')
     args.push('--clients', 'codex', '--no-welcome');
   else args.push('--no-agent-install');
@@ -241,7 +248,7 @@ async function scenario(kind) {
     term.write(value);
   }
   try {
-    if (kind === 'start') await answer(/Would you like me to start Docker/, '\r');
+    if (startFlow) await answer(/Would you like me to start Docker/, '\r');
     if (kind === 'decline') {
       await answer(/Would you like me to start Docker/, 'n\r');
       await exited;
@@ -328,7 +335,7 @@ async function scenario(kind) {
     clearTimeout(timer);
     // Claude's plugin CLI cannot accept a secret safely in argv, so an
     // authenticated plugin install reports its existing manual key step (exit 1).
-    assert.equal(exitCode, kind === 'start' ? 1 : 0, `unexpected installer exit (${exitCode})`);
+    assert.equal(exitCode, startFlow ? 1 : 0, `unexpected installer exit (${exitCode})`);
     const out = strip(output);
     const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
     const projectEnv = fs.readFileSync(path.join(cwd, '.env'), 'utf8');
@@ -353,6 +360,19 @@ async function scenario(kind) {
       assert.ok(allow.includes('mcp__plugin_automem_memory__recall_memory'));
       assert.ok(allow.includes('mcp__plugin_automem_memory__store_memory'));
       assert.equal(claudeSettings.hooks?.SessionStart, undefined);
+    } else if (kind === 'start-bad-settings') {
+      // An unparseable settings.json is reported, never overwritten, and the
+      // plugin install still runs.
+      assert.match(calls, /claude plugin install/);
+      assert.ok(
+        out.includes('Add the mcp__plugin_automem_memory__* rules by hand; see INSTALLATION.md.'),
+        'pre-approval hint shown'
+      );
+      assert.equal(fs.readFileSync(seededSettingsPath, 'utf8'), '{ not json');
+      assert.deepEqual(
+        fs.readdirSync(path.dirname(seededSettingsPath)).filter((name) => name.includes('.bak')),
+        []
+      );
     } else if (kind === 'update') {
       assert.match(calls, /git pull --ff-only/);
       assert.match(calls, /docker compose -p automem-original .*up -d --no-deps --build flask-api/);
@@ -525,6 +545,7 @@ async function headlessRace() {
 preview();
 for (const kind of [
   'start',
+  'start-bad-settings',
   'decline',
   'update',
   'skip-update',
