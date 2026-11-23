@@ -555,13 +555,27 @@ When you enable the plugin, Claude Code prompts for:
 
 The plugin bundles the MCP server, silent integration hooks (SessionStart recall plus store tracking), and the memory-management skill plus `/memory-recall`, `/memory-store`, and `/memory-health` commands. It does not register a Stop hook by default, so normal sessions end without AutoMem feedback in the chat stream.
 
-> Tool naming: Claude Code namespaces plugin MCP tools, so they appear as `mcp__plugin_automem_memory__store_memory` (etc.) rather than `mcp__memory__*`. The guided installer adds five allow rules to `permissions.allow` in `~/.claude/settings.json`: `store_memory`, `recall_memory`, `associate_memories`, `update_memory`, and `check_database_health`, each with the `mcp__plugin_automem_memory__` prefix. `delete_memory` is left out on purpose, so it still prompts. If you install the plugin with `/plugin` instead, approve each tool on first use or add those names yourself.
+> Tool naming: Claude Code namespaces plugin MCP tools, so they appear as `mcp__plugin_automem_memory__store_memory` (etc.) rather than `mcp__memory__*`.
+
+**Plugin tool allow rules.** When Claude Code is on the machine (`claude` on your PATH, or an existing `~/.claude`), the guided installer adds these five allow rules to `permissions.allow` in `~/.claude/settings.json`:
+
+```text
+"mcp__plugin_automem_memory__store_memory",
+"mcp__plugin_automem_memory__recall_memory",
+"mcp__plugin_automem_memory__associate_memories",
+"mcp__plugin_automem_memory__update_memory",
+"mcp__plugin_automem_memory__check_database_health"
+```
+
+`delete_memory` is left out on purpose, so it still prompts. Don't use a `mcp__plugin_automem_memory__*` wildcard: it would pre-approve `delete_memory` too. If you install the plugin with `/plugin` instead, approve each tool on first use or add these five rules yourself.
 
 **Migrating from the CLI installer:** remove the settings-level install first, so hooks don't fire twice and the memory tools don't appear under two servers:
 
 ```bash
 npx @verygoodplugins/mcp-automem@latest uninstall claude-code --clean-all
 ```
+
+`uninstall claude-code` also removes the plugin's five allow rules above, so run it before the guided installer, or re-run the installer afterwards.
 
 ### Option B: CLI installer (settings-level)
 

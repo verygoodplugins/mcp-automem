@@ -17,6 +17,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import util from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyClaudeCodePluginPermissions,
@@ -311,9 +312,10 @@ describe('Claude Code plugin tool pre-approval', () => {
   });
 
   it('plugin permissions keep file contents out of the parse error', () => {
-    // settings.json env blocks often hold tokens; a V8 parse error can quote
-    // the surrounding text, so the thrown message must name only the path.
-    fs.writeFileSync(settingsPath(), '{ "env": { "TOKEN": "sk-secret-value" }, oops }');
+    // settings.json env blocks often hold tokens; a V8 parse error quotes the
+    // surrounding text (here the unquoted token itself), so neither the thrown
+    // message nor anything attached to the error may carry it.
+    fs.writeFileSync(settingsPath(), '{"env": {"TOKEN": sk-secret-value}}');
 
     let thrown: unknown;
     try {
@@ -324,8 +326,44 @@ describe('Claude Code plugin tool pre-approval', () => {
 
     expect(thrown).toBeInstanceOf(Error);
     expect((thrown as Error).message).toContain(settingsPath());
-    expect((thrown as Error).message).not.toContain('sk-secret-value');
+    expect((thrown as Error).message).not.toContain('sk-secret');
+    expect(util.inspect(thrown, { depth: 5 })).not.toContain('sk-secret');
   });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'plugin permissions refuse a read-only settings.json without leaving a backup',
+    () => {
+      const seeded = JSON.stringify({ permissions: { allow: ['Bash(git:*)'] } }, null, 2);
+      fs.writeFileSync(settingsPath(), seeded);
+      fs.chmodSync(settingsPath(), 0o444);
+      try {
+        expect(() => applyClaudeCodePluginPermissions({ targetDir, quiet: true })).toThrow(
+          settingsPath()
+        );
+        expect(fs.readFileSync(settingsPath(), 'utf8')).toBe(seeded);
+        expect(backups()).toEqual([]);
+      } finally {
+        fs.chmodSync(settingsPath(), 0o644);
+      }
+    }
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'plugin permissions refuse a dangling settings.json symlink',
+    () => {
+      // The target's directory exists, so a write through the link would
+      // silently create the target.
+      const missingTarget = path.join(targetDir, 'store', 'settings.json');
+      fs.mkdirSync(path.dirname(missingTarget));
+      fs.symlinkSync(missingTarget, settingsPath());
+
+      expect(() => applyClaudeCodePluginPermissions({ targetDir, quiet: true })).toThrow(
+        settingsPath()
+      );
+      expect(fs.existsSync(missingTarget)).toBe(false);
+      expect(fs.lstatSync(settingsPath()).isSymbolicLink()).toBe(true);
+    }
+  );
 
   it('permission constants match the shipped plugin and template', () => {
     const template = JSON.parse(
@@ -350,9 +388,12 @@ describe('Claude Code plugin tool pre-approval', () => {
     expect(CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS).not.toContain(
       'mcp__plugin_automem_memory__delete_memory'
     );
+    // The pre-approval failure hint points users at this list in INSTALLATION.md.
+    const installationMd = fs.readFileSync(path.join(REPO_ROOT, 'INSTALLATION.md'), 'utf8');
     for (const rule of CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS) {
       expect(rule.startsWith(CLAUDE_CODE_PLUGIN_TOOL_PREFIX)).toBe(true);
       expect(skillMd).toContain(rule);
+      expect(installationMd).toContain(`"${rule}"`);
     }
   });
 });

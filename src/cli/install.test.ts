@@ -9,6 +9,7 @@ import {
   InstallError,
   LocalDockerPortConflict,
   buildInstallPlan,
+  clientsWithBlockingFailures,
   defaultInstallTarget,
   ensureDockerInstalled,
   ensureDockerRunning,
@@ -2228,6 +2229,102 @@ describe('claude plugin auto-install', () => {
       expect(action?.paths).toContain(path.join(homeDir, '.claude', 'settings.json'));
       expect(action?.detail).toMatch(/and pre-approve its memory tools\.?$/);
     }
+  });
+
+  it('plan review explains the plugin step even though it now lists a path', () => {
+    const homeDir = '/Users/tester';
+    const plan = buildInstallPlan({
+      options: {
+        ...parseInstallArgs([], {}),
+        target: 'existing',
+        endpoint: 'http://x',
+        clients: ['claude-code'],
+        claudeCodeMode: 'plugin',
+      },
+      environment: detectInstallEnvironment({
+        homeDir,
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+
+    const rendered = renderInstallPlan(plan);
+    expect(rendered).toContain('claude plugin install');
+    expect(rendered).toContain('pre-approve its memory tools');
+    expect(rendered).toContain(path.join(homeDir, '.claude', 'settings.json'));
+  });
+
+  it('path-writing agent installs still render without their detail', () => {
+    const plan = buildInstallPlan({
+      options: {
+        ...parseInstallArgs([], {}),
+        target: 'existing',
+        endpoint: 'http://x',
+        clients: ['codex'],
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+    const codex = plan.actions.find((a) => a.client === 'codex');
+
+    expect(codex?.paths.length).toBeGreaterThan(0);
+    expect(renderInstallPlan(plan)).not.toContain(codex!.detail);
+  });
+
+  it('plugin fallback plans no ~/.claude write on a machine without Claude Code', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-plan-noclaude-'));
+    try {
+      const planFor = () =>
+        buildInstallPlan({
+          options: {
+            ...parseInstallArgs([], {}),
+            target: 'existing',
+            endpoint: 'http://x',
+            clients: ['claude-code'],
+            claudeCodeMode: 'plugin',
+          },
+          environment: detectInstallEnvironment({
+            homeDir: tmpHome,
+            cwd: '/repo/project',
+            commandExists: (c) => c !== 'claude',
+          }),
+        }).actions.find((a) => a.client === 'claude-code');
+
+      const without = planFor();
+      expect(without?.kind).toBe('manual-step');
+      expect(without?.paths).toEqual([]);
+      expect(without?.detail).not.toContain('pre-approve');
+
+      fs.mkdirSync(path.join(tmpHome, '.claude'));
+      const withDir = planFor();
+      expect(withDir?.kind).toBe('manual-step');
+      expect(withDir?.paths).toEqual([path.join(tmpHome, '.claude', 'settings.json')]);
+      expect(withDir?.detail).toMatch(/and pre-approve its memory tools\.?$/);
+    } finally {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('clientsWithBlockingFailures', () => {
+  it('ignores a lone non-blocking pre-approval failure', () => {
+    expect(clientsWithBlockingFailures([{ client: 'claude-code', nonBlocking: true }])).toEqual(
+      new Set()
+    );
+  });
+
+  it('counts the client once a blocking failure is added for it', () => {
+    expect(
+      clientsWithBlockingFailures([
+        { client: 'claude-code', nonBlocking: true },
+        { client: 'claude-code' },
+      ])
+    ).toEqual(new Set(['claude-code']));
   });
 });
 

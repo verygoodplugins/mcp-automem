@@ -94,7 +94,7 @@ export const CLAUDE_CODE_PLUGIN_API_KEY_HINT =
 // The closing summary prints only each failure's hint, so this one must carry
 // the cause as well as the fix.
 export const CLAUDE_CODE_PLUGIN_PERMISSIONS_HINT =
-  'Claude Code: could not update ~/.claude/settings.json, so AutoMem tools will ask for permission. Fix that file and re-run the installer, or add the mcp__plugin_automem_memory__* rules by hand (see INSTALLATION.md).';
+  'Claude Code: could not update ~/.claude/settings.json, so AutoMem tools will ask for permission. Fix that file and re-run the installer, or add the five allow rules listed in INSTALLATION.md by hand.';
 
 // Identity for the `claude plugin …` CLI path (the supported, non-interactive way to
 // add the marketplace + install the plugin, distinct from the in-TUI slash commands).
@@ -271,6 +271,9 @@ export type InstallAction = {
   // Copy-paste commands for a manual step (e.g. the Claude Code plugin install).
   commands?: string[];
   secret?: boolean;
+  // Render `detail` in the plan review even though the action lists paths
+  // (the plugin install's paths don't explain what `claude plugin install` does).
+  showDetail?: true;
 };
 
 export type InstallPlan = {
@@ -974,6 +977,26 @@ export function detectInstallEnvironment(options: DetectOptions = {}): InstallEn
   };
 }
 
+// Plugin-mode tool pre-approval writes ~/.claude/settings.json. Do it only on a
+// machine that has Claude Code (`claude` on PATH, or an existing ~/.claude):
+// otherwise the printed /plugin commands are the whole step and nothing is
+// written under ~/.claude.
+function shouldPreApproveClaudeCodePlugin(environment: InstallEnvironment): boolean {
+  return (
+    environment.prerequisites.claude ||
+    environment.detectedClients.some((detected) => detected.client === 'claude-code')
+  );
+}
+
+// Clients whose install actually failed. A non-blocking failure (the plugin is
+// installed and working; only tool prompts remain) still prints its hint and
+// sets the exit code, but must not drop the client from the installed list.
+export function clientsWithBlockingFailures(
+  failures: ReadonlyArray<{ client: AgentClient; nonBlocking?: boolean }>
+): Set<AgentClient> {
+  return new Set(failures.filter((failure) => !failure.nonBlocking).map((f) => f.client));
+}
+
 function defaultLocalDir(homeDir: string): string {
   return path.join(homeDir, '.automem', 'server');
 }
@@ -1161,16 +1184,21 @@ export function buildInstallPlan(params: {
               'Add the marketplace, install + configure the plugin via `claude plugin install` (the MCP server, hooks, and skill come bundled and auto-update), and pre-approve its memory tools.',
             client,
             paths: pluginPaths,
+            showDetail: true,
           });
         } else {
           // No `claude` binary — fall back to the guided copy-paste slash commands.
+          // Pre-approval only runs where Claude Code already has a ~/.claude:
+          // a machine without Claude Code gets no Claude Code files.
+          const preApprove = shouldPreApproveClaudeCodePlugin(environment);
           actions.push({
             kind: 'manual-step',
             title: 'Install the Claude Code plugin (recommended)',
-            detail:
-              'Run these inside Claude Code — the plugin bundles the MCP server and hooks, and auto-updates. The installer will update settings.json and pre-approve its memory tools.',
+            detail: preApprove
+              ? 'Run these inside Claude Code — the plugin bundles the MCP server and hooks, and auto-updates. The installer will update settings.json and pre-approve its memory tools.'
+              : 'Run these inside Claude Code — the plugin bundles the MCP server, hooks, and auto-updates.',
             client,
-            paths: pluginPaths,
+            paths: preApprove ? pluginPaths : [],
             commands: [...CLAUDE_CODE_PLUGIN_COMMANDS],
           });
         }
@@ -2291,10 +2319,13 @@ function renderActionDetail(
     case 'manual-step':
       return [detail(action.detail)];
     case 'install-agent':
-      // Path-writing agent installs are self-explanatory (title + path lines),
-      // but a manual/plugin-style action with no paths carries its authored
-      // explanation in `detail` — the plugin path's ONLY description. Show it.
-      return action.paths.length === 0 && action.detail ? [detail(action.detail)] : [];
+      // Path-writing agent installs are self-explanatory (title + path lines).
+      // An action with no paths, or one flagged showDetail (the Claude Code
+      // plugin install: its settings.json path alone doesn't say what
+      // `claude plugin install` does), carries its explanation in `detail`.
+      return (action.paths.length === 0 || action.showDetail) && action.detail
+        ? [detail(action.detail)]
+        : [];
   }
 }
 
@@ -2669,8 +2700,9 @@ async function applyAgentInstall(
       });
       break;
     case 'claude-code':
-      // Plugin mode is a guided manual step (the plan + outro print the /plugin
-      // commands); only the settings path writes files from the CLI.
+      // Plugin mode — the `claude plugin install` (or the printed /plugin
+      // commands) and the settings.json tool pre-approval — is handled in the
+      // guided apply loop before this function is reached.
       if (params.claudeCodeMode === 'plugin') break;
       await applyClaudeCodeSetup({ dryRun: params.dryRun, quiet: true, yes: true });
       break;
@@ -3109,6 +3141,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       message: string;
       hint?: string;
       showPluginCommands?: boolean;
+      nonBlocking?: boolean;
     }[] = [];
     try {
       list.start('verify');
@@ -3182,21 +3215,26 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
           // Pre-approve the plugin's memory tools first, whether or not `claude`
           // is on PATH: without allow rules the first session prompts on every
           // memory call. A failure here never blocks the plugin install itself.
+          // Skipped on a machine without Claude Code (see
+          // shouldPreApproveClaudeCodePlugin) so it gets no ~/.claude files.
           let preApprovalFailed = false;
-          try {
-            applyClaudeCodePluginPermissions({
-              targetDir: path.join(environment.homeDir, '.claude'),
-              dryRun: false,
-              quiet: true,
-            });
-          } catch {
-            preApprovalFailed = true;
-            agentFailures.push({
-              client,
-              message: 'Could not pre-approve AutoMem tools in ~/.claude/settings.json.',
-              hint: CLAUDE_CODE_PLUGIN_PERMISSIONS_HINT,
-              showPluginCommands: false,
-            });
+          if (shouldPreApproveClaudeCodePlugin(environment)) {
+            try {
+              applyClaudeCodePluginPermissions({
+                targetDir: path.join(environment.homeDir, '.claude'),
+                dryRun: false,
+                quiet: true,
+              });
+            } catch {
+              preApprovalFailed = true;
+              agentFailures.push({
+                client,
+                message: 'Could not pre-approve AutoMem tools in ~/.claude/settings.json.',
+                hint: CLAUDE_CODE_PLUGIN_PERMISSIONS_HINT,
+                showPluginCommands: false,
+                nonBlocking: true,
+              });
+            }
           }
           // Plugin mode: auto-install via `claude plugin …` when the binary is on
           // PATH; otherwise leave it for the /plugin commands printed in the outro.
@@ -3302,11 +3340,12 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       resolved.clients.includes('claude-code') &&
       resolved.claudeCodeMode === 'plugin' &&
       (!environment.prerequisites.claude || pluginAutoInstallFailed);
+    const blockingFailureClients = clientsWithBlockingFailures(agentFailures);
     const installedClients = resolved.noAgentInstall
       ? []
       : resolved.clients.filter(
           (client) =>
-            !agentFailures.some((failure) => failure.client === client) &&
+            !blockingFailureClients.has(client) &&
             !(client === 'claude-code' && claudePluginIsManual)
         );
     const clientsToRestart = installedClients.filter(
@@ -3348,10 +3387,12 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       nextSteps.push(`Grok Bot (optional): ${GROK_BOT_PLUGIN_STEP}`);
     }
     if (agentFailures.length > 0) {
+      // Count tools, not entries: one tool can carry two follow-ups.
+      const failedToolCount = new Set(agentFailures.map((failure) => failure.client)).size;
       const subject =
-        agentFailures.length === 1
+        failedToolCount === 1
           ? '1 AI tool needs a manual step:'
-          : `${agentFailures.length} AI tools need a manual step:`;
+          : `${failedToolCount} AI tools need a manual step:`;
       nextSteps.push(subject);
       for (const failure of agentFailures) {
         nextSteps.push(

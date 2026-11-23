@@ -64,6 +64,49 @@ const STEP_TIMEOUT_MS = 300_000;
 
 // ---- low-level helpers -------------------------------------------------------
 
+// The five allow rules plugin-mode tool pre-approval writes (delete_memory is
+// deliberately absent). Mirrors CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS.
+const PLUGIN_ALLOW_RULES = [
+  'store_memory',
+  'recall_memory',
+  'associate_memories',
+  'update_memory',
+  'check_database_health',
+].map((tool) => `mcp__plugin_automem_memory__${tool}`);
+
+function claudePluginFallbackSteps(ctx) {
+  return [
+    {
+      kind: 'direct',
+      argv: [
+        'install',
+        '--yes',
+        '--target',
+        'existing',
+        '--endpoint',
+        ctx.mock.url,
+        '--api-key',
+        TOKEN,
+        '--clients',
+        'claude-code',
+      ],
+    },
+  ];
+}
+
+async function claudePluginFallbackCommonAsserts(ctx) {
+  const last = ctx.steps.at(-1);
+  const env = await readEnvFile(ctx.cwd);
+  return [
+    A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`),
+    A('.env still written with endpoint', env && env.AUTOMEM_API_URL === ctx.mock.url),
+    A(
+      'stdout surfaces the /plugin install command',
+      /\/plugin install automem@verygoodplugins-mcp-automem/.test(last.stdout)
+    ),
+  ];
+}
+
 function baseEnv(home) {
   // Curated env: do NOT inherit ambient CI/CODEX/CLAUDE_CODE — those flip the
   // installer's headless detection and would make scenarios non-deterministic.
@@ -416,36 +459,37 @@ const SCENARIOS = [
   {
     name: 'claude-plugin-fallback',
     description:
-      'Plugin mode with no `claude` on PATH falls back to the guided /plugin commands; the only ~/.claude write is the tool pre-approval in settings.json.',
+      'Plugin mode with no `claude` on PATH and no ~/.claude falls back to the guided /plugin commands and writes nothing under ~/.claude.',
     mock: { mode: 'healthy', expectToken: TOKEN },
     // Default stub bin shadows any real claude with an exit-127 stub -> claude absent.
-    steps: (ctx) => [
-      {
-        kind: 'direct',
-        argv: [
-          'install',
-          '--yes',
-          '--target',
-          'existing',
-          '--endpoint',
-          ctx.mock.url,
-          '--api-key',
-          TOKEN,
-          '--clients',
-          'claude-code',
-        ],
-      },
-    ],
+    steps: claudePluginFallbackSteps,
     assert: async (ctx) => {
-      const r = [];
-      const last = ctx.steps.at(-1);
-      r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
-      const env = await readEnvFile(ctx.cwd);
-      r.push(A('.env still written with endpoint', env && env.AUTOMEM_API_URL === ctx.mock.url));
+      const r = await claudePluginFallbackCommonAsserts(ctx);
+      r.push(
+        A(
+          'no ~/.claude writes on a machine without Claude Code',
+          !ctx.homeNew.some((f) => f.startsWith('.claude/')),
+          ctx.homeNew.join(', ') || '(none)'
+        )
+      );
+      return r;
+    },
+    findings: () => [],
+  },
+
+  {
+    name: 'claude-plugin-fallback-existing-claude-dir',
+    description:
+      'Plugin mode with no `claude` on PATH but an existing ~/.claude: the only ~/.claude write is the tool pre-approval in settings.json.',
+    mock: { mode: 'healthy', expectToken: TOKEN },
+    homeDirs: ['.claude'],
+    steps: claudePluginFallbackSteps,
+    assert: async (ctx) => {
+      const r = await claudePluginFallbackCommonAsserts(ctx);
       const claudeWrites = ctx.homeNew.filter((f) => f.startsWith('.claude/'));
       r.push(
         A(
-          'only ~/.claude/settings.json written in plugin fallback (tool pre-approval)',
+          'only ~/.claude/settings.json written (tool pre-approval)',
           claudeWrites.length === 1 && claudeWrites[0] === '.claude/settings.json',
           claudeWrites.join(', ') || '(none)'
         )
@@ -453,19 +497,13 @@ const SCENARIOS = [
       const claudeSettings = JSON.parse(
         await readFile(path.join(ctx.home, '.claude/settings.json'), 'utf8').catch(() => '{}')
       );
+      const allow = claudeSettings.permissions?.allow ?? [];
       r.push(
         A(
-          'settings.json pre-approves the plugin memory tools and registers no hooks',
-          (claudeSettings.permissions?.allow ?? []).includes(
-            'mcp__plugin_automem_memory__recall_memory'
-          ) && claudeSettings.hooks === undefined,
+          'settings.json pre-approves exactly the five plugin memory tools and registers no hooks',
+          JSON.stringify(allow) === JSON.stringify(PLUGIN_ALLOW_RULES) &&
+            claudeSettings.hooks === undefined,
           JSON.stringify(claudeSettings)
-        )
-      );
-      r.push(
-        A(
-          'stdout surfaces the /plugin install command',
-          /\/plugin install automem@verygoodplugins-mcp-automem/.test(last.stdout)
         )
       );
       return r;
@@ -1064,6 +1102,9 @@ async function attemptScenario(scn) {
   const cwd = await mkdtemp(path.join(SANDBOX_ROOT, `${scn.name}.cwd.`));
   // Created before the home snapshot below so the stub bin isn't counted as new.
   const binDir = await setupStubBin(home, scn.claudeStub);
+  // Directories a scenario needs to exist already (e.g. ~/.claude), also
+  // created before the snapshot.
+  for (const dir of scn.homeDirs ?? []) await mkdir(path.join(home, dir), { recursive: true });
   let mock = null;
   if (scn.mock) {
     mock = await createMock(scn.mock);

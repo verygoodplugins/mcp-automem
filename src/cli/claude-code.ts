@@ -681,6 +681,14 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
+function isSymlink(filePath: string): boolean {
+  try {
+    return fs.lstatSync(filePath).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 // Plugin mode: pre-approve the plugin's memory tools with allow rules in
 // <targetDir>/settings.json. Add-only: it appends the missing plugin rules to
 // permissions.allow and changes nothing else. It deliberately skips
@@ -696,15 +704,21 @@ export function applyClaudeCodePluginPermissions(
 
   let current: Record<string, unknown> = {};
   const exists = fs.existsSync(settingsPath);
+  // A dangling symlink (e.g. into a not-yet-built Nix/home-manager store)
+  // reads as missing; writing through it would create its target behind the
+  // user's back.
+  if (!exists && isSymlink(settingsPath)) {
+    throw new Error(`settings.json at ${settingsPath} is a symlink to a missing file`);
+  }
   if (exists) {
     const raw = fs.readFileSync(settingsPath, 'utf8');
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
-    } catch (error) {
-      // Path only: a JSON parse error can quote the file, and settings.json
-      // env blocks often hold tokens.
-      throw new Error(`Cannot parse existing settings.json at ${settingsPath}`, { cause: error });
+    } catch {
+      // Path only, and no `cause`: V8's SyntaxError quotes the file's text,
+      // and settings.json env blocks often hold tokens.
+      throw new Error(`Cannot parse existing settings.json at ${settingsPath}`);
     }
     if (!isPlainObject(parsed)) {
       throw new Error(`Existing settings.json at ${settingsPath} is not a JSON object`);
@@ -733,6 +747,17 @@ export function applyClaudeCodePluginPermissions(
   }
   const merged = { ...current, permissions: { ...permissions, allow } };
 
+  // writeFileWithBackup copies the file before writing; on a read-only file
+  // (or a symlink into a read-only store) the write then fails and every
+  // re-run would strand another full copy. Check first. No temp-file-plus-
+  // rename here: that would replace a symlink with a regular file.
+  if (exists && !options.dryRun) {
+    try {
+      fs.accessSync(settingsPath, fs.constants.W_OK);
+    } catch {
+      throw new Error(`settings.json at ${settingsPath} is not writable`);
+    }
+  }
   writeFileWithBackup(settingsPath, `${JSON.stringify(merged, null, 2)}\n`, options);
   if (options.dryRun) {
     return { settingsPath, changed: false };

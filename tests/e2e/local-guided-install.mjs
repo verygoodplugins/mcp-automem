@@ -368,7 +368,14 @@ async function scenario(kind) {
         out.includes('could not update ~/.claude/settings.json'),
         'pre-approval cause shown'
       );
-      assert.ok(out.includes('mcp__plugin_automem_memory__*'), 'pre-approval fix shown');
+      assert.ok(
+        out.includes('five allow rules listed in INSTALLATION.md'),
+        'pre-approval fix shown'
+      );
+      // One tool with two follow-ups: singular subject, and the API-key row wins.
+      assert.ok(!out.includes('2 AI tools need a manual step'), 'tools counted, not failures');
+      assert.match(out, /plugin needs API key configuration/);
+      assert.ok(!out.includes('tool pre-approval needs a manual step'), 'API-key row text wins');
       assert.equal(fs.readFileSync(seededSettingsPath, 'utf8'), '{ not json');
       assert.deepEqual(
         fs.readdirSync(path.dirname(seededSettingsPath)).filter((name) => name.includes('.bak')),
