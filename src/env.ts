@@ -139,13 +139,27 @@ export function isPluginApiKeyWithheld(
   env: NodeJS.ProcessEnv = process.env,
   url: { url: string; source: AutoMemApiUrlSource } = resolveAutoMemApiUrl(env)
 ): boolean {
-  if (readEnvironmentApiKey(env) || !readPluginApiKey(env)) return false;
-  const pluginUrl = readPluginOption(
-    env,
-    'CLAUDE_PLUGIN_OPTION_API_URL',
-    'CLAUDE_PLUGIN_OPTION_api_url'
+  return (
+    !readEnvironmentApiKey(env) &&
+    Boolean(readPluginApiKey(env)) &&
+    resolveAutoMemApiKey(env, url) === undefined
   );
-  return Boolean(pluginUrl) && !sameAutoMemEndpoint(pluginUrl, url.url);
+}
+
+/**
+ * Whether a legacy AUTOMEM_ENDPOINT is being outranked by the plugin's saved
+ * API URL (the precedence in resolveAutoMemApiUrl). The plugin URL only reaches
+ * the server through the plugin's .mcp.json mapping, so a user with an old
+ * saved plugin URL and AUTOMEM_ENDPOINT may be moved without noticing; the
+ * server warns once at startup when this is true.
+ */
+export function isLegacyEndpointShadowedByPlugin(
+  env: NodeJS.ProcessEnv = process.env,
+  url: { url: string; source: AutoMemApiUrlSource } = resolveAutoMemApiUrl(env)
+): boolean {
+  if (url.source !== 'CLAUDE_PLUGIN_OPTION_API_URL') return false;
+  const legacy = String(env.AUTOMEM_ENDPOINT ?? '').trim();
+  return Boolean(legacy) && !sameAutoMemEndpoint(legacy, url.url);
 }
 
 // The remote MCP sidecar (automem/mcp-sse-server) is a separate service from

@@ -24,6 +24,7 @@ import {
   DEFAULT_AUTOMEM_API_URL,
   hasMcpSidecarPath,
   isMcpSidecarHealth,
+  isLegacyEndpointShadowedByPlugin,
   isPluginApiKeyWithheld,
   readAutoMemApiKeyFromEnv,
   readAutoMemConnectionFile,
@@ -282,6 +283,49 @@ describe('resolveAutoMemApiKey', () => {
         source: 'CLAUDE_PLUGIN_OPTION_API_URL',
       })
     ).toBe('plugin-key');
+  });
+});
+
+describe('isLegacyEndpointShadowedByPlugin', () => {
+  it('is true when a different AUTOMEM_ENDPOINT is outranked by the saved plugin URL', () => {
+    expect(
+      isLegacyEndpointShadowedByPlugin({
+        ...P('http://127.0.0.1:8001'),
+        AUTOMEM_ENDPOINT: 'https://legacy.example',
+      })
+    ).toBe(true);
+  });
+
+  it('is false for the same endpoint, also with a trailing slash', () => {
+    expect(
+      isLegacyEndpointShadowedByPlugin({
+        ...P('http://127.0.0.1:8001'),
+        AUTOMEM_ENDPOINT: 'http://127.0.0.1:8001',
+      })
+    ).toBe(false);
+    expect(
+      isLegacyEndpointShadowedByPlugin({
+        ...P('http://127.0.0.1:8001'),
+        AUTOMEM_ENDPOINT: 'http://127.0.0.1:8001/',
+      })
+    ).toBe(false);
+  });
+
+  it('is false without AUTOMEM_ENDPOINT, with AUTOMEM_API_URL set, or without a plugin URL', () => {
+    expect(isLegacyEndpointShadowedByPlugin(P('http://127.0.0.1:8001'))).toBe(false);
+    expect(
+      isLegacyEndpointShadowedByPlugin({ ...P('http://127.0.0.1:8001'), AUTOMEM_ENDPOINT: '  ' })
+    ).toBe(false);
+    expect(
+      isLegacyEndpointShadowedByPlugin({
+        ...P('http://127.0.0.1:8001'),
+        AUTOMEM_API_URL: 'https://primary.example',
+        AUTOMEM_ENDPOINT: 'https://legacy.example',
+      })
+    ).toBe(false);
+    expect(
+      isLegacyEndpointShadowedByPlugin({ ...P(), AUTOMEM_ENDPOINT: 'https://legacy.example' })
+    ).toBe(false);
   });
 });
 

@@ -22,6 +22,7 @@ import { AUTOMEM_NPX_COMMAND } from './cli/templates.js';
 import { AutoMemClient } from './automem-client.js';
 import { parseWatchdogIntervalMs, startParentWatchdog } from './lifecycle.js';
 import {
+  isLegacyEndpointShadowedByPlugin,
   isPluginApiKeyWithheld,
   readAutoMemConnectionFile,
   resolveAutoMemApiKey,
@@ -467,10 +468,16 @@ const { url: AUTOMEM_API_URL, source: automemApiUrlSource } = localConnection
 // fall through to a shell or project credential belonging to another endpoint.
 // Without one, a plugin key saved with a URL is sent only to that endpoint.
 const AUTOMEM_API_KEY = localConnection ? localConnection.apiKey : resolveAutoMemApiKey();
-// Say once why a saved plugin key is not sent (no URL, no key in the text).
+// Say once why a saved plugin key is not sent, or why a legacy AUTOMEM_ENDPOINT
+// is not used (no URL, no key in the text).
 if (!localConnection && isPluginApiKeyWithheld()) {
   console.warn(
     "⚠️  AUTOMEM_API_URL names a different server than the AutoMem plugin's saved API URL, so the plugin's saved API key is not sent. Set AUTOMEM_API_KEY, or make the two URLs match."
+  );
+}
+if (!localConnection && isLegacyEndpointShadowedByPlugin()) {
+  console.warn(
+    '⚠️  AUTOMEM_ENDPOINT is ignored because the AutoMem plugin has a saved API URL. Rename it to AUTOMEM_API_URL, or re-run the installer.'
   );
 }
 
