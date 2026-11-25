@@ -460,7 +460,7 @@ const { url: AUTOMEM_API_URL, source: automemApiUrlSource } = localConnection
   : resolveAutoMemApiUrl();
 // A configured file is authoritative, including a deliberately empty key; never
 // fall through to a shell or project credential belonging to another endpoint.
-// Without one, the plugin key is sent only to the endpoint it was saved with.
+// Without one, a plugin key saved with a URL is sent only to that endpoint.
 const AUTOMEM_API_KEY = localConnection ? localConnection.apiKey : resolveAutoMemApiKey();
 
 if (automemApiUrlSource === 'default') {

@@ -12,8 +12,8 @@
  * Precedence: AUTOMEM_API_URL (explicit, documented) beats the plugin option;
  * the plugin option beats the deprecated AUTOMEM_ENDPOINT; everything beats
  * the localhost default. Blank values and unexpanded `${...}` placeholders
- * fall through. An environment key always wins; the plugin key is sent only
- * to the endpoint the plugin was set up with (resolveAutoMemApiKey).
+ * fall through. An environment key always wins; when the plugin also has a
+ * saved URL, its key is sent only to that endpoint (resolveAutoMemApiKey).
  */
 
 import { describe, expect, it } from 'vitest';
