@@ -545,6 +545,30 @@ describe('uninstall claude-code', () => {
     }
   });
 
+  it('says the Claude Code plugin and its saved endpoint and key stay, and how to remove them', async () => {
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((message?: unknown) => {
+      logs.push(String(message));
+    });
+
+    await runUninstall({ platform: 'claude-code', yes: true });
+    const printed = logs.join('\n');
+    expect(printed).toContain(
+      'the Claude Code plugin and its saved endpoint and API key are left in place'
+    );
+    expect(printed).toContain('claude plugin uninstall automem@verygoodplugins-mcp-automem');
+
+    logs.length = 0;
+    await runUninstall({ platform: 'claude-code', yes: true, cleanAll: true });
+    expect(logs.join('\n')).toContain(
+      'claude plugin uninstall automem@verygoodplugins-mcp-automem'
+    );
+
+    logs.length = 0;
+    await runUninstall({ platform: 'claude-code', yes: true, dryRun: true });
+    expect(logs.join('\n')).not.toContain('claude plugin uninstall');
+  });
+
   it('honors dry-run without changing settings.json or removing files', async () => {
     writeInstalledSettings();
     seedInstalledFiles();

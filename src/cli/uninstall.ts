@@ -770,6 +770,17 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
     log('\nNote: To also remove the MCP server config from Copilot, run:', options.quiet);
     log(`  ${AUTOMEM_NPX_COMMAND} uninstall copilot --clean-all`, options.quiet);
   }
+
+  // The installer's plugin mode installs the plugin through Claude Code and saves
+  // its endpoint and API key there. Uninstall leaves both; only Claude Code can
+  // remove them (`claude plugin uninstall` also deletes the saved key).
+  if (options.platform === 'claude-code' && !options.dryRun) {
+    log(
+      '\nNote: the Claude Code plugin and its saved endpoint and API key are left in place. To remove them, run:',
+      options.quiet
+    );
+    log('  claude plugin uninstall automem@verygoodplugins-mcp-automem', options.quiet);
+  }
 }
 
 export function parseUninstallArgs(args: string[]): UninstallOptions | null {

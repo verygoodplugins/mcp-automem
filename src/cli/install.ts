@@ -22,8 +22,14 @@ import { applyHermesSetup, type HermesInstallMode } from './hermes.js';
 import { applyGrokSetup } from './grok.js';
 import { applyOpenClawSetup } from './openclaw.js';
 import { resolveGrokPaths } from './grok-config.js';
-import { AUTOMEM_NPX_COMMAND, DEFAULT_AUTOMEM_API_URL } from './templates.js';
-import { MCP_SIDECAR_FIX, hasMcpSidecarPath, isMcpSidecarHealth } from '../env.js';
+import { AUTOMEM_NPX_COMMAND } from './templates.js';
+import {
+  DEFAULT_AUTOMEM_API_URL,
+  MCP_SIDECAR_FIX,
+  hasMcpSidecarPath,
+  isMcpSidecarHealth,
+  sameAutoMemEndpoint,
+} from '../env.js';
 import {
   AUTOMEM_API_KEY_NAMES,
   mergeEnvContent,
@@ -81,13 +87,16 @@ import {
 // hooks and is the recommended path. The settings-level write (applyClaudeCodeSetup)
 // stays available as the scriptable alternative. The CLI can't run the in-TUI
 // /plugin slash commands, but when the `claude` binary is on PATH it CAN drive the
-// supported `claude plugin …` subcommands, so plugin mode installs + configures the
-// plugin directly and only falls back to printing these commands when `claude` is
-// absent (or the install fails).
+// supported `claude plugin …` subcommands, so plugin mode installs the plugin,
+// saves its endpoint and API key, and checks they reach the memory server. It only
+// falls back to printing these commands when `claude` is absent (or the install
+// fails).
 export const CLAUDE_CODE_PLUGIN_COMMANDS = [
   '/plugin marketplace add verygoodplugins/mcp-automem',
   '/plugin install automem@verygoodplugins-mcp-automem',
 ] as const;
+// Printed with the /plugin commands above when the installer could not drive
+// `claude plugin …` itself.
 export const CLAUDE_CODE_PLUGIN_API_KEY_HINT =
   'Claude Code plugin: run  /plugin configure automem@verygoodplugins-mcp-automem  and set api_key, or export AUTOMEM_API_KEY before using Claude Code.';
 
@@ -105,10 +114,10 @@ export function claudePluginMarketplaceAddArgs(): string[] {
   return ['plugin', 'marketplace', 'add', CLAUDE_CODE_MARKETPLACE_SOURCE];
 }
 
-// `--config api_url=…` matches the plugin.json userConfig key; Claude Code stores it
-// via the same path as the interactive /plugin configure flow. api_key is sensitive,
-// so it must not be passed in argv where process inspectors can see it.
-export function claudePluginInstallArgs(params: { endpoint: string; apiKey?: string }): string[] {
+// `--config api_url=…` matches the plugin.json userConfig key. The API key never
+// goes in argv, where process inspectors can see it: it is saved afterwards
+// through `claude plugin configure --values-stdin` (see installClaudeCodePlugin).
+export function claudePluginInstallArgs(params: { endpoint: string }): string[] {
   return [
     'plugin',
     'install',
@@ -120,9 +129,44 @@ export function claudePluginInstallArgs(params: { endpoint: string; apiKey?: str
   ];
 }
 
+/** Saves the plugin options read as one JSON object on stdin. */
+export function claudePluginConfigureArgs(): string[] {
+  return ['plugin', 'configure', CLAUDE_CODE_PLUGIN_REF, '--values-stdin'];
+}
+
+/**
+ * The stdin payload for claudePluginConfigureArgs: one JSON line. Without a key
+ * only api_url is sent; Claude Code keeps options that are left out.
+ */
+export function claudePluginOptionsInput(params: { endpoint: string; apiKey?: string }): string {
+  const values: Record<string, string> = { api_url: params.endpoint };
+  if (params.apiKey) values.api_key = params.apiKey;
+  return `${JSON.stringify(values)}\n`;
+}
+
 export type PluginCommandResult = { code: number; stdout: string; stderr: string };
-export type PluginCommandRunner = (command: string, args: string[]) => PluginCommandResult;
-export type ClaudeCodePluginInstallResult = { needsManualApiKey: boolean };
+export type PluginCommandRunner = (
+  command: string,
+  args: string[],
+  options?: { input?: string; timeoutMs?: number }
+) => PluginCommandResult;
+
+export type ClaudeCodePluginKeyState =
+  /** Key saved, and the installed plugin passes it to the memory server. */
+  | 'delivered'
+  /** No key for this endpoint, none saved, nothing else to pass. */
+  | 'not-needed'
+  /** No key for this endpoint, but Claude Code still holds one from an earlier install. */
+  | 'stale-key'
+  /** Claude Code did not save the key. */
+  | 'not-saved'
+  /** The installed plugin does not pass its options to the memory server. */
+  | 'plugin-outdated';
+export type ClaudeCodePluginInstallResult = { keyState: ClaudeCodePluginKeyState };
+
+// Quick reads and saves vs. calls that may clone or download the plugin.
+const PLUGIN_QUICK_TIMEOUT_MS = 30_000;
+const PLUGIN_SLOW_TIMEOUT_MS = 180_000;
 
 // A re-run that re-adds the marketplace or re-installs the plugin may exit non-zero
 // just because it's already there — tolerate that rather than falling back to the
@@ -133,25 +177,91 @@ function isAlreadyPresent(result: PluginCommandResult): boolean {
   );
 }
 
-// Drive `claude plugin …` to add the marketplace and install + configure the plugin
-// non-interactively. Idempotent (skips the add when the marketplace is already
-// registered; tolerates an already-installed plugin) and throws on any other failure
-// so the caller can fall back to printing the /plugin slash commands.
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+// `claude plugin configure <ref> --json` lists option names under `configured`.
+// Sensitive values are never printed, so the name is all there is to check.
+function readKeySaved(result: PluginCommandResult): boolean {
+  if (result.code !== 0) return false;
+  const parsed = parseJson(result.stdout);
+  return (
+    isPlainObject(parsed) &&
+    Array.isArray(parsed.configured) &&
+    parsed.configured.includes('api_key')
+  );
+}
+
+// `claude plugin list --json` prints the installed copy's mcpServers as written.
+// A copy whose memory server has the CLAUDE_PLUGIN_OPTION_API_KEY env mapping
+// passes the saved options to it; an older copy does not.
+function readPluginPassesOptions(result: PluginCommandResult): boolean {
+  if (result.code !== 0) return false;
+  const parsed = parseJson(result.stdout);
+  if (!Array.isArray(parsed)) return false;
+  const entry = parsed.find(
+    (item): item is Record<string, unknown> =>
+      isPlainObject(item) && item.id === CLAUDE_CODE_PLUGIN_REF
+  );
+  if (!entry || !isPlainObject(entry.mcpServers)) return false;
+  const memory = entry.mcpServers.memory;
+  if (!isPlainObject(memory) || !isPlainObject(memory.env)) return false;
+  return Object.prototype.hasOwnProperty.call(memory.env, 'CLAUDE_PLUGIN_OPTION_API_KEY');
+}
+
+// Drive `claude plugin …` to add the marketplace, install the plugin, save its
+// endpoint and API key, and confirm through Claude Code that they will reach the
+// memory server. Idempotent (skips the add when the marketplace is already
+// registered; tolerates an already-installed plugin). Throws only when the
+// marketplace add or the install fails, so the caller can fall back to printing
+// the /plugin slash commands; everything after that is reported as a key state.
+//
+// The key travels on stdin only. Output of every `claude plugin` call is treated
+// as secret: it is parsed, never copied into a message.
 export async function installClaudeCodePlugin(params: {
   endpoint: string;
   apiKey?: string;
   dryRun: boolean;
   runCommand: PluginCommandRunner;
 }): Promise<ClaudeCodePluginInstallResult> {
-  if (params.dryRun) return { needsManualApiKey: false };
-  const { runCommand } = params;
+  if (params.dryRun) return { keyState: 'not-needed' };
+  const { runCommand, endpoint } = params;
+  const apiKey = params.apiKey || undefined;
+  const quick = { timeoutMs: PLUGIN_QUICK_TIMEOUT_MS };
+  const slow = { timeoutMs: PLUGIN_SLOW_TIMEOUT_MS };
 
-  const marketplaces = runCommand('claude', ['plugin', 'marketplace', 'list']);
+  const marketplaces = runCommand('claude', ['plugin', 'marketplace', 'list'], quick);
   const hasMarketplace =
     marketplaces.stdout.includes(CLAUDE_CODE_MARKETPLACE_SOURCE) ||
     /verygoodplugins[-/]mcp-automem/.test(marketplaces.stdout);
   if (!hasMarketplace) {
-    const added = runCommand('claude', claudePluginMarketplaceAddArgs());
+    const added = runCommand('claude', claudePluginMarketplaceAddArgs(), slow);
     if (added.code !== 0 && !isAlreadyPresent(added)) {
       throw new InstallError(
         "Couldn't add the AutoMem marketplace via `claude plugin marketplace add`.",
@@ -160,7 +270,7 @@ export async function installClaudeCodePlugin(params: {
     }
   }
 
-  const installed = runCommand('claude', claudePluginInstallArgs(params));
+  const installed = runCommand('claude', claudePluginInstallArgs({ endpoint }), slow);
   if (installed.code !== 0 && !isAlreadyPresent(installed)) {
     throw new InstallError(
       "Couldn't install the Claude Code plugin via `claude plugin install`.",
@@ -168,7 +278,99 @@ export async function installClaudeCodePlugin(params: {
     );
   }
 
-  return { needsManualApiKey: Boolean(params.apiKey) };
+  // Save the endpoint (and the key, when there is one) on stdin. A value
+  // Claude Code would reject, or a URL that is not http(s), skips the save.
+  const valuesOk =
+    isHttpUrl(endpoint) &&
+    !hasControlCharacter(endpoint) &&
+    (apiKey === undefined || !hasControlCharacter(apiKey));
+  let saved = false;
+  if (valuesOk) {
+    const save = runCommand('claude', claudePluginConfigureArgs(), {
+      ...quick,
+      input: claudePluginOptionsInput({ endpoint, apiKey }),
+    });
+    saved = save.code === 0;
+  }
+
+  // Read back whether Claude Code holds a key, whatever the save reported.
+  const keySaved = readKeySaved(
+    runCommand('claude', ['plugin', 'configure', CLAUDE_CODE_PLUGIN_REF, '--json'], quick)
+  );
+  if (apiKey && (!saved || !keySaved)) return { keyState: 'not-saved' };
+
+  // The installed copy must pass the options to the memory server whenever
+  // there is a key or the endpoint differs from the server's own default.
+  const optionsNeeded = Boolean(apiKey) || !sameAutoMemEndpoint(endpoint, DEFAULT_AUTOMEM_API_URL);
+  if (optionsNeeded) {
+    const listPlugins = () =>
+      readPluginPassesOptions(runCommand('claude', ['plugin', 'list', '--json'], quick));
+    if (!listPlugins()) {
+      runCommand('claude', ['plugin', 'update', CLAUDE_CODE_PLUGIN_REF], slow);
+      if (!listPlugins()) return { keyState: 'plugin-outdated' };
+    }
+  }
+
+  if (!apiKey) return { keyState: keySaved ? 'stale-key' : 'not-needed' };
+  return { keyState: 'delivered' };
+}
+
+const CLAUDE_CODE_PLUGIN_INSTALLED_ROW = 'Claude Code plugin installed';
+const CLAUDE_CODE_PLUGIN_PRE_APPROVAL_ROW =
+  'Claude Code plugin installed; tool pre-approval needs a manual step';
+export const CLAUDE_CODE_PLUGIN_STALE_KEY_HINT =
+  'Claude Code: an API key from an earlier install is still saved for the AutoMem plugin, and this server needs none. To clear it, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
+export const CLAUDE_CODE_PLUGIN_KEY_NOT_SAVED_HINT =
+  'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_KEY before using Claude Code.';
+export const CLAUDE_CODE_PLUGIN_OUTDATED_HINT =
+  'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server. Run  claude plugin update automem@verygoodplugins-mcp-automem , restart Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.';
+
+/** Row text and optional follow-up for one install result. Pure; the apply loop only renders it. */
+export function claudeCodePluginOutcome(
+  keyState: ClaudeCodePluginKeyState,
+  preApprovalFailed: boolean
+): {
+  ok: boolean;
+  row: string;
+  failure?: { message: string; hint: string; nonBlocking?: true };
+} {
+  // A blocking follow-up's row wins over the pre-approval row.
+  if (keyState === 'not-saved') {
+    return {
+      ok: false,
+      row: 'Claude Code plugin needs API key configuration',
+      failure: {
+        message: 'Claude Code did not save the AutoMem API key.',
+        hint: CLAUDE_CODE_PLUGIN_KEY_NOT_SAVED_HINT,
+      },
+    };
+  }
+  if (keyState === 'plugin-outdated') {
+    return {
+      ok: false,
+      row: 'Claude Code plugin needs an update',
+      failure: {
+        message:
+          'The installed Claude Code plugin does not pass its endpoint and API key to the memory server.',
+        hint: CLAUDE_CODE_PLUGIN_OUTDATED_HINT,
+      },
+    };
+  }
+  const row = preApprovalFailed
+    ? CLAUDE_CODE_PLUGIN_PRE_APPROVAL_ROW
+    : CLAUDE_CODE_PLUGIN_INSTALLED_ROW;
+  if (keyState === 'stale-key') {
+    return {
+      ok: !preApprovalFailed,
+      row,
+      failure: {
+        message: 'Claude Code still holds an AutoMem API key from an earlier install.',
+        hint: CLAUDE_CODE_PLUGIN_STALE_KEY_HINT,
+        nonBlocking: true,
+      },
+    };
+  }
+  return { ok: !preApprovalFailed, row };
 }
 
 // How the guided installer wires Claude Code. Defaults to the recommended plugin.
@@ -1181,7 +1383,7 @@ export function buildInstallPlan(params: {
             kind: 'install-agent',
             title: 'Install the Claude Code plugin (recommended)',
             detail:
-              'Add the marketplace, install + configure the plugin via `claude plugin install` (the MCP server, hooks, and skill come bundled and auto-update), and pre-approve its memory tools.',
+              'Add the marketplace, install the plugin via `claude plugin install` (the MCP server, hooks, and skill come bundled and auto-update), save the endpoint and API key in Claude Code, and pre-approve its memory tools.',
             client,
             paths: pluginPaths,
             showDetail: true,
@@ -2000,14 +2202,26 @@ function defaultRunCommand(
 
 // Capturing runner for the `claude plugin …` calls: needs the exit code + output
 // (not inherited stdio) so installClaudeCodePlugin can read marketplace/plugin state
-// and tolerate "already installed". spawnSync never throws on a non-zero exit.
-function defaultPluginCommand(command: string, args: string[]): PluginCommandResult {
-  const result = spawnSync(command, args, { encoding: 'utf8' });
-  return {
-    code: typeof result.status === 'number' ? result.status : 1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  };
+// and tolerate "already installed". spawnSync (never execFileSync, whose errors
+// carry the output) without a shell. It never throws: a timeout, a spawn error, or
+// a child that exits without reading its stdin is exit code 1 with empty output.
+function defaultPluginCommand(
+  command: string,
+  args: string[],
+  options: { input?: string; timeoutMs?: number } = {}
+): PluginCommandResult {
+  const failed = { code: 1, stdout: '', stderr: '' };
+  try {
+    const result = spawnSync(command, args, {
+      encoding: 'utf8',
+      ...(options.input !== undefined ? { input: options.input } : {}),
+      ...(options.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
+    });
+    if (result.error || typeof result.status !== 'number') return failed;
+    return { code: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+  } catch {
+    return failed;
+  }
 }
 
 export function updateExistingLocalServer(params: {
@@ -3257,25 +3471,14 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
               dryRun: false,
               runCommand: defaultPluginCommand,
             });
-            if (pluginInstall.needsManualApiKey) {
-              list.fail(
-                key,
-                `${clientGlyph(client, theme)} Claude Code plugin needs API key configuration`
-              );
-              agentFailures.push({
-                client,
-                message:
-                  'Claude Code plugin was installed, but authenticated endpoints require an API key configured in Claude Code.',
-                hint: CLAUDE_CODE_PLUGIN_API_KEY_HINT,
-                showPluginCommands: false,
-              });
-            } else if (preApprovalFailed) {
-              list.fail(
-                key,
-                `${clientGlyph(client, theme)} Claude Code plugin installed; tool pre-approval needs a manual step`
-              );
-            } else {
-              list.done(key, `${clientGlyph(client, theme)} Claude Code plugin installed`);
+            const outcome = claudeCodePluginOutcome(pluginInstall.keyState, preApprovalFailed);
+            const row = `${clientGlyph(client, theme)} ${outcome.row}`;
+            if (outcome.ok) list.done(key, row);
+            else list.fail(key, row);
+            // The plugin itself is installed, so the /plugin commands stay out
+            // of the outro (showPluginCommands: false).
+            if (outcome.failure) {
+              agentFailures.push({ client, ...outcome.failure, showPluginCommands: false });
             }
           } catch (pluginErr) {
             list.fail(key, `${clientGlyph(client, theme)} Claude Code plugin needs a manual step`);
