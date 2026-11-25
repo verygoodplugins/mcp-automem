@@ -1646,10 +1646,130 @@ describe('configurable timeout and retry budget', () => {
     }) as typeof fetch;
     try {
       const client = new AutoMemClient({ endpoint: 'http://x' });
-      await expect(client.storeMemory({ content: 'x' })).rejects.toThrow();
+      await expect(client.recallMemory({ query: 'x' })).rejects.toThrow();
       expect(calls).toBe(4); // initial + 3
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe('makeRequest — writes are never replayed', () => {
+  // Behaves like real fetch: never settles until the AbortController fires.
+  const hangUntilAborted = (_url: string, init?: RequestInit): Promise<Response> =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        reject(new DOMException('This operation was aborted', 'AbortError'));
+      });
+    });
+
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    fetchMock.mockReset();
+  });
+
+  it('sends a timed-out batch store once and reports the outcome as unknown', async () => {
+    fetchMock.mockImplementation(hangUntilAborted);
+    const client = new AutoMemClient({ endpoint: 'http://x', timeoutMs: 100 });
+
+    const result = client
+      .storeMemory({ memories: [{ content: 'a' }, { content: 'b' }] })
+      .catch((e: Error) => e);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const error = (await result) as Error & { outcomeUnknown?: boolean };
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain('POST /memory/batch outcome unknown');
+    expect(error.message).toContain('no response within 100ms');
+    expect(error.message).toContain('may have been applied');
+    expect(error.message).toContain('recall_memory');
+    expect(error.outcomeUnknown).toBe(true);
+  });
+
+  it('sends a store that hits a network error once', async () => {
+    fetchMock.mockRejectedValue(new TypeError('fetch failed'));
+    const client = new AutoMemClient({ endpoint: 'http://x' });
+
+    const result = client.storeMemory({ content: 'x' }).catch((e: Error) => e);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const error = (await result) as Error;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(error.message).toContain('POST /memory outcome unknown: network error (fetch failed)');
+  });
+
+  it.each([
+    ['POST', (c: AutoMemClient) => c.storeMemory({ content: 'x' })],
+    [
+      'POST',
+      (c: AutoMemClient) =>
+        c.associateMemories({
+          memory1_id: OLD_MEMORY_ID,
+          memory2_id: NEW_MEMORY_ID,
+          type: 'RELATES_TO',
+          strength: 0.9,
+        }),
+    ],
+    ['PATCH', (c: AutoMemClient) => c.updateMemory({ memory_id: MEMORY_ID, content: 'y' })],
+    ['DELETE', (c: AutoMemClient) => c.deleteMemory({ memory_id: MEMORY_ID })],
+  ])('sends a %s that receives a 5xx once and keeps the status', async (method, call) => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 504,
+      json: async () => ({ message: 'Gateway Timeout' }),
+    } as any);
+    const client = new AutoMemClient({ endpoint: 'http://x' });
+
+    const result = call(client).catch((e: Error) => e);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const error = (await result) as Error & { status?: number };
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.method).toBe(method);
+    expect(error.status).toBe(504);
+    expect(error.message).toContain('outcome unknown: Gateway Timeout');
+  });
+
+  it('still retries a GET that times out, then succeeds', async () => {
+    fetchMock.mockImplementationOnce(hangUntilAborted).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [], count: 0 }),
+    } as any);
+    const client = new AutoMemClient({ endpoint: 'http://x', timeoutMs: 100 });
+
+    const result = client.recallMemory({ query: 'x' });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect((await result).count).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('still retries a GET that receives a 5xx up to the budget', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ message: 'Service Unavailable' }),
+    } as any);
+    const client = new AutoMemClient({ endpoint: 'http://x' });
+
+    const result = client.recallMemory({ query: 'x' }).catch((e: Error) => e);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const error = (await result) as Error;
+
+    expect(fetchMock).toHaveBeenCalledTimes(4); // initial + 3
+    expect(error.message).toBe('Service Unavailable');
   });
 });
