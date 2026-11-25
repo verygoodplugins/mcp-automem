@@ -8,7 +8,7 @@
 //   FAKE_CLAUDE_LOG    call log (default $HOME/.e2e-claude-calls.log); one line
 //                      per call, `claude <argv>`. Argv only, never stdin.
 //   FAKE_CLAUDE_STATE  JSON state file (default $HOME/.e2e-claude-state.json).
-//                      A saved key is recorded only as its SHA-256.
+//                      A saved key is recorded only as a fingerprint (key-fingerprint.mjs).
 //   FAKE_CLAUDE_SEED   earlier-install: when there is no state file yet, start as
 //                      if an earlier install had added the marketplace, installed
 //                      the plugin (env mapping per mode) and saved an API key.
@@ -22,10 +22,10 @@
 //   unmapped      the installed plugin has no env mapping, and `plugin update`
 //                 reports it is already at the latest version.
 //   update-fixes  no env mapping until `plugin update` installs a newer version.
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { keyFingerprint } from './key-fingerprint.mjs';
 
 const REF = 'automem@verygoodplugins-mcp-automem';
 const MARKETPLACE = 'verygoodplugins-mcp-automem';
@@ -47,7 +47,6 @@ if (argv[0] === '--version') {
 }
 fs.appendFileSync(LOG, `claude ${argv.join(' ')}\n`);
 
-const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const hasEnvMapping = () => MODE === 'happy' || MODE === 'old-cli';
 
 function load() {
@@ -62,7 +61,10 @@ function load() {
           env: hasEnvMapping(),
           installedAt: '2026-11-01T00:00:00.000Z',
         },
-        values: { api_url: 'http://127.0.0.1:8001', api_key_sha256: sha256('earlier-install-key') },
+        values: {
+          api_url: 'http://127.0.0.1:8001',
+          api_key_fingerprint: keyFingerprint('earlier-install-key'),
+        },
         saves: [],
       };
     }
@@ -143,9 +145,9 @@ if (sub === 'configure' && rest.includes('--values-stdin')) {
     // An empty or whitespace-only value never clears a saved one.
     if (!value.trim()) continue;
     if (name === 'api_key') {
-      const hash = sha256(value);
-      if (state.values.api_key_sha256 !== hash) {
-        state.values.api_key_sha256 = hash;
+      const hash = keyFingerprint(value);
+      if (state.values.api_key_fingerprint !== hash) {
+        state.values.api_key_fingerprint = hash;
         changed = true;
       }
     } else if (state.values[name] !== value) {
@@ -156,7 +158,7 @@ if (sub === 'configure' && rest.includes('--values-stdin')) {
   if (!changed) out('No configuration changes.\n');
   state.saves.push({
     options: Object.keys(input),
-    ...(input.api_key ? { api_key_sha256: sha256(input.api_key) } : {}),
+    ...(input.api_key ? { api_key_fingerprint: keyFingerprint(input.api_key) } : {}),
   });
   save(state);
   out('Configuration saved. Restart Claude Code to apply it.\n');
@@ -166,7 +168,7 @@ if (sub === 'configure' && rest.includes('--json')) {
   if (rest[0] !== REF || !state.plugin) fail('Plugin is not installed\n');
   const configured = [];
   if (state.values.api_url) configured.push('api_url');
-  if (state.values.api_key_sha256) configured.push('api_key');
+  if (state.values.api_key_fingerprint) configured.push('api_key');
   out(
     `${JSON.stringify({
       pluginId: REF,

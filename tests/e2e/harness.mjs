@@ -18,11 +18,11 @@
 import { spawn } from 'node:child_process';
 import { mkdtemp, readdir, readFile, mkdir, writeFile, chmod, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseToml } from 'smol-toml';
+import { keyFingerprint } from './key-fingerprint.mjs';
 import { createMock } from './mock-automem.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -111,7 +111,7 @@ async function claudePluginFallbackCommonAsserts(ctx) {
 // One stateful fake `claude` for every plugin auto-install scenario
 // (tests/e2e/fake-claude.mjs): it prints the output shapes real Claude Code
 // prints, logs argv to $HOME/.e2e-claude-calls.log, and records a saved key
-// only as its SHA-256 in $HOME/.e2e-claude-state.json. FAKE_CLAUDE_MODE picks
+// only as a fingerprint in $HOME/.e2e-claude-state.json. FAKE_CLAUDE_MODE picks
 // the behavior; it reaches the fake through the installer's inherited env.
 const FAKE_CLAUDE_STUB = `#!/bin/sh\nexec "${process.execPath}" "${path.join(HERE, 'fake-claude.mjs')}" "$@"\n`;
 
@@ -123,7 +123,6 @@ const HINT_PLUGIN_OUTDATED =
 const NOTE_STALE_KEY =
   'Claude Code still has an AutoMem API key saved by an earlier install and may keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
 
-const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // The summary card may wrap a long hint and draws a border: compare words only.
 const flat = (text) => text.replace(/[│┃║]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -622,7 +621,7 @@ const SCENARIOS = [
           'saved the key through `claude plugin configure --values-stdin` (hash matches)',
           /plugin configure automem@verygoodplugins-mcp-automem --values-stdin/.test(
             ctx.claudeLog
-          ) && state?.values?.api_key_sha256 === sha256(TOKEN),
+          ) && state?.values?.api_key_fingerprint === keyFingerprint(TOKEN),
           JSON.stringify(state?.values ?? null)
         )
       );
@@ -668,7 +667,8 @@ const SCENARIOS = [
       r.push(
         A(
           'only the earlier key is saved (read-back says configured)',
-          Boolean(state?.values?.api_key_sha256) && state.values.api_key_sha256 !== sha256(TOKEN),
+          Boolean(state?.values?.api_key_fingerprint) &&
+            state.values.api_key_fingerprint !== keyFingerprint(TOKEN),
           JSON.stringify(state?.values)
         )
       );
@@ -741,7 +741,9 @@ const SCENARIOS = [
           ctx.claudeLog.trim()
         )
       );
-      r.push(A('key saved (hash matches)', state?.values?.api_key_sha256 === sha256(TOKEN)));
+      r.push(
+        A('key saved (hash matches)', state?.values?.api_key_fingerprint === keyFingerprint(TOKEN))
+      );
       r.push(
         A('row says the plugin is installed', /Claude Code plugin installed/.test(last.stdout))
       );

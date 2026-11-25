@@ -3,12 +3,12 @@
 // Run after `npm run build`: node tests/e2e/local-guided-install.mjs
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { keyFingerprint } from './key-fingerprint.mjs';
 import { createMock } from './mock-automem.mjs';
 
 const dist = fileURLToPath(new URL('../../dist/index.js', import.meta.url));
@@ -27,7 +27,6 @@ const strip = (s) =>
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const TOKEN = 'isolated-test-token';
 const FAKE_CLAUDE = fileURLToPath(new URL('./fake-claude.mjs', import.meta.url));
-const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
 
 function fakeExecutables(home, existing) {
   const bin = path.join(home, 'bin');
@@ -359,7 +358,7 @@ async function scenario(kind) {
     if (startFlow) {
       // The key reached Claude Code on stdin: the fake recorded only its hash.
       const claude = JSON.parse(fs.readFileSync(claudeState, 'utf8'));
-      assert.equal(claude.values.api_key_sha256, sha256(TOKEN));
+      assert.equal(claude.values.api_key_fingerprint, keyFingerprint(TOKEN));
       assert.ok(!JSON.stringify(claude).includes(TOKEN), 'fake state holds no raw key');
       assert.match(calls, /claude plugin configure automem@verygoodplugins-mcp-automem --json/);
       assert.match(calls, /claude plugin list --json/);

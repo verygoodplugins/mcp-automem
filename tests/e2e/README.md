@@ -96,7 +96,7 @@ npm run test:e2e:welcome
 | `run-matrix.sh` | Entrypoint. Derives the repo root from its own location, builds+packs (unless `SKIP_BUILD=1`), then runs the harness. |
 | `harness.mjs` | Scenario-matrix runner: fresh `HOME`+`cwd` per scenario, write-surface diffing, per-scenario assertions + findings. |
 | `mock-automem.mjs` | In-process adversarial endpoint (`healthy` / `500` / `401` / `malformed` modes). No real AutoMem server needed. |
-| `fake-claude.mjs` | Stateful fake `claude` CLI shared by `harness.mjs` and `local-guided-install.mjs`. Prints the real `claude plugin …` output shapes; `FAKE_CLAUDE_MODE` is `happy` (default), `old-cli`, `unmapped` or `update-fixes`; `FAKE_CLAUDE_SEED=earlier-install` starts it with the plugin installed and a key saved. Logs argv only and records a saved key as its SHA-256. |
+| `fake-claude.mjs` | Stateful fake `claude` CLI shared by `harness.mjs` and `local-guided-install.mjs`. Prints the real `claude plugin …` output shapes; `FAKE_CLAUDE_MODE` is `happy` (default), `old-cli`, `unmapped` or `update-fixes`; `FAKE_CLAUDE_SEED=earlier-install` starts it with the plugin installed and a key saved. Logs argv only and records a saved key only as a scrypt fingerprint (`key-fingerprint.mjs`). |
 | `railway-guided-install.mjs` | Fake Railway CLI + mock AutoMem guard for the guided Railway apply path. |
 | `local-guided-install.mjs` | Fake Docker/Git/Claude CLIs + mock AutoMem guard for the guided local apply path. |
 | `welcome-guided-install.mjs` | Fake Cursor and Codex handoffs for the optional welcome conversation. |
