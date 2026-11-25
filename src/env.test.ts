@@ -2,15 +2,18 @@
  * Endpoint/key resolution (src/env.ts).
  *
  * The Claude Code plugin prompts for the AutoMem endpoint and key via
- * userConfig; Claude Code exports those answers to plugin subprocesses as
- * CLAUDE_PLUGIN_OPTION_<KEY> environment variables. The server resolves them
- * itself rather than wiring them through the plugin's .mcp.json env — a
- * config-level AUTOMEM_API_URL would shadow a legacy user's AUTOMEM_ENDPOINT
- * and silently redirect them (see tests/installer/plugin-mcp-config.test.ts).
+ * userConfig. Claude Code does not pass plugin options to a stdio MCP server
+ * by itself: the plugin's .mcp.json maps them into the server's environment as
+ * CLAUDE_PLUGIN_OPTION_API_URL / CLAUDE_PLUGIN_OPTION_API_KEY. AUTOMEM_* names
+ * stay out of .mcp.json — a config-level AUTOMEM_API_URL would shadow the
+ * user's own environment, including a legacy AUTOMEM_ENDPOINT (see
+ * tests/installer/plugin-mcp-config.test.ts).
  *
- * Precedence: AUTOMEM_API_URL (explicit, documented) beats the plugin prompt;
- * the plugin prompt beats the deprecated AUTOMEM_ENDPOINT; everything beats
- * the localhost default. Blank answers fall through.
+ * Precedence: AUTOMEM_API_URL (explicit, documented) beats the plugin option;
+ * the plugin option beats the deprecated AUTOMEM_ENDPOINT; everything beats
+ * the localhost default. Blank values and unexpanded `${...}` placeholders
+ * fall through. An environment key always wins; the plugin key is sent only
+ * to the endpoint the plugin was set up with (resolveAutoMemApiKey).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -18,11 +21,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  DEFAULT_AUTOMEM_API_URL,
   hasMcpSidecarPath,
   isMcpSidecarHealth,
   readAutoMemApiKeyFromEnv,
   readAutoMemConnectionFile,
+  resolveAutoMemApiKey,
   resolveAutoMemApiUrl,
+  sameAutoMemEndpoint,
 } from './env.js';
 
 describe('readAutoMemConnectionFile', () => {
@@ -152,6 +158,123 @@ describe('readAutoMemApiKeyFromEnv', () => {
       })
     ).toBe('plugin-key');
     expect(readAutoMemApiKeyFromEnv({})).toBeUndefined();
+  });
+});
+
+const P = (url?: string, key?: string) => ({
+  CLAUDE_PLUGIN_OPTION_API_URL: url,
+  CLAUDE_PLUGIN_OPTION_API_KEY: key,
+});
+
+describe('plugin option placeholders', () => {
+  it('treats an unexpanded placeholder as blank', () => {
+    expect(
+      resolveAutoMemApiUrl({
+        ...P('${user_config.api_url}'),
+        AUTOMEM_ENDPOINT: 'https://legacy.example',
+      })
+    ).toEqual({ url: 'https://legacy.example', source: 'AUTOMEM_ENDPOINT' });
+    expect(resolveAutoMemApiUrl(P(' ${user_config.api_url} '))).toEqual({
+      url: DEFAULT_AUTOMEM_API_URL,
+      source: 'default',
+    });
+    expect(readAutoMemApiKeyFromEnv(P(undefined, '${user_config.api_key}'))).toBeUndefined();
+  });
+
+  it('keeps a real value that merely contains ${', () => {
+    expect(readAutoMemApiKeyFromEnv(P(undefined, 'ab${cd}ef'))).toBe('ab${cd}ef');
+  });
+});
+
+describe('resolveAutoMemApiKey', () => {
+  it('uses the plugin key with the plugin URL', () => {
+    expect(resolveAutoMemApiKey(P('http://127.0.0.1:8100', 'plugin-key'))).toBe('plugin-key');
+  });
+
+  it('uses the plugin key when the plugin has no URL, whatever URL is in use', () => {
+    expect(
+      resolveAutoMemApiKey({ ...P('', 'plugin-key'), AUTOMEM_API_URL: 'https://hosted.example' })
+    ).toBe('plugin-key');
+    expect(resolveAutoMemApiKey(P(undefined, 'plugin-key'))).toBe('plugin-key');
+  });
+
+  it('withholds the plugin key from a different endpoint', () => {
+    expect(
+      resolveAutoMemApiKey({
+        ...P('http://127.0.0.1:8001', 'local-key'),
+        AUTOMEM_API_URL: 'https://hosted.example',
+      })
+    ).toBeUndefined();
+  });
+
+  it('keeps the plugin key when the environment URL names the same endpoint', () => {
+    expect(
+      resolveAutoMemApiKey({
+        ...P('http://127.0.0.1:8001', 'local-key'),
+        AUTOMEM_API_URL: 'http://127.0.0.1:8001/',
+      })
+    ).toBe('local-key');
+  });
+
+  it('an environment key always wins', () => {
+    expect(
+      resolveAutoMemApiKey({
+        ...P('http://127.0.0.1:8001', 'local-key'),
+        AUTOMEM_API_URL: 'https://hosted.example',
+        AUTOMEM_API_KEY: 'env-key',
+      })
+    ).toBe('env-key');
+    expect(
+      resolveAutoMemApiKey({
+        ...P('http://127.0.0.1:8001', 'local-key'),
+        AUTOMEM_API_TOKEN: 'env-token',
+      })
+    ).toBe('env-token');
+  });
+
+  it('accepts the lower-case option names the server already accepts', () => {
+    expect(
+      resolveAutoMemApiKey({
+        CLAUDE_PLUGIN_OPTION_api_url: 'http://127.0.0.1:8100',
+        CLAUDE_PLUGIN_OPTION_api_key: 'k',
+      })
+    ).toBe('k');
+  });
+
+  it('pairs the plugin key with an explicitly passed URL', () => {
+    expect(
+      resolveAutoMemApiKey(P('http://127.0.0.1:8100', 'plugin-key'), {
+        url: 'https://elsewhere.example',
+        source: 'AUTOMEM_API_URL',
+      })
+    ).toBeUndefined();
+    expect(
+      resolveAutoMemApiKey(P('http://127.0.0.1:8100', 'plugin-key'), {
+        url: 'http://127.0.0.1:8100/',
+        source: 'CLAUDE_PLUGIN_OPTION_API_URL',
+      })
+    ).toBe('plugin-key');
+  });
+});
+
+// Pins the comparison host-toolkit's sameEndpoint has always used: trim, strip
+// trailing slashes, compare strings. No URL parsing, no case folding.
+describe('sameAutoMemEndpoint', () => {
+  it('compares trimmed spellings without trailing slashes', () => {
+    expect(sameAutoMemEndpoint('http://127.0.0.1:8001', 'http://127.0.0.1:8001/')).toBe(true);
+    expect(sameAutoMemEndpoint(' https://x.example// ', 'https://x.example')).toBe(true);
+    expect(sameAutoMemEndpoint('http://127.0.0.1:8001', 'http://127.0.0.1:8100')).toBe(false);
+    expect(sameAutoMemEndpoint('https://X.example', 'https://x.example')).toBe(false);
+  });
+
+  it('does not parse: unparseable strings compare as plain text', () => {
+    expect(sameAutoMemEndpoint('not a url', 'also not a url')).toBe(false);
+    expect(sameAutoMemEndpoint('not a url', 'not a url/')).toBe(true);
+  });
+
+  it('an empty side is never the same endpoint', () => {
+    expect(sameAutoMemEndpoint('', '')).toBe(false);
+    expect(sameAutoMemEndpoint('', 'http://127.0.0.1:8001')).toBe(false);
   });
 });
 

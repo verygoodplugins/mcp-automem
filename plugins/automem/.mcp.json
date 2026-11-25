@@ -2,7 +2,11 @@
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "@verygoodplugins/mcp-automem@latest"]
+      "args": ["-y", "@verygoodplugins/mcp-automem@latest"],
+      "env": {
+        "CLAUDE_PLUGIN_OPTION_API_URL": "${user_config.api_url}",
+        "CLAUDE_PLUGIN_OPTION_API_KEY": "${user_config.api_key}"
+      }
     }
   }
 }

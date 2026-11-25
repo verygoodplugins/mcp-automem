@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execSync } from 'child_process';
+import { normalizeAutoMemEndpoint, sameAutoMemEndpoint } from '../env.js';
 
 export interface CommonOptions {
   dryRun?: boolean;
@@ -18,12 +19,6 @@ export function log(message: string, quiet?: boolean): void {
 }
 
 /**
- * Endpoint equality as the API client sees it: AutoMemClient strips a trailing slash,
- * so `https://x` and `https://x/` are the same server. Shared because credential
- * pairing depends on it — a key must never follow a "changed" endpoint that is only
- * spelled differently, and must never ride along to one that genuinely differs.
- */
-/**
  * A plain JSON object — not null, not an array. The predicate every host config
  * reader needs before indexing into parsed JSON, kept here so the hosts share one
  * definition rather than each carrying a private copy.
@@ -33,12 +28,18 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function normalizeEndpoint(value: string): string {
-  return value.trim().replace(/\/+$/, '');
+  return normalizeAutoMemEndpoint(value);
 }
 
-/** Whether two endpoint spellings address the same server. */
+/**
+ * Endpoint equality as the API client sees it: AutoMemClient strips a trailing slash,
+ * so `https://x` and `https://x/` are the same server. Shared because credential
+ * pairing depends on it — a key must never follow a "changed" endpoint that is only
+ * spelled differently, and must never ride along to one that genuinely differs.
+ * The rule lives in `src/env.ts` so the server pairs the plugin key the same way.
+ */
 export function sameEndpoint(a?: string, b?: string): boolean {
-  return Boolean(a) && Boolean(b) && normalizeEndpoint(a!) === normalizeEndpoint(b!);
+  return sameAutoMemEndpoint(a ?? '', b ?? '');
 }
 
 /**
@@ -106,10 +107,11 @@ export interface InheritedApiKeyInputs {
  *    names a key but no URL is malformed, and guessing that it meant the endpoint
  *    chosen for *this* run is exactly the disclosure this function exists to prevent.
  *
- * `CLAUDE_PLUGIN_OPTION_*` is intentionally not read here. Those variables are
- * exported by Claude Code into the plugin's own MCP subprocess for `src/index.ts`
- * to resolve; an installer that inherits them picks up a key whose paired
- * `CLAUDE_PLUGIN_OPTION_API_URL` it never consults. No installer flow sets them.
+ * `CLAUDE_PLUGIN_OPTION_*` is intentionally not read here. Claude Code does not
+ * pass plugin options to a stdio MCP server by itself; the plugin's `.mcp.json`
+ * maps them into the memory server's environment, where `src/env.ts` pairs the
+ * key with `CLAUDE_PLUGIN_OPTION_API_URL`. An installer that inherited them would
+ * pick up a key whose paired URL it never consults. No installer flow sets them.
  */
 export function resolveInheritedApiKey(inputs: InheritedApiKeyInputs): string | undefined {
   const explicit = inputs.explicitKey?.trim();
