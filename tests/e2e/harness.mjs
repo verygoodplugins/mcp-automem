@@ -174,6 +174,12 @@ async function claudePluginAutoinstallCommonAsserts(ctx) {
     A('key absent from the call log (argv)', !ctx.claudeLog.includes(TOKEN)),
     A('key absent from the fake state file', !stateRaw.includes(TOKEN)),
     A('key absent from installer output', !`${last.stdout}\n${last.stderr}`.includes(TOKEN)),
+    // The plugin is installed in every mode, so the outro never falls back to
+    // the /plugin slash commands or the old manual api_key step.
+    A(
+      'did NOT print the manual /plugin commands or the old api_key step',
+      !/\/plugin install/.test(last.stdout) && !/set api_key/.test(last.stdout)
+    ),
   ];
 }
 
@@ -632,7 +638,6 @@ const SCENARIOS = [
       r.push(
         A('no API-key follow-up', !/needs API key configuration/.test(last.stdout + last.stderr))
       );
-      r.push(A('did NOT print the manual /plugin command', !/\/plugin install/.test(last.stdout)));
       return r;
     },
     findings: () => [],
