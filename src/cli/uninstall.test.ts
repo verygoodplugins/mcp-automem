@@ -554,7 +554,7 @@ describe('uninstall claude-code', () => {
     await runUninstall({ platform: 'claude-code', yes: true });
     const printed = logs.join('\n');
     expect(printed).toContain(
-      'the Claude Code plugin and its saved endpoint and API key are left in place'
+      'Note: if you installed the Claude Code plugin, it and any endpoint and API key saved for it are left in place. To remove them, run:'
     );
     expect(printed).toContain('claude plugin uninstall automem@verygoodplugins-mcp-automem');
 

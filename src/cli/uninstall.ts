@@ -776,7 +776,7 @@ export async function runUninstall(options: UninstallOptions): Promise<void> {
   // remove them (`claude plugin uninstall` also deletes the saved key).
   if (options.platform === 'claude-code' && !options.dryRun) {
     log(
-      '\nNote: the Claude Code plugin and its saved endpoint and API key are left in place. To remove them, run:',
+      '\nNote: if you installed the Claude Code plugin, it and any endpoint and API key saved for it are left in place. To remove them, run:',
       options.quiet
     );
     log('  claude plugin uninstall automem@verygoodplugins-mcp-automem', options.quiet);

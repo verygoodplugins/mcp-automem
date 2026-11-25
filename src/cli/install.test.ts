@@ -19,6 +19,7 @@ import {
   claudePluginInstallArgs,
   claudePluginMarketplaceAddArgs,
   claudePluginOptionsInput,
+  defaultPluginCommand,
   detectInstallEnvironment,
   formatEnvValue,
   formatInstallError,
@@ -2064,6 +2065,45 @@ describe('guided install helpers', () => {
   });
 });
 
+describe('defaultPluginCommand', () => {
+  it('forwards input on stdin and returns the output', () => {
+    const result = defaultPluginCommand(
+      process.execPath,
+      ['-e', 'process.stdin.pipe(process.stdout)'],
+      { input: '{"api_url":"http://x"}\n', timeoutMs: 10_000 }
+    );
+    expect(result).toEqual({ code: 0, stdout: '{"api_url":"http://x"}\n', stderr: '' });
+  });
+
+  it('reports a child that outlives its time limit as exit 1 with no output', () => {
+    const result = defaultPluginCommand(
+      process.execPath,
+      ['-e', 'console.log("started"); setTimeout(() => {}, 10_000)'],
+      { timeoutMs: 300 }
+    );
+    expect(result).toEqual({ code: 1, stdout: '', stderr: '' });
+  });
+
+  it('reports a command that does not exist as exit 1, without throwing', () => {
+    let result: ReturnType<typeof defaultPluginCommand> | undefined;
+    expect(() => {
+      result = defaultPluginCommand('automem-no-such-command-xyz', ['plugin', 'list'], {
+        timeoutMs: 5_000,
+      });
+    }).not.toThrow();
+    expect(result).toEqual({ code: 1, stdout: '', stderr: '' });
+  });
+
+  it('keeps a non-zero exit code and its output', () => {
+    const result = defaultPluginCommand(
+      process.execPath,
+      ['-e', 'process.stderr.write("nope"); process.exit(3)'],
+      { timeoutMs: 10_000 }
+    );
+    expect(result).toEqual({ code: 3, stdout: '', stderr: 'nope' });
+  });
+});
+
 describe('claude plugin auto-install', () => {
   it('builds marketplace-add args for the AutoMem GitHub source', () => {
     expect(claudePluginMarketplaceAddArgs()).toEqual([
@@ -2174,6 +2214,10 @@ describe('claude plugin auto-install', () => {
       },
       'configure --json': { code: 0, stdout: configureJson(['api_url', 'api_key'], []) },
       list: { code: 0, stdout: pluginListJson(true) },
+      'marketplace update': {
+        code: 0,
+        stdout: '✔ Successfully updated marketplace: verygoodplugins-mcp-automem\n',
+      },
       update: { code: 0, stdout: 'automem is already at the latest version (0.19.3).\n' },
     };
   }
@@ -2345,8 +2389,15 @@ describe('claude plugin auto-install', () => {
       'configure --values-stdin',
       'configure --json',
       'list',
+      'marketplace update',
       'update',
       'list',
+    ]);
+    expect(calls.find((call) => call.args[2] === 'update')!.args).toEqual([
+      'plugin',
+      'marketplace',
+      'update',
+      'verygoodplugins-mcp-automem',
     ]);
     expect(calls.find((call) => call.args[1] === 'update')!.args).toEqual([
       'plugin',
@@ -2369,6 +2420,73 @@ describe('claude plugin auto-install', () => {
       })
     ).resolves.toEqual({ keyState: 'plugin-outdated' });
     expect(calls.filter((call) => call.args[1] === 'update')).toHaveLength(1);
+    expect(order(calls).slice(-4)).toEqual(['list', 'marketplace update', 'update', 'list']);
+  });
+
+  it('pins the save exit code: a failed save is not-saved even if a key was saved earlier', async () => {
+    const { run } = recordingRunner({
+      ...happyReplies(),
+      'configure --values-stdin': { code: 1, stderr: 'Error: something went wrong\n' },
+      'configure --json': { code: 0, stdout: configureJson(['api_url', 'api_key'], []) },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'not-saved' });
+  });
+
+  it('looks only at the automem entry of plugin list --json', async () => {
+    const otherPlugin = {
+      id: 'other@somewhere',
+      version: '1.0.0',
+      scope: 'user',
+      enabled: true,
+      mcpServers: { memory: { command: 'npx', args: ['other'], env: PLUGIN_ENV } },
+    };
+    const automemWithout = JSON.parse(pluginListJson(false))[0];
+    const { run: otherFirst } = recordingRunner({
+      ...happyReplies(),
+      list: { code: 0, stdout: JSON.stringify([otherPlugin, automemWithout]) },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: otherFirst,
+      })
+    ).resolves.toEqual({ keyState: 'plugin-outdated' });
+
+    const urlOnly = JSON.parse(pluginListJson(false))[0];
+    urlOnly.mcpServers.memory.env = {
+      CLAUDE_PLUGIN_OPTION_API_URL: PLUGIN_ENV.CLAUDE_PLUGIN_OPTION_API_URL,
+    };
+    const { run: urlMappingOnly } = recordingRunner({
+      ...happyReplies(),
+      list: { code: 0, stdout: JSON.stringify([urlOnly]) },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: urlMappingOnly,
+      })
+    ).resolves.toEqual({ keyState: 'plugin-outdated' });
+  });
+
+  it('skips the save for an endpoint that is not http(s) or has a control character', async () => {
+    for (const endpoint of ['ftp://example.test', 'http://127.0.0.1:8001\n']) {
+      const { run, calls } = recordingRunner(happyReplies());
+      await expect(
+        installClaudeCodePlugin({ endpoint, apiKey: KEY, dryRun: false, runCommand: run })
+      ).resolves.toEqual({ keyState: 'not-saved' });
+      expect(calls.some((call) => call.input !== undefined)).toBe(false);
+    }
   });
 
   it('no key, default endpoint', async () => {
@@ -2492,7 +2610,7 @@ describe('claude plugin auto-install', () => {
       dryRun: false,
       runCommand: run,
     });
-    expect(calls.length).toBe(8);
+    expect(calls.length).toBe(9);
     for (const call of calls) {
       expect(call.timeoutMs, subcommand(call.args)).toBeGreaterThan(0);
     }
@@ -2504,6 +2622,7 @@ describe('claude plugin auto-install', () => {
     expect(timeoutOf('list')).toBe(30_000);
     expect(timeoutOf('marketplace add')).toBe(180_000);
     expect(timeoutOf('install')).toBe(180_000);
+    expect(timeoutOf('marketplace update')).toBe(180_000);
     expect(timeoutOf('update')).toBe(180_000);
   });
 
@@ -2512,20 +2631,26 @@ describe('claude plugin auto-install', () => {
     expect(claudeCodePluginOutcome('delivered', false)).toEqual({ ok: true, row: installed });
     expect(claudeCodePluginOutcome('not-needed', false)).toEqual({ ok: true, row: installed });
 
-    const stale = claudeCodePluginOutcome('stale-key', false);
-    expect(stale.row).toBe(installed);
-    expect(stale.ok).toBe(true);
-    expect(stale.failure?.nonBlocking).toBe(true);
-    expect(stale.failure?.hint).toBe(
-      'Claude Code: an API key from an earlier install is still saved for the AutoMem plugin, and this server needs none. To clear it, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.'
-    );
+    // stale-key is a note, never a failure: no follow-up, no exit code.
+    const staleNote =
+      'Claude Code still has an AutoMem API key saved by an earlier install and will keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
+    expect(claudeCodePluginOutcome('stale-key', false)).toEqual({
+      ok: true,
+      row: installed,
+      note: staleNote,
+    });
+    expect(claudeCodePluginOutcome('stale-key', true)).toEqual({
+      ok: false,
+      row: 'Claude Code plugin installed; tool pre-approval needs a manual step',
+      note: staleNote,
+    });
 
     const notSaved = claudeCodePluginOutcome('not-saved', false);
     expect(notSaved.ok).toBe(false);
     expect(notSaved.row).toBe('Claude Code plugin needs API key configuration');
     expect(notSaved.failure?.nonBlocking).toBeUndefined();
     expect(notSaved.failure?.hint).toBe(
-      'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_KEY before using Claude Code.'
+      'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.'
     );
 
     const outdated = claudeCodePluginOutcome('plugin-outdated', false);
@@ -2533,7 +2658,7 @@ describe('claude plugin auto-install', () => {
     expect(outdated.row).toBe('Claude Code plugin needs an update');
     expect(outdated.failure?.nonBlocking).toBeUndefined();
     expect(outdated.failure?.hint).toBe(
-      'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server. Run  claude plugin update automem@verygoodplugins-mcp-automem , restart Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.'
+      'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server, and updating it did not help. Export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code, then re-run the installer after the next AutoMem plugin release.'
     );
 
     // Pre-approval failed and nothing blocking: the pre-approval row, as before.
@@ -2702,10 +2827,12 @@ describe('claude plugin auto-install', () => {
     const action = plan.actions.find((a) => a.client === 'claude-code');
     expect(action?.kind).toBe('install-agent');
     expect(action?.detail).toContain('claude plugin install');
-    expect(action?.detail).toContain('save the endpoint and API key');
+    expect(action?.detail).toBe(
+      'Add the marketplace, install the plugin via `claude plugin install` (the MCP server, hooks, and skill come bundled and auto-update), save the endpoint and any API key in Claude Code, and pre-approve its memory tools.'
+    );
     expect(action?.detail).toMatch(/pre-approve its memory tools\.$/);
     const rendered = renderInstallPlan(plan);
-    expect(rendered).toContain('save the endpoint and API key');
+    expect(rendered).toContain('save the endpoint and any API key');
     expect(rendered).not.toContain(secret);
   });
 

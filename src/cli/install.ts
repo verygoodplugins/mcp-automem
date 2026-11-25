@@ -108,6 +108,8 @@ export const CLAUDE_CODE_PLUGIN_PERMISSIONS_HINT =
 // Identity for the `claude plugin …` CLI path (the supported, non-interactive way to
 // add the marketplace + install the plugin, distinct from the in-TUI slash commands).
 export const CLAUDE_CODE_MARKETPLACE_SOURCE = 'verygoodplugins/mcp-automem';
+// The name Claude Code gives the marketplace once added (`claude plugin marketplace list`).
+export const CLAUDE_CODE_MARKETPLACE_NAME = 'verygoodplugins-mcp-automem';
 export const CLAUDE_CODE_PLUGIN_REF = 'automem@verygoodplugins-mcp-automem';
 
 export function claudePluginMarketplaceAddArgs(): string[] {
@@ -306,6 +308,9 @@ export async function installClaudeCodePlugin(params: {
     const listPlugins = () =>
       readPluginPassesOptions(runCommand('claude', ['plugin', 'list', '--json'], quick));
     if (!listPlugins()) {
+      // Refresh the marketplace first so `plugin update` can see a newer
+      // version; its result does not matter, the second list decides.
+      runCommand('claude', ['plugin', 'marketplace', 'update', CLAUDE_CODE_MARKETPLACE_NAME], slow);
       runCommand('claude', ['plugin', 'update', CLAUDE_CODE_PLUGIN_REF], slow);
       if (!listPlugins()) return { keyState: 'plugin-outdated' };
     }
@@ -318,12 +323,14 @@ export async function installClaudeCodePlugin(params: {
 const CLAUDE_CODE_PLUGIN_INSTALLED_ROW = 'Claude Code plugin installed';
 const CLAUDE_CODE_PLUGIN_PRE_APPROVAL_ROW =
   'Claude Code plugin installed; tool pre-approval needs a manual step';
-export const CLAUDE_CODE_PLUGIN_STALE_KEY_HINT =
-  'Claude Code: an API key from an earlier install is still saved for the AutoMem plugin, and this server needs none. To clear it, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
+// A note, not a follow-up: the setup works, so it never counts as a manual step
+// or changes the exit code.
+export const CLAUDE_CODE_PLUGIN_STALE_KEY_NOTE =
+  'Claude Code still has an AutoMem API key saved by an earlier install and will keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
 export const CLAUDE_CODE_PLUGIN_KEY_NOT_SAVED_HINT =
-  'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_KEY before using Claude Code.';
+  'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.';
 export const CLAUDE_CODE_PLUGIN_OUTDATED_HINT =
-  'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server. Run  claude plugin update automem@verygoodplugins-mcp-automem , restart Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.';
+  'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server, and updating it did not help. Export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code, then re-run the installer after the next AutoMem plugin release.';
 
 /** Row text and optional follow-up for one install result. Pure; the apply loop only renders it. */
 export function claudeCodePluginOutcome(
@@ -333,6 +340,8 @@ export function claudeCodePluginOutcome(
   ok: boolean;
   row: string;
   failure?: { message: string; hint: string; nonBlocking?: true };
+  /** A plain line for the closing summary; never a follow-up. */
+  note?: string;
 } {
   // A blocking follow-up's row wins over the pre-approval row.
   if (keyState === 'not-saved') {
@@ -360,15 +369,7 @@ export function claudeCodePluginOutcome(
     ? CLAUDE_CODE_PLUGIN_PRE_APPROVAL_ROW
     : CLAUDE_CODE_PLUGIN_INSTALLED_ROW;
   if (keyState === 'stale-key') {
-    return {
-      ok: !preApprovalFailed,
-      row,
-      failure: {
-        message: 'Claude Code still holds an AutoMem API key from an earlier install.',
-        hint: CLAUDE_CODE_PLUGIN_STALE_KEY_HINT,
-        nonBlocking: true,
-      },
-    };
+    return { ok: !preApprovalFailed, row, note: CLAUDE_CODE_PLUGIN_STALE_KEY_NOTE };
   }
   return { ok: !preApprovalFailed, row };
 }
@@ -1383,7 +1384,7 @@ export function buildInstallPlan(params: {
             kind: 'install-agent',
             title: 'Install the Claude Code plugin (recommended)',
             detail:
-              'Add the marketplace, install the plugin via `claude plugin install` (the MCP server, hooks, and skill come bundled and auto-update), save the endpoint and API key in Claude Code, and pre-approve its memory tools.',
+              'Add the marketplace, install the plugin via `claude plugin install` (the MCP server, hooks, and skill come bundled and auto-update), save the endpoint and any API key in Claude Code, and pre-approve its memory tools.',
             client,
             paths: pluginPaths,
             showDetail: true,
@@ -2205,7 +2206,7 @@ function defaultRunCommand(
 // and tolerate "already installed". spawnSync (never execFileSync, whose errors
 // carry the output) without a shell. It never throws: a timeout, a spawn error, or
 // a child that exits without reading its stdin is exit code 1 with empty output.
-function defaultPluginCommand(
+export function defaultPluginCommand(
   command: string,
   args: string[],
   options: { input?: string; timeoutMs?: number } = {}
@@ -3357,6 +3358,9 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
       showPluginCommands?: boolean;
       nonBlocking?: boolean;
     }[] = [];
+    // Plain lines for the closing summary. Unlike agentFailures they are not
+    // manual steps: they never change the card title or the exit code.
+    const installNotes: string[] = [];
     try {
       list.start('verify');
       // Retry rather than single-shot: a just-provisioned cloud endpoint can still
@@ -3480,11 +3484,17 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
             if (outcome.failure) {
               agentFailures.push({ client, ...outcome.failure, showPluginCommands: false });
             }
+            if (outcome.note) installNotes.push(outcome.note);
           } catch (pluginErr) {
             list.fail(key, `${clientGlyph(client, theme)} Claude Code plugin needs a manual step`);
+            // Only InstallError messages are fixed text; anything else could
+            // carry command output, so it gets a fixed message instead.
             agentFailures.push({
               client,
-              message: pluginErr instanceof Error ? pluginErr.message : String(pluginErr),
+              message:
+                pluginErr instanceof InstallError
+                  ? pluginErr.message
+                  : "Couldn't install the Claude Code plugin.",
               showPluginCommands: true,
             });
           }
@@ -3589,6 +3599,7 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
     if (installedClients.includes('grok')) {
       nextSteps.push(`Grok Bot (optional): ${GROK_BOT_PLUGIN_STEP}`);
     }
+    nextSteps.push(...installNotes);
     if (agentFailures.length > 0) {
       // Count tools, not entries: one tool can carry two follow-ups.
       const failedToolCount = new Set(agentFailures.map((failure) => failure.client)).size;
