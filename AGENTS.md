@@ -123,6 +123,8 @@ Dependabot automation architecture and operations are documented in the
 # Guided installer: pick target (local/cloud/existing), verify endpoint, write .env,
 # and configure agents. Claude Code defaults to plugin mode: if `claude` is on PATH
 # the installer runs `claude plugin install`; otherwise it prints the /plugin commands.
+# After installing the plugin it saves the endpoint and key with `claude plugin configure --values-stdin` and
+# checks (`configure --json`, `plugin list --json`) that they reach the memory server.
 # `--target cloud` supports `--cloud-provider instapods|railway|other`: InstaPods is
 # browser + paste, Railway is guided through the `railway` CLI with browser/paste
 # fallback, and `other` is an existing endpoint/token. Cloud setup runs only during

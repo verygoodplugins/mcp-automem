@@ -18,8 +18,13 @@ When you enable the plugin, Claude Code prompts for:
 - **AutoMem API URL** — your service endpoint (e.g. `http://127.0.0.1:8001`
   or your Railway URL). Leave empty to use `AUTOMEM_API_URL` from your
   environment; falls back to `http://127.0.0.1:8001`.
-- **AutoMem API key** — only if your deployment requires auth. Stored in the
-  system keychain, never in `settings.json`.
+- **AutoMem API key** — only if your deployment requires auth. Claude Code
+  keeps it in its credential store (the macOS keychain, or
+  `~/.claude/.credentials.json` on Linux), never in `settings.json`.
+
+`AUTOMEM_API_URL` and `AUTOMEM_API_KEY` override the saved values, whether
+exported in your shell or set in the project's `.env`. To change the saved
+values later, run `claude plugin configure automem@verygoodplugins-mcp-automem`.
 
 ### Requirements
 

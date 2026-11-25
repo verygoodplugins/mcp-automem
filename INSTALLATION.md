@@ -84,9 +84,11 @@ recall probe when you supply a key), then offers to configure your agents
 (Codex, Claude Code, Cursor, OpenClaw, Hermes). For Claude Code it installs the
 **plugin** (bundles the MCP server + hooks and auto-updates); pass
 `--claude-code-mode settings` for the **settings-level** install instead. When the `claude` CLI is on your PATH, the installer
-runs `claude plugin install` for you and passes the verified endpoint as plugin
-config; API keys are not passed in process arguments, so configure the key through
-Claude Code's plugin UI or `AUTOMEM_API_KEY`. If `claude` is unavailable, it
+runs `claude plugin install` for you, then saves the verified endpoint and API key
+in Claude Code with `claude plugin configure` (the key goes in on stdin, never in
+process arguments). It then asks Claude Code whether the key was saved and whether
+the installed plugin passes both to its memory server, and reports a follow-up
+instead of success when either check fails. If `claude` is unavailable, it
 prints the two `/plugin` commands to run inside Claude Code. Every change is shown
 in a review plan before anything is written, and each modified file keeps a
 `<file>.bak` backup.
@@ -551,7 +553,15 @@ The recommended install is the **AutoMem plugin** — Claude Code handles instal
 When you enable the plugin, Claude Code prompts for:
 
 - **AutoMem API URL** — e.g. `http://127.0.0.1:8001` or your Railway URL. Leave empty to use `AUTOMEM_API_URL` from your environment; falls back to `http://127.0.0.1:8001`.
-- **AutoMem API key** — only if your deployment requires auth. Stored in the system keychain.
+- **AutoMem API key** — only if your deployment requires auth. Claude Code keeps it in its credential store: the macOS keychain, or `~/.claude/.credentials.json` on Linux.
+
+The guided installer does this step for you when `claude` is on your PATH: it saves the endpoint and key in Claude Code, then checks through Claude Code that the key was saved and that the installed plugin passes both to its memory server. If a check fails, the installer prints a follow-up instead of reporting success.
+
+`AUTOMEM_API_URL` and `AUTOMEM_API_KEY` override the saved values, whether exported in your shell or set in the project's `.env` (the memory server runs in the project folder and loads that file). When `AUTOMEM_API_URL` names a different server than the saved endpoint, the saved key is not sent to it. To change the saved values later, run:
+
+```bash
+claude plugin configure automem@verygoodplugins-mcp-automem
+```
 
 The plugin bundles the MCP server, silent integration hooks (SessionStart recall plus store tracking), and the memory-management skill plus `/memory-recall`, `/memory-store`, and `/memory-health` commands. It does not register a Stop hook by default, so normal sessions end without AutoMem feedback in the chat stream.
 
@@ -1738,6 +1748,8 @@ npx @verygoodplugins/mcp-automem@latest uninstall cursor --dry-run
 ```
 
 Cursor uninstall also removes the local plugin at `~/.cursor/plugins/local/automem`, but only when it is a real directory whose `.cursor-plugin/plugin.json` is named `automem`; a symlinked or foreign plugin folder is left alone. A malformed `hooks.json` or `mcp.json` stops the file-mode teardown but does not block removing the plugin. It preserves unrelated rules, hooks, and MCP servers. Its global MCP registration is shared across projects: removing it also disconnects AutoMem in other Cursor projects until setup is run again. `--clean-all` additionally checks supported legacy locations such as Claude Desktop; unrelated registrations remain untouched.
+
+`uninstall claude-code` leaves the Claude Code plugin in place, along with the endpoint and API key saved for it. To remove the plugin and its saved values, run `claude plugin uninstall automem@verygoodplugins-mcp-automem`.
 
 ### Help
 
