@@ -558,7 +558,7 @@ When you enable the plugin, Claude Code prompts for:
 
 The guided installer does this step for you when `claude` is on your PATH: it saves the endpoint and key in Claude Code, then checks through Claude Code that the key was saved and, when a key or a non-default endpoint has to reach the server, that the installed plugin passes both to its memory server. If a check fails, the installer prints a follow-up instead of reporting success.
 
-`AUTOMEM_API_URL` and `AUTOMEM_API_KEY` override the saved values, whether exported in your shell or set in the project's `.env` (the memory server runs in the project folder and loads that file). When `AUTOMEM_API_URL` names a different server than the saved endpoint, the saved key is not sent to it. To change the saved values later, run `/plugin configure automem@verygoodplugins-mcp-automem` inside Claude Code, or re-run the installer.
+`AUTOMEM_API_URL` and `AUTOMEM_API_KEY` override the saved values, whether exported in your shell or set in the project's `.env` (the memory server runs in the project folder and loads that file). When `AUTOMEM_API_URL` names a different server than the saved endpoint, the saved key is not sent to it. To change the saved values later, run `/plugin configure automem@verygoodplugins-mcp-automem` inside Claude Code, or re-run the installer. Re-running the installer without a key does not clear a saved key; `claude plugin uninstall automem@verygoodplugins-mcp-automem` removes it.
 
 The plugin bundles the MCP server, silent integration hooks (SessionStart recall plus store tracking), and the memory-management skill plus `/memory-recall`, `/memory-store`, and `/memory-health` commands. It does not register a Stop hook by default, so normal sessions end without AutoMem feedback in the chat stream.
 
@@ -1452,7 +1452,7 @@ AUTOMEM_API_URL=https://your-automem-instance.railway.app
 AUTOMEM_API_KEY=your_api_key_here
 ```
 
-> **Deprecated alias:** `AUTOMEM_ENDPOINT` is the previous name for this variable. It still works (the server falls back to it when `AUTOMEM_API_URL` is unset), but new configurations should use `AUTOMEM_API_URL`.
+> **Deprecated alias:** `AUTOMEM_ENDPOINT` is the previous name for this variable. It still works (the server falls back to it only when neither `AUTOMEM_API_URL` nor a saved plugin API URL is set), but new configurations should use `AUTOMEM_API_URL`.
 
 **Note**: Do not use shared/public AutoMem URLs. Deploy your own instance for production use.
 

@@ -28,7 +28,9 @@ exported in your shell or set in the project's `.env`. When `AUTOMEM_API_URL`
 names a different server than the saved endpoint, the saved key is not sent to
 it. To change the saved values later, run
 `/plugin configure automem@verygoodplugins-mcp-automem` inside Claude Code, or
-re-run the installer.
+re-run the installer. Re-running the installer without a key does not clear a
+saved key; `claude plugin uninstall automem@verygoodplugins-mcp-automem`
+removes it.
 
 ### Requirements
 
