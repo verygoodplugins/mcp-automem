@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AUTOMEM_BARE_TAG_GUIDANCE,
   AUTOMEM_IMPORTANCE_GUIDANCE,
+  AUTOMEM_RECALL_FAILURE_GUIDANCE,
   renderClaudeCodeSessionStartPrompt,
 } from './memory-policy/shared.js';
 
@@ -51,6 +52,41 @@ describe('shipped memory policy consistency', () => {
     expect(text).toContain('User corrections: Preference, importance 0.9, confidence 0.95.');
     expect(text).not.toMatch(/\|\s*\*?\*?Insight\*?\*?\s*\|\s*0\.8\s*\|/);
     expect(text).not.toMatch(/\|\s*\*?\*?Pattern\*?\*?\s*\|\s*0\.7\s*\|/);
+  });
+
+  it('recall failure guidance covers asked-for recall, missing tools and a rejected key', () => {
+    // An explicit "what do you remember" must not be met with silence.
+    expect(AUTOMEM_RECALL_FAILURE_GUIDANCE).toContain(
+      'Empty recall: continue silently, unless the user asked what you remember.'
+    );
+    // A host where the tools never appeared gets guidance too.
+    expect(AUTOMEM_RECALL_FAILURE_GUIDANCE).toContain('If the AutoMem tools are missing');
+    // /health skips auth, so check_database_health can't diagnose a bad key.
+    expect(AUTOMEM_RECALL_FAILURE_GUIDANCE).toContain(
+      'for a rejected key, suggest checking AUTOMEM_API_KEY'
+    );
+    // Must survive the bash heredoc, the PowerShell here-string and JSON embedding.
+    expect(AUTOMEM_RECALL_FAILURE_GUIDANCE).not.toMatch(/[`$"'\\]/);
+  });
+
+  it.each([
+    'AGENTS.md',
+    'templates/claude-code/hooks/automem-session-start.sh',
+    'plugins/automem/scripts/session-start.sh',
+    'templates/copilot/scripts/automem-session-start.sh',
+    'templates/copilot/scripts/automem-session-start.ps1',
+    'templates/codex/memory-rules.md',
+    'templates/grok/memory-rules.md',
+    'templates/cursor/automem.mdc.template',
+    'plugins/automem/rules/automem.mdc',
+    'templates/cursor/session-start-context.md',
+    'plugins/automem/cursor/session-start.mjs',
+    'templates/CLAUDE_DESKTOP_INSTRUCTIONS.md',
+  ])('%s reports service errors and no longer hides them', (file) => {
+    const text = read(file);
+    expect(text).toContain(AUTOMEM_RECALL_FAILURE_GUIDANCE);
+    expect(text).not.toMatch(/do not mention the failure/i);
+    expect(text).not.toMatch(/continue the task normally/i);
   });
 
   it('live repository storage guidance follows the bare-tag policy', () => {

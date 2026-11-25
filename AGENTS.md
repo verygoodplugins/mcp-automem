@@ -123,6 +123,8 @@ Dependabot automation architecture and operations are documented in the
 # Guided installer: pick target (local/cloud/existing), verify endpoint, write .env,
 # and configure agents. Claude Code defaults to plugin mode: if `claude` is on PATH
 # the installer runs `claude plugin install`; otherwise it prints the /plugin commands.
+# After installing the plugin it saves the endpoint and key with `claude plugin configure --values-stdin` and
+# checks (`configure --json`, `plugin list --json`) that they reach the memory server.
 # `--target cloud` supports `--cloud-provider instapods|railway|other`: InstaPods is
 # browser + paste, Railway is guided through the `railway` CLI with browser/paste
 # fallback, and `other` is an existing endpoint/token. Cloud setup runs only during
@@ -239,7 +241,7 @@ The server exposes 6 tools to AI assistants. Several are mode-multiplexed — th
 
 Two install modes ship the same policy-generated behavior:
 
-- **Plugin (recommended for users):** the marketplace payload in `plugins/automem/` + the catalog at `.claude-plugin/marketplace.json`. Bundles the MCP server (plugin tool names are namespaced: `mcp__plugin_automem_memory__*`), two hooks via `hooks/hooks.json` (SessionStart recall + PostToolUse store tracker — the Stop nudge is not registered by the plugin), the memory-management skill, and slash commands. `userConfig` in `plugin.json` prompts for the API URL/key at enable time; Claude Code exports the answers as `CLAUDE_PLUGIN_OPTION_*` env vars, which the server resolves in `src/env.ts` (between `AUTOMEM_API_URL` and the deprecated `AUTOMEM_ENDPOINT` — never wire them through the plugin's `.mcp.json` env, see `tests/installer/plugin-mcp-config.test.ts`).
+- **Plugin (recommended for users):** the marketplace payload in `plugins/automem/` + the catalog at `.claude-plugin/marketplace.json`. Bundles the MCP server (plugin tool names are namespaced: `mcp__plugin_automem_memory__*`), two hooks via `hooks/hooks.json` (SessionStart recall + PostToolUse store tracker — the Stop nudge is not registered by the plugin), the memory-management skill, and slash commands. `userConfig` in `plugin.json` prompts for the API URL/key at enable time. Claude Code does not pass plugin options to a stdio MCP server by itself, so the plugin's `.mcp.json` maps them into the server's environment as `CLAUDE_PLUGIN_OPTION_API_URL` / `CLAUDE_PLUGIN_OPTION_API_KEY`, which the server resolves in `src/env.ts`. Unless `AUTOMEM_CONNECTION_FILE` is set (it is authoritative), URL precedence: `AUTOMEM_API_URL` (environment or project `.env`), then the plugin option, then the deprecated `AUTOMEM_ENDPOINT`, then the default. An environment key (`AUTOMEM_API_KEY`) always wins; when the plugin also has a saved URL, its key is sent only to that endpoint. Keep `AUTOMEM_*` names out of `.mcp.json`; see `tests/installer/plugin-mcp-config.test.ts`.
 - **CLI installer (settings-level alternative + migration path):** the `claude-code` command writes hook scripts into `~/.claude/hooks/` and merges hook registrations plus exactly the six `mcp__memory__*` permissions into `~/.claude/settings.json` — nothing else (no `Bash(*)` grants, env, or deny/ask blocks; re-runs strip the retired hook-era grants via `RETIRED_PERMISSIONS`). By default (`--profile silent`) it registers only SessionStart + PostToolUse; pass `--profile nudged` to also merge `settings.stop-nudge.json` and register the Stop storage-nudge hook.
 
 The hooks are built around LLM-judged storage — the model decides what is durable; hooks only prompt and observe, never write memories themselves. The default install registers two hooks; the Stop nudge is opt-in (see below):
@@ -616,6 +618,6 @@ Valid relation types for mcp__memory__associate_memories: RELATES_TO, LEADS_TO, 
 
 Recalled context is a prior, not ground truth. If a memory disagrees with the current repo state, the user's latest instruction, or a freshly read file - **current evidence wins**. Update or invalidate stale memory instead of acting on it.
 
-If recall fails or returns nothing, continue without memory and do not mention the failure to the user. Weave recalled context naturally.
+Empty recall: continue silently, unless the user asked what you remember. If the AutoMem tools are missing, or AutoMem is unreachable, times out, rejects the API key, or returns a server error, tell the user once per session in one line that names the cause, then continue without memory. For an unreachable service or a server error, suggest check_database_health; for a rejected key, suggest checking AUTOMEM_API_KEY. Weave recalled context naturally.
 
 <!-- END AUTOMEM CODEX RULES -->

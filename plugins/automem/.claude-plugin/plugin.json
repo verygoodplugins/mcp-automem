@@ -23,12 +23,12 @@
     "api_url": {
       "type": "string",
       "title": "AutoMem API URL",
-      "description": "Base URL of your AutoMem REST API (for example https://your-app.railway.app or http://127.0.0.1:8001), not the remote MCP /mcp URL. Leave empty to use AUTOMEM_API_URL/AUTOMEM_ENDPOINT from your environment; falls back to http://127.0.0.1:8001."
+      "description": "Base URL of your AutoMem REST API (for example https://your-app.railway.app or http://127.0.0.1:8001), not the remote MCP /mcp URL. AUTOMEM_API_URL in your environment or a project .env overrides the saved value. Leave empty to use your environment's setting, or http://127.0.0.1:8001."
     },
     "api_key": {
       "type": "string",
       "title": "AutoMem API key",
-      "description": "API key if your AutoMem deployment requires auth. Leave empty for unauthenticated local instances or to use AUTOMEM_API_KEY from your environment.",
+      "description": "API key if your AutoMem deployment requires auth. When an API URL is saved, the key is sent only to that URL. AUTOMEM_API_KEY in your environment or a project .env overrides the saved value. Leave empty for unauthenticated local instances.",
       "sensitive": true
     }
   }

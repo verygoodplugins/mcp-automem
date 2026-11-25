@@ -1,6 +1,9 @@
 import os from 'os';
 
-export const DEFAULT_AUTOMEM_API_URL = 'http://127.0.0.1:8001';
+import { DEFAULT_AUTOMEM_API_URL } from '../env.js';
+
+// One definition, in src/env.ts; re-exported for the installer modules.
+export { DEFAULT_AUTOMEM_API_URL };
 
 /**
  * The npx spec every launch command we write or print uses. It has to name a dist-tag:

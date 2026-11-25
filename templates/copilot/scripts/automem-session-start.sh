@@ -51,7 +51,7 @@ Notes:
 - Phase 2 uses ONE targeted query, not \`queries[]\` + \`auto_decompose\`. Sub-queries converge and dedup drops results; a single query built from the real nouns in the user's message wins empirically. Only switch to \`queries[]\` for genuinely multi-topic questions.
 - If the project slug collides with a common topic word, drop the Phase 2 tag gate and rely on semantic \`query\` alone.
 - Do not re-recall every turn. After turn 1, recall again only for topic shifts, new proper nouns, or active debugging.
-- If recall fails or returns nothing, continue without memory - do not mention the failure to the user.
+- Empty recall: continue silently, unless the user asked what you remember. If the AutoMem tools are missing, or AutoMem is unreachable, times out, rejects the API key, or returns a server error, tell the user once per session in one line that names the cause, then continue without memory. For an unreachable service or a server error, suggest check_database_health; for a rejected key, suggest checking AUTOMEM_API_KEY.
 - Do not make your first tool call for the user's task until both recall phases are processed.
 </automem_session_context>
 PROMPT_END

@@ -563,8 +563,8 @@ describe('resolveInheritedApiKey', () => {
     ).toBeUndefined();
   });
 
-  // Those variables are exported by Claude Code into the plugin's own MCP subprocess
-  // for src/index.ts to resolve. An installer that inherited the key never consulted
+  // The plugin's .mcp.json maps those variables into its own memory server for
+  // src/env.ts to resolve. An installer that inherited the key never consulted
   // the CLAUDE_PLUGIN_OPTION_API_URL it was issued against, so it could not pair it.
   it('ignores CLAUDE_PLUGIN_OPTION_* entirely', () => {
     expect(

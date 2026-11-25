@@ -141,4 +141,4 @@ Valid relation types for mcp__memory__associate_memories: RELATES_TO, LEADS_TO, 
 
 Recalled context is a prior, not ground truth. If a memory disagrees with the current repo state, the user's latest instruction, or a freshly read file - **current evidence wins**. Update or invalidate stale memory instead of acting on it.
 
-If recall fails or returns nothing, continue without memory and do not mention the failure to the user. Weave recalled context naturally.
+Empty recall: continue silently, unless the user asked what you remember. If the AutoMem tools are missing, or AutoMem is unreachable, times out, rejects the API key, or returns a server error, tell the user once per session in one line that names the cause, then continue without memory. For an unreachable service or a server error, suggest check_database_health; for a rejected key, suggest checking AUTOMEM_API_KEY. Weave recalled context naturally.

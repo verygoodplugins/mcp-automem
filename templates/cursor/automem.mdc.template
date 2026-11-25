@@ -147,12 +147,12 @@ Valid relation types for {{MCP_TOOL_PREFIX}}associate_memories: RELATES_TO, LEAD
 
 Recalled context is a prior, not ground truth. If a memory disagrees with the current repo state, the user's latest instruction, or a freshly read file - **current evidence wins**. Update or invalidate stale memory instead of acting on it.
 
-If recall fails or returns nothing, continue without memory and do not mention the failure to the user. Weave recalled context naturally.
+Empty recall: continue silently, unless the user asked what you remember. If the AutoMem tools are missing, or AutoMem is unreachable, times out, rejects the API key, or returns a server error, tell the user once per session in one line that names the cause, then continue without memory. For an unreachable service or a server error, suggest check_database_health; for a rejected key, suggest checking AUTOMEM_API_KEY. Weave recalled context naturally.
 
 ## Error Handling
 
-- Recall fails or stays empty after retries: continue without historical context.
+- Recall stays empty after retries: continue without historical context.
 - Store fails: complete the task normally. Memory is enhancement, not requirement.
-- Service unavailable: focus on solving the immediate problem.
+- Service unreachable or API key rejected: report it once as described above, then focus on the immediate problem.
 
 Memory is your persistent brain across sessions. Use it strategically - 200 sharp memories beat 2000 fuzzy ones.

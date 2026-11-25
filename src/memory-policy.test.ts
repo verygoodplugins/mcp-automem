@@ -8,6 +8,7 @@ import {
   AUTOMEM_POLICY_DEFAULTS,
   AUTOMEM_POLICY_PROFILES,
   AUTOMEM_PROVIDER_EXPLICIT_RECALL_LIMIT,
+  AUTOMEM_RECALL_FAILURE_GUIDANCE,
   AUTOMEM_STOP_NUDGE_MIN_HUMAN_TURNS,
   looksLikeExplicitRecallPrompt,
   renderClaudeDesktopInstructions,
@@ -179,7 +180,7 @@ describe('shared AutoMem memory policy', () => {
       - If the project slug collides with a common topic word (for example \`video\` or \`test\`), drop the Phase 2 tag gate and rely on semantic \`query\` alone.
       - Results show created/updated timestamps and importance - prefer fresh, high-importance memories. Fetch a single full record with recall_memory({ memory_id: "<id>" }) when needed.
       - Do not re-recall every turn. After turn 1, recall again only for topic shifts, new proper nouns, or active debugging.
-      - If recall fails or returns nothing, continue without memory - do not mention the failure to the user.
+      - ${AUTOMEM_RECALL_FAILURE_GUIDANCE}
       </automem_session_context>"
     `);
   });
@@ -248,6 +249,13 @@ describe('shared AutoMem memory policy', () => {
       normalize(renderClaudeCodeSessionStartPrompt('$PROJECT'))
     );
     expect(hookContents).toBe(renderClaudeCodeSessionStartHook());
+  });
+
+  // The same hook ships in settings mode (mcp__memory__*) and in the plugin
+  // (mcp__plugin_automem_memory__*), so it must name tools host-neutrally.
+  it('Claude Code session-start hook uses host-neutral tool names', () => {
+    expect(renderClaudeCodeSessionStartHook()).toContain('recall_memory({');
+    expect(renderClaudeCodeSessionStartHook()).not.toContain('mcp__');
   });
 
   it('embeds the storage-nudge prompt as JSON with the required hookEventName field', () => {

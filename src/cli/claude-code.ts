@@ -143,6 +143,33 @@ export const RETIRED_PERMISSIONS: ReadonlyArray<string> = [
   'Bash(jq:*)',
 ];
 
+// The six allow rules settings mode installs, in the order
+// templates/claude-code/settings.json lists them (the template stays the
+// source of truth; a test pins the two together). Shared with uninstall so
+// the lists cannot drift.
+export const CLAUDE_CODE_MCP_PERMISSIONS: ReadonlyArray<string> = [
+  'mcp__memory__store_memory',
+  'mcp__memory__recall_memory',
+  'mcp__memory__associate_memories',
+  'mcp__memory__update_memory',
+  'mcp__memory__delete_memory',
+  'mcp__memory__check_database_health',
+];
+
+// Claude Code namespaces plugin MCP tools as mcp__plugin_<plugin>_<server>__.
+export const CLAUDE_CODE_PLUGIN_TOOL_PREFIX = 'mcp__plugin_automem_memory__';
+
+// Allow rules plugin mode writes so a new user's first session doesn't open
+// with a permission prompt per memory call. delete_memory is deliberately
+// absent: a destructive call keeps its prompt.
+export const CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS: ReadonlyArray<string> = [
+  'store_memory',
+  'recall_memory',
+  'associate_memories',
+  'update_memory',
+  'check_database_health',
+].map((tool) => `${CLAUDE_CODE_PLUGIN_TOOL_PREFIX}${tool}`);
+
 // Exact historical template spellings (normalized before comparison). A hook
 // command is rewritten to the current template spelling ONLY when it matches
 // one of these — a user-customized command (different flags, paths) never
@@ -651,6 +678,94 @@ function mergeSettingsFile(targetDir: string, options: ClaudeCodeSetupOptions) {
   log('updated settings.json (merged MCP permissions)', options.quiet);
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function isSymlink(filePath: string): boolean {
+  try {
+    return fs.lstatSync(filePath).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+// Plugin mode: pre-approve the plugin's memory tools with allow rules in
+// <targetDir>/settings.json. Add-only: it appends the missing plugin rules to
+// permissions.allow and changes nothing else. It deliberately skips
+// mergeSettings, which strips RETIRED_PERMISSIONS — plugin mode never granted
+// those, so they may be the user's own. It also never writes the settings-mode
+// hooks (mergeSettingsFile / applyClaudeCodeSetup): the plugin bundles its
+// own, and installing both would fire SessionStart twice.
+export function applyClaudeCodePluginPermissions(
+  options: { targetDir?: string; dryRun?: boolean; quiet?: boolean } = {}
+): { settingsPath: string; changed: boolean } {
+  const targetDir = options.targetDir ?? path.join(os.homedir(), '.claude');
+  const settingsPath = path.join(targetDir, 'settings.json');
+
+  let current: Record<string, unknown> = {};
+  const exists = fs.existsSync(settingsPath);
+  // A dangling symlink (e.g. into a not-yet-built Nix/home-manager store)
+  // reads as missing; writing through it would create its target behind the
+  // user's back.
+  if (!exists && isSymlink(settingsPath)) {
+    throw new Error(`settings.json at ${settingsPath} is a symlink to a missing file`);
+  }
+  if (exists) {
+    const raw = fs.readFileSync(settingsPath, 'utf8');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Path only, and no `cause`: V8's SyntaxError quotes the file's text,
+      // and settings.json env blocks often hold tokens.
+      throw new Error(`Cannot parse existing settings.json at ${settingsPath}`);
+    }
+    if (!isPlainObject(parsed)) {
+      throw new Error(`Existing settings.json at ${settingsPath} is not a JSON object`);
+    }
+    current = parsed;
+  }
+
+  // Refuse shapes we can't extend without clobbering something.
+  const permissions = current.permissions ?? {};
+  if (!isPlainObject(permissions)) {
+    throw new Error(`"permissions" in ${settingsPath} is not a JSON object`);
+  }
+  const existingAllow = permissions.allow ?? [];
+  if (!Array.isArray(existingAllow)) {
+    throw new Error(`"permissions.allow" in ${settingsPath} is not a JSON array`);
+  }
+
+  // Existing entries keep their order; missing plugin rules go on the end.
+  // Comparing counts (not bytes) matters: `claude plugin install` rewrites this
+  // file in its own formatting right after the installer runs, and a re-run
+  // must not churn it (or leave another backup) when the rules are present.
+  const allow = mergeUniqueStrings([...existingAllow], [...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS]);
+  if (exists && allow.length === existingAllow.length) {
+    log('settings.json already pre-approves the AutoMem plugin tools', options.quiet);
+    return { settingsPath, changed: false };
+  }
+  const merged = { ...current, permissions: { ...permissions, allow } };
+
+  // writeFileWithBackup copies the file before writing; on a read-only file
+  // (or a symlink into a read-only store) the write then fails and every
+  // re-run would strand another full copy. Check first. No temp-file-plus-
+  // rename here: that would replace a symlink with a regular file.
+  if (exists && !options.dryRun) {
+    try {
+      fs.accessSync(settingsPath, fs.constants.W_OK);
+    } catch {
+      throw new Error(`settings.json at ${settingsPath} is not writable`);
+    }
+  }
+  writeFileWithBackup(settingsPath, `${JSON.stringify(merged, null, 2)}\n`, options);
+  if (options.dryRun) {
+    return { settingsPath, changed: false };
+  }
+  log('pre-approved AutoMem plugin tools in settings.json', options.quiet);
+  return { settingsPath, changed: true };
+}
+
 function parseClaudeArgs(args: string[]): ClaudeCodeSetupOptions {
   const options: ClaudeCodeSetupOptions = {};
   for (let i = 0; i < args.length; i += 1) {
@@ -721,11 +836,7 @@ export async function applyClaudeCodeSetup(cliOptions: ClaudeCodeSetupOptions): 
   log('', options.quiet);
   log('Next steps:', options.quiet);
   log('1. Add MCP server to ~/.claude.json (see INSTALLATION.md)', options.quiet);
-  log(
-    '2. Add memory rules: cat templates/CLAUDE_MD_MEMORY_RULES.md >> ~/.claude/CLAUDE.md',
-    options.quiet
-  );
-  log('3. Restart Claude Code', options.quiet);
+  log('2. Restart Claude Code', options.quiet);
   log('', options.quiet);
   log(
     'Tip: the AutoMem plugin is the recommended install for Claude Code — it bundles the MCP server and these hooks, prompts for your endpoint, and auto-updates:',

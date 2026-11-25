@@ -18,7 +18,7 @@ canonical `templates/`. Two things changed since:
    policy source (`src/memory-policy/shared.ts`) and cannot diverge.
 2. The Claude Code plugin system matured into the ecosystem-standard
    distribution channel: enable-time configuration prompts (`userConfig`,
-   with keychain storage for secrets), automatic updates through the
+   with secrets kept in Claude Code's credential store), automatic updates through the
    marketplace, and atomic uninstall. The CLI installer, by contrast, mutates
    user-owned `~/.claude/settings.json` and has needed several rounds of
    migration machinery to clean up after its own history.

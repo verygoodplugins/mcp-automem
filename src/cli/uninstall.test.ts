@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { removeManagedHookEntries } from './claude-code.js';
+import { CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS, removeManagedHookEntries } from './claude-code.js';
 import { applyCursorSetup } from './cursor.js';
 import { applyCodexSetup } from './codex.js';
 import { cursorLocalPluginDir, installCursorPlugin } from './cursor-plugin.js';
@@ -501,6 +501,31 @@ describe('uninstall claude-code', () => {
     expect(backups).toHaveLength(1);
   });
 
+  it('uninstall claude-code removes plugin allow rules and keeps unrelated ones', async () => {
+    fs.writeFileSync(
+      settingsPath(),
+      JSON.stringify(
+        {
+          permissions: {
+            allow: [
+              ...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS,
+              'mcp__plugin_other_x__tool',
+              'mcp__memory__recall_memory',
+              'Bash(ls:*)',
+            ],
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    await runUninstall({ platform: 'claude-code', yes: true, quiet: true });
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    expect(settings.permissions.allow).toEqual(['mcp__plugin_other_x__tool', 'Bash(ls:*)']);
+  });
+
   it('removes AutoMem-owned hook and script files, keeps foreign files', async () => {
     writeInstalledSettings();
     seedInstalledFiles();
@@ -518,6 +543,30 @@ describe('uninstall claude-code', () => {
         `${rel} must survive uninstall`
       ).toBe(true);
     }
+  });
+
+  it('says the Claude Code plugin and its saved endpoint and key stay, and how to remove them', async () => {
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((message?: unknown) => {
+      logs.push(String(message));
+    });
+
+    await runUninstall({ platform: 'claude-code', yes: true });
+    const printed = logs.join('\n');
+    expect(printed).toContain(
+      'Note: if you installed the Claude Code plugin, it and any endpoint and API key saved for it are left in place. To remove them, run:'
+    );
+    expect(printed).toContain('claude plugin uninstall automem@verygoodplugins-mcp-automem');
+
+    logs.length = 0;
+    await runUninstall({ platform: 'claude-code', yes: true, cleanAll: true });
+    expect(logs.join('\n')).toContain(
+      'claude plugin uninstall automem@verygoodplugins-mcp-automem'
+    );
+
+    logs.length = 0;
+    await runUninstall({ platform: 'claude-code', yes: true, dryRun: true });
+    expect(logs.join('\n')).not.toContain('claude plugin uninstall');
   });
 
   it('honors dry-run without changing settings.json or removing files', async () => {

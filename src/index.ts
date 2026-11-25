@@ -22,8 +22,10 @@ import { AUTOMEM_NPX_COMMAND } from './cli/templates.js';
 import { AutoMemClient } from './automem-client.js';
 import { parseWatchdogIntervalMs, startParentWatchdog } from './lifecycle.js';
 import {
-  readAutoMemApiKeyFromEnv,
+  isLegacyEndpointShadowedByPlugin,
+  isPluginApiKeyWithheld,
   readAutoMemConnectionFile,
+  resolveAutoMemApiKey,
   resolveAutoMemApiUrl,
 } from './env.js';
 import { createAutoMemMcpServer } from './mcp-surface.js';
@@ -409,8 +411,9 @@ if (command === 'queue') {
 }
 
 if (command === 'recall') {
-  const AUTOMEM_API_URL = resolveAutoMemApiUrl().url;
-  const AUTOMEM_API_KEY = readAutoMemApiKeyFromEnv();
+  const resolvedUrl = resolveAutoMemApiUrl();
+  const AUTOMEM_API_URL = resolvedUrl.url;
+  const AUTOMEM_API_KEY = resolveAutoMemApiKey(process.env, resolvedUrl);
 
   const client = new AutoMemClient({
     endpoint: AUTOMEM_API_URL,
@@ -463,7 +466,20 @@ const { url: AUTOMEM_API_URL, source: automemApiUrlSource } = localConnection
   : resolveAutoMemApiUrl();
 // A configured file is authoritative, including a deliberately empty key; never
 // fall through to a shell or project credential belonging to another endpoint.
-const AUTOMEM_API_KEY = localConnection ? localConnection.apiKey : readAutoMemApiKeyFromEnv();
+// Without one, a plugin key saved with a URL is sent only to that endpoint.
+const AUTOMEM_API_KEY = localConnection ? localConnection.apiKey : resolveAutoMemApiKey();
+// Say once why a saved plugin key is not sent, or why a legacy AUTOMEM_ENDPOINT
+// is not used (no URL, no key in the text).
+if (!localConnection && isPluginApiKeyWithheld()) {
+  console.warn(
+    "⚠️  AUTOMEM_API_URL names a different server than the AutoMem plugin's saved API URL, so the plugin's saved API key is not sent. Set AUTOMEM_API_KEY, or make the two URLs match."
+  );
+}
+if (!localConnection && isLegacyEndpointShadowedByPlugin()) {
+  console.warn(
+    '⚠️  AUTOMEM_ENDPOINT is ignored because the AutoMem plugin has a saved API URL. Rename it to AUTOMEM_API_URL, or re-run the installer.'
+  );
+}
 
 if (automemApiUrlSource === 'default') {
   if (isInteractiveTerminal()) {

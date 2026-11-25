@@ -9,12 +9,17 @@ import {
   InstallError,
   LocalDockerPortConflict,
   buildInstallPlan,
+  clientsWithBlockingFailures,
   defaultInstallTarget,
   ensureDockerInstalled,
   ensureDockerRunning,
   pinLocalInstallOptions,
+  claudeCodePluginOutcome,
+  claudePluginConfigureArgs,
   claudePluginInstallArgs,
   claudePluginMarketplaceAddArgs,
+  claudePluginOptionsInput,
+  defaultPluginCommand,
   detectInstallEnvironment,
   formatEnvValue,
   formatInstallError,
@@ -809,7 +814,7 @@ describe('guided install helpers', () => {
     );
   });
 
-  it('plans Claude Code as a plugin manual step when claude is not on PATH (no settings write)', () => {
+  it('plans Claude Code as a plugin manual step when claude is not on PATH', () => {
     const homeDir = '/Users/tester';
     const cwd = '/repo/project';
     const plan = buildInstallPlan({
@@ -835,8 +840,9 @@ describe('guided install helpers', () => {
 
     const claudeAction = plan.actions.find((action) => action.client === 'claude-code');
     expect(claudeAction?.kind).toBe('manual-step');
-    // Plugin mode must NOT promise any ~/.claude file writes.
-    expect(claudeAction?.paths).toEqual([]);
+    // Plugin mode writes only the allow rules that pre-approve the plugin's
+    // memory tools — no hooks or scripts under ~/.claude.
+    expect(claudeAction?.paths).toEqual([path.join(homeDir, '.claude', 'settings.json')]);
     expect(claudeAction?.commands).toEqual([
       '/plugin marketplace add verygoodplugins/mcp-automem',
       '/plugin install automem@verygoodplugins-mcp-automem',
@@ -2059,6 +2065,45 @@ describe('guided install helpers', () => {
   });
 });
 
+describe('defaultPluginCommand', () => {
+  it('forwards input on stdin and returns the output', () => {
+    const result = defaultPluginCommand(
+      process.execPath,
+      ['-e', 'process.stdin.pipe(process.stdout)'],
+      { input: '{"api_url":"http://x"}\n', timeoutMs: 10_000 }
+    );
+    expect(result).toEqual({ code: 0, stdout: '{"api_url":"http://x"}\n', stderr: '' });
+  });
+
+  it('reports a child that outlives its time limit as exit 1 with no output', () => {
+    const result = defaultPluginCommand(
+      process.execPath,
+      ['-e', 'console.log("started"); setTimeout(() => {}, 10_000)'],
+      { timeoutMs: 300 }
+    );
+    expect(result).toEqual({ code: 1, stdout: '', stderr: '' });
+  });
+
+  it('reports a command that does not exist as exit 1, without throwing', () => {
+    let result: ReturnType<typeof defaultPluginCommand> | undefined;
+    expect(() => {
+      result = defaultPluginCommand('automem-no-such-command-xyz', ['plugin', 'list'], {
+        timeoutMs: 5_000,
+      });
+    }).not.toThrow();
+    expect(result).toEqual({ code: 1, stdout: '', stderr: '' });
+  });
+
+  it('keeps a non-zero exit code and its output', () => {
+    const result = defaultPluginCommand(
+      process.execPath,
+      ['-e', 'process.stderr.write("nope"); process.exit(3)'],
+      { timeoutMs: 10_000 }
+    );
+    expect(result).toEqual({ code: 3, stdout: '', stderr: 'nope' });
+  });
+});
+
 describe('claude plugin auto-install', () => {
   it('builds marketplace-add args for the AutoMem GitHub source', () => {
     expect(claudePluginMarketplaceAddArgs()).toEqual([
@@ -2079,94 +2124,466 @@ describe('claude plugin auto-install', () => {
       '--config',
       'api_url=http://127.0.0.1:8001',
     ]);
-    expect(claudePluginInstallArgs({ endpoint: 'https://x.example', apiKey: 'sk-1' })).toEqual([
-      'plugin',
-      'install',
-      'automem@verygoodplugins-mcp-automem',
-      '--scope',
-      'user',
-      '--config',
-      'api_url=https://x.example',
-    ]);
   });
 
+  it('builds the configure args and a one-line options payload', () => {
+    expect(claudePluginConfigureArgs()).toEqual([
+      'plugin',
+      'configure',
+      'automem@verygoodplugins-mcp-automem',
+      '--values-stdin',
+    ]);
+    const withKey = claudePluginOptionsInput({ endpoint: 'https://x.example', apiKey: 'sk-1' });
+    expect(withKey.trimEnd().includes('\n')).toBe(false);
+    expect(JSON.parse(withKey)).toEqual({ api_url: 'https://x.example', api_key: 'sk-1' });
+    expect(JSON.parse(claudePluginOptionsInput({ endpoint: 'https://x.example' }))).toEqual({
+      api_url: 'https://x.example',
+    });
+  });
+
+  // ---- `claude plugin …` fakes that print the real output shapes ----------
+
+  const REF = 'automem@verygoodplugins-mcp-automem';
+  const KEY = 'sk-test-secret-123';
+  const PLUGIN_ENV = {
+    CLAUDE_PLUGIN_OPTION_API_URL: '${user_config.api_url}',
+    CLAUDE_PLUGIN_OPTION_API_KEY: '${user_config.api_key}',
+  };
+
+  function configureJson(configured: string[], unconfigured: string[]): string {
+    return JSON.stringify({
+      pluginId: REF,
+      displayName: 'AutoMem',
+      schema: {
+        api_url: { type: 'string', title: 'AutoMem API URL' },
+        api_key: { type: 'string', title: 'AutoMem API key', sensitive: true },
+      },
+      inputs: { api_url: 'http://127.0.0.1:8001', api_key: '' },
+      choices: {},
+      configured,
+      unconfigured,
+    });
+  }
+
+  function pluginListJson(withEnv: boolean): string {
+    return JSON.stringify([
+      {
+        id: REF,
+        version: '0.19.3',
+        scope: 'user',
+        enabled: true,
+        installPath: '/home/u/.claude/plugins/cache/verygoodplugins-mcp-automem/automem/0.19.3',
+        installedAt: '2026-11-23T10:00:00.000Z',
+        lastUpdated: '2026-11-23T10:00:00.000Z',
+        mcpServers: {
+          memory: {
+            command: 'npx',
+            args: ['-y', '@verygoodplugins/mcp-automem@latest'],
+            ...(withEnv ? { env: PLUGIN_ENV } : {}),
+          },
+        },
+        projectEnabled: false,
+        hasUserConfig: true,
+      },
+    ]);
+  }
+
+  type Reply = { code: number; stdout?: string; stderr?: string };
+  type Call = { args: string[]; input?: string; timeoutMs?: number };
+
+  /** Subcommand key: `marketplace list`, `configure --values-stdin`, `configure --json`, … */
+  function subcommand(args: string[]): string {
+    if (args[1] === 'marketplace') return `marketplace ${args[2]}`;
+    if (args[1] === 'configure') return `configure ${args[3]}`;
+    if (args[1] === 'list') return 'list';
+    return args[1];
+  }
+
+  /** A healthy Claude Code: marketplace absent, plugin with the env block, key saved. */
+  function happyReplies(): Record<string, Reply | ((call: Call) => Reply)> {
+    return {
+      'marketplace list': { code: 0, stdout: 'No marketplaces configured\n' },
+      'marketplace add': {
+        code: 0,
+        stdout: 'Successfully added marketplace: verygoodplugins-mcp-automem\n',
+      },
+      install: { code: 0, stdout: `Successfully installed plugin: ${REF} (scope: user)\n` },
+      'configure --values-stdin': {
+        code: 0,
+        stdout: 'Configuration saved. Restart Claude Code to apply it.\n',
+      },
+      'configure --json': { code: 0, stdout: configureJson(['api_url', 'api_key'], []) },
+      list: { code: 0, stdout: pluginListJson(true) },
+      'marketplace update': {
+        code: 0,
+        stdout: '✔ Successfully updated marketplace: verygoodplugins-mcp-automem\n',
+      },
+      update: { code: 0, stdout: 'automem is already at the latest version (0.19.3).\n' },
+    };
+  }
+
   function recordingRunner(
-    responder: (args: string[]) => { code: number; stdout?: string; stderr?: string }
+    replies: Record<string, Reply | ((call: Call) => Reply)> | ((call: Call) => Reply)
   ) {
-    const calls: string[][] = [];
-    const run = (_cmd: string, args: string[]) => {
-      calls.push(args);
-      const r = responder(args);
-      return { code: r.code, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+    const calls: Call[] = [];
+    const run = (
+      _cmd: string,
+      args: string[],
+      options?: { input?: string; timeoutMs?: number }
+    ) => {
+      const call: Call = { args, input: options?.input, timeoutMs: options?.timeoutMs };
+      calls.push(call);
+      let reply: Reply;
+      if (typeof replies === 'function') {
+        reply = replies(call);
+      } else {
+        const entry = replies[subcommand(args)];
+        reply = typeof entry === 'function' ? entry(call) : (entry ?? { code: 1 });
+      }
+      return { code: reply.code, stdout: reply.stdout ?? '', stderr: reply.stderr ?? '' };
     };
     return { run, calls };
   }
 
-  it('adds the marketplace then installs without leaking api_key in argv', async () => {
-    const { run, calls } = recordingRunner((args) => {
-      if (args[1] === 'marketplace' && args[2] === 'list') return { code: 0, stdout: '' };
-      return { code: 0 };
-    });
+  const order = (calls: Call[]) => calls.map((call) => subcommand(call.args));
+
+  it('saves the key on stdin and never in argv', async () => {
+    const { run, calls } = recordingRunner(happyReplies());
     const result = await installClaudeCodePlugin({
       endpoint: 'http://127.0.0.1:8001',
-      apiKey: 'sk-1',
+      apiKey: KEY,
       dryRun: false,
       runCommand: run,
     });
-    expect(result).toEqual({ needsManualApiKey: true });
-    expect(calls).toEqual([
-      ['plugin', 'marketplace', 'list'],
-      ['plugin', 'marketplace', 'add', 'verygoodplugins/mcp-automem'],
-      [
-        'plugin',
-        'install',
-        'automem@verygoodplugins-mcp-automem',
-        '--scope',
-        'user',
-        '--config',
-        'api_url=http://127.0.0.1:8001',
-      ],
+    expect(result).toEqual({ keyState: 'delivered' });
+    for (const call of calls) expect(call.args.join(' ')).not.toContain(KEY);
+    const withInput = calls.filter((call) => call.input !== undefined);
+    expect(withInput).toHaveLength(1);
+    expect(withInput[0].args).toEqual(claudePluginConfigureArgs());
+    expect(JSON.parse(withInput[0].input!)).toEqual({
+      api_url: 'http://127.0.0.1:8001',
+      api_key: KEY,
+    });
+    expect(order(calls)).toEqual([
+      'marketplace list',
+      'marketplace add',
+      'install',
+      'configure --values-stdin',
+      'configure --json',
+      'list',
+    ]);
+    expect(calls[2].args).toEqual(claudePluginInstallArgs({ endpoint: 'http://127.0.0.1:8001' }));
+  });
+
+  it('sends a key with quotes and a backslash as valid JSON', async () => {
+    const tricky = 'k"ey\\with "quotes" and \\ slashes';
+    const { run, calls } = recordingRunner(happyReplies());
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: tricky,
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'delivered' });
+    const save = calls.find((call) => call.input !== undefined)!;
+    expect(JSON.parse(save.input!).api_key).toBe(tricky);
+  });
+
+  it('reads back that the key is saved before trusting it', async () => {
+    const { run } = recordingRunner({
+      ...happyReplies(),
+      'configure --json': { code: 0, stdout: configureJson(['api_url'], ['api_key']) },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'not-saved' });
+  });
+
+  it('reports a Claude Code that rejects --values-stdin', async () => {
+    const rejection = "error: unknown option '--values-stdin'";
+    const { run } = recordingRunner({
+      ...happyReplies(),
+      'configure --values-stdin': { code: 1, stderr: `${rejection}\n` },
+      'configure --json': { code: 0, stdout: configureJson(['api_url'], ['api_key']) },
+    });
+    let result: unknown;
+    let thrown: unknown;
+    try {
+      result = await installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: run,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeUndefined();
+    expect(result).toEqual({ keyState: 'not-saved' });
+    expect(JSON.stringify(result)).not.toContain('unknown option');
+    const outcome = claudeCodePluginOutcome('not-saved', false, true);
+    expect(JSON.stringify(outcome)).not.toContain('unknown option');
+  });
+
+  it('fails closed on output it cannot parse', async () => {
+    const prose = 'Here is your configuration, friend.\n';
+    const { run: unreadableConfig } = recordingRunner({
+      ...happyReplies(),
+      'configure --json': { code: 0, stdout: prose },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: unreadableConfig,
+      })
+    ).resolves.toEqual({ keyState: 'not-saved' });
+
+    const { run: unreadableList } = recordingRunner({
+      ...happyReplies(),
+      list: { code: 0, stdout: prose },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: unreadableList,
+      })
+    ).resolves.toEqual({ keyState: 'plugin-outdated' });
+  });
+
+  it('updates an installed plugin that does not pass options, then checks again', async () => {
+    let updated = false;
+    const { run, calls } = recordingRunner({
+      ...happyReplies(),
+      list: () => ({ code: 0, stdout: pluginListJson(updated) }),
+      update: () => {
+        updated = true;
+        return {
+          code: 0,
+          stdout:
+            'Plugin "automem" updated from 0.19.3 to 0.20.0 for scope user. Restart to apply changes.\n',
+        };
+      },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'delivered' });
+    expect(order(calls)).toEqual([
+      'marketplace list',
+      'marketplace add',
+      'install',
+      'configure --values-stdin',
+      'configure --json',
+      'list',
+      'marketplace update',
+      'update',
+      'list',
+    ]);
+    expect(calls.find((call) => call.args[2] === 'update')!.args).toEqual([
+      'plugin',
+      'marketplace',
+      'update',
+      'verygoodplugins-mcp-automem',
+    ]);
+    expect(calls.find((call) => call.args[1] === 'update')!.args).toEqual([
+      'plugin',
+      'update',
+      REF,
     ]);
   });
 
-  it('skips marketplace add when the marketplace is already registered', async () => {
-    const { run, calls } = recordingRunner((args) => {
-      if (args[1] === 'marketplace' && args[2] === 'list') {
-        return { code: 0, stdout: 'verygoodplugins-mcp-automem  github  ...' };
+  it('reports a plugin that still does not pass options after the update', async () => {
+    const { run, calls } = recordingRunner({
+      ...happyReplies(),
+      list: { code: 0, stdout: pluginListJson(false) },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'plugin-outdated' });
+    expect(calls.filter((call) => call.args[1] === 'update')).toHaveLength(1);
+    expect(order(calls).slice(-4)).toEqual(['list', 'marketplace update', 'update', 'list']);
+  });
+
+  it('pins the save exit code: a failed save is not-saved even if a key was saved earlier', async () => {
+    const { run } = recordingRunner({
+      ...happyReplies(),
+      'configure --values-stdin': { code: 1, stderr: 'Error: something went wrong\n' },
+      'configure --json': { code: 0, stdout: configureJson(['api_url', 'api_key'], []) },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'not-saved' });
+  });
+
+  it('looks only at the automem entry of plugin list --json', async () => {
+    const otherPlugin = {
+      id: 'other@somewhere',
+      version: '1.0.0',
+      scope: 'user',
+      enabled: true,
+      mcpServers: { memory: { command: 'npx', args: ['other'], env: PLUGIN_ENV } },
+    };
+    const automemWithout = JSON.parse(pluginListJson(false))[0];
+    const { run: otherFirst } = recordingRunner({
+      ...happyReplies(),
+      list: { code: 0, stdout: JSON.stringify([otherPlugin, automemWithout]) },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: otherFirst,
+      })
+    ).resolves.toEqual({ keyState: 'plugin-outdated' });
+
+    const urlOnly = JSON.parse(pluginListJson(false))[0];
+    urlOnly.mcpServers.memory.env = {
+      CLAUDE_PLUGIN_OPTION_API_URL: PLUGIN_ENV.CLAUDE_PLUGIN_OPTION_API_URL,
+    };
+    const { run: urlMappingOnly } = recordingRunner({
+      ...happyReplies(),
+      list: { code: 0, stdout: JSON.stringify([urlOnly]) },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: urlMappingOnly,
+      })
+    ).resolves.toEqual({ keyState: 'plugin-outdated' });
+  });
+
+  it('skips the save for an endpoint that is not http(s) or has a control character', async () => {
+    for (const endpoint of ['ftp://example.test', 'http://127.0.0.1:8001\n']) {
+      const { run, calls } = recordingRunner(happyReplies());
+      await expect(
+        installClaudeCodePlugin({ endpoint, apiKey: KEY, dryRun: false, runCommand: run })
+      ).resolves.toEqual({ keyState: 'not-saved' });
+      expect(calls.some((call) => call.input !== undefined)).toBe(false);
+    }
+  });
+
+  it('no key, default endpoint', async () => {
+    const { run, calls } = recordingRunner({
+      ...happyReplies(),
+      'configure --json': { code: 0, stdout: configureJson(['api_url'], ['api_key']) },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001/',
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'not-needed' });
+    const save = calls.find((call) => call.input !== undefined)!;
+    expect(JSON.parse(save.input!)).toEqual({ api_url: 'http://127.0.0.1:8001/' });
+    expect(calls.some((call) => call.args[1] === 'list' || call.args[1] === 'update')).toBe(false);
+  });
+
+  it('no key, non-default endpoint, plugin without the mapping', async () => {
+    const { run } = recordingRunner({
+      ...happyReplies(),
+      'configure --json': { code: 0, stdout: configureJson(['api_url'], ['api_key']) },
+      list: { code: 0, stdout: pluginListJson(false) },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'https://memory.example.com',
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'plugin-outdated' });
+  });
+
+  it('no key now, but one saved earlier', async () => {
+    const { run } = recordingRunner(happyReplies());
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'stale-key' });
+  });
+
+  it('skips the save for a value with a control character', async () => {
+    const { run, calls } = recordingRunner(happyReplies());
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: 'sk-line-one\nline-two',
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'not-saved' });
+    expect(calls.some((call) => call.input !== undefined)).toBe(false);
+  });
+
+  it('output of claude never reaches a message', async () => {
+    const leaky = (code: number) => (): Reply => ({
+      code,
+      stdout: `echo ${KEY} verygoodplugins-mcp-automem`,
+      stderr: `stderr ${KEY}`,
+    });
+    for (const failing of ['none', 'marketplace add', 'install', 'configure --values-stdin']) {
+      const { run } = recordingRunner((call) => {
+        const key = subcommand(call.args);
+        if (key === 'marketplace list') return { code: 0, stdout: `no marketplaces ${KEY}` };
+        return leaky(key === failing ? 1 : 0)();
+      });
+      let result: unknown;
+      try {
+        result = await installClaudeCodePlugin({
+          endpoint: 'http://127.0.0.1:8001',
+          apiKey: KEY,
+          dryRun: false,
+          runCommand: run,
+        });
+      } catch (error) {
+        expect(error).toBeInstanceOf(InstallError);
+        const installError = error as InstallError;
+        expect(installError.message).not.toContain(KEY);
+        expect(installError.hint ?? '').not.toContain(KEY);
+        continue;
       }
-      return { code: 0 };
-    });
-    await expect(
-      installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
-    ).resolves.toEqual({ needsManualApiKey: false });
-    expect(calls.some((a) => a[2] === 'add')).toBe(false);
-    expect(calls.some((a) => a[1] === 'install')).toBe(true);
+      expect(JSON.stringify(result)).not.toContain(KEY);
+      const outcome = claudeCodePluginOutcome(
+        (result as { keyState: Parameters<typeof claudeCodePluginOutcome>[0] }).keyState,
+        false,
+        true
+      );
+      expect(JSON.stringify(outcome)).not.toContain(KEY);
+    }
   });
 
-  it('throws (to trigger the manual fallback) when the install hard-fails', async () => {
-    const { run } = recordingRunner((args) => {
-      if (args[1] === 'marketplace' && args[2] === 'list') return { code: 0, stdout: '' };
-      if (args[1] === 'install') return { code: 1, stderr: 'network unreachable' };
-      return { code: 0 };
-    });
-    await expect(
-      installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
-    ).rejects.toThrow();
-  });
-
-  it('treats an already-installed non-zero exit as success', async () => {
-    const { run } = recordingRunner((args) => {
-      if (args[1] === 'marketplace' && args[2] === 'list') return { code: 0, stdout: '' };
-      if (args[1] === 'install') return { code: 1, stderr: 'Plugin automem is already installed' };
-      return { code: 0 };
-    });
-    await expect(
-      installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
-    ).resolves.toEqual({ needsManualApiKey: false });
-  });
-
-  it('runs nothing on dry-run', async () => {
-    const { run, calls } = recordingRunner(() => ({ code: 0 }));
+  it('dry run runs nothing', async () => {
+    const { run, calls } = recordingRunner(happyReplies());
     await expect(
       installClaudeCodePlugin({
         endpoint: 'http://x',
@@ -2174,8 +2591,156 @@ describe('claude plugin auto-install', () => {
         dryRun: true,
         runCommand: run,
       })
-    ).resolves.toEqual({ needsManualApiKey: false });
+    ).resolves.toEqual({ keyState: 'not-needed' });
     expect(calls).toEqual([]);
+  });
+
+  it('passes a time limit on every call', async () => {
+    let updated = false;
+    const { run, calls } = recordingRunner({
+      ...happyReplies(),
+      list: () => ({ code: 0, stdout: pluginListJson(updated) }),
+      update: () => {
+        updated = true;
+        return { code: 0 };
+      },
+    });
+    await installClaudeCodePlugin({
+      endpoint: 'http://127.0.0.1:8001',
+      apiKey: KEY,
+      dryRun: false,
+      runCommand: run,
+    });
+    expect(calls.length).toBe(9);
+    for (const call of calls) {
+      expect(call.timeoutMs, subcommand(call.args)).toBeGreaterThan(0);
+    }
+    const timeoutOf = (key: string) =>
+      calls.find((call) => subcommand(call.args) === key)!.timeoutMs;
+    expect(timeoutOf('marketplace list')).toBe(30_000);
+    expect(timeoutOf('configure --values-stdin')).toBe(30_000);
+    expect(timeoutOf('configure --json')).toBe(30_000);
+    expect(timeoutOf('list')).toBe(30_000);
+    expect(timeoutOf('marketplace add')).toBe(180_000);
+    expect(timeoutOf('install')).toBe(180_000);
+    expect(timeoutOf('marketplace update')).toBe(180_000);
+    expect(timeoutOf('update')).toBe(180_000);
+  });
+
+  it('claudeCodePluginOutcome gives each key state its row and follow-up', () => {
+    const installed = 'Claude Code plugin installed';
+    expect(claudeCodePluginOutcome('delivered', false, true)).toEqual({ ok: true, row: installed });
+    expect(claudeCodePluginOutcome('not-needed', false, false)).toEqual({
+      ok: true,
+      row: installed,
+    });
+
+    // stale-key is a note, never a failure: no follow-up, no exit code.
+    const staleNote =
+      'Claude Code still has an AutoMem API key saved by an earlier install and may keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
+    expect(claudeCodePluginOutcome('stale-key', false, false)).toEqual({
+      ok: true,
+      row: installed,
+      note: staleNote,
+    });
+    expect(claudeCodePluginOutcome('stale-key', true, false)).toEqual({
+      ok: false,
+      row: 'Claude Code plugin installed; tool pre-approval needs a manual step',
+      note: staleNote,
+    });
+
+    const notSaved = claudeCodePluginOutcome('not-saved', false, true);
+    expect(notSaved.ok).toBe(false);
+    expect(notSaved.row).toBe('Claude Code plugin needs API key configuration');
+    expect(notSaved.failure?.nonBlocking).toBeUndefined();
+    expect(notSaved.failure?.hint).toBe(
+      'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.'
+    );
+
+    const outdated = claudeCodePluginOutcome('plugin-outdated', false, true);
+    expect(outdated.ok).toBe(false);
+    expect(outdated.row).toBe('Claude Code plugin cannot use the saved settings yet');
+    expect(outdated.failure?.nonBlocking).toBeUndefined();
+    expect(outdated.failure?.hint).toBe(
+      'Claude Code plugin: could not confirm that the installed plugin passes the saved endpoint and API key to the memory server, and updating the plugin did not help. Export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code, then re-run the installer after updating Claude Code or after the next AutoMem plugin release.'
+    );
+    // Without a key only the endpoint has to reach the server.
+    const outdatedNoKey = claudeCodePluginOutcome('plugin-outdated', false, false);
+    expect(outdatedNoKey.ok).toBe(false);
+    expect(outdatedNoKey.row).toBe('Claude Code plugin cannot use the saved settings yet');
+    expect(outdatedNoKey.failure?.nonBlocking).toBeUndefined();
+    expect(outdatedNoKey.failure?.hint).toBe(
+      'Claude Code plugin: could not confirm that the installed plugin passes the saved endpoint to the memory server, and updating the plugin did not help. Export AUTOMEM_API_URL before using Claude Code, then re-run the installer after updating Claude Code or after the next AutoMem plugin release.'
+    );
+
+    // Pre-approval failed and nothing blocking: the pre-approval row, as before.
+    expect(claudeCodePluginOutcome('delivered', true, true)).toEqual({
+      ok: false,
+      row: 'Claude Code plugin installed; tool pre-approval needs a manual step',
+    });
+    // A blocking state's row wins over the pre-approval row.
+    const blockingWins = claudeCodePluginOutcome('not-saved', true, true);
+    expect(blockingWins.ok).toBe(false);
+    expect(blockingWins.row).toBe('Claude Code plugin needs API key configuration');
+    expect(blockingWins.failure?.hint).toBe(notSaved.failure?.hint);
+  });
+
+  it('skips marketplace add when the marketplace is already registered', async () => {
+    const { run, calls } = recordingRunner({
+      ...happyReplies(),
+      'marketplace list': {
+        code: 0,
+        stdout:
+          'Configured marketplaces:\n\n  ❯ verygoodplugins-mcp-automem\n    Source: GitHub (verygoodplugins/mcp-automem)\n',
+      },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'delivered' });
+    expect(calls.some((call) => call.args[2] === 'add')).toBe(false);
+    expect(calls.some((call) => call.args[1] === 'install')).toBe(true);
+  });
+
+  it('throws (to trigger the manual fallback) when the marketplace add hard-fails', async () => {
+    const { run, calls } = recordingRunner({
+      ...happyReplies(),
+      'marketplace add': { code: 1, stderr: 'network unreachable' },
+    });
+    await expect(
+      installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
+    ).rejects.toThrow(InstallError);
+    expect(calls.some((call) => call.args[1] === 'install')).toBe(false);
+  });
+
+  it('throws (to trigger the manual fallback) when the install hard-fails', async () => {
+    const { run, calls } = recordingRunner({
+      ...happyReplies(),
+      install: { code: 1, stderr: 'network unreachable' },
+    });
+    await expect(
+      installClaudeCodePlugin({ endpoint: 'http://x', dryRun: false, runCommand: run })
+    ).rejects.toThrow(InstallError);
+    expect(calls.some((call) => call.input !== undefined)).toBe(false);
+  });
+
+  it('treats an already-installed non-zero exit as success', async () => {
+    const { run } = recordingRunner({
+      ...happyReplies(),
+      install: { code: 1, stderr: 'Plugin automem is already installed' },
+    });
+    await expect(
+      installClaudeCodePlugin({
+        endpoint: 'http://127.0.0.1:8001',
+        apiKey: KEY,
+        dryRun: false,
+        runCommand: run,
+      })
+    ).resolves.toEqual({ keyState: 'delivered' });
   });
 
   it('detects the claude binary as a prerequisite', () => {
@@ -2201,6 +2766,158 @@ describe('claude plugin auto-install', () => {
     });
     const action = plan.actions.find((a) => a.client === 'claude-code');
     expect(action?.kind).toBe('manual-step');
+  });
+
+  it('plugin-mode plan lists the settings.json allow-rule write', () => {
+    const homeDir = '/Users/tester';
+    for (const claudeOnPath of [true, false]) {
+      const env = detectInstallEnvironment({
+        homeDir,
+        cwd: '/repo/project',
+        commandExists: (c) => (c === 'claude' ? claudeOnPath : true),
+        pathExists: () => true,
+      });
+      const plan = buildInstallPlan({
+        options: {
+          ...parseInstallArgs([], {}),
+          target: 'existing',
+          endpoint: 'http://x',
+          clients: ['claude-code'],
+          claudeCodeMode: 'plugin',
+        },
+        environment: env,
+      });
+      const action = plan.actions.find((a) => a.client === 'claude-code');
+      expect(action?.kind).toBe(claudeOnPath ? 'install-agent' : 'manual-step');
+      expect(action?.paths).toContain(path.join(homeDir, '.claude', 'settings.json'));
+      expect(action?.detail).toMatch(/and pre-approve its memory tools\.?$/);
+    }
+  });
+
+  it('plan review explains the plugin step even though it now lists a path', () => {
+    const homeDir = '/Users/tester';
+    const plan = buildInstallPlan({
+      options: {
+        ...parseInstallArgs([], {}),
+        target: 'existing',
+        endpoint: 'http://x',
+        clients: ['claude-code'],
+        claudeCodeMode: 'plugin',
+      },
+      environment: detectInstallEnvironment({
+        homeDir,
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+
+    const rendered = renderInstallPlan(plan);
+    expect(rendered).toContain('claude plugin install');
+    expect(rendered).toContain('pre-approve its memory tools');
+    expect(rendered).toContain(path.join(homeDir, '.claude', 'settings.json'));
+  });
+
+  it('plan text says the endpoint and key are saved in Claude Code, without the key', () => {
+    const secret = 'sk-plan-secret-456';
+    const plan = buildInstallPlan({
+      options: {
+        ...parseInstallArgs([], {}),
+        target: 'existing',
+        endpoint: 'http://x',
+        apiKey: secret,
+        clients: ['claude-code'],
+        claudeCodeMode: 'plugin',
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+    const action = plan.actions.find((a) => a.client === 'claude-code');
+    expect(action?.kind).toBe('install-agent');
+    expect(action?.detail).toContain('claude plugin install');
+    expect(action?.detail).toBe(
+      'Add the marketplace, install the plugin via `claude plugin install` (the MCP server, hooks, and skill come bundled and auto-update), save the endpoint and any API key in Claude Code, and pre-approve its memory tools.'
+    );
+    expect(action?.detail).toMatch(/pre-approve its memory tools\.$/);
+    const rendered = renderInstallPlan(plan);
+    expect(rendered).toContain('save the endpoint and any API key');
+    expect(rendered).not.toContain(secret);
+  });
+
+  it('path-writing agent installs still render without their detail', () => {
+    const plan = buildInstallPlan({
+      options: {
+        ...parseInstallArgs([], {}),
+        target: 'existing',
+        endpoint: 'http://x',
+        clients: ['codex'],
+      },
+      environment: detectInstallEnvironment({
+        homeDir: '/Users/tester',
+        cwd: '/repo/project',
+        commandExists: () => true,
+        pathExists: () => true,
+      }),
+    });
+    const codex = plan.actions.find((a) => a.client === 'codex');
+
+    expect(codex?.paths.length).toBeGreaterThan(0);
+    expect(renderInstallPlan(plan)).not.toContain(codex!.detail);
+  });
+
+  it('plugin fallback plans no ~/.claude write on a machine without Claude Code', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-plan-noclaude-'));
+    try {
+      const planFor = () =>
+        buildInstallPlan({
+          options: {
+            ...parseInstallArgs([], {}),
+            target: 'existing',
+            endpoint: 'http://x',
+            clients: ['claude-code'],
+            claudeCodeMode: 'plugin',
+          },
+          environment: detectInstallEnvironment({
+            homeDir: tmpHome,
+            cwd: '/repo/project',
+            commandExists: (c) => c !== 'claude',
+          }),
+        }).actions.find((a) => a.client === 'claude-code');
+
+      const without = planFor();
+      expect(without?.kind).toBe('manual-step');
+      expect(without?.paths).toEqual([]);
+      expect(without?.detail).not.toContain('pre-approve');
+
+      fs.mkdirSync(path.join(tmpHome, '.claude'));
+      const withDir = planFor();
+      expect(withDir?.kind).toBe('manual-step');
+      expect(withDir?.paths).toEqual([path.join(tmpHome, '.claude', 'settings.json')]);
+      expect(withDir?.detail).toMatch(/and pre-approve its memory tools\.?$/);
+    } finally {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('clientsWithBlockingFailures', () => {
+  it('ignores a lone non-blocking pre-approval failure', () => {
+    expect(clientsWithBlockingFailures([{ client: 'claude-code', nonBlocking: true }])).toEqual(
+      new Set()
+    );
+  });
+
+  it('counts the client once a blocking failure is added for it', () => {
+    expect(
+      clientsWithBlockingFailures([
+        { client: 'claude-code', nonBlocking: true },
+        { client: 'claude-code' },
+      ])
+    ).toEqual(new Set(['claude-code']));
   });
 });
 

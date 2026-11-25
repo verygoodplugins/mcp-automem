@@ -17,8 +17,17 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import util from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { applyClaudeCodeSetup } from '../../src/cli/claude-code.js';
+import {
+  applyClaudeCodePluginPermissions,
+  applyClaudeCodeSetup,
+  CLAUDE_CODE_MCP_PERMISSIONS,
+  CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS,
+  CLAUDE_CODE_PLUGIN_TOOL_PREFIX,
+} from '../../src/cli/claude-code.js';
+
+const REPO_ROOT = path.resolve(__dirname, '../..');
 
 const MCP_PERMISSIONS = [
   'mcp__memory__store_memory',
@@ -154,5 +163,237 @@ describe('installer permission hygiene', () => {
     await applyClaudeCodeSetup({ targetDir, dryRun: true, quiet: true });
 
     expect(fs.readFileSync(settingsPath(), 'utf8')).toBe(seeded);
+  });
+});
+
+// Plugin mode (`claude plugin install`) ships the MCP server under the plugin
+// namespace, so nothing pre-approves its tools unless the installer writes
+// allow rules. Only the allow block is written: the plugin bundles its own
+// hooks, so the settings-mode hooks must never land here (the SessionStart
+// prompt would fire twice).
+describe('Claude Code plugin tool pre-approval', () => {
+  let targetDir: string;
+
+  beforeEach(() => {
+    targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automem-plugin-perms-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+  });
+
+  const settingsPath = () => path.join(targetDir, 'settings.json');
+  const readSettings = (): SettingsShape =>
+    JSON.parse(fs.readFileSync(settingsPath(), 'utf8')) as SettingsShape;
+  const backups = () => fs.readdirSync(targetDir).filter((name) => name.includes('.bak'));
+
+  it('plugin permissions: two runs add the five rules once and keep user content', () => {
+    fs.writeFileSync(
+      settingsPath(),
+      JSON.stringify(
+        {
+          permissions: { allow: ['Bash(git:*)'], deny: ['Read(./.env)'] },
+          hooks: {
+            Stop: [{ matcher: '*', hooks: [{ type: 'command', command: 'bash /opt/user.sh' }] }],
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const first = applyClaudeCodePluginPermissions({ targetDir, quiet: true });
+    const afterFirst = fs.readFileSync(settingsPath(), 'utf8');
+    const second = applyClaudeCodePluginPermissions({ targetDir, quiet: true });
+
+    const settings = readSettings();
+    expect(settings.permissions?.allow).toEqual([
+      'Bash(git:*)',
+      ...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS,
+    ]);
+    expect(settings.permissions?.deny).toEqual(['Read(./.env)']);
+    expect(settings.hooks?.Stop).toHaveLength(1);
+    expect(settings.hooks?.SessionStart).toBeUndefined();
+    expect(first).toEqual({ settingsPath: settingsPath(), changed: true });
+    expect(second).toEqual({ settingsPath: settingsPath(), changed: false });
+    expect(fs.readFileSync(settingsPath(), 'utf8')).toBe(afterFirst);
+    expect(backups()).toHaveLength(1);
+  });
+
+  it('plugin permissions only add: retired grants and every other key survive', () => {
+    // Plugin mode never granted the hook-era Bash rules, so they may be the
+    // user's own: the plugin path must add its five rules and remove nothing.
+    const seeded = {
+      permissions: {
+        allow: ['Bash(jq:*)', 'Bash(python3:*)', 'Bash(git:*)'],
+        deny: ['Read(./.env)'],
+      },
+      someUnknownKey: { nested: [1, 'two'], flag: true },
+    };
+    fs.writeFileSync(settingsPath(), JSON.stringify(seeded, null, 2));
+
+    const result = applyClaudeCodePluginPermissions({ targetDir, quiet: true });
+
+    const settings = readSettings() as SettingsShape & { someUnknownKey?: unknown };
+    expect(result.changed).toBe(true);
+    expect(settings.permissions?.allow).toEqual([
+      'Bash(jq:*)',
+      'Bash(python3:*)',
+      'Bash(git:*)',
+      ...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS,
+    ]);
+    expect(settings.permissions?.deny).toEqual(seeded.permissions.deny);
+    expect(settings.someUnknownKey).toEqual(seeded.someUnknownKey);
+    expect(Object.keys(settings).sort()).toEqual(['permissions', 'someUnknownKey']);
+    expect(Object.keys(settings.permissions ?? {}).sort()).toEqual(['allow', 'deny']);
+  });
+
+  it('plugin permissions on a fresh home write only the allow block', () => {
+    const result = applyClaudeCodePluginPermissions({ targetDir, quiet: true });
+
+    expect(result.changed).toBe(true);
+    expect(readSettings()).toEqual({
+      permissions: { allow: [...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS] },
+    });
+    expect(fs.existsSync(path.join(targetDir, 'hooks'))).toBe(false);
+    expect(backups()).toEqual([]);
+  });
+
+  it('plugin permissions leave an already-approved file alone even when formatted differently', () => {
+    // `claude plugin install` rewrites settings.json in its own formatting right
+    // after the installer runs; a re-run must not churn the file or add a backup.
+    const seeded = JSON.stringify(
+      {
+        enabledPlugins: { 'automem@x': true },
+        permissions: { allow: [...CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS] },
+      },
+      null,
+      4
+    );
+    fs.writeFileSync(settingsPath(), seeded);
+
+    const result = applyClaudeCodePluginPermissions({ targetDir, quiet: true });
+
+    expect(result.changed).toBe(false);
+    expect(fs.readFileSync(settingsPath(), 'utf8')).toBe(seeded);
+    expect(backups()).toEqual([]);
+  });
+
+  it('plugin permissions dry-run leaves settings.json byte-identical', () => {
+    const seeded = JSON.stringify({ permissions: { allow: ['Bash(git:*)'] } }, null, 2);
+    fs.writeFileSync(settingsPath(), seeded);
+
+    const result = applyClaudeCodePluginPermissions({ targetDir, dryRun: true, quiet: true });
+
+    expect(result).toEqual({ settingsPath: settingsPath(), changed: false });
+    expect(fs.readFileSync(settingsPath(), 'utf8')).toBe(seeded);
+    expect(backups()).toEqual([]);
+  });
+
+  it('plugin permissions dry-run on a fresh home creates nothing', () => {
+    const freshDir = path.join(targetDir, 'missing', '.claude');
+
+    const result = applyClaudeCodePluginPermissions({
+      targetDir: freshDir,
+      dryRun: true,
+      quiet: true,
+    });
+
+    expect(result.changed).toBe(false);
+    expect(fs.existsSync(freshDir)).toBe(false);
+  });
+
+  it('plugin permissions refuse to overwrite invalid JSON', () => {
+    fs.writeFileSync(settingsPath(), '{ not json');
+
+    expect(() => applyClaudeCodePluginPermissions({ targetDir, quiet: true })).toThrow();
+    expect(fs.readFileSync(settingsPath(), 'utf8')).toBe('{ not json');
+    expect(backups()).toEqual([]);
+  });
+
+  it('plugin permissions keep file contents out of the parse error', () => {
+    // settings.json env blocks often hold tokens; a V8 parse error quotes the
+    // surrounding text (here the unquoted token itself), so neither the thrown
+    // message nor anything attached to the error may carry it.
+    fs.writeFileSync(settingsPath(), '{"env": {"TOKEN": sk-secret-value}}');
+
+    let thrown: unknown;
+    try {
+      applyClaudeCodePluginPermissions({ targetDir, quiet: true });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain(settingsPath());
+    expect((thrown as Error).message).not.toContain('sk-secret');
+    expect(util.inspect(thrown, { depth: 5 })).not.toContain('sk-secret');
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'plugin permissions refuse a read-only settings.json without leaving a backup',
+    () => {
+      const seeded = JSON.stringify({ permissions: { allow: ['Bash(git:*)'] } }, null, 2);
+      fs.writeFileSync(settingsPath(), seeded);
+      fs.chmodSync(settingsPath(), 0o444);
+      try {
+        expect(() => applyClaudeCodePluginPermissions({ targetDir, quiet: true })).toThrow(
+          settingsPath()
+        );
+        expect(fs.readFileSync(settingsPath(), 'utf8')).toBe(seeded);
+        expect(backups()).toEqual([]);
+      } finally {
+        fs.chmodSync(settingsPath(), 0o644);
+      }
+    }
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'plugin permissions refuse a dangling settings.json symlink',
+    () => {
+      // The target's directory exists, so a write through the link would
+      // silently create the target.
+      const missingTarget = path.join(targetDir, 'store', 'settings.json');
+      fs.mkdirSync(path.dirname(missingTarget));
+      fs.symlinkSync(missingTarget, settingsPath());
+
+      expect(() => applyClaudeCodePluginPermissions({ targetDir, quiet: true })).toThrow(
+        settingsPath()
+      );
+      expect(fs.existsSync(missingTarget)).toBe(false);
+      expect(fs.lstatSync(settingsPath()).isSymbolicLink()).toBe(true);
+    }
+  );
+
+  it('permission constants match the shipped plugin and template', () => {
+    const template = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, 'templates/claude-code/settings.json'), 'utf8')
+    ) as SettingsShape;
+    const pluginJson = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, 'plugins/automem/.claude-plugin/plugin.json'), 'utf8')
+    ) as { name: string };
+    const mcpJson = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, 'plugins/automem/.mcp.json'), 'utf8')
+    ) as { mcpServers: Record<string, unknown> };
+    const skillMd = fs.readFileSync(
+      path.join(REPO_ROOT, 'plugins/automem/skills/memory-management/SKILL.md'),
+      'utf8'
+    );
+
+    expect(template.permissions?.allow).toEqual([...CLAUDE_CODE_MCP_PERMISSIONS]);
+    expect(CLAUDE_CODE_PLUGIN_TOOL_PREFIX).toBe(
+      `mcp__plugin_${pluginJson.name}_${Object.keys(mcpJson.mcpServers)[0]}__`
+    );
+    expect(CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS).toHaveLength(5);
+    expect(CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS).not.toContain(
+      'mcp__plugin_automem_memory__delete_memory'
+    );
+    // The pre-approval failure hint points users at this list in INSTALLATION.md.
+    const installationMd = fs.readFileSync(path.join(REPO_ROOT, 'INSTALLATION.md'), 'utf8');
+    for (const rule of CLAUDE_CODE_PLUGIN_MCP_PERMISSIONS) {
+      expect(rule.startsWith(CLAUDE_CODE_PLUGIN_TOOL_PREFIX)).toBe(true);
+      expect(skillMd).toContain(rule);
+      expect(installationMd).toContain(`"${rule}"`);
+    }
   });
 });
