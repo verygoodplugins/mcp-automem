@@ -18,6 +18,7 @@
 import { spawn } from 'node:child_process';
 import { mkdtemp, readdir, readFile, mkdir, writeFile, chmod, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -104,6 +105,75 @@ async function claudePluginFallbackCommonAsserts(ctx) {
       'stdout surfaces the /plugin install command',
       /\/plugin install automem@verygoodplugins-mcp-automem/.test(last.stdout)
     ),
+  ];
+}
+
+// One stateful fake `claude` for every plugin auto-install scenario
+// (tests/e2e/fake-claude.mjs): it prints the output shapes real Claude Code
+// prints, logs argv to $HOME/.e2e-claude-calls.log, and records a saved key
+// only as its SHA-256 in $HOME/.e2e-claude-state.json. FAKE_CLAUDE_MODE picks
+// the behavior; it reaches the fake through the installer's inherited env.
+const FAKE_CLAUDE_STUB = `#!/bin/sh\nexec "${process.execPath}" "${path.join(HERE, 'fake-claude.mjs')}" "$@"\n`;
+
+// Fixed follow-up hints from src/cli/install.ts (the closing summary prints them).
+const HINT_KEY_NOT_SAVED =
+  'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_KEY before using Claude Code.';
+const HINT_PLUGIN_OUTDATED =
+  'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server. Run  claude plugin update automem@verygoodplugins-mcp-automem , restart Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.';
+
+const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// The summary card may wrap a long hint and draws a border: compare words only.
+const flat = (text) => text.replace(/[│┃║]/g, ' ').replace(/\s+/g, ' ').trim();
+
+function claudePluginAutoinstallSteps(ctx, mode) {
+  return [
+    {
+      kind: 'direct',
+      argv: [
+        'install',
+        '--yes',
+        '--target',
+        'existing',
+        '--endpoint',
+        ctx.mock.url,
+        '--api-key',
+        TOKEN,
+        '--clients',
+        'claude-code',
+      ],
+      env: { FAKE_CLAUDE_MODE: mode },
+    },
+  ];
+}
+
+async function readFakeClaudeState(ctx) {
+  try {
+    return JSON.parse(await readFile(path.join(ctx.home, '.e2e-claude-state.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// Every auto-install scenario: the key never reaches argv, the call log, the
+// output or the fake's state file, and the plugin itself is installed.
+async function claudePluginAutoinstallCommonAsserts(ctx) {
+  const last = ctx.steps.at(-1);
+  ctx.claudeLog = await readFile(path.join(ctx.home, '.e2e-claude-calls.log'), 'utf8').catch(
+    () => ''
+  );
+  const stateRaw = await readFile(path.join(ctx.home, '.e2e-claude-state.json'), 'utf8').catch(
+    () => ''
+  );
+  return [
+    A(
+      'ran `claude plugin install`',
+      /plugin install automem@verygoodplugins-mcp-automem/.test(ctx.claudeLog),
+      ctx.claudeLog.trim() || '(no calls)'
+    ),
+    A('key absent from the call log (argv)', !ctx.claudeLog.includes(TOKEN)),
+    A('key absent from the fake state file', !stateRaw.includes(TOKEN)),
+    A('key absent from installer output', !`${last.stdout}\n${last.stderr}`.includes(TOKEN)),
   ];
 }
 
@@ -514,65 +584,142 @@ const SCENARIOS = [
   {
     name: 'claude-plugin-autoinstall',
     description:
-      'Plugin mode with `claude` on PATH installs the plugin and passes only non-secret config via argv.',
+      'Plugin mode with `claude` on PATH installs the plugin, saves the endpoint and key in Claude Code (key on stdin, never argv), confirms both reach the memory server, and exits 0.',
     mock: { mode: 'healthy', expectToken: TOKEN },
-    // Recording stub: claude is "present", logs every invocation, prints nothing for
-    // `marketplace list` (so the installer adds it), and exits 0 for every call.
-    claudeStub: '#!/bin/sh\necho "$@" >> "$HOME/.e2e-claude-calls.log"\nexit 0\n',
-    steps: (ctx) => [
-      {
-        kind: 'direct',
-        argv: [
-          'install',
-          '--yes',
-          '--target',
-          'existing',
-          '--endpoint',
-          ctx.mock.url,
-          '--api-key',
-          TOKEN,
-          '--clients',
-          'claude-code',
-        ],
-      },
-    ],
+    claudeStub: FAKE_CLAUDE_STUB,
+    steps: (ctx) => claudePluginAutoinstallSteps(ctx, 'happy'),
     assert: async (ctx) => {
-      const r = [];
+      const r = await claudePluginAutoinstallCommonAsserts(ctx);
       const last = ctx.steps.at(-1);
-      r.push(
-        A(
-          'non-zero exit (api key needs plugin UI/env config)',
-          last.exitCode !== 0,
-          `exit=${last.exitCode}`
-        )
-      );
-      const log = await readFile(path.join(ctx.home, '.e2e-claude-calls.log'), 'utf8').catch(
-        () => ''
-      );
+      const state = await readFakeClaudeState(ctx);
+      r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
       r.push(
         A(
           'ran `claude plugin marketplace add verygoodplugins/mcp-automem`',
-          /plugin marketplace add verygoodplugins\/mcp-automem/.test(log),
-          log.trim() || '(no calls)'
+          /plugin marketplace add verygoodplugins\/mcp-automem/.test(ctx.claudeLog),
+          ctx.claudeLog.trim() || '(no calls)'
         )
       );
       r.push(
         A(
           'ran `claude plugin install` threading --config api_url',
           new RegExp(
-            `plugin install automem@verygoodplugins-mcp-automem .*--config api_url=${ctx.mock.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
-          ).test(log)
+            `plugin install automem@verygoodplugins-mcp-automem .*--config api_url=${escapeRegExp(ctx.mock.url)}`
+          ).test(ctx.claudeLog)
         )
       );
-      r.push(A('did NOT thread api key via argv', !/api_key=mocktoken-e2e/.test(log)));
-      r.push(A('did NOT print the manual /plugin command', !/\/plugin install/.test(last.stdout)));
       r.push(
         A(
-          'stdout surfaces plugin key follow-up',
-          /plugin configure automem@verygoodplugins-mcp-automem[\s\S]*api_key|AUTOMEM_API_KEY/.test(
-            last.stdout
-          )
+          'saved the key through `claude plugin configure --values-stdin` (hash matches)',
+          /plugin configure automem@verygoodplugins-mcp-automem --values-stdin/.test(
+            ctx.claudeLog
+          ) && state?.values?.api_key_sha256 === sha256(TOKEN),
+          JSON.stringify(state?.values ?? null)
         )
+      );
+      r.push(
+        A(
+          'checked the saved key and the installed plugin',
+          /plugin configure automem@verygoodplugins-mcp-automem --json/.test(ctx.claudeLog) &&
+            /plugin list --json/.test(ctx.claudeLog)
+        )
+      );
+      r.push(A('ran no `claude plugin update`', !/plugin update/.test(ctx.claudeLog)));
+      r.push(
+        A('row says the plugin is installed', /Claude Code plugin installed/.test(last.stdout))
+      );
+      r.push(A('restart line names Claude Code', /Restart Claude Code/.test(last.stdout)));
+      r.push(
+        A('no API-key follow-up', !/needs API key configuration/.test(last.stdout + last.stderr))
+      );
+      r.push(A('did NOT print the manual /plugin command', !/\/plugin install/.test(last.stdout)));
+      return r;
+    },
+    findings: () => [],
+  },
+
+  {
+    name: 'claude-plugin-old-cli',
+    description:
+      'A Claude Code that rejects `configure --values-stdin`: the key is not saved, the installer says so and exits non-zero.',
+    mock: { mode: 'healthy', expectToken: TOKEN },
+    claudeStub: FAKE_CLAUDE_STUB,
+    steps: (ctx) => claudePluginAutoinstallSteps(ctx, 'old-cli'),
+    assert: async (ctx) => {
+      const r = await claudePluginAutoinstallCommonAsserts(ctx);
+      const last = ctx.steps.at(-1);
+      const state = await readFakeClaudeState(ctx);
+      r.push(A('non-zero exit', last.exitCode !== 0, `exit=${last.exitCode}`));
+      r.push(A('no key saved', !state?.values?.api_key_sha256, JSON.stringify(state?.values)));
+      r.push(
+        A(
+          'shows the not-saved row and hint',
+          /Claude Code plugin needs API key configuration/.test(last.stdout) &&
+            flat(last.stdout).includes(flat(HINT_KEY_NOT_SAVED)),
+          last.stdout.slice(-1500)
+        )
+      );
+      r.push(
+        A('never shows the CLI rejection text', !/unknown option/.test(last.stdout + last.stderr))
+      );
+      return r;
+    },
+    findings: () => [],
+  },
+
+  {
+    name: 'claude-plugin-unmapped',
+    description:
+      'An installed plugin that does not pass its options to the memory server, and `claude plugin update` cannot fix it: the installer says the plugin needs an update and exits non-zero.',
+    mock: { mode: 'healthy', expectToken: TOKEN },
+    claudeStub: FAKE_CLAUDE_STUB,
+    steps: (ctx) => claudePluginAutoinstallSteps(ctx, 'unmapped'),
+    assert: async (ctx) => {
+      const r = await claudePluginAutoinstallCommonAsserts(ctx);
+      const last = ctx.steps.at(-1);
+      r.push(A('non-zero exit', last.exitCode !== 0, `exit=${last.exitCode}`));
+      r.push(
+        A(
+          'ran `claude plugin update` once',
+          (ctx.claudeLog.match(/plugin update /g) ?? []).length === 1,
+          ctx.claudeLog.trim()
+        )
+      );
+      r.push(
+        A(
+          'shows the plugin-outdated row and hint',
+          /Claude Code plugin needs an update/.test(last.stdout) &&
+            flat(last.stdout).includes(flat(HINT_PLUGIN_OUTDATED)),
+          last.stdout.slice(-1500)
+        )
+      );
+      return r;
+    },
+    findings: () => [],
+  },
+
+  {
+    name: 'claude-plugin-update-fixes',
+    description:
+      'An installed plugin without the option mapping is updated once by the installer, which then confirms the mapping and exits 0.',
+    mock: { mode: 'healthy', expectToken: TOKEN },
+    claudeStub: FAKE_CLAUDE_STUB,
+    steps: (ctx) => claudePluginAutoinstallSteps(ctx, 'update-fixes'),
+    assert: async (ctx) => {
+      const r = await claudePluginAutoinstallCommonAsserts(ctx);
+      const last = ctx.steps.at(-1);
+      const state = await readFakeClaudeState(ctx);
+      r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
+      r.push(
+        A(
+          'ran `claude plugin update` exactly once',
+          (ctx.claudeLog.match(/plugin update /g) ?? []).length === 1,
+          ctx.claudeLog.trim()
+        )
+      );
+      r.push(A('key saved (hash matches)', state?.values?.api_key_sha256 === sha256(TOKEN)));
+      r.push(
+        A('row says the plugin is installed', /Claude Code plugin installed/.test(last.stdout))
       );
       return r;
     },

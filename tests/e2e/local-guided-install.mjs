@@ -3,6 +3,7 @@
 // Run after `npm run build`: node tests/e2e/local-guided-install.mjs
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -25,6 +26,8 @@ const strip = (s) =>
     .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const TOKEN = 'isolated-test-token';
+const FAKE_CLAUDE = fileURLToPath(new URL('./fake-claude.mjs', import.meta.url));
+const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
 
 function fakeExecutables(home, existing) {
   const bin = path.join(home, 'bin');
@@ -77,13 +80,9 @@ case "$1 $2" in
 esac
 exit 0`
   );
-  write(
-    'claude',
-    `
-[ "$1" = --version ] && exit 0
-printf 'claude %s\\n' "$*" >> "$FAKE_LOG"
-exit 0`
-  );
+  // The shared stateful fake (tests/e2e/fake-claude.mjs). It logs argv to
+  // FAKE_CLAUDE_LOG and keeps its state in FAKE_CLAUDE_STATE.
+  write('claude', `exec "${process.execPath}" "${FAKE_CLAUDE}" "$@"`);
   return bin;
 }
 
@@ -125,6 +124,7 @@ async function scenario(kind) {
   const blockers = [];
   const bin = fakeExecutables(home, existing);
   const log = path.join(root, 'calls.log');
+  const claudeState = path.join(root, 'claude-state.json');
   const ready = path.join(root, 'docker-ready');
   const composeStarted = path.join(root, 'compose-started');
   const composeFailed = path.join(root, 'compose-failed');
@@ -185,6 +185,8 @@ async function scenario(kind) {
     AUTOMEM_NO_ANIM: '1',
     CI: '1',
     FAKE_LOG: log,
+    FAKE_CLAUDE_LOG: log,
+    FAKE_CLAUDE_STATE: claudeState,
     FAKE_DOCKER_READY: ready,
     FAKE_EXISTING: existing ? '1' : '0',
     FAKE_INSPECT: inspect,
@@ -210,7 +212,10 @@ async function scenario(kind) {
     fs.mkdirSync(path.dirname(seededSettingsPath), { recursive: true });
     fs.writeFileSync(seededSettingsPath, '{ not json');
   }
-  if (startFlow) args.push('--clients', 'claude-code', '--claude-code-mode', 'plugin');
+  // Once Claude Code counts as installed the installer offers the welcome
+  // conversation, which this PTY script does not answer.
+  if (startFlow)
+    args.push('--clients', 'claude-code', '--claude-code-mode', 'plugin', '--no-welcome');
   else if (kind === 'race-reuse' || kind === 'race-api')
     args.push('--clients', 'codex', '--no-welcome');
   else args.push('--no-agent-install');
@@ -333,9 +338,14 @@ async function scenario(kind) {
       }),
     ]);
     clearTimeout(timer);
-    // Claude's plugin CLI cannot accept a secret safely in argv, so an
-    // authenticated plugin install reports its existing manual key step (exit 1).
-    assert.equal(exitCode, startFlow ? 1 : 0, `unexpected installer exit (${exitCode})`);
+    // The installer saves the key in Claude Code and confirms it, so the start
+    // flow succeeds. start-bad-settings still has a (non-blocking) pre-approval
+    // follow-up, and any follow-up makes the installer exit 1.
+    assert.equal(
+      exitCode,
+      kind === 'start-bad-settings' ? 1 : 0,
+      `unexpected installer exit (${exitCode})`
+    );
     const out = strip(output);
     const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
     const projectEnv = fs.readFileSync(path.join(cwd, '.env'), 'utf8');
@@ -345,10 +355,22 @@ async function scenario(kind) {
     );
     assert.ok(apiMock.requests.some((request) => request.path === '/recall' && request.authed));
     assert.ok(!out.includes(TOKEN), 'secret not displayed');
+    assert.ok(!calls.includes(TOKEN), 'secret not in the call log');
+    if (startFlow) {
+      // The key reached Claude Code on stdin: the fake recorded only its hash.
+      const claude = JSON.parse(fs.readFileSync(claudeState, 'utf8'));
+      assert.equal(claude.values.api_key_sha256, sha256(TOKEN));
+      assert.ok(!JSON.stringify(claude).includes(TOKEN), 'fake state holds no raw key');
+      assert.match(calls, /claude plugin configure automem@verygoodplugins-mcp-automem --json/);
+      assert.match(calls, /claude plugin list --json/);
+      assert.doesNotMatch(out, /needs API key configuration/);
+      assert.match(out, /Restart Claude Code/);
+    }
     if (kind === 'start') {
       assert.match(calls, /open|systemctl/);
       assert.match(calls, /claude plugin install/);
-      assert.match(out, /plugin needs API key configuration/);
+      assert.match(out, /Claude Code plugin installed/);
+      assert.doesNotMatch(out, /manual step/);
       assert.doesNotMatch(calls, /docker compose|git clone/);
       assert.match(projectEnv, new RegExp(`AUTOMEM_API_KEY=${TOKEN}`));
       // Plugin mode pre-approves the plugin's memory tools, and only those:
@@ -372,10 +394,13 @@ async function scenario(kind) {
         out.includes('five allow rules listed in INSTALLATION.md'),
         'pre-approval fix shown'
       );
-      // One tool with two follow-ups: singular subject, and the API-key row wins.
-      assert.ok(!out.includes('2 AI tools need a manual step'), 'tools counted, not failures');
-      assert.match(out, /plugin needs API key configuration/);
-      assert.ok(!out.includes('tool pre-approval needs a manual step'), 'API-key row text wins');
+      // The key was saved, so the only follow-up is the pre-approval: its row
+      // shows, and Claude Code stays on the restart line (non-blocking).
+      assert.ok(out.includes('1 AI tool needs a manual step'), 'one tool, one follow-up');
+      assert.ok(
+        out.includes('Claude Code plugin installed; tool pre-approval needs a manual step'),
+        'pre-approval row shown'
+      );
       assert.equal(fs.readFileSync(seededSettingsPath, 'utf8'), '{ not json');
       assert.deepEqual(
         fs.readdirSync(path.dirname(seededSettingsPath)).filter((name) => name.includes('.bak')),
