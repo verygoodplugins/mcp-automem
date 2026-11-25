@@ -9,6 +9,11 @@
 //                      per call, `claude <argv>`. Argv only, never stdin.
 //   FAKE_CLAUDE_STATE  JSON state file (default $HOME/.e2e-claude-state.json).
 //                      A saved key is recorded only as its SHA-256.
+//   FAKE_CLAUDE_SEED   earlier-install: when there is no state file yet, start as
+//                      if an earlier install had added the marketplace, installed
+//                      the plugin (env mapping per mode) and saved an API key.
+//
+// Failure branches print fixed text: nothing read from stdin or argv is echoed.
 //
 // Modes:
 //   happy         the installed plugin's memory server has the env mapping.
@@ -42,10 +47,25 @@ if (argv[0] === '--version') {
 }
 fs.appendFileSync(LOG, `claude ${argv.join(' ')}\n`);
 
+const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
+const hasEnvMapping = () => MODE === 'happy' || MODE === 'old-cli';
+
 function load() {
   try {
     return JSON.parse(fs.readFileSync(STATE, 'utf8'));
   } catch {
+    if (process.env.FAKE_CLAUDE_SEED === 'earlier-install') {
+      return {
+        marketplace: true,
+        plugin: {
+          version: '0.19.3',
+          env: hasEnvMapping(),
+          installedAt: '2026-11-01T00:00:00.000Z',
+        },
+        values: { api_url: 'http://127.0.0.1:8001', api_key_sha256: sha256('earlier-install-key') },
+        saves: [],
+      };
+    }
     return { marketplace: false, plugin: null, values: {}, saves: [] };
   }
 }
@@ -60,17 +80,20 @@ function fail(text, code = 1) {
   process.stderr.write(text);
   process.exit(code);
 }
-const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
-
 const state = load();
 const [group, sub, ...rest] = argv;
-if (group !== 'plugin') fail(`error: unknown command '${group ?? ''}'\n`);
+if (group !== 'plugin') fail('error: unknown command\n');
 
 if (sub === 'marketplace' && rest[0] === 'list') {
   if (!state.marketplace) out('No marketplaces configured\n');
   out(
     `Configured marketplaces:\n\n  ❯ ${MARKETPLACE}\n    Source: GitHub (verygoodplugins/mcp-automem)\n`
   );
+}
+
+if (sub === 'marketplace' && rest[0] === 'update') {
+  if (rest[1] !== MARKETPLACE || !state.marketplace) fail('Marketplace not found\n');
+  out(`✔ Successfully updated marketplace: ${MARKETPLACE}\n`);
 }
 
 if (sub === 'marketplace' && rest[0] === 'add') {
@@ -80,14 +103,14 @@ if (sub === 'marketplace' && rest[0] === 'add') {
 }
 
 if (sub === 'install') {
-  if (rest[0] !== REF || !state.marketplace) fail(`Plugin "${rest[0]}" not found\n`);
+  if (rest[0] !== REF || !state.marketplace) fail('Plugin not found\n');
   const config = rest.indexOf('--config');
   const apiUrl = config >= 0 ? (rest[config + 1] ?? '').replace(/^api_url=/, '') : '';
   const already = Boolean(state.plugin);
   if (!already) {
     state.plugin = {
       version: '0.19.3',
-      env: MODE === 'happy' || MODE === 'old-cli',
+      env: hasEnvMapping(),
       installedAt: new Date().toISOString(),
     };
   }
@@ -103,7 +126,7 @@ if (sub === 'install') {
 if (sub === 'configure' && rest.includes('--values-stdin')) {
   // An older Claude Code rejects the flag before reading anything.
   if (MODE === 'old-cli') fail("error: unknown option '--values-stdin'\n");
-  if (rest[0] !== REF || !state.plugin) fail(`Plugin "${rest[0]}" is not installed\n`);
+  if (rest[0] !== REF || !state.plugin) fail('Plugin is not installed\n');
   let input;
   try {
     input = JSON.parse(fs.readFileSync(0, 'utf8'));
@@ -114,9 +137,9 @@ if (sub === 'configure' && rest.includes('--values-stdin')) {
     fail('Expected a JSON object of option values on stdin\n');
   let changed = false;
   for (const [name, value] of Object.entries(input)) {
-    if (!OPTIONS.includes(name)) fail(`Unknown option "${name}"\n`);
-    if (typeof value !== 'string') fail(`Option "${name}" must be a string\n`);
-    if (/[\r\n]/.test(value)) fail(`Option "${name}" must be a single line.\n`);
+    if (!OPTIONS.includes(name)) fail('Unknown option name\n');
+    if (typeof value !== 'string') fail('Option values must be strings\n');
+    if (/[\r\n]/.test(value)) fail('Option values must be a single line.\n');
     // An empty or whitespace-only value never clears a saved one.
     if (!value.trim()) continue;
     if (name === 'api_key') {
@@ -140,7 +163,7 @@ if (sub === 'configure' && rest.includes('--values-stdin')) {
 }
 
 if (sub === 'configure' && rest.includes('--json')) {
-  if (rest[0] !== REF || !state.plugin) fail(`Plugin "${rest[0]}" is not installed\n`);
+  if (rest[0] !== REF || !state.plugin) fail('Plugin is not installed\n');
   const configured = [];
   if (state.values.api_url) configured.push('api_url');
   if (state.values.api_key_sha256) configured.push('api_key');
@@ -188,7 +211,7 @@ if (sub === 'list' && rest.includes('--json')) {
 }
 
 if (sub === 'update') {
-  if (rest[0] !== REF || !state.plugin) fail(`Plugin "${rest[0]}" is not installed\n`);
+  if (rest[0] !== REF || !state.plugin) fail('Plugin is not installed\n');
   if (MODE === 'update-fixes' && !state.plugin.env) {
     state.plugin = { ...state.plugin, version: '0.20.0', env: true };
     save(state);
@@ -199,4 +222,4 @@ if (sub === 'update') {
   out(`automem is already at the latest version (${state.plugin.version}).\n`);
 }
 
-fail(`error: unknown command 'plugin ${sub ?? ''}'\n`);
+fail('error: unknown command\n');

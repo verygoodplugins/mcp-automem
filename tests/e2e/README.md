@@ -96,7 +96,7 @@ npm run test:e2e:welcome
 | `run-matrix.sh` | Entrypoint. Derives the repo root from its own location, builds+packs (unless `SKIP_BUILD=1`), then runs the harness. |
 | `harness.mjs` | Scenario-matrix runner: fresh `HOME`+`cwd` per scenario, write-surface diffing, per-scenario assertions + findings. |
 | `mock-automem.mjs` | In-process adversarial endpoint (`healthy` / `500` / `401` / `malformed` modes). No real AutoMem server needed. |
-| `fake-claude.mjs` | Stateful fake `claude` CLI shared by `harness.mjs` and `local-guided-install.mjs`. Prints the real `claude plugin …` output shapes; `FAKE_CLAUDE_MODE` is `happy` (default), `old-cli`, `unmapped` or `update-fixes`. Logs argv only and records a saved key as its SHA-256. |
+| `fake-claude.mjs` | Stateful fake `claude` CLI shared by `harness.mjs` and `local-guided-install.mjs`. Prints the real `claude plugin …` output shapes; `FAKE_CLAUDE_MODE` is `happy` (default), `old-cli`, `unmapped` or `update-fixes`; `FAKE_CLAUDE_SEED=earlier-install` starts it with the plugin installed and a key saved. Logs argv only and records a saved key as its SHA-256. |
 | `railway-guided-install.mjs` | Fake Railway CLI + mock AutoMem guard for the guided Railway apply path. |
 | `local-guided-install.mjs` | Fake Docker/Git/Claude CLIs + mock AutoMem guard for the guided local apply path. |
 | `welcome-guided-install.mjs` | Fake Cursor and Codex handoffs for the optional welcome conversation. |
@@ -114,7 +114,7 @@ Machine-generated evidence is written to
 | `AUTOMEM_INSTALL_SH` | `automem-website/public/install.sh` under the workspace root (two levels up — this repo lives under `<workspace>/mcp-servers/`) | The website bootstrap script. If absent, the `website-bootstrap-install-sh` scenario is **skipped** (not failed) and the rest of the matrix still runs. |
 | `AUTOMEM_PACKAGE_SPEC` | `file:<staged tarball>` | The `npx` package spec under test. |
 
-## Scenarios (18)
+## Scenarios (19)
 
 | Scenario | What it pins |
 |---|---|
@@ -124,9 +124,10 @@ Machine-generated evidence is written to
 | `claude-plugin-fallback` | Claude Code defaults to the plugin install (recommended) — with no `claude` on PATH the plan shows the `/plugin` commands, not settings-file writes. |
 | `claude-plugin-fallback-existing-claude-dir` | No `claude` on PATH but an existing `~/.claude`: the only `~/.claude` write is the tool pre-approval in `settings.json`. |
 | `claude-plugin-autoinstall` | With `claude` on PATH (the stateful fake in `fake-claude.mjs`), the installer installs the plugin, saves the endpoint and key (key on stdin, never in argv, the call log or the output) and confirms both reach the memory server; exit 0. |
-| `claude-plugin-old-cli` | A Claude Code that rejects `configure --values-stdin`: the key is not saved, the not-saved follow-up is shown, exit non-zero. |
-| `claude-plugin-unmapped` | An installed plugin that does not pass its options to the memory server, and `claude plugin update` cannot fix it: the plugin-outdated follow-up is shown, exit non-zero. |
+| `claude-plugin-old-cli` | A Claude Code that rejects `configure --values-stdin`, over an earlier install that saved a different key: the failed save still means not-saved, the follow-up is shown, exit non-zero. |
+| `claude-plugin-unmapped` | An installed plugin that does not pass its options to the memory server, and refreshing the marketplace plus `claude plugin update` cannot fix it: the plugin-outdated follow-up is shown, exit non-zero. |
 | `claude-plugin-update-fixes` | An installed plugin without the option mapping is updated once (`claude plugin update`) and then confirmed; exit 0. |
+| `claude-plugin-stale-key` | A keyless install over an earlier install that saved a key: the plugin is installed, the saved-key note is printed (not a manual step), exit 0. |
 | `dry-run-no-writes` | `--dry-run` produces a plan and changes nothing. |
 | `no-agent-install` | `--no-agent-install` writes only `.env`, no client integration files. |
 | `non-tty-no-yes-preview` | Non-interactive **without** `--yes`/`--dry-run` previews only — writes nothing. |

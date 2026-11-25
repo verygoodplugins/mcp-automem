@@ -117,16 +117,20 @@ const FAKE_CLAUDE_STUB = `#!/bin/sh\nexec "${process.execPath}" "${path.join(HER
 
 // Fixed follow-up hints from src/cli/install.ts (the closing summary prints them).
 const HINT_KEY_NOT_SAVED =
-  'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_KEY before using Claude Code.';
+  'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.';
 const HINT_PLUGIN_OUTDATED =
-  'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server. Run  claude plugin update automem@verygoodplugins-mcp-automem , restart Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.';
+  'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server, and updating it did not help. Export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code, then re-run the installer after the next AutoMem plugin release.';
+const NOTE_STALE_KEY =
+  'Claude Code still has an AutoMem API key saved by an earlier install and will keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // The summary card may wrap a long hint and draws a border: compare words only.
 const flat = (text) => text.replace(/[│┃║]/g, ' ').replace(/\s+/g, ' ').trim();
 
-function claudePluginAutoinstallSteps(ctx, mode) {
+// `seed: 'earlier-install'` starts the fake as if an earlier install had added
+// the marketplace, installed the plugin and saved a (different) API key.
+function claudePluginAutoinstallSteps(ctx, mode, { seed, withKey = true } = {}) {
   return [
     {
       kind: 'direct',
@@ -137,12 +141,11 @@ function claudePluginAutoinstallSteps(ctx, mode) {
         'existing',
         '--endpoint',
         ctx.mock.url,
-        '--api-key',
-        TOKEN,
+        ...(withKey ? ['--api-key', TOKEN] : []),
         '--clients',
         'claude-code',
       ],
-      env: { FAKE_CLAUDE_MODE: mode },
+      env: { FAKE_CLAUDE_MODE: mode, ...(seed ? { FAKE_CLAUDE_SEED: seed } : {}) },
     },
   ];
 }
@@ -646,16 +649,29 @@ const SCENARIOS = [
   {
     name: 'claude-plugin-old-cli',
     description:
-      'A Claude Code that rejects `configure --values-stdin`: the key is not saved, the installer says so and exits non-zero.',
+      'A Claude Code that rejects `configure --values-stdin`, over an earlier install that saved a different key: the read-back says a key is configured, yet the failed save means not-saved; the installer says so and exits non-zero.',
     mock: { mode: 'healthy', expectToken: TOKEN },
     claudeStub: FAKE_CLAUDE_STUB,
-    steps: (ctx) => claudePluginAutoinstallSteps(ctx, 'old-cli'),
+    steps: (ctx) => claudePluginAutoinstallSteps(ctx, 'old-cli', { seed: 'earlier-install' }),
     assert: async (ctx) => {
       const r = await claudePluginAutoinstallCommonAsserts(ctx);
       const last = ctx.steps.at(-1);
       const state = await readFakeClaudeState(ctx);
       r.push(A('non-zero exit', last.exitCode !== 0, `exit=${last.exitCode}`));
-      r.push(A('no key saved', !state?.values?.api_key_sha256, JSON.stringify(state?.values)));
+      r.push(
+        A(
+          'tried the save through `configure --values-stdin`',
+          /plugin configure automem@verygoodplugins-mcp-automem --values-stdin/.test(ctx.claudeLog),
+          ctx.claudeLog.trim()
+        )
+      );
+      r.push(
+        A(
+          'only the earlier key is saved (read-back says configured)',
+          Boolean(state?.values?.api_key_sha256) && state.values.api_key_sha256 !== sha256(TOKEN),
+          JSON.stringify(state?.values)
+        )
+      );
       r.push(
         A(
           'shows the not-saved row and hint',
@@ -685,8 +701,11 @@ const SCENARIOS = [
       r.push(A('non-zero exit', last.exitCode !== 0, `exit=${last.exitCode}`));
       r.push(
         A(
-          'ran `claude plugin update` once',
-          (ctx.claudeLog.match(/plugin update /g) ?? []).length === 1,
+          'refreshed the marketplace, then ran `claude plugin update` once',
+          (ctx.claudeLog.match(/plugin update /g) ?? []).length === 1 &&
+            /plugin marketplace update verygoodplugins-mcp-automem\n[^\n]*plugin update /.test(
+              ctx.claudeLog
+            ),
           ctx.claudeLog.trim()
         )
       );
@@ -726,6 +745,40 @@ const SCENARIOS = [
       r.push(
         A('row says the plugin is installed', /Claude Code plugin installed/.test(last.stdout))
       );
+      return r;
+    },
+    findings: () => [],
+  },
+
+  {
+    name: 'claude-plugin-stale-key',
+    description:
+      'A keyless install over an earlier install that saved a key: the plugin is installed, the installer prints a note about the saved key (not a manual step) and exits 0.',
+    mock: { mode: 'healthy' },
+    claudeStub: FAKE_CLAUDE_STUB,
+    steps: (ctx) =>
+      claudePluginAutoinstallSteps(ctx, 'happy', { seed: 'earlier-install', withKey: false }),
+    assert: async (ctx) => {
+      const r = await claudePluginAutoinstallCommonAsserts(ctx);
+      const last = ctx.steps.at(-1);
+      r.push(A('exit 0', last.exitCode === 0, `exit=${last.exitCode}`));
+      r.push(
+        A('row says the plugin is installed', /Claude Code plugin installed/.test(last.stdout))
+      );
+      r.push(
+        A(
+          'prints the saved-key note',
+          flat(last.stdout).includes(flat(NOTE_STALE_KEY)),
+          last.stdout.slice(-1500)
+        )
+      );
+      r.push(
+        A(
+          'no manual-step line and no follow-up title',
+          !/manual step/.test(last.stdout) && !/with follow-ups/.test(last.stdout)
+        )
+      );
+      r.push(A('restart line names Claude Code', /Restart Claude Code/.test(last.stdout)));
       return r;
     },
     findings: () => [],
