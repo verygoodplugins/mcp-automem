@@ -33,6 +33,7 @@ import {
 import {
   AUTOMEM_API_KEY_NAMES,
   mergeEnvContent,
+  isRecord,
   removeEnvContentKeys,
   sameEndpoint,
   writeFileWithBackup,
@@ -187,10 +188,6 @@ function parseJson(text: string): unknown {
   }
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function hasControlCharacter(value: string): boolean {
   for (let i = 0; i < value.length; i += 1) {
     const code = value.charCodeAt(i);
@@ -214,9 +211,7 @@ function readKeySaved(result: PluginCommandResult): boolean {
   if (result.code !== 0) return false;
   const parsed = parseJson(result.stdout);
   return (
-    isPlainObject(parsed) &&
-    Array.isArray(parsed.configured) &&
-    parsed.configured.includes('api_key')
+    isRecord(parsed) && Array.isArray(parsed.configured) && parsed.configured.includes('api_key')
   );
 }
 
@@ -228,12 +223,11 @@ function readPluginPassesOptions(result: PluginCommandResult): boolean {
   const parsed = parseJson(result.stdout);
   if (!Array.isArray(parsed)) return false;
   const entry = parsed.find(
-    (item): item is Record<string, unknown> =>
-      isPlainObject(item) && item.id === CLAUDE_CODE_PLUGIN_REF
+    (item): item is Record<string, unknown> => isRecord(item) && item.id === CLAUDE_CODE_PLUGIN_REF
   );
-  if (!entry || !isPlainObject(entry.mcpServers)) return false;
+  if (!entry || !isRecord(entry.mcpServers)) return false;
   const memory = entry.mcpServers.memory;
-  if (!isPlainObject(memory) || !isPlainObject(memory.env)) return false;
+  if (!isRecord(memory) || !isRecord(memory.env)) return false;
   return Object.prototype.hasOwnProperty.call(memory.env, 'CLAUDE_PLUGIN_OPTION_API_KEY');
 }
 
@@ -326,16 +320,22 @@ const CLAUDE_CODE_PLUGIN_PRE_APPROVAL_ROW =
 // A note, not a follow-up: the setup works, so it never counts as a manual step
 // or changes the exit code.
 export const CLAUDE_CODE_PLUGIN_STALE_KEY_NOTE =
-  'Claude Code still has an AutoMem API key saved by an earlier install and will keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
+  'Claude Code still has an AutoMem API key saved by an earlier install and may keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
 export const CLAUDE_CODE_PLUGIN_KEY_NOT_SAVED_HINT =
   'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.';
+// plugin-outdated: also reached when `plugin list --json` could not be read, so
+// the texts say what could not be confirmed rather than what is wrong.
 export const CLAUDE_CODE_PLUGIN_OUTDATED_HINT =
-  'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server, and updating it did not help. Export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code, then re-run the installer after the next AutoMem plugin release.';
+  'Claude Code plugin: could not confirm that the installed plugin passes the saved endpoint and API key to the memory server, and updating the plugin did not help. Export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code, then re-run the installer after updating Claude Code or after the next AutoMem plugin release.';
+export const CLAUDE_CODE_PLUGIN_OUTDATED_NO_KEY_HINT =
+  'Claude Code plugin: could not confirm that the installed plugin passes the saved endpoint to the memory server, and updating the plugin did not help. Export AUTOMEM_API_URL before using Claude Code, then re-run the installer after updating Claude Code or after the next AutoMem plugin release.';
 
 /** Row text and optional follow-up for one install result. Pure; the apply loop only renders it. */
 export function claudeCodePluginOutcome(
   keyState: ClaudeCodePluginKeyState,
-  preApprovalFailed: boolean
+  preApprovalFailed: boolean,
+  /** Whether this install has an API key (picks the plugin-outdated hint). */
+  hasKey: boolean
 ): {
   ok: boolean;
   row: string;
@@ -357,11 +357,11 @@ export function claudeCodePluginOutcome(
   if (keyState === 'plugin-outdated') {
     return {
       ok: false,
-      row: 'Claude Code plugin needs an update',
+      row: 'Claude Code plugin cannot use the saved settings yet',
       failure: {
         message:
-          'The installed Claude Code plugin does not pass its endpoint and API key to the memory server.',
-        hint: CLAUDE_CODE_PLUGIN_OUTDATED_HINT,
+          'Could not confirm that the installed Claude Code plugin passes its saved settings to the memory server.',
+        hint: hasKey ? CLAUDE_CODE_PLUGIN_OUTDATED_HINT : CLAUDE_CODE_PLUGIN_OUTDATED_NO_KEY_HINT,
       },
     };
   }
@@ -3475,7 +3475,11 @@ async function runGuidedInstall(args: string[] = []): Promise<void> {
               dryRun: false,
               runCommand: defaultPluginCommand,
             });
-            const outcome = claudeCodePluginOutcome(pluginInstall.keyState, preApprovalFailed);
+            const outcome = claudeCodePluginOutcome(
+              pluginInstall.keyState,
+              preApprovalFailed,
+              Boolean(apiKey)
+            );
             const row = `${clientGlyph(client, theme)} ${outcome.row}`;
             if (outcome.ok) list.done(key, row);
             else list.fail(key, row);

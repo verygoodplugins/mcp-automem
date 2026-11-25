@@ -2327,7 +2327,7 @@ describe('claude plugin auto-install', () => {
     expect(thrown).toBeUndefined();
     expect(result).toEqual({ keyState: 'not-saved' });
     expect(JSON.stringify(result)).not.toContain('unknown option');
-    const outcome = claudeCodePluginOutcome('not-saved', false);
+    const outcome = claudeCodePluginOutcome('not-saved', false, true);
     expect(JSON.stringify(outcome)).not.toContain('unknown option');
   });
 
@@ -2575,7 +2575,8 @@ describe('claude plugin auto-install', () => {
       expect(JSON.stringify(result)).not.toContain(KEY);
       const outcome = claudeCodePluginOutcome(
         (result as { keyState: Parameters<typeof claudeCodePluginOutcome>[0] }).keyState,
-        false
+        false,
+        true
       );
       expect(JSON.stringify(outcome)).not.toContain(KEY);
     }
@@ -2628,24 +2629,27 @@ describe('claude plugin auto-install', () => {
 
   it('claudeCodePluginOutcome gives each key state its row and follow-up', () => {
     const installed = 'Claude Code plugin installed';
-    expect(claudeCodePluginOutcome('delivered', false)).toEqual({ ok: true, row: installed });
-    expect(claudeCodePluginOutcome('not-needed', false)).toEqual({ ok: true, row: installed });
+    expect(claudeCodePluginOutcome('delivered', false, true)).toEqual({ ok: true, row: installed });
+    expect(claudeCodePluginOutcome('not-needed', false, false)).toEqual({
+      ok: true,
+      row: installed,
+    });
 
     // stale-key is a note, never a failure: no follow-up, no exit code.
     const staleNote =
-      'Claude Code still has an AutoMem API key saved by an earlier install and will keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
-    expect(claudeCodePluginOutcome('stale-key', false)).toEqual({
+      'Claude Code still has an AutoMem API key saved by an earlier install and may keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
+    expect(claudeCodePluginOutcome('stale-key', false, false)).toEqual({
       ok: true,
       row: installed,
       note: staleNote,
     });
-    expect(claudeCodePluginOutcome('stale-key', true)).toEqual({
+    expect(claudeCodePluginOutcome('stale-key', true, false)).toEqual({
       ok: false,
       row: 'Claude Code plugin installed; tool pre-approval needs a manual step',
       note: staleNote,
     });
 
-    const notSaved = claudeCodePluginOutcome('not-saved', false);
+    const notSaved = claudeCodePluginOutcome('not-saved', false, true);
     expect(notSaved.ok).toBe(false);
     expect(notSaved.row).toBe('Claude Code plugin needs API key configuration');
     expect(notSaved.failure?.nonBlocking).toBeUndefined();
@@ -2653,21 +2657,29 @@ describe('claude plugin auto-install', () => {
       'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.'
     );
 
-    const outdated = claudeCodePluginOutcome('plugin-outdated', false);
+    const outdated = claudeCodePluginOutcome('plugin-outdated', false, true);
     expect(outdated.ok).toBe(false);
-    expect(outdated.row).toBe('Claude Code plugin needs an update');
+    expect(outdated.row).toBe('Claude Code plugin cannot use the saved settings yet');
     expect(outdated.failure?.nonBlocking).toBeUndefined();
     expect(outdated.failure?.hint).toBe(
-      'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server, and updating it did not help. Export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code, then re-run the installer after the next AutoMem plugin release.'
+      'Claude Code plugin: could not confirm that the installed plugin passes the saved endpoint and API key to the memory server, and updating the plugin did not help. Export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code, then re-run the installer after updating Claude Code or after the next AutoMem plugin release.'
+    );
+    // Without a key only the endpoint has to reach the server.
+    const outdatedNoKey = claudeCodePluginOutcome('plugin-outdated', false, false);
+    expect(outdatedNoKey.ok).toBe(false);
+    expect(outdatedNoKey.row).toBe('Claude Code plugin cannot use the saved settings yet');
+    expect(outdatedNoKey.failure?.nonBlocking).toBeUndefined();
+    expect(outdatedNoKey.failure?.hint).toBe(
+      'Claude Code plugin: could not confirm that the installed plugin passes the saved endpoint to the memory server, and updating the plugin did not help. Export AUTOMEM_API_URL before using Claude Code, then re-run the installer after updating Claude Code or after the next AutoMem plugin release.'
     );
 
     // Pre-approval failed and nothing blocking: the pre-approval row, as before.
-    expect(claudeCodePluginOutcome('delivered', true)).toEqual({
+    expect(claudeCodePluginOutcome('delivered', true, true)).toEqual({
       ok: false,
       row: 'Claude Code plugin installed; tool pre-approval needs a manual step',
     });
     // A blocking state's row wins over the pre-approval row.
-    const blockingWins = claudeCodePluginOutcome('not-saved', true);
+    const blockingWins = claudeCodePluginOutcome('not-saved', true, true);
     expect(blockingWins.ok).toBe(false);
     expect(blockingWins.row).toBe('Claude Code plugin needs API key configuration');
     expect(blockingWins.failure?.hint).toBe(notSaved.failure?.hint);

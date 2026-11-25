@@ -119,9 +119,9 @@ const FAKE_CLAUDE_STUB = `#!/bin/sh\nexec "${process.execPath}" "${path.join(HER
 const HINT_KEY_NOT_SAVED =
   'Claude Code plugin: the API key could not be saved. Update Claude Code and re-run the installer, or export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code.';
 const HINT_PLUGIN_OUTDATED =
-  'Claude Code plugin: the installed plugin version does not pass the saved endpoint and API key to the memory server, and updating it did not help. Export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code, then re-run the installer after the next AutoMem plugin release.';
+  'Claude Code plugin: could not confirm that the installed plugin passes the saved endpoint and API key to the memory server, and updating the plugin did not help. Export AUTOMEM_API_URL and AUTOMEM_API_KEY before using Claude Code, then re-run the installer after updating Claude Code or after the next AutoMem plugin release.';
 const NOTE_STALE_KEY =
-  'Claude Code still has an AutoMem API key saved by an earlier install and will keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
+  'Claude Code still has an AutoMem API key saved by an earlier install and may keep sending it to this server. If this server needs no key, or a different one, run  claude plugin uninstall automem@verygoodplugins-mcp-automem  and re-run the installer.';
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -691,7 +691,7 @@ const SCENARIOS = [
   {
     name: 'claude-plugin-unmapped',
     description:
-      'An installed plugin that does not pass its options to the memory server, and `claude plugin update` cannot fix it: the installer says the plugin needs an update and exits non-zero.',
+      'An installed plugin that does not pass its options to the memory server, and refreshing the marketplace plus `claude plugin update` cannot fix it: the installer says the plugin cannot use the saved settings yet and exits non-zero.',
     mock: { mode: 'healthy', expectToken: TOKEN },
     claudeStub: FAKE_CLAUDE_STUB,
     steps: (ctx) => claudePluginAutoinstallSteps(ctx, 'unmapped'),
@@ -712,7 +712,7 @@ const SCENARIOS = [
       r.push(
         A(
           'shows the plugin-outdated row and hint',
-          /Claude Code plugin needs an update/.test(last.stdout) &&
+          /Claude Code plugin cannot use the saved settings yet/.test(last.stdout) &&
             flat(last.stdout).includes(flat(HINT_PLUGIN_OUTDATED)),
           last.stdout.slice(-1500)
         )
