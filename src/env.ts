@@ -19,9 +19,14 @@ import fs from 'node:fs';
 // treated as blank; a real value that merely contains `${` is kept.
 const UNEXPANDED_PLACEHOLDER = /^\$\{[^}]*\}$/;
 
+// The first of the upper-case then lower-case spelling that is non-blank after
+// the placeholder rule, so a blank upper-case value never hides a real one.
 function readPluginOption(env: NodeJS.ProcessEnv, upper: string, lower: string): string {
-  const value = String(env[upper] ?? env[lower] ?? '').trim();
-  return UNEXPANDED_PLACEHOLDER.test(value) ? '' : value;
+  for (const name of [upper, lower]) {
+    const value = String(env[name] ?? '').trim();
+    if (value && !UNEXPANDED_PLACEHOLDER.test(value)) return value;
+  }
+  return '';
 }
 
 function firstNonBlank(candidates: Array<string | undefined>): string | undefined {
@@ -123,6 +128,24 @@ export function resolveAutoMemApiKey(
   );
   if (pluginUrl && !sameAutoMemEndpoint(pluginUrl, url.url)) return undefined;
   return pluginKey;
+}
+
+/**
+ * Whether resolveAutoMemApiKey is withholding the plugin key: there is no
+ * environment key, the plugin has both a key and a URL, and the URL in use is
+ * a different endpoint. The server warns once at startup when this is true.
+ */
+export function isPluginApiKeyWithheld(
+  env: NodeJS.ProcessEnv = process.env,
+  url: { url: string; source: AutoMemApiUrlSource } = resolveAutoMemApiUrl(env)
+): boolean {
+  if (readEnvironmentApiKey(env) || !readPluginApiKey(env)) return false;
+  const pluginUrl = readPluginOption(
+    env,
+    'CLAUDE_PLUGIN_OPTION_API_URL',
+    'CLAUDE_PLUGIN_OPTION_api_url'
+  );
+  return Boolean(pluginUrl) && !sameAutoMemEndpoint(pluginUrl, url.url);
 }
 
 // The remote MCP sidecar (automem/mcp-sse-server) is a separate service from

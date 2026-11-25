@@ -24,6 +24,7 @@ import {
   DEFAULT_AUTOMEM_API_URL,
   hasMcpSidecarPath,
   isMcpSidecarHealth,
+  isPluginApiKeyWithheld,
   readAutoMemApiKeyFromEnv,
   readAutoMemConnectionFile,
   resolveAutoMemApiKey,
@@ -184,6 +185,33 @@ describe('plugin option placeholders', () => {
   it('keeps a real value that merely contains ${', () => {
     expect(readAutoMemApiKeyFromEnv(P(undefined, 'ab${cd}ef'))).toBe('ab${cd}ef');
   });
+
+  it('a blank or placeholder upper-case name does not hide the lower-case one', () => {
+    expect(
+      resolveAutoMemApiUrl({ CLAUDE_PLUGIN_OPTION_API_URL: '', CLAUDE_PLUGIN_OPTION_api_url: 'x' })
+    ).toEqual({ url: 'x', source: 'CLAUDE_PLUGIN_OPTION_API_URL' });
+    expect(
+      readAutoMemApiKeyFromEnv({
+        CLAUDE_PLUGIN_OPTION_API_KEY: '${user_config.api_key}',
+        CLAUDE_PLUGIN_OPTION_api_key: 'real-key',
+      })
+    ).toBe('real-key');
+    expect(
+      readAutoMemApiKeyFromEnv({
+        CLAUDE_PLUGIN_OPTION_API_KEY: 'upper-key',
+        CLAUDE_PLUGIN_OPTION_api_key: 'lower-key',
+      })
+    ).toBe('upper-key');
+  });
+
+  it('a placeholder plugin URL counts as blank, so the plugin key is used', () => {
+    expect(
+      resolveAutoMemApiKey({
+        ...P('${user_config.api_url}', 'plugin-key'),
+        AUTOMEM_API_URL: 'https://hosted.example',
+      })
+    ).toBe('plugin-key');
+  });
 });
 
 describe('resolveAutoMemApiKey', () => {
@@ -254,6 +282,46 @@ describe('resolveAutoMemApiKey', () => {
         source: 'CLAUDE_PLUGIN_OPTION_API_URL',
       })
     ).toBe('plugin-key');
+  });
+});
+
+describe('isPluginApiKeyWithheld', () => {
+  it('is true only when a plugin key is withheld from a different endpoint', () => {
+    expect(
+      isPluginApiKeyWithheld({
+        ...P('http://127.0.0.1:8001', 'local-key'),
+        AUTOMEM_API_URL: 'https://hosted.example',
+      })
+    ).toBe(true);
+  });
+
+  it('is false when an environment key is set', () => {
+    expect(
+      isPluginApiKeyWithheld({
+        ...P('http://127.0.0.1:8001', 'local-key'),
+        AUTOMEM_API_URL: 'https://hosted.example',
+        AUTOMEM_API_KEY: 'env-key',
+      })
+    ).toBe(false);
+  });
+
+  it('is false when the URLs match, the plugin has no URL, or there is no plugin key', () => {
+    expect(
+      isPluginApiKeyWithheld({
+        ...P('http://127.0.0.1:8001', 'local-key'),
+        AUTOMEM_API_URL: 'http://127.0.0.1:8001/',
+      })
+    ).toBe(false);
+    expect(
+      isPluginApiKeyWithheld({ ...P(undefined, 'k'), AUTOMEM_API_URL: 'https://hosted.example' })
+    ).toBe(false);
+    expect(
+      isPluginApiKeyWithheld({
+        ...P('http://127.0.0.1:8001'),
+        AUTOMEM_API_URL: 'https://hosted.example',
+      })
+    ).toBe(false);
+    expect(isPluginApiKeyWithheld({})).toBe(false);
   });
 });
 

@@ -111,7 +111,10 @@ export interface InheritedApiKeyInputs {
  * pass plugin options to a stdio MCP server by itself; the plugin's `.mcp.json`
  * maps them into the memory server's environment, where `src/env.ts` pairs the
  * key with `CLAUDE_PLUGIN_OPTION_API_URL`. An installer that inherited them would
- * pick up a key whose paired URL it never consults. No installer flow sets them.
+ * pick up a key whose paired URL it never consults. No installer flow puts them in
+ * its own environment. The Codex and Cursor configs it writes blank them, and the
+ * Claude Code plugin gets them only through its .mcp.json mapping of the saved
+ * plugin options.
  */
 export function resolveInheritedApiKey(inputs: InheritedApiKeyInputs): string | undefined {
   const explicit = inputs.explicitKey?.trim();
